@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime outputs
+demo_outputs/
+outputs/
+outputs_test/
+work/
+
+# Large MRI / medical imaging data
+*.nii
+*.nii.gz
+*.mgz
+*.mgh
+*.dcm
+*.dicom
+
+# Model weights and large archives
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.onnx
+*.tar
+*.tar.gz
+*.zip
+
+# Licenses / secrets
+license/*
+!license/.gitkeep
+*.lic
+*.license
+.env
+.env.*
+
+# Keep tracked folder placeholders
+!**/.gitkeep
