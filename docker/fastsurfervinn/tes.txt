@@ -1,0 +1,12 @@
+docker run --rm \
+  -v ./data:/input \
+  -v ./outputs_test/member2:/output \
+  -v ./work/member2:/work \
+  -v ./license:/license \
+  mri-fastsurfervinn:latest \
+  --input /input/sub-002_T1w.nii \
+  --output-dir /output/sub-002 \
+  --work-dir /work/sub-002 \
+  --subject-id sub-002 \
+  --threads 8 \
+  --device cuda
