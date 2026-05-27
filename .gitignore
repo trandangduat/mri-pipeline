@@ -58,3 +58,6 @@ license/*
 
 # Keep tracked folder placeholders
 !**/.gitkeep
+
+# Model weights directory
+models/

@@ -1,4 +1,5 @@
 docker run --rm \
+--gpus all \
   -v ./data:/input \
   -v ./outputs_test/member2:/output \
   -v ./work/member2:/work \
