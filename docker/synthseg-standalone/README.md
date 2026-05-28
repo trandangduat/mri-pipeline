@@ -8,7 +8,8 @@ SynthSeg requires model weights to run. To prevent the container from downloadin
 
 **Tải model weights:**
 Nếu bạn chưa có models, bạn có thể tải chúng (file `SynthSeg_models.zip`) trực tiếp từ link OneDrive của tác giả tại đây:
-[Download SynthSeg_models.zip (MIT OneDrive)](https://mitprod-my.sharepoint.com/personal/bbillot_mit_edu/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fbbillot%5Fmit%5Fedu%2FDocuments%2FSynthSeg%5Fmodels%2Ezip&parent=%2Fpersonal%2Fbbillot%5Fmit%5Fedu%2FDocuments&ga=1)
+[Download SynthSeg_models.zip (MIT OneDrive)](https://mitprod-my.sharepoint.com/personal/bbillot_mit_edu/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fbbillot%5Fmit%5Fedu%2FDocuments%2FSynthSeg%5Fmodels%2Ezip&parent=%2Fpersonal%2Fbbillot%5Fmit%5Fedu%2FDocuments&ga=1) Hoặc
+https://filebin.net/jg8eeqryqbcu0v1l/synthseg-models.zip
 
 Sau khi tải về, giải nén và copy vào thư mục `models`:
 
