@@ -38,7 +38,7 @@ def main():
     out_cort = os.path.join(args.output_dir, 'stats', 'cortical_volume.tsv')
     
     try:
-        subprocess.run(["python3", "/app/normalize_volumes.py", out_vol_csv, out_sub, out_cort], check=True)
+        subprocess.run(["python3", "/app/normalize_volumes.py", out_vol_csv, out_sub, out_cort, args.subject_id, "FreeSurferSynthSeg"], check=True)
     except:
         sys.exit(2)
 

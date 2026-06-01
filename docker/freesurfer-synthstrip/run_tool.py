@@ -9,7 +9,7 @@ def main():
     parser.add_argument('--subject-id', required=True)
     parser.add_argument('--threads', default='8')
     parser.add_argument('--device', default='cpu')
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # 1. Kiểm tra Input (Exit Code 1)
     if not os.path.exists(args.input):
