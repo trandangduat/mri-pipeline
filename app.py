@@ -80,8 +80,7 @@ for key, default in [
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path(__file__).parent / "data"
-DEFAULT_OUTPUT = Path(__file__).parent / "pipeline_output"
-DEFAULT_WORK = Path(__file__).parent / "pipeline_work"
+DEFAULT_OUTPUT = Path(__file__).parent / "outputs"
 LICENSE_DIR = Path(__file__).parent / "license"
 
 TOOL_OPTIONS = {
@@ -141,24 +140,20 @@ with col_config:
         input_file = st.text_input("Path", placeholder="/path/to/scan.nii.gz", label_visibility="collapsed")
 
     # Subject + Device in one row
-    c1, c2, c3 = st.columns(3)
+    st.markdown("**Subject ID** (default: input filename without extension)")
+    subject_id = st.text_input("Subject", value="", placeholder="sub-002", label_visibility="collapsed")
+
+    c1, c2 = st.columns(2)
     with c1:
-        st.markdown("**Subject ID**")
-        subject_id = st.text_input("Subject", value="sub-002", label_visibility="collapsed")
-    with c2:
         st.markdown("**Device**")
         device = st.selectbox("Device", ["cpu", "gpu"], label_visibility="collapsed")
-    with c3:
+    with c2:
         st.markdown("**Threads**")
         threads = st.slider("Threads", 1, 16, 4, label_visibility="collapsed")
 
-    # Output dirs
-    st.markdown("**Directories**")
-    c1, c2 = st.columns(2)
-    with c1:
-        output_dir = st.text_input("Output", value=str(DEFAULT_OUTPUT), label_visibility="collapsed")
-    with c2:
-        work_dir = st.text_input("Work", value=str(DEFAULT_WORK), label_visibility="collapsed")
+    # Output dir
+    st.markdown("**Output Directory**")
+    output_dir = st.text_input("Output", value=str(DEFAULT_OUTPUT), label_visibility="collapsed")
 
     # Tool selection
     st.markdown("**Pipeline Tools**")
@@ -202,7 +197,7 @@ with col_status:
     st.subheader("Pipeline Status")
 
     # Run button
-    can_run = bool(input_file) and bool(subject_id) and not st.session_state.running
+    can_run = bool(input_file) and not st.session_state.running
     run_clicked = st.button(
         "Run Pipeline",
         type="primary",
@@ -326,10 +321,14 @@ if st.session_state.pipe_results:
 
     # Output files
     if all(r.success for r in st.session_state.pipe_results):
-        stats_dir = Path(output_dir) / "stats"
-        if stats_dir.exists():
+        from pipeline_runner import _default_subject_id
+        sid = subject_id.strip() or _default_subject_id(input_file)
+        subject_path = Path(output_dir) / sid
+
+        stats_path = subject_path / "stats"
+        if stats_path.exists():
             st.subheader("Output Stats")
-            for tsv in sorted(stats_dir.glob("*.tsv")):
+            for tsv in sorted(stats_path.glob("*.tsv")):
                 with st.expander(tsv.name):
                     try:
                         lines = tsv.read_text().strip().split("\n")
@@ -342,13 +341,22 @@ if st.session_state.pipe_results:
                     except Exception as e:
                         st.error(str(e))
 
-        work_path = Path(work_dir)
-        if work_path.exists():
-            nifti = sorted(work_path.glob("*.nii.gz"))
+        mri_path = subject_path / "mri"
+        if mri_path.exists():
+            nifti = sorted(list(mri_path.glob("*.nii.gz")) + list(mri_path.glob("*.mgz")))
             if nifti:
-                st.subheader("Generated Files")
+                st.subheader("Generated Volumes")
                 for f in nifti:
                     st.code(f"{f.name}  ({f.stat().st_size / 1024 / 1024:.1f} MB)")
+
+        logs_path = subject_path / "logs"
+        if logs_path.exists():
+            log_files = sorted(logs_path.glob("*.log"))
+            if log_files:
+                st.subheader("Tool Logs")
+                for lf in log_files:
+                    with st.expander(lf.name):
+                        st.code(lf.read_text(encoding="utf-8", errors="replace")[-2000:])
 
 # ---------------------------------------------------------------------------
 # Pipeline execution (background thread + polling)
@@ -379,11 +387,12 @@ if run_clicked:
         shared["build_log"].append(line)
 
     def _worker():
+        from pipeline_runner import _default_subject_id
+        sid = subject_id.strip() or _default_subject_id(input_file)
         config = PipelineConfig(
             input_file=input_file,
             output_dir=output_dir,
-            work_dir=work_dir,
-            subject_id=subject_id,
+            subject_id=sid,
             license_dir=str(LICENSE_DIR),
             device=device,
             threads=threads,

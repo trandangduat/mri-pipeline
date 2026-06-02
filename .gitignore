@@ -25,6 +25,7 @@ Thumbs.db
 logs/
 
 # Runtime outputs
+output/
 demo_outputs/
 outputs/
 outputs_test/

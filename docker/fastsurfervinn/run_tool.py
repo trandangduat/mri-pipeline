@@ -17,13 +17,13 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.work_dir, exist_ok=True)
-    
+
     log_dir = os.path.join(args.output_dir, "logs")
     stats_dir = os.path.join(args.output_dir, "stats")
-    work_dir = os.path.join(args.output_dir, "work")
+    mri_dir = os.path.join(args.output_dir, "mri")
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(stats_dir, exist_ok=True)
-    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(mri_dir, exist_ok=True)
 
     log_file = os.path.join(log_dir, "fastsurfervinn.log")
 
@@ -42,11 +42,9 @@ def main():
     ]
 
     if args.device == "cpu":
-        cmd.append("--device")
-        cmd.append("cpu")
+        cmd += ["--device", "cpu"]
     else:
-        cmd.append("--device")
-        cmd.append("cuda") # assuming cuda if not cpu
+        cmd += ["--device", "cuda"]
 
     env = os.environ.copy()
     env["FS_LICENSE"] = "/license/license.txt"
@@ -54,41 +52,39 @@ def main():
     with open(log_file, "w") as f:
         print(f"Running command: {' '.join(cmd)}")
         f.write(f"Running command: {' '.join(cmd)}\n")
-        
         result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
-    
+
     if result.returncode != 0:
         print(f"FastSurfer failed with return code {result.returncode}")
         sys.exit(2)
-        
-    # Copy results to output dir
+
+    # FastSurfer outputs at: <work_dir>/<subject_id>/
     subject_sd = os.path.join(args.work_dir, args.subject_id)
-    seg_file = os.path.join(subject_sd, "mri", "aparc.DKTatlas+aseg.deep.mgz")
-    seg_stats_file = os.path.join(subject_sd, "stats", "aseg.stats") # This might not exist if vol_segstats doesn't work this way
-    
-    out_seg = os.path.join(work_dir, "03_fastsurfervinn_segmentation.nii.gz")
-    
-    # We might need to convert mgz to nii.gz
-    # Use mri_convert if available, or just copy
-    if os.path.exists(seg_file):
-        # Let's try to convert with mri_convert (which is in FastSurfer)
-        conv_cmd = ["mri_convert", seg_file, out_seg]
-        subprocess.run(conv_cmd, env=env)
-        if not os.path.exists(out_seg):
-             shutil.copy(seg_file, os.path.join(work_dir, "03_fastsurfervinn_segmentation.mgz"))
+
+    # Copy segmentation (.mgz) to mri/
+    seg_mgz = os.path.join(subject_sd, "mri", "aparc.DKTatlas+aseg.deep.mgz")
+    if os.path.exists(seg_mgz):
+        shutil.copy(seg_mgz, os.path.join(mri_dir, "aparc.DKTatlas+aseg.deep.mgz"))
+        # Also convert to .nii.gz
+        out_nii = os.path.join(mri_dir, "03_fastsurfervinn_segmentation.nii.gz")
+        conv = subprocess.run(["mri_convert", seg_mgz, out_nii], env=env,
+                              capture_output=True, text=True)
+        if conv.returncode != 0:
+            print(f"mri_convert warning: {conv.stderr}")
     else:
-        print("Missing expected segmentation output!")
+        print(f"Missing segmentation output: {seg_mgz}")
         sys.exit(3)
-        
-    # Call normalize_volumes.py
-    norm_cmd = [
-        sys.executable, "/app/normalize_volumes.py",
-        "--subject-id", args.subject_id,
-        "--input-seg", out_seg if os.path.exists(out_seg) else os.path.join(work_dir, "03_fastsurfervinn_segmentation.mgz"),
-        "--output-subcortical", os.path.join(stats_dir, "subcortical_volume.tsv"),
-        "--output-cortical", os.path.join(stats_dir, "cortical_volume.tsv")
-    ]
-    subprocess.run(norm_cmd)
+
+    # Copy original stats files to stats/
+    src_stats = os.path.join(subject_sd, "stats")
+    if os.path.isdir(src_stats):
+        for fname in os.listdir(src_stats):
+            src = os.path.join(src_stats, fname)
+            if os.path.isfile(src):
+                shutil.copy(src, os.path.join(stats_dir, fname))
+                print(f"Copied stats: {fname}")
+    else:
+        print(f"No stats directory found at {src_stats}")
 
     print("FastSurferVINN completed successfully.")
     sys.exit(0)
