@@ -29,6 +29,11 @@ demo_outputs/
 outputs/
 outputs_test/
 work/
+pipeline_work/
+pipeline_output/
+pipeline_test_work/
+pipeline_test_output/
+uploads/
 
 # Large MRI / medical imaging data
 *.nii

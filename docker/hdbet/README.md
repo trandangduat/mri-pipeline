@@ -1,22 +1,66 @@
-# 🧠 HD-BET Brain Extraction Wrapper
+# HD-BET Brain Extraction (`mri-hdbet:latest`)
 
-Công cụ bóc tách sọ não tự động (Brain Extraction/Skull Stripping) sử dụng sức mạnh mạng thần kinh nhân tạo tiên tiến của công cụ HD-BET (giả lập kiến trúc nnU-Net).
+## Mo ta
+Boc tach hop so (skull-stripping) bang mo hinh Deep Learning HD-BET. Sinh ra anh nao da boc so va file mask.
 
-## 🛠️ Chức năng chính
-- Tự động nhận diện và phân tách vùng nhu mô não (Brain Tissue) khỏi cấu trúc sọ ngoại vi.
-- Cắt gọt sạch sẽ xương sọ, cơ sọ mặt, mô mỡ quanh mắt và các tế bào mô mềm không liên quan.
-- Xuất ra file ảnh não sạch và file mặt nạ nhị phân (Binary Mask) ôm khít vỏ não.
+**Luu y**: HD-BET can tai model weights (109MB) tu zenodo.org lan dau chay. Can mount volume de giu weights tran bi tai lai.
 
-## 🚀 Hướng dẫn chạy kiểm tra (Test Command)
-Chạy lệnh sau:
-
+## Build
 ```bash
+docker build -t mri-hdbet:latest .
+```
+
+## Test command
+```bash
+mkdir -p work/member3/hdbet_weights
+
 docker run --rm \
-  -v ./work:/work \
-  -v ./outputs_test:/outputs \
+  -v ./data:/input \
+  -v ./outputs_test/member3/sub-002:/output \
+  -v ./work/member3/sub-002:/work \
+  -v ./work/member3/hdbet_weights:/root/.cache/torch/hub/checkpoints \
   mri-hdbet:latest \
-  --input /work/01_nibabel_reoriented.nii.gz \
-  --output-dir /outputs \
+  run_tool \
+  --input /input/sub-002_T1w.nii \
+  --output-dir /output \
   --work-dir /work \
-  --subject-id sub-0010 \
+  --subject-id sub-002 \
+  --threads 1 \
   --device cpu
+```
+
+## Output
+```
+outputs_test/member3/<subject>/
+├── logs/
+│   └── hdbet.log
+work/member3/<subject>/
+├── 02_hdbet_brain.nii.gz
+└── 02_hdbet_brain_bet.nii.gz
+```
+
+## GPU
+```bash
+docker run --rm --gpus all \
+  -v ./data:/input \
+  -v ./outputs_test/member3/sub-002:/output \
+  -v ./work/member3/sub-002:/work \
+  -v ./work/member3/hdbet_weights:/root/.cache/torch/hub/checkpoints \
+  mri-hdbet:latest \
+  run_tool \
+  --input /input/sub-002_T1w.nii \
+  --output-dir /output \
+  --work-dir /work \
+  --subject-id sub-002 \
+  --threads 1 \
+  --device gpu
+```
+
+## Exit code
+- `0`: Thanh cong
+- `1`: Loi input hoac config
+- `2`: Loi khi chay HD-BET
+
+## Thoi gian
+- CPU: ~15 phut
+- GPU: ~1-2 phut

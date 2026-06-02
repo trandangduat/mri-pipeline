@@ -1,22 +1,39 @@
-# 📁 NiBabel Preprocessing Utility
+# NiBabel Preprocessing Utility (`mri-nibabel-utils:latest`)
 
-Bộ công cụ xử lý tiền bối (Preprocessing Utilities) sử dụng thư viện NiBabel để chuẩn hóa dữ liệu ảnh MRI thô từ các định dạng cổ điển.
+## Mo ta
+Tien xu ly anh MRI bang NiBabel: doc anh thoi, chuan hoa huong ve RAS (Right-Anterior-Superior), luu ra file `.nii.gz`.
 
-## 🛠️ Chức năng chính
-- Đọc định dạng ảnh ảnh MRI cổ điển Analyze 7.5 (`.hdr/.img`).
-- Chuẩn hóa cấu trúc dữ liệu sang định dạng NIfTI hiện đại (`.nii.gz`).
-- Gán lại ma trận định vị không gian để ép ảnh về hướng chuẩn **RAS** (Right-Anterior-Superior), đảm bảo hiển thị đúng cấu trúc giải phẫu.
+## Build
+```bash
+docker build -t mri-nibabel-utils:latest .
+```
 
-## 🚀 Hướng dẫn chạy kiểm tra (Test Command)
-Chạy trực tiếp lệnh sau tại thư mục gốc của dự án:
-
+## Test command
 ```bash
 docker run --rm \
-  -v ./data:/data \
-  -v ./work:/work \
-  -v ./outputs_test:/outputs \
-  mri-nibabel:latest \
-  --input /data/OASIS_0010/sub-0010_T1w.hdr \
-  --output-dir /outputs \
+  -v ./data:/input \
+  -v ./outputs_test/member3/sub-002:/output \
+  -v ./work/member3/sub-002:/work \
+  mri-nibabel-utils:latest \
+  run_tool \
+  --input /input/sub-002_T1w.nii \
+  --output-dir /output \
   --work-dir /work \
-  --subject-id sub-0010
+  --subject-id sub-002 \
+  --threads 1 \
+  --device cpu
+```
+
+## Output
+```
+outputs_test/member3/<subject>/
+├── logs/
+│   └── nibabel_utils.log
+work/member3/<subject>/
+└── 01_nibabel_reoriented.nii.gz
+```
+
+## Exit code
+- `0`: Thanh cong
+- `1`: Input khong ton tai
+- `2`: Loi khi xu ly anh

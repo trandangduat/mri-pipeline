@@ -1,22 +1,35 @@
-# 1. Sử dụng image PyTorch chính thức làm nền (đã tối ưu sẵn cho cả CPU và GPU)
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+FROM python:3.10-slim
 
-# 2. Cài đặt các thư viện hệ thống cần thiết cho xử lý ảnh và git để tải source code
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Thiết lập thư mục làm việc mặc định trong container
 WORKDIR /app
 
-# 4. Clone mã nguồn HD-BET chính thức từ GitHub và tiến hành cài đặt
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 RUN git clone https://github.com/MIC-DKFZ/HD-BET.git && \
     cd HD-BET && \
-    pip install -e .
+    pip install --no-cache-dir -e . --no-deps && \
+    pip install --no-cache-dir \
+        scikit-image \
+        nnunetv2>=2.5.1 \
+        SimpleITK \
+        connected-components-3d \
+        acvl-utils \
+        batchgenerators \
+        batchgeneratorsv2 \
+        dynamic-network-architectures \
+        timm \
+        einops \
+        yacs \
+        graphviz \
+        pandas \
+        seaborn \
+        matplotlib \
+        huggingface_hub
 
-# 5. Copy file script điều khiển của bạn vào trong Docker
 COPY run_tool.py /app/run_tool.py
 
-# 6. Đặt lệnh chạy mặc định
 ENTRYPOINT ["python", "/app/run_tool.py"]

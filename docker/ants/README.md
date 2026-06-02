@@ -1,22 +1,40 @@
-# ⚡ ANTs N4 Bias Field Correction Wrapper
+# ANTs N4 Bias Field Correction (`mri-ants:latest`)
 
-Công cụ chuẩn hóa cường độ sáng và khử nhiễu từ trường không đồng đều sử dụng lõi thuật toán C++ tối ưu của hệ sinh thái ANTs (thông qua package `antspyx`).
+## Mo ta
+Chuan hoa cuong do sang anh MRI bang thuat toan N4 Bias Field Correction cua ANTs. Khac phuc hieu ung bong mo, vung sang toi khong dong deu do tu truong may quet.
 
-## 🛠️ Chức năng chính
-- Sửa lỗi hiệu ứng bóng mờ, vùng sáng tối không đồng đều (Bias Field) sinh ra do sự sai lệch của từ trường máy quét MRI.
-- Chuẩn hóa lại dải tương phản (Contrast) của các pixel ảnh.
-- Khôi phục rõ nét ranh giới giải phẫu giữa chất trắng (White Matter) và chất xám (Gray Matter), làm tiền đề cho các bước Segmentation (Thành viên 1 & 2) chạy chính xác nhất.
+## Build
+```bash
+docker build -t mri-ants:latest .
+```
 
-## 🚀 Hướng dẫn chạy kiểm tra (Test Command)
-Chạy lệnh sau:
-
+## Test command
 ```bash
 docker run --rm \
-  -v ./work:/work \
-  -v ./outputs_test:/outputs \
+  -v ./data:/input \
+  -v ./outputs_test/member3/sub-002:/output \
+  -v ./work/member3/sub-002:/work \
   mri-ants:latest \
-  --input /work/02_hdbet_brain.nii.gz \
-  --output-dir /outputs \
+  run_tool \
+  --input /input/sub-002_T1w.nii \
+  --output-dir /output \
   --work-dir /work \
-  --subject-id sub-0010 \
+  --subject-id sub-002 \
+  --threads 4 \
   --device cpu
+```
+
+## Output
+```
+outputs_test/member3/<subject>/
+├── logs/
+│   └── ants_n4.log
+work/member3/<subject>/
+└── 05_standardized.nii.gz
+```
+
+## Exit code
+- `0`: Thanh cong
+- `1`: Input khong ton tai
+- `2`: Loi khi chay ANTs
+- `3`: Chay xong nhung thieu output

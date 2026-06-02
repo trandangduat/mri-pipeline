@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--threads", type=int, default=1, help="Số luồng CPU sử dụng (NiBabel chạy đơn luồng nên để phòng hờ)")
     parser.add_argument("--device", default="cpu", help="Thiết bị chạy (cpu hoặc gpu)")
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # 2. Tạo cấu trúc thư mục đầu ra chuẩn hóa (work và logs)
     output_dir = Path(args.output_dir)
