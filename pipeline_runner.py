@@ -27,9 +27,9 @@ log = logging.getLogger(__name__)
 TOOL_DEFS: dict[str, dict] = {
     # Stage 1: Reorientation
     "mri_convert": {
-        "image": "mri-mri-convert:latest",
+        "image": "mkdayyyy/mri-mri-convert:latest",
         "dockerfile": "docker/freesurfer-mri-convert",
-        "base_image": "mri-freesurfer-base:latest",
+        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
         "base_dockerfile": "docker/freesurfer-base",
         "stage": "reorientation",
         "needs_license": True,
@@ -37,7 +37,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {
-        "image": "mri-nibabel-utils:latest",
+        "image": "duattran05/mri-nibabel-utils:latest",
         "dockerfile": "docker/nibabel-utils",
         "stage": "reorientation",
         "needs_license": False,
@@ -46,9 +46,9 @@ TOOL_DEFS: dict[str, dict] = {
     },
     # Stage 2: Brain extraction
     "synthstrip": {
-        "image": "mri-synthstrip:latest",
+        "image": "mkdayyyy/mri-synthstrip:latest",
         "dockerfile": "docker/freesurfer-synthstrip",
-        "base_image": "mri-freesurfer-base:latest",
+        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
         "base_dockerfile": "docker/freesurfer-base",
         "stage": "brain_extraction",
         "needs_license": True,
@@ -57,7 +57,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_mask": "02_synthstrip_brain_mask.nii.gz",
     },
     "hdbet": {
-        "image": "mri-hdbet:latest",
+        "image": "duattran05/mri-hdbet:latest",
         "dockerfile": "docker/hdbet",
         "stage": "brain_extraction",
         "needs_license": False,
@@ -68,9 +68,9 @@ TOOL_DEFS: dict[str, dict] = {
     },
     # Stage 3: Segmentation
     "synthseg_freesurfer": {
-        "image": "mri-synthseg-freesurfer:latest",
+        "image": "mkdayyyy/mri-synthseg-freesurfer:latest",
         "dockerfile": "docker/freesurfer-synthseg",
-        "base_image": "mri-freesurfer-base:latest",
+        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
         "base_dockerfile": "docker/freesurfer-base",
         "stage": "segmentation",
         "needs_license": True,
@@ -78,7 +78,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_standalone": {
-        "image": "mri-synthseg-standalone:latest",
+        "image": "duattran05/mri-synthseg-standalone:latest",
         "dockerfile": "docker/synthseg-standalone",
         "stage": "segmentation",
         "needs_license": False,
@@ -86,7 +86,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_synthseg_standalone_segmentation.nii.gz"],
     },
     "fastsurfervinn": {
-        "image": "mri-fastsurfervinn:latest",
+        "image": "duattran05/mri-fastsurfervinn:latest",
         "dockerfile": "docker/fastsurfervinn",
         "stage": "segmentation",
         "needs_license": True,
@@ -95,7 +95,7 @@ TOOL_DEFS: dict[str, dict] = {
     },
     # Stage 4: Bias correction
     "ants_n4": {
-        "image": "mri-ants:latest",
+        "image": "duattran05/mri-ants:latest",
         "dockerfile": "docker/ants",
         "stage": "bias_correction",
         "needs_license": False,
@@ -196,10 +196,57 @@ def build_image(
             text=True,
             bufsize=1,
         )
-        for line in proc.stdout:  # type: ignore[union-attr]
-            line = line.rstrip("\n")
+
+        # Track which progress bars we've already emitted (by layer hash)
+        # so we only send the final state, not every intermediate update
+        last_progress: dict[str, str] = {}  # layer_id -> last line seen
+        pending_non_progress: list[str] = []
+
+        def flush_progress():
+            """Emit only the latest state of each progress bar."""
+            for line in last_progress.values():
+                if on_build_log:
+                    on_build_log(line)
+            last_progress.clear()
+
+        raw = ""
+        for chunk in proc.stdout:  # type: ignore[union-attr]
+            raw += chunk
+            while "\n" in raw or "\r" in raw:
+                # Find the earliest line break
+                idx_n = raw.find("\n")
+                idx_r = raw.find("\r")
+                if idx_n == -1:
+                    idx = idx_r
+                elif idx_r == -1:
+                    idx = idx_n
+                else:
+                    idx = min(idx_n, idx_r)
+
+                line = raw[:idx].strip()
+                raw = raw[idx + 1:]
+
+                if not line:
+                    continue
+
+                # Is this a progress bar line? (contains MB/s or GB/s and %)
+                if ("MB/s" in line or "GB/s" in line or "kB/s" in line) and "%" in line:
+                    # Extract layer ID (e.g., "#5" at the start)
+                    parts = line.split()
+                    layer_id = parts[0] if parts and parts[0].startswith("#") else line[:20]
+                    last_progress[layer_id] = line
+                else:
+                    # Non-progress line: flush pending progress first, then emit
+                    flush_progress()
+                    if on_build_log:
+                        on_build_log(line)
+
+        # Flush any remaining progress and raw data
+        flush_progress()
+        if raw.strip():
             if on_build_log:
-                on_build_log(line)
+                on_build_log(raw.strip())
+
         proc.wait()
         build_time = time.time() - t0
 
@@ -217,12 +264,58 @@ def build_image(
         return False
 
 
+def _try_pull(image: str, on_progress: ProgressCallback | None = None, on_build_log: BuildLogCallback | None = None) -> bool:
+    """Try to pull an image from Docker Hub. Returns True on success."""
+    if on_progress:
+        on_progress("build", "running", 0, f"Pulling {image}...")
+    if on_build_log:
+        on_build_log(f">>> docker pull {image}")
+    try:
+        proc = subprocess.Popen(
+            ["docker", "pull", image],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        last_progress: dict[str, str] = {}
+        raw = ""
+        for chunk in proc.stdout:  # type: ignore[union-attr]
+            raw += chunk
+            while "\n" in raw or "\r" in raw:
+                idx_n = raw.find("\n")
+                idx_r = raw.find("\r")
+                idx = min(i for i in (idx_n, idx_r) if i >= 0)
+                line = raw[:idx].strip()
+                raw = raw[idx + 1:]
+                if not line:
+                    continue
+                if ("MB/s" in line or "GB/s" in line or "kB/s" in line) and "%" in line:
+                    parts = line.split()
+                    lid = parts[0] if parts and parts[0].startswith("#") else line[:20]
+                    last_progress[lid] = line
+                else:
+                    for v in last_progress.values():
+                        if on_build_log:
+                            on_build_log(v)
+                    last_progress.clear()
+                    if on_build_log:
+                        on_build_log(line)
+        for v in last_progress.values():
+            if on_build_log:
+                on_build_log(v)
+        if raw.strip() and on_build_log:
+            on_build_log(raw.strip())
+        proc.wait()
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 def ensure_image(
     tool_key: str,
     on_progress: ProgressCallback | None = None,
     on_build_log: BuildLogCallback | None = None,
 ) -> tuple[bool, str, float]:
-    """Ensure a Docker image exists. Builds it (and its base) if missing.
+    """Ensure a Docker image exists. Pulls or builds as needed.
     Returns (success, error_message, total_build_seconds)."""
     tool = TOOL_DEFS.get(tool_key)
     if not tool:
@@ -231,26 +324,48 @@ def ensure_image(
     image = tool["image"]
     total_build = 0.0
 
-    # Build base image first if needed
+    # --- Base image ---
     base_image = tool.get("base_image")
     base_dockerfile = tool.get("base_dockerfile")
-    if base_image and base_dockerfile and not image_exists(base_image):
+    if base_image and not image_exists(base_image):
+        # Try pull first
         if on_progress:
-            on_progress("build", "running", 0, f"Building base image {base_image}...")
+            on_progress("build", "running", 0, f"Pulling base {base_image}...")
         t0 = time.time()
-        if not build_image(base_image, base_dockerfile, on_progress, on_build_log):
-            return False, f"Failed to build base image {base_image}", total_build
+        pulled = _try_pull(base_image, on_progress, on_build_log)
         total_build += time.time() - t0
+        if not pulled:
+            # Fall back to build
+            if base_dockerfile:
+                if on_progress:
+                    on_progress("build", "running", 0, f"Pull failed, building {base_image}...")
+                t0 = time.time()
+                if not build_image(base_image, base_dockerfile, on_progress, on_build_log):
+                    return False, f"Failed to get base image {base_image}", total_build
+                total_build += time.time() - t0
+            else:
+                return False, f"Base image {base_image} not available and no Dockerfile", total_build
 
-    # Build the tool image
+    # --- Tool image ---
     if not image_exists(image):
-        dockerfile = tool.get("dockerfile")
-        if not dockerfile:
-            return False, f"No Dockerfile path for {tool_key}", total_build
+        # Try pull first
+        if on_progress:
+            on_progress("build", "running", 0, f"Pulling {image}...")
         t0 = time.time()
-        if not build_image(image, dockerfile, on_progress, on_build_log):
-            return False, f"Failed to build {image}", total_build
+        pulled = _try_pull(image, on_progress, on_build_log)
         total_build += time.time() - t0
+        if not pulled:
+            # Fall back to build
+            dockerfile = tool.get("dockerfile")
+            if dockerfile:
+                if on_progress:
+                    on_progress("build", "running", 0, f"Pull failed, building {image}...")
+                t0 = time.time()
+                if not build_image(image, dockerfile, on_progress, on_build_log):
+                    return False, f"Failed to build {image}", total_build
+                total_build += time.time() - t0
+            else:
+                return False, f"Image {image} not available and no Dockerfile", total_build
 
     return True, "", total_build
 

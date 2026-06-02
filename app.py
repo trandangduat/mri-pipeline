@@ -28,9 +28,9 @@ from pipeline_runner import (
 
 st.set_page_config(
     page_title="MRI Pipeline",
-    page_icon="🧠",
+    page_icon=None,
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ---------------------------------------------------------------------------
@@ -39,18 +39,27 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.main .block-container { max-width: 1200px; padding-top: 1rem; }
-.stMetric > div { background: #f0f9ff; border-radius: 12px; padding: 12px; border: 1px solid #bae6fd; }
+.main .block-container { max-width: 1400px; padding-top: 1.5rem; }
 .log-box {
-    background: #1e293b; color: #e2e8f0; border-radius: 8px;
-    padding: 16px; font-family: monospace; font-size: 13px;
-    max-height: 400px; overflow-y: auto; white-space: pre-wrap;
+    background: #0f172a; color: #e2e8f0; border-radius: 8px;
+    padding: 14px 16px; font-family: 'Courier New', monospace; font-size: 12.5px;
+    max-height: 420px; overflow-y: auto; white-space: pre-wrap;
+    line-height: 1.5; border: 1px solid #1e293b;
+}
+.log-box .ts { color: #64748b; }
+.log-box .running { color: #38bdf8; }
+.log-box .success { color: #4ade80; }
+.log-box .failed { color: #f87171; }
+.log-box .build { color: #fbbf24; }
+div[data-testid="stMetric"] {
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 8px; padding: 10px 14px;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Session state init
+# Session state
 # ---------------------------------------------------------------------------
 
 for key, default in [
@@ -75,6 +84,13 @@ DEFAULT_OUTPUT = Path(__file__).parent / "pipeline_output"
 DEFAULT_WORK = Path(__file__).parent / "pipeline_work"
 LICENSE_DIR = Path(__file__).parent / "license"
 
+TOOL_OPTIONS = {
+    "reorientation": ["mri_convert", "nibabel"],
+    "brain_extraction": ["synthstrip", "hdbet"],
+    "segmentation": ["synthseg_freesurfer", "synthseg_standalone", "fastsurfervinn"],
+    "bias_correction": ["ants_n4"],
+}
+
 
 def find_mri_files(directory: Path) -> list[str]:
     if not directory.exists():
@@ -87,27 +103,34 @@ def find_mri_files(directory: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Sidebar — Configuration
+# Header
 # ---------------------------------------------------------------------------
 
-with st.sidebar:
-    st.image("https://img.icons8.com/color/96/brain.png", width=64)
-    st.title("MRI Pipeline")
-    st.caption("Configure your MRI processing workflow")
+st.title("MRI Processing Pipeline")
+st.caption("Docker-based MRI preprocessing with real-time progress tracking")
+st.divider()
 
-    st.divider()
+# ---------------------------------------------------------------------------
+# Main layout: Config (left) + Status (right)
+# ---------------------------------------------------------------------------
 
-    # --- Input ---
-    st.subheader("📁 Input")
+col_config, col_status = st.columns([2, 1], gap="large")
+
+# --- Left: Configuration ---
+with col_config:
+    st.subheader("Configuration")
+
+    # Input
+    st.markdown("**Input MRI**")
     mri_files = find_mri_files(DATA_DIR)
-    input_mode = st.radio("Input source", ["Browse data/", "Upload file", "Custom path"], horizontal=True)
+    input_mode = st.radio("Source", ["Browse data/", "Upload file", "Custom path"], horizontal=True, label_visibility="collapsed")
 
     input_file = ""
     if input_mode == "Browse data/" and mri_files:
-        selected = st.selectbox("Select MRI file", mri_files)
+        selected = st.selectbox("File", mri_files, label_visibility="collapsed")
         input_file = str(DATA_DIR / selected) if selected else ""
     elif input_mode == "Upload file":
-        uploaded = st.file_uploader("Upload NIfTI", type=["nii", "nii.gz", "mgz"])
+        uploaded = st.file_uploader("Upload NIfTI", type=["nii", "nii.gz", "mgz"], label_visibility="collapsed")
         if uploaded:
             upload_dir = Path(__file__).parent / "uploads"
             upload_dir.mkdir(exist_ok=True)
@@ -115,189 +138,215 @@ with st.sidebar:
             dest.write_bytes(uploaded.getvalue())
             input_file = str(dest)
     else:
-        input_file = st.text_input("Path to MRI file", placeholder="/path/to/scan.nii.gz")
+        input_file = st.text_input("Path", placeholder="/path/to/scan.nii.gz", label_visibility="collapsed")
 
-    # --- Subject ---
-    st.subheader("👤 Subject")
-    subject_id = st.text_input("Subject ID (BIDS)", value="sub-002", placeholder="sub-001")
+    # Subject + Device in one row
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("**Subject ID**")
+        subject_id = st.text_input("Subject", value="sub-002", label_visibility="collapsed")
+    with c2:
+        st.markdown("**Device**")
+        device = st.selectbox("Device", ["cpu", "gpu"], label_visibility="collapsed")
+    with c3:
+        st.markdown("**Threads**")
+        threads = st.slider("Threads", 1, 16, 4, label_visibility="collapsed")
 
-    # --- Output ---
-    st.subheader("📂 Output")
-    output_dir = st.text_input("Output directory", value=str(DEFAULT_OUTPUT))
-    work_dir = st.text_input("Work directory", value=str(DEFAULT_WORK))
+    # Output dirs
+    st.markdown("**Directories**")
+    c1, c2 = st.columns(2)
+    with c1:
+        output_dir = st.text_input("Output", value=str(DEFAULT_OUTPUT), label_visibility="collapsed")
+    with c2:
+        work_dir = st.text_input("Work", value=str(DEFAULT_WORK), label_visibility="collapsed")
 
-    # --- Execution ---
-    st.subheader("⚙️ Execution")
-    device = st.selectbox("Device", ["cpu", "gpu"], index=0)
-    threads = st.slider("Threads", 1, 16, 4)
-
-    # --- Tool selection ---
-    st.subheader("🔧 Tool Selection")
-    tool_options = {
-        "reorientation": ["mri_convert", "nibabel"],
-        "brain_extraction": ["synthstrip", "hdbet"],
-        "segmentation": ["synthseg_freesurfer", "synthseg_standalone", "fastsurfervinn"],
-        "bias_correction": ["ants_n4"],
-    }
-
+    # Tool selection
+    st.markdown("**Pipeline Tools**")
     selected_tools = {}
     for stage in STAGE_ORDER:
-        options = tool_options.get(stage, [])
+        options = TOOL_OPTIONS.get(stage, [])
         if options:
-            choice = st.selectbox(
-                STAGE_LABELS[stage],
-                options,
-                index=0,
-                format_func=lambda x: x.replace("_", " ").title(),
-            )
-            selected_tools[stage] = choice
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.caption(STAGE_LABELS[stage])
+            with c2:
+                choice = st.selectbox(
+                    stage,
+                    options,
+                    index=0,
+                    key=f"tool_{stage}",
+                    format_func=lambda x: x.replace("_", " ").title(),
+                    label_visibility="collapsed",
+                )
+                selected_tools[stage] = choice
 
-    with st.expander("🐳 Docker Image Status"):
+    # License status
+    license_exists = (LICENSE_DIR / "license.txt").exists()
+    if license_exists:
+        st.success("FreeSurfer license found", icon=":material/check_circle:")
+    else:
+        st.warning("No FreeSurfer license -- some tools will fail", icon=":material/warning:")
+
+    # Docker image status
+    with st.expander("Docker Image Status"):
         for stage in STAGE_ORDER:
             tool_key = selected_tools.get(stage)
             if tool_key and tool_key in TOOL_DEFS:
                 img = TOOL_DEFS[tool_key]["image"]
                 exists = image_exists(img)
-                st.text(f"{'✅' if exists else '🔨 will auto-build'}  {img}")
+                status = "local" if exists else "will pull from Hub"
+                st.text(f"  [{status}]  {img}")
 
-    st.divider()
+# --- Right: Status + Run ---
+with col_status:
+    st.subheader("Pipeline Status")
 
-    license_exists = (LICENSE_DIR / "license.txt").exists()
-    if license_exists:
-        st.success("✅ FreeSurfer license found")
-    else:
-        st.warning("⚠️ No FreeSurfer license — some tools will fail")
-
+    # Run button
     can_run = bool(input_file) and bool(subject_id) and not st.session_state.running
     run_clicked = st.button(
-        "🚀 Run Pipeline",
+        "Run Pipeline",
         type="primary",
         use_container_width=True,
         disabled=not can_run,
     )
 
-# ---------------------------------------------------------------------------
-# Main area
-# ---------------------------------------------------------------------------
+    st.divider()
 
-st.title("🧠 MRI Processing Pipeline")
-st.caption("Docker-based MRI preprocessing with real-time progress tracking")
-
-# --- Pipeline steps overview ---
-st.subheader("Pipeline Steps")
-cols = st.columns(len(STAGE_ORDER))
-for i, stage in enumerate(STAGE_ORDER):
-    with cols[i]:
-        tool = selected_tools.get(stage, "—")
+    # Step status cards
+    for stage in STAGE_ORDER:
+        tool = selected_tools.get(stage, "--")
         step_st = st.session_state.step_status.get(stage, "pending")
-        icon = {"pending": "⏳", "running": "🔄", "success": "✅", "failed": "❌"}[step_st]
-        st.metric(
-            label=f"{icon} {STAGE_LABELS[stage]}",
-            value=tool.replace("_", " ").title(),
+        icon_map = {"pending": "[ ]", "running": "[~]", "success": "[+]", "failed": "[x]"}
+        color_map = {"pending": "#94a3b8", "running": "#0ea5e6", "success": "#22c55e", "failed": "#ef4444"}
+
+        icon = icon_map[step_st]
+        color = color_map[step_st]
+        label = STAGE_LABELS[stage]
+        tool_display = tool.replace("_", " ").title()
+
+        st.markdown(
+            f'<div style="padding:6px 0;border-left:3px solid {color};padding-left:10px;margin-bottom:4px">'
+            f'<span style="font-family:monospace;color:{color}">{icon}</span> '
+            f'<strong>{label}</strong><br>'
+            f'<span style="font-size:0.85em;color:#64748b">{tool_display}</span></div>',
+            unsafe_allow_html=True,
         )
 
-# --- Progress bar ---
-progress_bar = st.progress(st.session_state.progress_pct)
+    # Progress
+    st.divider()
+    progress_bar = st.progress(st.session_state.progress_pct)
+    status_ph = st.empty()
+    if st.session_state.running:
+        status_ph.info(f"Running: {st.session_state.current_stage}")
 
-# --- Status ---
-status_ph = st.empty()
-if st.session_state.running:
-    status_ph.info(f"⏳ Pipeline running... **{st.session_state.current_stage}**")
+# ---------------------------------------------------------------------------
+# Log section
+# ---------------------------------------------------------------------------
 
-# --- Log output ---
-st.subheader("📋 Execution Log")
-log_ph = st.empty()
-build_log_ph = st.empty()
+st.divider()
+st.subheader("Logs")
 
-def render_log():
-    # Main pipeline log
+log_tab, build_tab = st.tabs(["Pipeline", "Docker Build"])
+
+log_ph = log_tab.empty()
+build_ph = build_tab.empty()
+
+
+def render_logs():
+    # Pipeline log
     if st.session_state.pipe_log:
         html = ""
         for entry in st.session_state.pipe_log:
-            color = {"running": "#0ea5e6", "success": "#22c55e", "failed": "#ef4444",
-                     "build": "#f59e0b"}.get(entry["status"], "#94a3b8")
-            html += f'<span style="color:{color}">[{entry["ts"]}] {entry["status"].upper()} — {entry["msg"]}</span><br>'
+            css = entry["status"]
+            html += f'<span class="ts">[{entry["ts"]}]</span> <span class="{css}">{entry["status"].upper()} — {entry["msg"]}</span><br>'
         log_ph.markdown(f'<div class="log-box">{html}</div>', unsafe_allow_html=True)
     elif not st.session_state.running:
-        log_ph.info("No log output yet. Configure and run the pipeline.")
+        log_ph.info("No log output yet.")
 
-    # Docker build log (collapsible)
+    # Docker build log
     if st.session_state.pipe_build_log:
-        with build_log_ph.expander("🐳 Docker Build Log", expanded=False):
-            build_text = "\n".join(st.session_state.pipe_build_log[-200:])
-            st.code(build_text, language="bash")
+        build_text = "\n".join(st.session_state.pipe_build_log)
+        build_ph.code(build_text, language="bash")
+    elif not st.session_state.running:
+        build_ph.info("No Docker build output.")
 
-render_log()
 
-# --- Results ---
+render_logs()
+
+# ---------------------------------------------------------------------------
+# Results
+# ---------------------------------------------------------------------------
+
 if st.session_state.pipe_results:
+    st.divider()
     st.subheader("Results")
 
     # Summary table
-    summary_data = []
+    rows = []
     total_build = 0.0
     total_run = 0.0
     for r in st.session_state.pipe_results:
         total_build += r.build_duration_sec
         total_run += r.duration_sec
-        summary_data.append({
+        rows.append({
             "Stage": STAGE_LABELS[r.stage],
             "Tool": r.tool.replace("_", " ").title(),
-            "Status": "✅" if r.success else "❌",
+            "Status": "OK" if r.success else "FAILED",
             "Build (s)": f"{r.build_duration_sec:.0f}" if r.build_duration_sec > 0 else "-",
             "Run (s)": f"{r.duration_sec:.0f}",
             "Total (s)": f"{r.build_duration_sec + r.duration_sec:.0f}",
         })
-    summary_data.append({
-        "Stage": "**TOTAL**",
+    rows.append({
+        "Stage": "TOTAL",
         "Tool": "",
         "Status": "",
-        "Build (s)": f"**{total_build:.0f}**",
-        "Run (s)": f"**{total_run:.0f}**",
-        "Total (s)": f"**{total_build + total_run:.0f}**",
+        "Build (s)": f"{total_build:.0f}",
+        "Run (s)": f"{total_run:.0f}",
+        "Total (s)": f"{total_build + total_run:.0f}",
     })
-    st.dataframe(summary_data, use_container_width=True, hide_index=True)
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
+    # Detail per step
     for r in st.session_state.pipe_results:
-        icon = "✅" if r.success else "❌"
+        status_icon = "+" if r.success else "x"
         time_info = f"run: {r.duration_sec:.0f}s"
         if r.build_duration_sec > 0:
             time_info = f"build: {r.build_duration_sec:.0f}s + run: {r.duration_sec:.0f}s"
-        with st.expander(f"{icon} {STAGE_LABELS[r.stage]} — {r.tool} ({time_info})", expanded=not r.success):
+        with st.expander(f"[{status_icon}] {STAGE_LABELS[r.stage]} -- {r.tool} ({time_info})", expanded=not r.success):
             if r.success:
                 st.success(f"Completed in {r.duration_sec:.0f}s" +
                            (f" (build: {r.build_duration_sec:.0f}s)" if r.build_duration_sec > 0 else ""))
                 if r.output_files:
-                    st.write("**Output files:**")
                     for f in r.output_files:
                         st.code(f)
             else:
                 st.error(f"Failed: {r.error}")
                 if r.log_text:
-                    st.code(r.log_text[-1000:])
+                    st.code(r.log_text[-1500:])
 
+    # Output files
     if all(r.success for r in st.session_state.pipe_results):
         stats_dir = Path(output_dir) / "stats"
         if stats_dir.exists():
-            st.subheader("📊 Output Stats")
+            st.subheader("Output Stats")
             for tsv in sorted(stats_dir.glob("*.tsv")):
-                with st.expander(f"📄 {tsv.name}"):
+                with st.expander(tsv.name):
                     try:
                         lines = tsv.read_text().strip().split("\n")
                         if len(lines) > 1:
                             headers = lines[0].split("\t")
-                            rows = [l.split("\t") for l in lines[1:]]
-                            st.dataframe([dict(zip(headers, r)) for r in rows], use_container_width=True)
+                            data = [dict(zip(headers, l.split("\t"))) for l in lines[1:]]
+                            st.dataframe(data, use_container_width=True)
                         else:
                             st.code(lines[0])
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(str(e))
 
         work_path = Path(work_dir)
         if work_path.exists():
             nifti = sorted(work_path.glob("*.nii.gz"))
             if nifti:
-                st.subheader("🖼️ Generated NIfTI Files")
+                st.subheader("Generated Files")
                 for f in nifti:
                     st.code(f"{f.name}  ({f.stat().st_size / 1024 / 1024:.1f} MB)")
 
@@ -306,7 +355,6 @@ if st.session_state.pipe_results:
 # ---------------------------------------------------------------------------
 
 if run_clicked:
-    # All shared state lives in a plain dict — safe for background threads
     shared = {
         "log": [],
         "build_log": [],
@@ -318,15 +366,14 @@ if run_clicked:
     }
 
     def _on_progress(stage: str, status: str, pct: float, msg: str):
-        entry = {"stage": stage, "status": status, "pct": pct, "msg": msg,
-                 "ts": time.strftime("%H:%M:%S")}
-        shared["log"].append(entry)
+        shared["log"].append({
+            "stage": stage, "status": status, "pct": pct, "msg": msg,
+            "ts": time.strftime("%H:%M:%S"),
+        })
         shared["progress_pct"] = pct
         shared["current_stage"] = msg
-        if status in ("success", "failed"):
+        if status in ("success", "failed", "running"):
             shared["step_status"][stage] = status
-        elif status == "running":
-            shared["step_status"][stage] = "running"
 
     def _on_build_log(line: str):
         shared["build_log"].append(line)
@@ -346,30 +393,27 @@ if run_clicked:
         shared["results"] = results
         shared["done"] = True
 
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
+    threading.Thread(target=_worker, daemon=True).start()
 
-    # Polling loop: read from shared dict, update Streamlit UI
     while not shared["done"]:
         progress_bar.progress(shared["progress_pct"])
-        status_ph.info(f"⏳ Pipeline running... **{shared['current_stage']}**")
+        status_ph.info(f"Running: {shared['current_stage']}")
 
-        # Render log from shared
+        # Render pipeline log
         if shared["log"]:
             html = ""
             for entry in shared["log"]:
-                color = {"running": "#0ea5e6", "success": "#22c55e", "failed": "#ef4444",
-                         "build": "#f59e0b"}.get(entry["status"], "#94a3b8")
-                html += f'<span style="color:{color}">[{entry["ts"]}] {entry["status"].upper()} — {entry["msg"]}</span><br>'
+                css = entry["status"]
+                html += f'<span class="ts">[{entry["ts"]}]</span> <span class="{css}">{entry["status"].upper()} — {entry["msg"]}</span><br>'
             log_ph.markdown(f'<div class="log-box">{html}</div>', unsafe_allow_html=True)
 
+        # Render build log
         if shared["build_log"]:
-            with build_log_ph.expander("🐳 Docker Build Log", expanded=False):
-                st.code("\n".join(shared["build_log"][-200:]), language="bash")
+            build_ph.code("\n".join(shared["build_log"]), language="bash")
 
         time.sleep(2)
 
-    # Done — copy results into session_state and do final render
+    # Done
     st.session_state.pipe_log = shared["log"]
     st.session_state.pipe_build_log = shared["build_log"]
     st.session_state.pipe_results = shared["results"]
@@ -380,6 +424,6 @@ if run_clicked:
     st.session_state.step_status = shared["step_status"]
 
     progress_bar.progress(1.0)
-    status_ph.success("✅ Pipeline completed!")
-    render_log()
+    status_ph.success("Pipeline completed.")
+    render_logs()
     st.rerun()
