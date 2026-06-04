@@ -21,7 +21,27 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+In the GUI, enter any dataset folder, click **Quét lại**, tick the input images you want, then **Chạy** to process them sequentially.
+
 Images are pulled automatically from Docker Hub on first run.
+
+## Batch CLI
+
+Run all supported MRI files from the ADNI folder sequentially:
+
+```bash
+python pipeline_runner.py --input-dir "/mnt/c/Users/ADMIN/Desktop/MRI/ADNI"
+```
+
+If `--input-dir` is omitted, the CLI defaults to `/mnt/c/Users/ADMIN/Desktop/MRI/ADNI`. After each image finishes, the CLI prints `Đã xử lý xong ảnh ...`.
+
+Each input image gets a metrics log at:
+
+```text
+outputs/<subject_id>/logs/pipeline_metrics.log
+```
+
+The metrics log records wall time, run/build time, status, and peak Docker RAM measured for every pipeline step.
 
 ## Pipeline Stages
 

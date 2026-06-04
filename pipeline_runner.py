@@ -15,15 +15,20 @@ Pipeline stages:
 
 from __future__ import annotations
 
-import glob
+import argparse
 import logging
 import os
+import re
 import shutil
 import subprocess
+import sys
+import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
@@ -134,8 +139,21 @@ class StepResult:
     success: bool
     duration_sec: float
     build_duration_sec: float = 0.0
+    peak_ram_bytes: int | None = None
+    peak_cpu_pct: float | None = None
     log_text: str = ""
     output_files: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+@dataclass
+class BatchImageResult:
+    input_file: str
+    subject_id: str
+    subject_dir: str
+    success: bool
+    duration_sec: float
+    steps: list[StepResult] = field(default_factory=list)
     error: str = ""
 
 
@@ -145,6 +163,8 @@ class StepResult:
 
 ProgressCallback = Callable[[str, str, float, str], None]
 BuildLogCallback = Callable[[str], None]
+# (stage, tool, cpu_pct, ram_bytes, elapsed_sec, container_name)
+MetricsCallback = Callable[[str, str, "float | None", "int | None", float, str], None]
 
 PROJECT_ROOT = Path(__file__).parent
 
@@ -157,6 +177,81 @@ def _default_subject_id(input_file: str) -> str:
             name = name[: -len(ext)]
             break
     return name
+
+
+def _is_supported_mri_file(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith((".nii.gz", ".nii", ".mgz", ".mgh", ".dcm"))
+
+
+def _discover_mri_files(input_dir: str, recursive: bool = True) -> list[str]:
+    root = Path(input_dir).expanduser()
+    if not root.exists() or not root.is_dir():
+        return []
+
+    iterator = root.rglob("*") if recursive else root.glob("*")
+    return [str(p) for p in sorted(iterator) if p.is_file() and _is_supported_mri_file(p)]
+
+
+def _safe_container_name(*parts: str) -> str:
+    raw = "-".join(part for part in parts if part)
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-_.")
+    if not safe:
+        safe = "mri-pipeline"
+    if not safe[0].isalnum():
+        safe = f"mri-{safe}"
+    return f"{safe[:80]}-{uuid4().hex[:8]}"
+
+
+def _parse_docker_memory(value: str) -> int | None:
+    """Parse docker stats MemUsage values such as '742.6MiB / 15.5GiB'."""
+    first = value.split("/", 1)[0].strip()
+    match = re.match(r"^([0-9.]+)\s*([A-Za-z]+)$", first)
+    if not match:
+        return None
+
+    number = float(match.group(1))
+    unit = match.group(2).lower()
+    multipliers = {
+        "b": 1,
+        "kb": 1000,
+        "mb": 1000 ** 2,
+        "gb": 1000 ** 3,
+        "tb": 1000 ** 4,
+        "kib": 1024,
+        "mib": 1024 ** 2,
+        "gib": 1024 ** 3,
+        "tib": 1024 ** 4,
+    }
+    multiplier = multipliers.get(unit)
+    if multiplier is None:
+        return None
+    return int(number * multiplier)
+
+
+def _parse_docker_stats_line(line: str) -> tuple[float | None, int | None]:
+    """Parse 'CPUPerc|MemUsage' such as '12.34%|742.6MiB / 15.5GiB'."""
+    parts = line.split("|", 1)
+    cpu: float | None = None
+    if parts:
+        raw_cpu = parts[0].strip().rstrip("%").strip()
+        try:
+            cpu = float(raw_cpu)
+        except ValueError:
+            cpu = None
+    ram = _parse_docker_memory(parts[1]) if len(parts) > 1 else None
+    return cpu, ram
+
+
+def _format_bytes(value: int | None) -> str:
+    if value is None:
+        return "n/a"
+    if value < 1024:
+        return f"{value} B"
+    mib = value / (1024 ** 2)
+    if mib < 1024:
+        return f"{mib:.1f} MiB"
+    return f"{mib / 1024:.2f} GiB"
 
 
 def _organize_output(subject_dir: str) -> None:
@@ -218,6 +313,41 @@ def _find_output_file(subject_dir: str, possible_names: list[str]) -> str | None
         if matches:
             return str(matches[0])
     return None
+
+
+def _write_pipeline_metrics_log(
+    logs_dir: str,
+    config: PipelineConfig,
+    subject_dir: str,
+    results: list[StepResult],
+    started_at: float,
+    ended_at: float,
+) -> str:
+    metrics_log = Path(logs_dir) / "pipeline_metrics.log"
+    total_run = sum(r.duration_sec for r in results)
+    total_build = sum(r.build_duration_sec for r in results)
+    status = "SUCCESS" if results and all(r.success for r in results) else "FAILED"
+
+    with open(metrics_log, "w", encoding="utf-8") as f:
+        f.write("MRI Pipeline Metrics\n")
+        f.write(f"Input file: {os.path.abspath(config.input_file)}\n")
+        f.write(f"Subject ID: {config.subject_id}\n")
+        f.write(f"Subject output: {subject_dir}\n")
+        f.write(f"Started: {datetime.fromtimestamp(started_at).isoformat(timespec='seconds')}\n")
+        f.write(f"Finished: {datetime.fromtimestamp(ended_at).isoformat(timespec='seconds')}\n")
+        f.write(f"Status: {status}\n")
+        f.write(f"Total wall time: {ended_at - started_at:.1f}s\n")
+        f.write(f"Total run time: {total_run:.1f}s\n")
+        f.write(f"Total build/pull time: {total_build:.1f}s\n\n")
+        f.write("Stage\tTool\tStatus\tRun(s)\tBuild/Pull(s)\tPeak RAM\tError\n")
+        for r in results:
+            f.write(
+                f"{r.stage}\t{r.tool}\t{'OK' if r.success else 'FAILED'}\t"
+                f"{r.duration_sec:.1f}\t{r.build_duration_sec:.1f}\t"
+                f"{_format_bytes(r.peak_ram_bytes)}\t{r.error}\n"
+            )
+
+    return str(metrics_log)
 
 
 # ---------------------------------------------------------------------------
@@ -408,15 +538,21 @@ def ensure_image(
 def _run_docker(
     image: str,
     args: list[str],
-    mounts: dict[str, str],
+    mounts: list[tuple[str, str]] | dict[str, str],
     env: dict[str, str] | None = None,
     gpus: bool = False,
     timeout: int = 7200,
-) -> tuple[int, str]:
+    container_name: str | None = None,
+    on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
+) -> tuple[int, str, int | None, float | None]:
     cmd = ["docker", "run", "--rm"]
+    if container_name:
+        cmd += ["--name", container_name]
     if gpus:
         cmd += ["--gpus", "all"]
-    for host_path, container_path in mounts.items():
+
+    mount_items = mounts.items() if isinstance(mounts, dict) else mounts
+    for host_path, container_path in mount_items:
         cmd += ["-v", f"{os.path.abspath(host_path)}:{container_path}"]
     if env:
         for k, v in env.items():
@@ -425,13 +561,60 @@ def _run_docker(
     cmd += args
 
     log.info("Running: %s", " ".join(cmd))
+
+    peak_ram = {"bytes": None}
+    peak_cpu = {"pct": None}
+    stop_monitor = threading.Event()
+    t0 = time.time()
+
+    def monitor_resources():
+        if not container_name:
+            return
+        while not stop_monitor.is_set():
+            try:
+                stats = subprocess.run(
+                    ["docker", "stats", "--no-stream", "--format",
+                     "{{.CPUPerc}}|{{.MemUsage}}", container_name],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if stats.returncode == 0 and stats.stdout.strip():
+                    cpu, current = _parse_docker_stats_line(stats.stdout.strip().splitlines()[0])
+                    if current is not None and (peak_ram["bytes"] is None or current > peak_ram["bytes"]):
+                        peak_ram["bytes"] = current
+                    if cpu is not None and (peak_cpu["pct"] is None or cpu > peak_cpu["pct"]):
+                        peak_cpu["pct"] = cpu
+                    if on_metrics:
+                        on_metrics(cpu, current, time.time() - t0, container_name or "")
+            except Exception:
+                pass
+            stop_monitor.wait(0.5)
+
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return proc.returncode, proc.stdout + "\n" + proc.stderr
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        monitor = threading.Thread(target=monitor_resources, daemon=True)
+        monitor.start()
+        try:
+            output, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            if container_name:
+                subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, timeout=30)
+            output, _ = proc.communicate()
+            return -1, f"{output or ''}\nDocker timed out after {timeout}s", peak_ram["bytes"], peak_cpu["pct"]
+        finally:
+            stop_monitor.set()
+            monitor.join(timeout=2)
+
+        return proc.returncode, output or "", peak_ram["bytes"], peak_cpu["pct"]
     except subprocess.TimeoutExpired:
-        return -1, f"Docker timed out after {timeout}s"
+        return -1, f"Docker timed out after {timeout}s", peak_ram["bytes"], peak_cpu["pct"]
     except FileNotFoundError:
-        return -1, "docker not found — is Docker installed and in PATH?"
+        return -1, "docker not found — is Docker installed and in PATH?", peak_ram["bytes"], peak_cpu["pct"]
 
 
 # ---------------------------------------------------------------------------
@@ -442,8 +625,11 @@ def run_pipeline(
     config: PipelineConfig,
     on_progress: ProgressCallback | None = None,
     on_build_log: BuildLogCallback | None = None,
+    on_metrics: MetricsCallback | None = None,
 ) -> list[StepResult]:
     """Execute the full pipeline."""
+
+    started_at = time.time()
 
     def progress(stage: str, status: str, pct: float, msg: str):
         if on_progress:
@@ -459,9 +645,9 @@ def run_pipeline(
     for d in (mri_dir, stats_dir, logs_dir):
         Path(d).mkdir(parents=True, exist_ok=True)
 
-    license_mount = {}
+    license_mount: list[tuple[str, str]] = []
     if config.license_dir:
-        license_mount[os.path.abspath(config.license_dir)] = "/license"
+        license_mount.append((os.path.abspath(config.license_dir), "/license"))
 
     results: list[StepResult] = []
     input_for_next_step: str | None = None
@@ -493,24 +679,24 @@ def run_pipeline(
                 "/input",
                 f"/input/{os.path.basename(config.input_file)}",
             )
-            mounts = {host_input_dir: "/input"}
+            mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
         else:
             # Previous output is inside subject_dir, mounted at /work
             rel = os.path.relpath(input_for_next_step, subject_dir)
             input_path = f"/work/{rel}"
-            mounts = {}
+            mounts = []
 
         # Mount subject_dir as both /output and /work
-        mounts[subject_dir] = "/output"
-        mounts[subject_dir] = "/work"
+        mounts.append((subject_dir, "/output"))
+        mounts.append((subject_dir, "/work"))
         if tool["needs_license"] and license_mount:
-            mounts.update(license_mount)
+            mounts.extend(license_mount)
 
         # Extra mounts (e.g. hdbet weights)
         for rel, container in tool.get("extra_mounts", {}).items():
             host = os.path.join(subject_dir, "mri", rel)
             Path(host).mkdir(parents=True, exist_ok=True)
-            mounts[host] = container
+            mounts.append((host, container))
 
         args = [
             "--input", input_path,
@@ -522,9 +708,17 @@ def run_pipeline(
         ]
 
         t0 = time.time()
-        code, output = _run_docker(
+        container_name = _safe_container_name("mri", config.subject_id, tool_key)
+
+        def _metrics_relay(cpu_pct, ram_bytes, elapsed, _cn=container_name, _stage=stage, _tool=tool_key):
+            if on_metrics:
+                on_metrics(_stage, _tool, cpu_pct, ram_bytes, elapsed, _cn)
+
+        code, output, peak_ram, peak_cpu = _run_docker(
             image=tool["image"], args=args, mounts=mounts,
             gpus=(config.device == "gpu"),
+            container_name=container_name,
+            on_metrics=_metrics_relay if on_metrics else None,
         )
         duration = time.time() - t0
 
@@ -533,12 +727,14 @@ def run_pipeline(
 
         # Verify output
         success = code == 0
+        error = "" if success else f"exit code {code}"
         if success:
             found = _find_output_file(subject_dir, tool["output_files"])
             if found:
                 input_for_next_step = found
             else:
                 success = False
+                error = f"missing expected output files: {', '.join(tool['output_files'])}"
 
         # Write step timing to logs
         step_log = os.path.join(logs_dir, f"{tool_key}.log")
@@ -547,6 +743,8 @@ def run_pipeline(
             f.write(f"Tool: {tool_key}\n")
             f.write(f"Duration: {duration:.1f}s\n")
             f.write(f"Build: {build_time:.1f}s\n")
+            f.write(f"Peak RAM: {_format_bytes(peak_ram)}\n")
+            f.write(f"Peak CPU: {peak_cpu:.0f}%\n" if peak_cpu is not None else "Peak CPU: n/a\n")
             f.write(f"Exit code: {code}\n")
             if output.strip():
                 f.write(f"\n--- Output ---\n{output[-3000:]}\n")
@@ -554,9 +752,10 @@ def run_pipeline(
         results.append(StepResult(
             stage=stage, tool=tool_key, success=success,
             duration_sec=duration, build_duration_sec=build_time,
+            peak_ram_bytes=peak_ram, peak_cpu_pct=peak_cpu,
             log_text=output[-2000:] if output else "",
             output_files=tool["output_files"],
-            error="" if success else f"exit code {code}",
+            error=error,
         ))
 
         if success:
@@ -566,7 +765,196 @@ def run_pipeline(
             progress(stage, "success", (stage_idx + 1) / total_stages, msg)
         else:
             progress(stage, "failed", (stage_idx + 1) / total_stages,
-                     f"{STAGE_LABELS[stage]} FAILED: exit code {code}")
+                     f"{STAGE_LABELS[stage]} FAILED: {error}")
             break
 
+    _write_pipeline_metrics_log(logs_dir, config, subject_dir, results, started_at, time.time())
     return results
+
+
+def _unique_subject_id(input_file: str, used_subject_ids: set[str]) -> str:
+    base = _default_subject_id(input_file)
+    subject_id = base
+    counter = 2
+    while subject_id in used_subject_ids:
+        subject_id = f"{base}_{counter}"
+        counter += 1
+    used_subject_ids.add(subject_id)
+    return subject_id
+
+
+def run_batch_pipeline(
+    input_dir: str,
+    output_dir: str,
+    license_dir: str = "",
+    device: str = "cpu",
+    threads: int = 4,
+    selected_tools: dict[str, str] | None = None,
+    recursive: bool = True,
+    input_files: list[str] | None = None,
+    on_progress: ProgressCallback | None = None,
+    on_build_log: BuildLogCallback | None = None,
+    on_image_done: Callable[[BatchImageResult, int, int], None] | None = None,
+    on_image_start: Callable[[str, int, int], None] | None = None,
+    on_metrics: MetricsCallback | None = None,
+) -> list[BatchImageResult]:
+    """Run the pipeline sequentially for every supported MRI file in a folder."""
+    if input_files is None:
+        input_files = _discover_mri_files(input_dir, recursive=recursive)
+    used_subject_ids: set[str] = set()
+    batch_results: list[BatchImageResult] = []
+    total = len(input_files)
+
+    for idx, input_file in enumerate(input_files, start=1):
+        subject_id = _unique_subject_id(input_file, used_subject_ids)
+        subject_dir = os.path.join(os.path.abspath(output_dir), subject_id)
+        started_at = time.time()
+
+        if on_image_start:
+            on_image_start(input_file, idx, total)
+        if on_progress:
+            on_progress("batch", "running", (idx - 1) / total if total else 0, f"Starting image {idx}/{total}: {input_file}")
+
+        try:
+            config = PipelineConfig(
+                input_file=input_file,
+                output_dir=output_dir,
+                subject_id=subject_id,
+                license_dir=license_dir,
+                device=device,
+                threads=threads,
+                selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools,
+            )
+            steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics)
+            success = bool(steps) and all(step.success for step in steps)
+            error = "" if success else "one or more pipeline steps failed"
+        except Exception as exc:
+            steps = []
+            success = False
+            error = str(exc)
+            logs_dir = Path(subject_dir) / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            with open(logs_dir / "pipeline_metrics.log", "w", encoding="utf-8") as f:
+                f.write("MRI Pipeline Metrics\n")
+                f.write(f"Input file: {os.path.abspath(input_file)}\n")
+                f.write(f"Subject ID: {subject_id}\n")
+                f.write(f"Subject output: {subject_dir}\n")
+                f.write(f"Started: {datetime.fromtimestamp(started_at).isoformat(timespec='seconds')}\n")
+                f.write(f"Finished: {datetime.now().isoformat(timespec='seconds')}\n")
+                f.write("Status: FAILED\n")
+                f.write(f"Error: {error}\n")
+
+        image_result = BatchImageResult(
+            input_file=input_file,
+            subject_id=subject_id,
+            subject_dir=subject_dir,
+            success=success,
+            duration_sec=time.time() - started_at,
+            steps=steps,
+            error=error,
+        )
+        batch_results.append(image_result)
+
+        if on_image_done:
+            on_image_done(image_result, idx, total)
+
+    return batch_results
+
+
+DEFAULT_BATCH_INPUT_DIR = "/mnt/c/Users/ADMIN/Desktop/MRI/ADNI"
+
+
+def _cli_selected_tools(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        "reorientation": args.reorientation,
+        "brain_extraction": args.brain_extraction,
+        "segmentation": args.segmentation,
+        "bias_correction": args.bias_correction,
+    }
+
+
+def _cli_progress(stage: str, status: str, pct: float, msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] {status.upper()} {stage}: {msg}", flush=True)
+
+
+def _cli_image_done(result: BatchImageResult, idx: int, total: int) -> None:
+    status = "OK" if result.success else "FAILED"
+    metrics_log = Path(result.subject_dir) / "logs" / "pipeline_metrics.log"
+    print(
+        f"Đã xử lý xong ảnh {idx}/{total}: {result.input_file} | "
+        f"status={status} | log={metrics_log}",
+        flush=True,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    default_tools = PipelineConfig("", "", "").selected_tools
+    tools_by_stage = {
+        stage: [key for key, tool in TOOL_DEFS.items() if tool["stage"] == stage]
+        for stage in STAGE_ORDER
+    }
+
+    parser = argparse.ArgumentParser(
+        description="Run the MRI pipeline for one file or a sequential batch folder.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--input-file", help="Run one MRI file only")
+    source.add_argument("--input-dir", help="Run every supported MRI file in this folder")
+    parser.add_argument("--output-dir", default=str(PROJECT_ROOT / "outputs"), help="Base output directory")
+    parser.add_argument("--license-dir", default=str(PROJECT_ROOT / "license"), help="FreeSurfer license directory")
+    parser.add_argument("--device", choices=["cpu", "gpu"], default="cpu", help="Execution device")
+    parser.add_argument("--threads", type=int, default=4, help="CPU threads passed to tools")
+    parser.add_argument("--non-recursive", action="store_true", help="Only scan files directly inside --input-dir")
+    parser.add_argument("--reorientation", choices=tools_by_stage["reorientation"], default=default_tools["reorientation"])
+    parser.add_argument("--brain-extraction", choices=tools_by_stage["brain_extraction"], default=default_tools["brain_extraction"])
+    parser.add_argument("--segmentation", choices=tools_by_stage["segmentation"], default=default_tools["segmentation"])
+    parser.add_argument("--bias-correction", choices=tools_by_stage["bias_correction"], default=default_tools["bias_correction"])
+    args = parser.parse_args(argv)
+
+    selected_tools = _cli_selected_tools(args)
+
+    if args.input_file:
+        subject_id = _default_subject_id(args.input_file)
+        config = PipelineConfig(
+            input_file=args.input_file,
+            output_dir=args.output_dir,
+            subject_id=subject_id,
+            license_dir=args.license_dir,
+            device=args.device,
+            threads=args.threads,
+            selected_tools=selected_tools,
+        )
+        results = run_pipeline(config, on_progress=_cli_progress)
+        success = bool(results) and all(step.success for step in results)
+        subject_dir = Path(args.output_dir).resolve() / subject_id
+        print(f"Đã xử lý xong ảnh: {args.input_file} | status={'OK' if success else 'FAILED'} | log={subject_dir / 'logs' / 'pipeline_metrics.log'}", flush=True)
+        return 0 if success else 1
+
+    input_dir = args.input_dir or DEFAULT_BATCH_INPUT_DIR
+    input_files = _discover_mri_files(input_dir, recursive=not args.non_recursive)
+    if not input_files:
+        print(f"Không tìm thấy file MRI hợp lệ trong folder: {input_dir}", file=sys.stderr, flush=True)
+        return 1
+
+    print(f"Tìm thấy {len(input_files)} ảnh MRI trong {input_dir}. Bắt đầu xử lý tuần tự.", flush=True)
+    batch_results = run_batch_pipeline(
+        input_dir=input_dir,
+        output_dir=args.output_dir,
+        license_dir=args.license_dir,
+        device=args.device,
+        threads=args.threads,
+        selected_tools=selected_tools,
+        recursive=not args.non_recursive,
+        on_progress=_cli_progress,
+        on_image_done=_cli_image_done,
+    )
+
+    failed = [result for result in batch_results if not result.success]
+    print(f"Batch hoàn tất: {len(batch_results) - len(failed)}/{len(batch_results)} ảnh thành công.", flush=True)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
