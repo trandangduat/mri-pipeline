@@ -169,14 +169,97 @@ MetricsCallback = Callable[[str, str, "float | None", "int | None", float, str],
 PROJECT_ROOT = Path(__file__).parent
 
 
+def _file_stem(filename: str) -> str:
+    name = filename
+    for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".dcm"):
+        if name.lower().endswith(ext):
+            return name[: -len(ext)]
+    return Path(filename).stem
+
+
 def _default_subject_id(input_file: str) -> str:
     """Derive subject_id from input filename: sub-002_T1w.nii -> sub-002_T1w"""
-    name = Path(input_file).name
-    for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".dcm"):
-        if name.endswith(ext):
-            name = name[: -len(ext)]
-            break
-    return name
+    return _file_stem(Path(input_file).name)
+
+
+_GENERIC_BASENAMES = frozenset({
+    "001", "002", "003", "image", "images", "scan", "brain", "t1", "t1w", "t2", "flair", "data",
+})
+
+
+def _is_generic_basename(filename: str) -> bool:
+    """True for ADNI-style names like 001.mgz where parent folder holds identity."""
+    stem = _file_stem(filename).lower()
+    if stem in _GENERIC_BASENAMES:
+        return True
+    return bool(re.fullmatch(r"\d{1,6}", stem))
+
+
+def _sanitize_subject_id(raw: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._")
+    if not safe:
+        safe = "subject"
+    if not safe[0].isalnum():
+        safe = f"mri_{safe}"
+    return safe[:200]
+
+
+def _duplicate_basenames(files: list[str]) -> set[str]:
+    counts: dict[str, int] = {}
+    for f in files:
+        name = Path(f).name
+        counts[name] = counts.get(name, 0) + 1
+    return {name for name, n in counts.items() if n > 1}
+
+
+def _derive_subject_id(
+    input_file: str,
+    dataset_root: str = "",
+    duplicate_basenames: set[str] | None = None,
+) -> str:
+    """Unique output folder name; uses path/parent when filenames collide (e.g. ADNI_orig/001.mgz)."""
+    path = Path(input_file).expanduser().resolve()
+    dup_names = duplicate_basenames or set()
+    use_path = path.name in dup_names or _is_generic_basename(path.name)
+
+    if use_path and path.parent.name:
+        if dataset_root:
+            try:
+                rel = path.relative_to(Path(dataset_root).expanduser().resolve())
+                if len(rel.parts) >= 2:
+                    slug = "__".join(rel.with_suffix("").parts)
+                    return _sanitize_subject_id(slug)
+            except ValueError:
+                pass
+        return _sanitize_subject_id(path.parent.name)
+
+    if dataset_root:
+        try:
+            rel = path.relative_to(Path(dataset_root).expanduser().resolve())
+            if len(rel.parts) > 1:
+                slug = "__".join(rel.with_suffix("").parts)
+                return _sanitize_subject_id(slug)
+        except ValueError:
+            pass
+
+    return _sanitize_subject_id(_default_subject_id(str(path)))
+
+
+def build_subject_id_map(files: list[str], dataset_root: str) -> dict[str, str]:
+    """Map each input path to a unique subject_id for outputs/."""
+    dup_names = _duplicate_basenames(files)
+    used: set[str] = set()
+    out: dict[str, str] = {}
+    for f in sorted(files):
+        base = _derive_subject_id(f, dataset_root, dup_names)
+        sid = base
+        counter = 2
+        while sid in used:
+            sid = f"{base}_{counter}"
+            counter += 1
+        used.add(sid)
+        out[f] = sid
+    return out
 
 
 def _is_supported_mri_file(path: Path) -> bool:
@@ -772,8 +855,13 @@ def run_pipeline(
     return results
 
 
-def _unique_subject_id(input_file: str, used_subject_ids: set[str]) -> str:
-    base = _default_subject_id(input_file)
+def _unique_subject_id(
+    input_file: str,
+    used_subject_ids: set[str],
+    dataset_root: str = "",
+    duplicate_basenames: set[str] | None = None,
+) -> str:
+    base = _derive_subject_id(input_file, dataset_root, duplicate_basenames)
     subject_id = base
     counter = 2
     while subject_id in used_subject_ids:
@@ -804,9 +892,13 @@ def run_batch_pipeline(
     used_subject_ids: set[str] = set()
     batch_results: list[BatchImageResult] = []
     total = len(input_files)
+    dup_basenames = _duplicate_basenames(input_files)
+    dataset_root = str(Path(input_dir).expanduser().resolve())
 
     for idx, input_file in enumerate(input_files, start=1):
-        subject_id = _unique_subject_id(input_file, used_subject_ids)
+        subject_id = _unique_subject_id(
+            input_file, used_subject_ids, dataset_root, dup_basenames,
+        )
         subject_dir = os.path.join(os.path.abspath(output_dir), subject_id)
         started_at = time.time()
 
@@ -916,7 +1008,13 @@ def main(argv: list[str] | None = None) -> int:
     selected_tools = _cli_selected_tools(args)
 
     if args.input_file:
-        subject_id = _default_subject_id(args.input_file)
+        input_path = str(Path(args.input_file).expanduser().resolve())
+        root = args.input_dir or str(Path(input_path).parent)
+        subject_id = _derive_subject_id(
+            input_path,
+            root,
+            _duplicate_basenames([input_path]) if args.input_dir else None,
+        )
         config = PipelineConfig(
             input_file=args.input_file,
             output_dir=args.output_dir,

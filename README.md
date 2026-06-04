@@ -12,7 +12,7 @@ outputs/
     logs/         — tool logs + execution timing
 ```
 
-Default `subject_id` = input filename without extension (e.g., `sub-002_T1w.nii` -> `sub-002_T1w`).
+Default `subject_id` = input filename without extension (e.g., `sub-002_T1w.nii` -> `sub-002_T1w`). If many scans share the same basename (e.g. `ADNI_orig/**/001.mgz`), the pipeline uses the **parent folder name** or relative path so outputs do not overwrite each other.
 
 ## Quick Start
 

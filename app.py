@@ -19,7 +19,9 @@ from pipeline_runner import (
     STAGE_ORDER,
     StepResult,
     _discover_mri_files,
+    _duplicate_basenames,
     _format_bytes,
+    build_subject_id_map,
     run_batch_pipeline,
     run_pipeline,
 )
@@ -96,6 +98,7 @@ _DEFAULTS = {
     "last_recursive": True,
     "metrics_history": [],
     "metrics_container": "",
+    "subject_id_map": {},
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -122,11 +125,13 @@ def display_name(path: str, root: str) -> str:
         return Path(path).name
 
 
-def init_queue(paths: list[str]) -> list[dict]:
+def init_queue(paths: list[str], subject_id_map: dict[str, str] | None = None) -> list[dict]:
+    sid_map = subject_id_map or {}
     return [
         {
             "path": p,
             "name": Path(p).name,
+            "subject_id": sid_map.get(p, Path(p).stem),
             "status": "pending",
             "duration_sec": None,
             "peak_ram": None,
@@ -189,6 +194,7 @@ def queue_rows(queue: list[dict]) -> list[dict]:
             "#": i,
             "": icons.get(r["status"], "·"),
             "File": r["name"],
+            "Output ID": (r.get("subject_id") or "")[:40],
             "Status": r["status"],
             "Time (s)": f"{r['duration_sec']:.0f}" if r.get("duration_sec") else "",
             "Peak RAM": _format_bytes(r.get("peak_ram")) if r.get("peak_ram") else "",
@@ -221,10 +227,22 @@ def refresh_catalog(input_dir: str, recursive: bool) -> None:
     st.session_state.catalog_root = root
     st.session_state.last_recursive = recursive
     st.session_state.file_list = files
+    st.session_state.subject_id_map = build_subject_id_map(files, root) if files else {}
     for p in files:
         key = _chk_key(p)
         if key not in st.session_state:
             st.session_state[key] = True
+
+
+def checkbox_label(
+    path: str, root: str, subject_id_map: dict[str, str], dup_names: set[str],
+) -> str:
+    rel = display_name(path, root)
+    sid = subject_id_map.get(path, "")
+    if sid and (Path(path).name in dup_names or sid != Path(path).stem):
+        short_sid = sid if len(sid) <= 48 else sid[:45] + "…"
+        return f"{rel}  →  {short_sid}"
+    return rel
 
 
 def _metrics_snapshots(history: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame] | None:
@@ -270,12 +288,19 @@ def render_dual_metrics_charts(history: list[dict], placeholder, container_label
 
 
 def render_run_logs(pipe_log: list, build_log: list, batch_results: list | None) -> None:
-    if pipe_log:
+    log_pipe, log_docker = st.columns(2)
+    with log_pipe:
         st.markdown("**Log pipeline**")
-        st.markdown(log_html(pipe_log), unsafe_allow_html=True)
-    if build_log:
+        if pipe_log:
+            st.markdown(log_html(pipe_log), unsafe_allow_html=True)
+        else:
+            st.caption("—")
+    with log_docker:
         st.markdown("**Docker build / pull**")
-        st.code("\n".join(build_log[-150:]), language="bash")
+        if build_log:
+            st.code("\n".join(build_log[-150:]), language="bash")
+        else:
+            st.caption("—")
     if batch_results:
         for r in batch_results:
             logs_dir = Path(r.subject_dir) / "logs"
@@ -350,10 +375,18 @@ else:
         n_now = sum(1 for p in file_list if st.session_state.get(_chk_key(p), False))
         st.caption(f"{n_now}/{len(file_list)} file · `{root_path}`")
 
+    sid_map = st.session_state.subject_id_map
+    dup_names = _duplicate_basenames(file_list)
+    if dup_names:
+        st.info(
+            f"**{len(dup_names)}** tên file trùng nhau (vd. `001.mgz`) — mỗi ảnh dùng **thư mục cha / đường dẫn** "
+            f"làm ID output, không ghi đè lẫn nhau."
+        )
+
     list_box = st.container(height=260)
     with list_box:
         for p in file_list:
-            label = display_name(p, root_path)
+            label = checkbox_label(p, root_path, sid_map, dup_names)
             if st.checkbox(label, key=_chk_key(p), disabled=st.session_state.running):
                 selected_files.append(p)
 
@@ -398,9 +431,29 @@ elif selected_files and not st.session_state.running:
         hide_index=True,
     )
 
-if st.session_state.running and st.session_state.pipe_log:
-    st.markdown("**Log đang chạy**")
-    st.markdown(log_html(st.session_state.pipe_log), unsafe_allow_html=True)
+_log_section = st.empty()
+
+def _render_logs_panel(pipe_log: list, build_log: list, title: str = "Logs") -> None:
+    with _log_section.container():
+        st.markdown(f"**{title}**")
+        log_pipe, log_docker = st.columns(2)
+        with log_pipe:
+            st.caption("Pipeline")
+            if pipe_log:
+                st.markdown(log_html(pipe_log), unsafe_allow_html=True)
+            else:
+                st.caption("—")
+        with log_docker:
+            st.caption("Docker build / pull")
+            if build_log:
+                st.code("\n".join(build_log[-120:]), language="bash")
+            else:
+                st.caption("—")
+
+
+if not st.session_state.running and not st.session_state.batch_results:
+    if st.session_state.pipe_log or st.session_state.pipe_build_log:
+        _render_logs_panel(st.session_state.pipe_log, st.session_state.pipe_build_log)
 
 st.divider()
 
@@ -496,6 +549,8 @@ if run_clicked and selected_files:
     st.session_state.pipe_build_log = []
 
     paths = list(selected_files)
+    dup_basenames = _duplicate_basenames(paths)
+    sid_map = build_subject_id_map(paths, root_path)
     shared: dict = {
         "log": [],
         "build_log": [],
@@ -504,7 +559,9 @@ if run_clicked and selected_files:
         "progress_pct": 0.0,
         "current_stage": "Khởi tạo…",
         "step_status": {s: "pending" for s in STAGE_ORDER},
-        "queue": init_queue(paths),
+        "queue": init_queue(paths, sid_map),
+        "sid_map": sid_map,
+        "dup_basenames": dup_basenames,
         "metrics_history": [],
         "metrics_container": "",
     }
@@ -566,12 +623,10 @@ if run_clicked and selected_files:
 
     def _worker():
         if len(paths) == 1:
-            from pipeline_runner import _default_subject_id
-
             config = PipelineConfig(
                 input_file=paths[0],
                 output_dir=output_dir,
-                subject_id=_default_subject_id(paths[0]),
+                subject_id=sid_map[paths[0]],
                 license_dir=str(LICENSE_DIR),
                 device=device,
                 threads=threads,
@@ -631,6 +686,7 @@ if run_clicked and selected_files:
         st.session_state.metrics_history = list(shared["metrics_history"])
         st.session_state.metrics_container = shared["metrics_container"]
         st.session_state.pipe_log = list(shared["log"])
+        st.session_state.pipe_build_log = list(shared["build_log"])
 
         with _live_prog.container():
             st.progress(min(shared["progress_pct"], 1.0))
@@ -645,6 +701,8 @@ if run_clicked and selected_files:
 
         with _live_queue.container():
             st.dataframe(queue_rows(shared["queue"]), use_container_width=True, hide_index=True)
+
+        _render_logs_panel(shared["log"], shared["build_log"], title="Logs (đang chạy)")
 
         time.sleep(1.0)
 
