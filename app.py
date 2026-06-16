@@ -109,6 +109,8 @@ TOOL_OPTIONS = {
     "brain_extraction": ["synthstrip", "hdbet"],
     "segmentation": ["synthseg_freesurfer", "synthseg_standalone", "fastsurfervinn"],
     "bias_correction": ["ants_n4"],
+    "template_registration": ["synthmorph"],
+    "white_matter_segmentation": ["wm_seg"],
 }
 
 _STEP_ICONS = {"pending": "○", "running": "●", "success": "✓", "failed": "✗"}

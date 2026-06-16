@@ -11,11 +11,15 @@ Pipeline stages:
   2. Brain Extraction:   mri-synthstrip OR mri-hdbet
   3. Segmentation:       mri-synthseg-freesurfer OR mri-synthseg-standalone OR mri-fastsurfervinn
   4. Bias Correction:    mri-ants
+  5. Template Registration: mri-synthmorph
+  6. White Matter Segmentation: mri-wm-seg
+  7. Stats Extraction:   mri-freesurfer-stats (from FastSurfer/SynthSeg outputs)
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -100,15 +104,55 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": False,
         "output_files": ["05_standardized.nii.gz"],
     },
+    "synthmorph": {
+        "image": "magicianfrog/mri-synthmorph:latest",
+        "dockerfile": "docker/synthmorph",
+        "stage": "template_registration",
+        "needs_license": True,
+        "output_files": ["04_warped.nii.gz", "04_deformation_field.nii.gz"],
+    },
+    "wm_seg": {
+        "image": "magicianfrog/mri-wm-seg:latest",
+        "dockerfile": "docker/wm-segmentation",
+        "stage": "white_matter_segmentation",
+        "needs_license": True,
+        "output_files": ["06_wm_mask.nii.gz"],
+    },
+    "freesurfer_stats": {
+        "image": "mkdayyyy/mri-freesurfer-stats:latest",
+        "dockerfile": "docker/freesurfer-stats",
+        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
+        "base_dockerfile": "docker/freesurfer-base",
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "output_files": [
+            "subcortical_volume.tsv",
+            "lh_aparc_volume.tsv",
+            "rh_aparc_volume.tsv",
+            "lh_aparc.DKTatlas_volume.tsv",
+            "rh_aparc.DKTatlas_volume.tsv",
+        ],
+    },
 }
 
-STAGE_ORDER = ["reorientation", "brain_extraction", "segmentation", "bias_correction"]
+STAGE_ORDER = [
+    "reorientation",
+    "brain_extraction",
+    "segmentation",
+    "bias_correction",
+    "template_registration",
+    "white_matter_segmentation",
+    "stats_extraction",
+]
 
 STAGE_LABELS = {
     "reorientation": "Reorientation & Resampling",
     "brain_extraction": "Brain Extraction",
     "segmentation": "Subcortical Segmentation",
     "bias_correction": "Bias Field Correction (N4)",
+    "template_registration": "Template Registration (SynthMorph)",
+    "white_matter_segmentation": "White Matter Segmentation",
+    "stats_extraction": "FreeSurfer Stats Extraction",
 }
 
 
@@ -124,11 +168,15 @@ class PipelineConfig:
     license_dir: str = ""
     device: str = "cpu"
     threads: int = 4
+    resume: bool = False
     selected_tools: dict[str, str] = field(default_factory=lambda: {
         "reorientation": "mri_convert",
         "brain_extraction": "synthstrip",
         "segmentation": "synthseg_freesurfer",
         "bias_correction": "ants_n4",
+        "template_registration": "synthmorph",
+        "white_matter_segmentation": "wm_seg",
+        "stats_extraction": "freesurfer_stats",
     })
 
 
@@ -433,6 +481,108 @@ def _write_pipeline_metrics_log(
     return str(metrics_log)
 
 
+def _pipeline_state_path(logs_dir: str) -> Path:
+    return Path(logs_dir) / "pipeline_state.json"
+
+
+def _load_pipeline_state(logs_dir: str) -> dict:
+    path = _pipeline_state_path(logs_dir)
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_pipeline_state(logs_dir: str, state: dict) -> None:
+    path = _pipeline_state_path(logs_dir)
+    Path(logs_dir).mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
+
+def _new_pipeline_state(config: PipelineConfig, subject_dir: str) -> dict:
+    return {
+        "version": 1,
+        "input_file": os.path.abspath(config.input_file),
+        "subject_id": config.subject_id,
+        "subject_dir": subject_dir,
+        "status": "running",
+        "current_stage": "",
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "selected_tools": config.selected_tools,
+        "stages": {},
+    }
+
+
+def _set_stage_state(
+    logs_dir: str,
+    state: dict,
+    stage: str,
+    tool: str,
+    status: str,
+    output_file: str = "",
+    output_files_found: list[str] | None = None,
+    error: str = "",
+    duration_sec: float = 0.0,
+) -> None:
+    state.setdefault("stages", {})[stage] = {
+        "tool": tool,
+        "status": status,
+        "output_file": output_file,
+        "output_files_found": output_files_found or ([output_file] if output_file else []),
+        "error": error,
+        "duration_sec": duration_sec,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    state["current_stage"] = stage
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    if status == "failed":
+        state["status"] = "failed"
+    elif status == "running":
+        state["status"] = "running"
+    _write_pipeline_state(logs_dir, state)
+
+
+def _find_existing_outputs(subject_dir: str, possible_names: list[str]) -> list[str]:
+    found: list[str] = []
+    sd = Path(subject_dir)
+    for name in possible_names:
+        match = None
+        for candidate in [sd / "mri" / name, sd / "stats" / name, sd / name]:
+            if candidate.exists():
+                match = str(candidate)
+                break
+        if match is None:
+            matches = list(sd.rglob(name))
+            if matches:
+                match = str(matches[0])
+        if match:
+            found.append(match)
+    return found
+
+
+def _resume_output_for_stage(subject_dir: str, state: dict, stage: str, tool_key: str, output_files: list[str]) -> str | None:
+    stage_state = state.get("stages", {}).get(stage, {})
+    if stage_state.get("status") != "completed" or stage_state.get("tool") != tool_key:
+        return None
+
+    recorded_outputs = [p for p in stage_state.get("output_files_found", []) if p]
+    if recorded_outputs and not all(Path(p).exists() for p in recorded_outputs):
+        return None
+
+    saved_output = stage_state.get("output_file")
+    if saved_output and Path(saved_output).exists():
+        return saved_output
+
+    found_outputs = _find_existing_outputs(subject_dir, output_files)
+    return found_outputs[0] if found_outputs else None
+
+
 # ---------------------------------------------------------------------------
 # Docker operations
 # ---------------------------------------------------------------------------
@@ -709,6 +859,7 @@ def run_pipeline(
     on_progress: ProgressCallback | None = None,
     on_build_log: BuildLogCallback | None = None,
     on_metrics: MetricsCallback | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> list[StepResult]:
     """Execute the full pipeline."""
 
@@ -728,6 +879,13 @@ def run_pipeline(
     for d in (mri_dir, stats_dir, logs_dir):
         Path(d).mkdir(parents=True, exist_ok=True)
 
+    state = _load_pipeline_state(logs_dir) if config.resume else {}
+    if not state:
+        state = _new_pipeline_state(config, subject_dir)
+    state["status"] = "running"
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_pipeline_state(logs_dir, state)
+
     license_mount: list[tuple[str, str]] = []
     if config.license_dir:
         license_mount.append((os.path.abspath(config.license_dir), "/license"))
@@ -735,6 +893,7 @@ def run_pipeline(
     results: list[StepResult] = []
     input_for_next_step: str | None = None
     total_stages = len(STAGE_ORDER)
+    paused = False
 
     for stage_idx, stage in enumerate(STAGE_ORDER):
         tool_key = config.selected_tools.get(stage)
@@ -743,11 +902,30 @@ def run_pipeline(
 
         tool = TOOL_DEFS[tool_key]
         stage_pct = stage_idx / total_stages
+
+        if config.resume:
+            resumed_output = _resume_output_for_stage(subject_dir, state, stage, tool_key, tool["output_files"])
+            if resumed_output:
+                input_for_next_step = resumed_output
+                results.append(StepResult(
+                    stage=stage,
+                    tool=tool_key,
+                    success=True,
+                    duration_sec=0.0,
+                    output_files=tool["output_files"],
+                    log_text="resumed from completed state",
+                ))
+                progress(stage, "success", (stage_idx + 1) / total_stages,
+                         f"Resume: skipping completed {STAGE_LABELS[stage]} with {tool_key}")
+                continue
+
         progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_key}")
+        _set_stage_state(logs_dir, state, stage, tool_key, "running")
 
         # Ensure image
         ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
         if not ok:
+            _set_stage_state(logs_dir, state, stage, tool_key, "failed", error=f"Image not available: {err}")
             results.append(StepResult(
                 stage=stage, tool=tool_key, success=False, duration_sec=0,
                 build_duration_sec=build_time, error=f"Image not available: {err}",
@@ -819,6 +997,20 @@ def run_pipeline(
                 success = False
                 error = f"missing expected output files: {', '.join(tool['output_files'])}"
 
+        outputs_found = _find_existing_outputs(subject_dir, tool["output_files"]) if success else []
+
+        _set_stage_state(
+            logs_dir,
+            state,
+            stage,
+            tool_key,
+            "completed" if success else "failed",
+            output_file=input_for_next_step if success and input_for_next_step else "",
+            output_files_found=outputs_found,
+            error=error,
+            duration_sec=duration,
+        )
+
         # Write step timing to logs
         step_log = os.path.join(logs_dir, f"{tool_key}.log")
         with open(step_log, "a", encoding="utf-8") as f:
@@ -846,11 +1038,27 @@ def run_pipeline(
             if build_time > 0:
                 msg += f" (build: {build_time:.0f}s)"
             progress(stage, "success", (stage_idx + 1) / total_stages, msg)
+            if should_stop and should_stop():
+                paused = True
+                state["status"] = "PAUSED"
+                state["paused_after_stage"] = stage
+                state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                _write_pipeline_state(logs_dir, state)
+                progress("pipeline", "paused", (stage_idx + 1) / total_stages,
+                         f"Paused after {STAGE_LABELS[stage]}. Resume will continue from the next incomplete stage.")
+                break
         else:
             progress(stage, "failed", (stage_idx + 1) / total_stages,
                      f"{STAGE_LABELS[stage]} FAILED: {error}")
             break
 
+    if paused:
+        state["status"] = "PAUSED"
+    else:
+        state["status"] = "SUCCESS" if results and all(r.success for r in results) else "FAILED"
+    state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_pipeline_state(logs_dir, state)
     _write_pipeline_metrics_log(logs_dir, config, subject_dir, results, started_at, time.time())
     return results
 
@@ -878,6 +1086,7 @@ def run_batch_pipeline(
     device: str = "cpu",
     threads: int = 4,
     selected_tools: dict[str, str] | None = None,
+    resume: bool = False,
     recursive: bool = True,
     input_files: list[str] | None = None,
     on_progress: ProgressCallback | None = None,
@@ -885,6 +1094,7 @@ def run_batch_pipeline(
     on_image_done: Callable[[BatchImageResult, int, int], None] | None = None,
     on_image_start: Callable[[str, int, int], None] | None = None,
     on_metrics: MetricsCallback | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> list[BatchImageResult]:
     """Run the pipeline sequentially for every supported MRI file in a folder."""
     if input_files is None:
@@ -896,6 +1106,9 @@ def run_batch_pipeline(
     dataset_root = str(Path(input_dir).expanduser().resolve())
 
     for idx, input_file in enumerate(input_files, start=1):
+        if should_stop and should_stop():
+            break
+
         subject_id = _unique_subject_id(
             input_file, used_subject_ids, dataset_root, dup_basenames,
         )
@@ -915,9 +1128,16 @@ def run_batch_pipeline(
                 license_dir=license_dir,
                 device=device,
                 threads=threads,
+                resume=resume,
                 selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools,
             )
-            steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics)
+            steps = run_pipeline(
+                config,
+                on_progress=on_progress,
+                on_build_log=on_build_log,
+                on_metrics=on_metrics,
+                should_stop=should_stop,
+            )
             success = bool(steps) and all(step.success for step in steps)
             error = "" if success else "one or more pipeline steps failed"
         except Exception as exc:
@@ -962,12 +1182,20 @@ def _cli_selected_tools(args: argparse.Namespace) -> dict[str, str]:
         "brain_extraction": args.brain_extraction,
         "segmentation": args.segmentation,
         "bias_correction": args.bias_correction,
+        "template_registration": args.template_registration,
+        "white_matter_segmentation": args.white_matter_segmentation,
+        "stats_extraction": args.stats_extraction,
     }
 
 
 def _cli_progress(stage: str, status: str, pct: float, msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
     print(f"[{ts}] {status.upper()} {stage}: {msg}", flush=True)
+
+
+def _cli_build_log(msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] DOCKER: {msg}", flush=True)
 
 
 def _cli_image_done(result: BatchImageResult, idx: int, total: int) -> None:
@@ -998,11 +1226,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--license-dir", default=str(PROJECT_ROOT / "license"), help="FreeSurfer license directory")
     parser.add_argument("--device", choices=["cpu", "gpu"], default="cpu", help="Execution device")
     parser.add_argument("--threads", type=int, default=4, help="CPU threads passed to tools")
+    parser.add_argument("--resume", action="store_true", help="Skip completed stages recorded in logs/pipeline_state.json")
+    parser.add_argument("--stop-file", default="", help="Pause safely after current stage if this file exists")
     parser.add_argument("--non-recursive", action="store_true", help="Only scan files directly inside --input-dir")
     parser.add_argument("--reorientation", choices=tools_by_stage["reorientation"], default=default_tools["reorientation"])
     parser.add_argument("--brain-extraction", choices=tools_by_stage["brain_extraction"], default=default_tools["brain_extraction"])
     parser.add_argument("--segmentation", choices=tools_by_stage["segmentation"], default=default_tools["segmentation"])
     parser.add_argument("--bias-correction", choices=tools_by_stage["bias_correction"], default=default_tools["bias_correction"])
+    parser.add_argument("--template-registration", choices=tools_by_stage["template_registration"], default=default_tools["template_registration"])
+    parser.add_argument("--white-matter-segmentation", choices=tools_by_stage["white_matter_segmentation"], default=default_tools["white_matter_segmentation"])
+    parser.add_argument("--stats-extraction", choices=tools_by_stage["stats_extraction"], default=default_tools["stats_extraction"])
     args = parser.parse_args(argv)
 
     selected_tools = _cli_selected_tools(args)
@@ -1022,9 +1255,11 @@ def main(argv: list[str] | None = None) -> int:
             license_dir=args.license_dir,
             device=args.device,
             threads=args.threads,
+            resume=args.resume,
             selected_tools=selected_tools,
         )
-        results = run_pipeline(config, on_progress=_cli_progress)
+        should_stop = (lambda: Path(args.stop_file).exists()) if args.stop_file else None
+        results = run_pipeline(config, on_progress=_cli_progress, on_build_log=_cli_build_log, should_stop=should_stop)
         success = bool(results) and all(step.success for step in results)
         subject_dir = Path(args.output_dir).resolve() / subject_id
         print(f"Đã xử lý xong ảnh: {args.input_file} | status={'OK' if success else 'FAILED'} | log={subject_dir / 'logs' / 'pipeline_metrics.log'}", flush=True)
@@ -1043,10 +1278,13 @@ def main(argv: list[str] | None = None) -> int:
         license_dir=args.license_dir,
         device=args.device,
         threads=args.threads,
+        resume=args.resume,
         selected_tools=selected_tools,
         recursive=not args.non_recursive,
         on_progress=_cli_progress,
+        on_build_log=_cli_build_log,
         on_image_done=_cli_image_done,
+        should_stop=(lambda: Path(args.stop_file).exists()) if args.stop_file else None,
     )
 
     failed = [result for result in batch_results if not result.success]
