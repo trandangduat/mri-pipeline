@@ -31,6 +31,8 @@ from pipeline_runner import (
     _derive_subject_id,
     _discover_mri_files,
     build_subject_id_map,
+    ensure_image,
+    image_exists,
     run_batch_pipeline,
     run_pipeline,
 )
@@ -141,6 +143,21 @@ class PipelineGUI:
         self.root.title("MRI Pipeline GUI - Tkinter")
         self.root.geometry("1250x950")
         self.root.minsize(1050, 760)
+        self.colors = {
+            "bg": "#f3f6fb",
+            "card": "#ffffff",
+            "card_alt": "#f8fafc",
+            "border": "#d8e2f0",
+            "text": "#172033",
+            "muted": "#64748b",
+            "accent": "#2563eb",
+            "accent_hover": "#1d4ed8",
+            "success": "#059669",
+            "warning": "#d97706",
+            "danger": "#dc2626",
+            "dark": "#0f172a",
+        }
+        self._configure_style()
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.metrics_queue: queue.Queue[tuple[float | None, int | None, str]] = queue.Queue()
@@ -170,6 +187,7 @@ class PipelineGUI:
         self.remote_runner: RemoteRunner | None = None
         self.remote_visible = tk.BooleanVar(value=True)
         self.remote_frame: ttk.LabelFrame | None = None
+        self.remote_body: ttk.Frame | None = None
         self.remote_toggle_button: ttk.Button | None = None
         self.actions_frame: ttk.Frame | None = None
 
@@ -184,28 +202,274 @@ class PipelineGUI:
         self.ram_text = tk.StringVar(value="RAM n/a")
         self.overall_progress_var = tk.DoubleVar(value=0)
         self.overall_progress_text = tk.StringVar(value="0%")
+        self.config_status = tk.StringVar(value="Complete the pipeline configuration to enable Run Pipeline.")
+        self.notebook: ttk.Notebook | None = None
+        self.config_tab: ttk.Frame | None = None
+        self.progress_tab: ttk.Frame | None = None
+        self.toolbar_icons: dict[str, tk.PhotoImage] = {}
+        self.image_runs: dict[str, dict] = {}
+        self.image_rows: dict[str, dict] = {}
+        self.current_image_key = ""
+        self.current_total_images = 0
+        self.current_success_images = 0
+        self.current_failed_images = 0
+        self.current_running_images = 0
+        self.batch_total_text = tk.StringVar(value="Success: 0 / 0")
+        self.batch_running_text = tk.StringVar(value="Running: 0")
+        self.batch_failed_text = tk.StringVar(value="Failed: 0")
+        self.detail_title = tk.StringVar(value="Select an input image")
 
         self._build_ui()
+        self._setup_validation_traces()
+        self._validate_configuration()
         self._poll_queues()
 
+    def _configure_style(self) -> None:
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        self.root.configure(bg=self.colors["bg"])
+        self.root.option_add("*Font", "{Segoe UI} 10")
+
+        style.configure("App.TFrame", background=self.colors["bg"])
+        style.configure("TFrame", background=self.colors["card"])
+        style.configure("Card.TFrame", background=self.colors["card"])
+        style.configure("Header.TFrame", background=self.colors["dark"], relief="flat")
+        style.configure("TLabel", background=self.colors["card"], foreground=self.colors["text"])
+        style.configure("App.TLabel", background=self.colors["bg"], foreground=self.colors["text"])
+        style.configure("Muted.TLabel", background=self.colors["card"], foreground=self.colors["muted"])
+        style.configure("HeaderTitle.TLabel", background=self.colors["dark"], foreground="#ffffff", font=("Segoe UI", 18, "bold"))
+        style.configure("HeaderSub.TLabel", background=self.colors["dark"], foreground="#bfdbfe", font=("Segoe UI", 10))
+        style.configure("HeaderChip.TLabel", background="#1e293b", foreground="#e0f2fe", padding=(10, 5), font=("Segoe UI", 9, "bold"))
+        style.configure("TLabelframe", background=self.colors["card"], bordercolor=self.colors["border"], relief="solid")
+        style.configure("TLabelframe.Label", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10, "bold"))
+        style.configure("TButton", padding=(10, 6), font=("Segoe UI", 9))
+        style.configure("Accent.TButton", background=self.colors["accent"], foreground="#ffffff", padding=(14, 7), font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", self.colors["accent_hover"]), ("disabled", "#93c5fd")])
+        style.configure("Success.TButton", background=self.colors["success"], foreground="#ffffff", padding=(12, 7), font=("Segoe UI", 10, "bold"))
+        style.configure("Danger.TButton", background=self.colors["danger"], foreground="#ffffff", padding=(12, 7), font=("Segoe UI", 10, "bold"))
+        style.configure("TEntry", padding=(5, 4))
+        style.configure("TCombobox", padding=(5, 4))
+        style.configure("Header.Horizontal.TProgressbar", background="#38bdf8", troughcolor="#1e293b", bordercolor="#1e293b", lightcolor="#38bdf8", darkcolor="#38bdf8")
+        style.configure("Horizontal.TProgressbar", background=self.colors["accent"], troughcolor="#dbeafe", bordercolor="#dbeafe", lightcolor=self.colors["accent"], darkcolor=self.colors["accent"])
+
+    def _card(
+        self,
+        parent: tk.Widget,
+        badge: str,
+        title: str,
+        subtitle: str = "",
+        pack_options: dict | None = None,
+    ) -> ttk.Frame:
+        outer = tk.Frame(
+            parent,
+            bg=self.colors["card"],
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+            highlightcolor=self.colors["border"],
+        )
+        outer.pack(**(pack_options or {"fill": tk.X, "pady": (0, 10)}))
+
+        header = tk.Frame(outer, bg=self.colors["card"])
+        header.pack(fill=tk.X, padx=16, pady=(12, 8))
+        tk.Label(
+            header,
+            text=badge,
+            bg=self.colors["accent"],
+            fg="#ffffff",
+            padx=9,
+            pady=3,
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(
+            header,
+            text=title,
+            bg=self.colors["card"],
+            fg=self.colors["text"],
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side=tk.LEFT)
+        if subtitle:
+            tk.Label(
+                header,
+                text=subtitle,
+                bg=self.colors["card"],
+                fg=self.colors["muted"],
+                font=("Segoe UI", 9),
+            ).pack(side=tk.LEFT, padx=(12, 0))
+
+        body = ttk.Frame(outer, padding=(16, 0, 16, 14), style="Card.TFrame")
+        body_fill = tk.BOTH if pack_options and pack_options.get("fill") == tk.BOTH else tk.X
+        body_expand = bool(pack_options and pack_options.get("expand"))
+        body.pack(fill=body_fill, expand=body_expand)
+        body.card_outer = outer  # type: ignore[attr-defined]
+        return body
+
     def _build_ui(self) -> None:
-        root_frame = ttk.Frame(self.root, padding=12)
+        root_frame = ttk.Frame(self.root, padding=14, style="App.TFrame")
         root_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(root_frame, text="MRI Pipeline Runner", font=("Segoe UI", 16, "bold")).pack(anchor=tk.W, pady=(0, 8))
+        self._build_app_toolbar(root_frame)
+        self._build_tabs(root_frame)
 
-        self._build_tools_section(root_frame)
+    def _make_icon(self, name: str, color: str, glyph: str) -> tk.PhotoImage | None:
+        try:
+            img = tk.PhotoImage(width=18, height=18)
+            img.put(color, to=(1, 1, 17, 17))
+            img.put("#ffffff", to=(4, 4, 14, 14))
+            img.put(color, to=(6, 6, 12, 12))
+            self.toolbar_icons[name] = img
+            return img
+        except tk.TclError:
+            return None
 
-        top = ttk.Frame(root_frame)
-        top.pack(fill=tk.X)
-        self._build_input_section(top)
-        self._build_settings_section(top)
-        self._build_remote_section(root_frame)
-        self.remote_frame.pack_forget()
-        self.remote_visible.set(False)
-        self._build_actions_section(root_frame)
-        self._build_metrics_section(root_frame)
-        self._build_log_section(root_frame)
+    def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command, color: str) -> ttk.Button:
+        icon = self._make_icon(key, color, label[:1])
+        options = {"text": label, "command": command}
+        if icon is not None:
+            options.update({"image": icon, "compound": tk.LEFT})
+        button = ttk.Button(parent, **options)
+        button.pack(side=tk.LEFT, padx=(0, 6))
+        return button
+
+    def _build_app_toolbar(self, parent: ttk.Frame) -> None:
+        toolbar = ttk.Frame(parent, padding=(10, 8), style="Card.TFrame")
+        toolbar.pack(fill=tk.X, pady=(0, 10))
+
+        self.save_button = self._toolbar_button(toolbar, "save", "Save Config", self._save_config, "#2563eb")
+        self.load_button = self._toolbar_button(toolbar, "load", "Load Config", self._load_config, "#475569")
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(4, 10))
+        self.run_button = self._toolbar_button(toolbar, "run", "Run Pipeline", lambda: self._start_pipeline(resume=False, restart=False), "#16a34a")
+        self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", lambda: self._start_pipeline(resume=True, restart=False), "#0891b2")
+        self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True), "#d97706")
+        self.stop_button = self._toolbar_button(toolbar, "pause", "Pause", self._request_stop, "#dc2626")
+        self.stop_button.configure(state=tk.DISABLED)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(4, 10))
+        self.check_images_button = self._toolbar_button(toolbar, "images", "Check Images", self._check_images_action, "#7c3aed")
+
+        status = ttk.Frame(toolbar, style="Card.TFrame")
+        status.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        self.progress = ttk.Progressbar(status, mode="indeterminate", length=140)
+        self.progress.pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Label(status, textvariable=self.overall_progress_text, style="Muted.TLabel", width=5).pack(side=tk.RIGHT)
+        ttk.Label(status, textvariable=self.server_text, style="Muted.TLabel").pack(side=tk.RIGHT, padx=(10, 0))
+        ttk.Label(status, textvariable=self.status_text, style="Muted.TLabel").pack(side=tk.RIGHT, padx=(10, 0))
+
+    def _build_tabs(self, parent: ttk.Frame) -> None:
+        self.notebook = ttk.Notebook(parent)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.config_tab = ttk.Frame(self.notebook, padding=10, style="App.TFrame")
+        self.progress_tab = ttk.Frame(self.notebook, padding=10, style="App.TFrame")
+        self.notebook.add(self.config_tab, text="Pipeline configuration")
+        self.notebook.add(self.progress_tab, text="Run progress", state="disabled")
+
+        self._build_configuration_tab(self.config_tab)
+        self._build_progress_tab(self.progress_tab)
+
+    def _build_configuration_tab(self, parent: ttk.Frame) -> None:
+        panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
+        panes.pack(fill=tk.BOTH, expand=True)
+
+        left = ttk.Frame(panes, padding=(0, 0, 8, 0), style="App.TFrame")
+        right = ttk.Frame(panes, padding=(8, 0, 0, 0), style="App.TFrame")
+        panes.add(left, weight=1)
+        panes.add(right, weight=2)
+
+        self._build_tools_section(left)
+        self._build_input_section(right)
+        self._build_settings_section(right)
+        self._build_remote_section(right)
+        self.remote_visible.set(True)
+        ttk.Label(right, textvariable=self.config_status, style="App.TLabel").pack(fill=tk.X, pady=(0, 8))
+        self._on_run_target_changed()
+
+    def _build_progress_tab(self, parent: ttk.Frame) -> None:
+        panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
+        panes.pack(fill=tk.BOTH, expand=True)
+
+        left = ttk.Frame(panes, padding=(0, 0, 8, 0), style="App.TFrame")
+        right = ttk.Frame(panes, padding=(8, 0, 0, 0), style="App.TFrame")
+        panes.add(left, weight=1)
+        panes.add(right, weight=2)
+
+        summary = self._card(left, "RUN", "Batch summary", "Sequential execution: 1 image at a time", {"fill": tk.X, "pady": (0, 10)})
+        ttk.Label(summary, textvariable=self.batch_total_text).pack(anchor=tk.W, pady=2)
+        ttk.Label(summary, textvariable=self.batch_running_text).pack(anchor=tk.W, pady=2)
+        ttk.Label(summary, textvariable=self.batch_failed_text).pack(anchor=tk.W, pady=2)
+
+        list_card = self._card(left, "IMG", "Input images", "Click an image to inspect details", {"fill": tk.BOTH, "expand": True})
+        self.image_list_canvas = tk.Canvas(list_card, bg=self.colors["card"], highlightthickness=0)
+        image_scroll = ttk.Scrollbar(list_card, orient=tk.VERTICAL, command=self.image_list_canvas.yview)
+        self.image_list_frame = ttk.Frame(self.image_list_canvas, style="Card.TFrame")
+        self.image_list_frame.bind("<Configure>", lambda _e: self.image_list_canvas.configure(scrollregion=self.image_list_canvas.bbox("all")))
+        self.image_list_canvas.create_window((0, 0), window=self.image_list_frame, anchor=tk.NW)
+        self.image_list_canvas.configure(yscrollcommand=image_scroll.set)
+        self.image_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        image_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        detail = self._card(right, "DETAIL", "Selected image", "CPU, GPU, RAM and log", {"fill": tk.BOTH, "expand": True})
+        ttk.Label(detail, textvariable=self.detail_title, font=("Segoe UI", 11, "bold")).pack(anchor=tk.W, pady=(0, 8))
+        self.detail_chart = MetricsCharts(detail)
+        self.detail_chart.pack(fill=tk.X, pady=(0, 8))
+        self.gpu_chart = LineChart(detail, "GPU", "#f59e0b", "%", 100.0)
+        self.gpu_chart.pack(fill=tk.X, pady=(0, 8))
+        self.log_text = tk.Text(
+            detail,
+            wrap=tk.WORD,
+            height=14,
+            state=tk.DISABLED,
+            bg="#0f172a",
+            fg="#dbeafe",
+            insertbackground="#dbeafe",
+            selectbackground="#1d4ed8",
+            relief=tk.FLAT,
+            padx=12,
+            pady=10,
+            font=("Consolas", 10),
+        )
+        log_scroll = ttk.Scrollbar(detail, orient=tk.VERTICAL, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=log_scroll.set)
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _build_header(self, parent: ttk.Frame) -> None:
+        header = ttk.Frame(parent, padding=(18, 16), style="Header.TFrame")
+        header.pack(fill=tk.X, pady=(0, 12))
+
+        left = ttk.Frame(header, style="Header.TFrame")
+        left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(left, text="MRI Pipeline Runner", style="HeaderTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            left,
+            text="Build, run, resume, and monitor MRI Docker pipelines locally or on an SSH server.",
+            style="HeaderSub.TLabel",
+        ).pack(anchor=tk.W, pady=(3, 0))
+
+        right = ttk.Frame(header, style="Header.TFrame")
+        right.pack(side=tk.RIGHT, fill=tk.Y)
+        ttk.Label(right, textvariable=self.status_text, style="HeaderChip.TLabel").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(right, textvariable=self.server_text, style="HeaderChip.TLabel").pack(side=tk.LEFT, padx=(0, 10))
+        progress_box = tk.Frame(right, bg="#1e293b", padx=10, pady=5)
+        progress_box.pack(side=tk.LEFT)
+        ttk.Progressbar(
+            progress_box,
+            variable=self.overall_progress_var,
+            maximum=100,
+            length=150,
+            style="Header.Horizontal.TProgressbar",
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            progress_box,
+            textvariable=self.overall_progress_text,
+            bg="#1e293b",
+            fg="#e0f2fe",
+            font=("Segoe UI", 9, "bold"),
+            width=4,
+            anchor=tk.E,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)
@@ -417,51 +681,70 @@ class PipelineGUI:
         self._apply_pipeline_mode()
 
     def _build_input_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="2. Input", padding=10)
-        frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        frame = self._card(
+            parent,
+            "02",
+            "Input MRI",
+            "Choose one file, many files, or a folder",
+            {"fill": tk.X, "pady": (0, 10)},
+        )
 
-        mode_row = ttk.Frame(frame)
-        mode_row.pack(fill=tk.X, pady=(0, 6))
+        mode_row = ttk.Frame(frame, style="Card.TFrame")
+        mode_row.pack(fill=tk.X, pady=(0, 10))
         ttk.Radiobutton(mode_row, text="Single file", variable=self.input_mode, value="file", command=self._refresh_input_label).pack(side=tk.LEFT)
-        ttk.Radiobutton(mode_row, text="Multiple files", variable=self.input_mode, value="files", command=self._refresh_input_label).pack(side=tk.LEFT, padx=(12, 0))
-        ttk.Radiobutton(mode_row, text="Batch folder", variable=self.input_mode, value="dir", command=self._refresh_input_label).pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Radiobutton(mode_row, text="Multiple files", variable=self.input_mode, value="files", command=self._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
+        ttk.Radiobutton(mode_row, text="Batch folder", variable=self.input_mode, value="dir", command=self._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
 
-        path_row = ttk.Frame(frame)
+        path_row = ttk.Frame(frame, style="Card.TFrame")
         path_row.pack(fill=tk.X)
         ttk.Entry(path_row, textvariable=self.input_path).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(path_row, text="Browse...", command=self._browse_input).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(path_row, text="Browse", command=self._browse_input).pack(side=tk.LEFT, padx=(8, 0))
 
-        opt_row = ttk.Frame(frame)
-        opt_row.pack(fill=tk.X, pady=(6, 0))
-        ttk.Checkbutton(opt_row, text="Non-recursive batch", variable=self.non_recursive).pack(side=tk.LEFT)
-        self.file_count_label = ttk.Label(opt_row, text="")
+        opt_row = ttk.Frame(frame, style="Card.TFrame")
+        opt_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(opt_row, text="Only scan selected folder", variable=self.non_recursive).pack(side=tk.LEFT)
+        self.file_count_label = ttk.Label(opt_row, text="", style="Muted.TLabel")
         self.file_count_label.pack(side=tk.LEFT, padx=(14, 0))
 
     def _build_settings_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="3. Settings", padding=10)
-        frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        frame = self._card(
+            parent,
+            "03",
+            "Runtime Settings",
+            "Output, license, device, and CPU threads",
+            {"fill": tk.X, "pady": (0, 10)},
+        )
 
         self._path_row(frame, "Output directory", self.output_dir, 0)
-        self._path_row(frame, "FreeSurfer license directory", self.license_dir, 1)
+        self._path_row(frame, "FreeSurfer license", self.license_dir, 1)
 
-        ttk.Label(frame, text="Device").grid(row=2, column=0, sticky=tk.W, pady=(8, 0))
+        ttk.Label(frame, text="Device").grid(row=2, column=0, sticky=tk.W, pady=(10, 0))
         ttk.Combobox(frame, textvariable=self.device, values=("cpu", "gpu"), state="readonly", width=10).grid(row=2, column=1, sticky=tk.W, pady=(8, 0))
         ttk.Label(frame, text="Threads").grid(row=2, column=2, sticky=tk.W, padx=(20, 8), pady=(8, 0))
         ttk.Spinbox(frame, from_=1, to=64, textvariable=self.threads, width=8).grid(row=2, column=3, sticky=tk.W, pady=(8, 0))
+        ttk.Label(frame, text="Run on").grid(row=3, column=0, sticky=tk.W, pady=(10, 0))
+        ttk.Combobox(
+            frame,
+            textvariable=self.run_target,
+            values=("Local", "Server"),
+            state="readonly",
+            width=10,
+        ).grid(row=3, column=1, sticky=tk.W, pady=(8, 0))
+        self.run_target.trace_add("write", lambda *_args: self._on_run_target_changed())
         frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(3, weight=1)
 
     def _path_row(self, parent: ttk.LabelFrame, label: str, variable: tk.StringVar, row: int) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky=tk.W, pady=3)
         ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, columnspan=3, sticky=tk.EW, padx=(8, 8), pady=3)
-        ttk.Button(parent, text="Browse...", command=lambda: self._browse_directory(variable)).grid(row=row, column=4, pady=3)
+        ttk.Button(parent, text="Browse", command=lambda: self._browse_directory(variable)).grid(row=row, column=4, pady=3)
 
     def _build_tools_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="1. Pipeline Tools", padding=10)
-        frame.pack(fill=tk.X, pady=(8, 8))
+        frame = self._card(parent, "01", "Pipeline Tools", "Seven-stage MRI processing pipeline", {"fill": tk.BOTH, "expand": True})
 
-        mode_row = ttk.Frame(frame)
-        mode_row.grid(row=0, column=0, columnspan=4, sticky=tk.EW, pady=(0, 8))
-        ttk.Label(mode_row, text="Pipeline mode:").pack(side=tk.LEFT)
+        mode_row = ttk.Frame(frame, style="Card.TFrame")
+        mode_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
+        ttk.Label(mode_row, text="Mode").pack(side=tk.LEFT)
         ttk.Combobox(
             mode_row,
             textvariable=self.pipeline_mode,
@@ -469,7 +752,7 @@ class PipelineGUI:
             state="readonly",
             width=28,
         ).pack(side=tk.LEFT, padx=(8, 12))
-        ttk.Label(mode_row, textvariable=self.pipeline_note).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(mode_row, textvariable=self.pipeline_note, style="Muted.TLabel").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         defaults = {
             "reorientation": "mri_convert",
@@ -482,53 +765,76 @@ class PipelineGUI:
         }
 
         for idx, stage in enumerate(STAGE_ORDER):
-            row = idx // 2 + 1
-            col = (idx % 2) * 2
+            row = idx + 1
             tools = [name for name, meta in TOOL_DEFS.items() if meta["stage"] == stage]
             var = tk.StringVar(value=defaults.get(stage, tools[0] if tools else ""))
             self.tool_vars[stage] = var
-            ttk.Label(frame, text=STAGE_LABELS.get(stage, stage), width=32).grid(row=row, column=col, sticky=tk.W, pady=2)
+            step = tk.Frame(frame, bg=self.colors["card"])
+            step.grid(row=row, column=0, sticky=tk.EW, pady=5)
+            tk.Label(
+                step,
+                text=f"{idx + 1:02d}",
+                bg="#e0ecff",
+                fg=self.colors["accent"],
+                padx=6,
+                pady=2,
+                font=("Segoe UI", 8, "bold"),
+            ).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Label(
+                step,
+                text=STAGE_LABELS.get(stage, stage),
+                bg=self.colors["card"],
+                fg=self.colors["text"],
+                font=("Segoe UI", 9),
+                width=32,
+                anchor=tk.W,
+            ).pack(side=tk.LEFT)
             combo = ttk.Combobox(frame, textvariable=var, values=tools, state="readonly", width=24)
-            combo.grid(row=row, column=col + 1, sticky=tk.W, padx=(4, 18), pady=2)
+            combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=5)
             self.tool_combos[stage] = combo
+
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
 
         self.pipeline_mode.trace_add("write", lambda *_args: self._apply_pipeline_mode())
         self._apply_pipeline_mode()
 
     def _build_remote_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="Remote Server (SSH)", padding=10)
-        frame.pack(fill=tk.X, pady=(8, 8))
-        self.remote_frame = frame
+        frame = self._card(parent, "SSH", "Remote Server", "Only shown when Run on = Server", {"fill": tk.X, "pady": (0, 10)})
+        self.remote_frame = frame.card_outer  # type: ignore[attr-defined]
+        self.remote_body = frame
 
-        ttk.Label(frame, text="Host/IP").grid(row=0, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_host, width=18).grid(row=0, column=1, sticky=tk.EW, padx=(6, 12), pady=2)
-        ttk.Label(frame, text="Port").grid(row=0, column=2, sticky=tk.W, pady=2)
-        ttk.Spinbox(frame, from_=1, to=65535, textvariable=self.remote_port, width=7).grid(row=0, column=3, sticky=tk.W, padx=(6, 12), pady=2)
-        ttk.Label(frame, text="Username").grid(row=0, column=4, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_username, width=16).grid(row=0, column=5, sticky=tk.EW, padx=(6, 12), pady=2)
-        ttk.Label(frame, text="Password").grid(row=0, column=6, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_password, show="*", width=16).grid(row=0, column=7, sticky=tk.EW, padx=(6, 0), pady=2)
+        ttk.Label(frame, text="Host/IP").grid(row=0, column=0, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_host).grid(row=0, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
+        ttk.Label(frame, text="Port").grid(row=0, column=2, sticky=tk.W, pady=3)
+        ttk.Spinbox(frame, from_=1, to=65535, textvariable=self.remote_port, width=8).grid(row=0, column=3, sticky=tk.W, padx=(8, 0), pady=3)
 
-        ttk.Label(frame, text="SSH Key").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_key_path).grid(row=1, column=1, columnspan=3, sticky=tk.EW, padx=(6, 6), pady=2)
-        ttk.Button(frame, text="Browse", command=self._browse_remote_key).grid(row=1, column=4, sticky=tk.W, padx=(0, 12), pady=2)
-        ttk.Label(frame, text="Workspace").grid(row=1, column=5, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_workspace).grid(row=1, column=6, sticky=tk.EW, padx=(6, 12), pady=2)
-        ttk.Label(frame, text="Python").grid(row=1, column=7, sticky=tk.W, pady=2)
-        ttk.Entry(frame, textvariable=self.remote_python, width=10).grid(row=1, column=8, sticky=tk.EW, padx=(6, 0), pady=2)
+        ttk.Label(frame, text="Username").grid(row=1, column=0, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_username).grid(row=1, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
+        ttk.Label(frame, text="Password").grid(row=1, column=2, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_password, show="*").grid(row=1, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=2, column=0, columnspan=9, sticky=tk.EW, pady=(8, 0))
+        ttk.Label(frame, text="SSH Key").grid(row=2, column=0, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_key_path).grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=(8, 8), pady=3)
+        ttk.Button(frame, text="Browse", command=self._browse_remote_key).grid(row=2, column=3, sticky=tk.EW, pady=3)
+
+        ttk.Label(frame, text="Workspace").grid(row=3, column=0, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_workspace).grid(row=3, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
+        ttk.Label(frame, text="Python").grid(row=3, column=2, sticky=tk.W, pady=3)
+        ttk.Entry(frame, textvariable=self.remote_python).grid(row=3, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
+
+        buttons = ttk.Frame(frame, style="Card.TFrame")
+        buttons.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
         ttk.Button(buttons, text="Test SSH", command=self._remote_test_ssh).pack(side=tk.LEFT)
         ttk.Button(buttons, text="Check Docker", command=self._remote_check_docker).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Check Images", command=self._remote_check_images).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Download Outputs", command=self._remote_download_outputs).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Clean Remote Job", command=self._remote_clean_job).pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Label(frame, textvariable=self.remote_status).grid(row=3, column=0, columnspan=9, sticky=tk.W, pady=(8, 0))
+        ttk.Label(frame, textvariable=self.remote_status, style="Muted.TLabel").grid(row=5, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
 
         frame.columnconfigure(1, weight=1)
-        frame.columnconfigure(6, weight=1)
+        frame.columnconfigure(3, weight=1)
 
     def _toggle_remote_section(self) -> None:
         if self.remote_frame is None:
@@ -548,29 +854,31 @@ class PipelineGUI:
                 self.remote_toggle_button.configure(text="Hide Remote Settings")
 
     def _on_run_target_changed(self) -> None:
-        if self.remote_frame is None:
+        if self.remote_body is None:
             return
-        if self.run_target.get() == "Server":
-            if not self.remote_visible.get():
-                pack_options = {"fill": tk.X, "pady": (8, 8)}
-                if self.actions_frame is not None:
-                    pack_options["before"] = self.actions_frame
-                self.remote_frame.pack(**pack_options)
-                self.remote_visible.set(True)
-        else:
-            if self.remote_visible.get():
-                self.remote_frame.pack_forget()
-                self.remote_visible.set(False)
+        enabled = self.run_target.get() == "Server"
+        self.server_text.set("Server: remote" if enabled else "Server: local")
+        self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
+        self.remote_status.set("Remote: configure SSH server" if enabled else "Remote: disabled for local run")
+        self._validate_configuration()
+
+    def _set_widget_tree_state(self, widget: tk.Widget, state: str) -> None:
+        for child in widget.winfo_children():
+            try:
+                if "state" in child.keys():
+                    child.configure(state=state)
+            except tk.TclError:
+                pass
+            self._set_widget_tree_state(child, state)
 
     def _build_actions_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.Frame(parent)
-        frame.pack(fill=tk.X, pady=(0, 8))
-        self.actions_frame = frame
+        frame = self._card(parent, "RUN", "Run Controls", "Save configuration, choose target, then run or resume")
+        self.actions_frame = frame.card_outer  # type: ignore[attr-defined]
 
         ttk.Button(frame, text="Save Config", command=self._save_config).pack(side=tk.LEFT)
         ttk.Button(frame, text="Load Config", command=self._load_config).pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Label(frame, text="Run target:").pack(side=tk.LEFT, padx=(16, 4))
+        ttk.Label(frame, text="Run on").pack(side=tk.LEFT, padx=(18, 6))
         target_combo = ttk.Combobox(
             frame,
             textvariable=self.run_target,
@@ -581,28 +889,51 @@ class PipelineGUI:
         target_combo.pack(side=tk.LEFT)
         self.run_target.trace_add("write", lambda *_args: self._on_run_target_changed())
 
-        self.run_button = ttk.Button(frame, text="Run Pipeline", command=lambda: self._start_pipeline(resume=False, restart=False))
-        self.run_button.pack(side=tk.LEFT, padx=(16, 0))
-        self.resume_button = ttk.Button(frame, text="Resume", command=lambda: self._start_pipeline(resume=True, restart=False))
+        self.run_button = ttk.Button(frame, text="Run Pipeline", command=lambda: self._start_pipeline(resume=False, restart=False), style="Accent.TButton")
+        self.run_button.pack(side=tk.LEFT, padx=(18, 0))
+        self.resume_button = ttk.Button(frame, text="Resume", command=lambda: self._start_pipeline(resume=True, restart=False), style="Success.TButton")
         self.resume_button.pack(side=tk.LEFT, padx=(8, 0))
         self.restart_button = ttk.Button(frame, text="Restart All", command=lambda: self._start_pipeline(resume=False, restart=True))
         self.restart_button.pack(side=tk.LEFT, padx=(8, 0))
-        self.stop_button = ttk.Button(frame, text="Pause After Current Step", command=self._request_stop, state=tk.DISABLED)
+        self.stop_button = ttk.Button(frame, text="Pause After Step", command=self._request_stop, state=tk.DISABLED, style="Danger.TButton")
         self.stop_button.pack(side=tk.LEFT, padx=(8, 0))
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 0))
 
     def _build_metrics_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="4. Live Docker CPU/RAM", padding=10)
-        frame.pack(fill=tk.X, pady=(0, 8))
+        frame = self._card(
+            parent,
+            "04",
+            "Live Docker CPU/RAM",
+            "Container resource monitor",
+            {"side": tk.LEFT, "fill": tk.BOTH, "expand": True, "padx": (0, 8)},
+        )
         self.chart = MetricsCharts(frame)
         self.chart.pack(fill=tk.X, expand=True)
 
     def _build_log_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="5. Log", padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame = self._card(
+            parent,
+            "05",
+            "Execution Log",
+            "Live pipeline output",
+            {"side": tk.LEFT, "fill": tk.BOTH, "expand": True},
+        )
 
-        self.log_text = tk.Text(frame, wrap=tk.WORD, height=16, state=tk.DISABLED)
+        self.log_text = tk.Text(
+            frame,
+            wrap=tk.WORD,
+            height=12,
+            state=tk.DISABLED,
+            bg="#0f172a",
+            fg="#dbeafe",
+            insertbackground="#dbeafe",
+            selectbackground="#1d4ed8",
+            relief=tk.FLAT,
+            padx=12,
+            pady=10,
+            font=("Consolas", 10),
+        )
         scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scroll.set)
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -675,12 +1006,12 @@ class PipelineGUI:
             "output_dir": self.output_dir.get(),
             "license_dir": self.license_dir.get(),
             "device": self.device.get(),
-            "threads": self.threads.get(),
+            "threads": int(self.threads.get()),
             "non_recursive": self.non_recursive.get(),
-            "tools": {stage: var.get() for stage, var in self.tool_vars.items()},
+            "tools": self._selected_tools(),
             "remote": {
                 "host": self.remote_host.get(),
-                "port": self.remote_port.get(),
+                "port": int(self.remote_port.get()),
                 "username": self.remote_username.get(),
                 "key_path": self.remote_key_path.get(),
                 "workspace": self.remote_workspace.get(),
@@ -714,6 +1045,7 @@ class PipelineGUI:
         self.remote_host.set(remote.get("host", ""))
         self.remote_port.set(int(remote.get("port", 22)))
         self.remote_username.set(remote.get("username", ""))
+        self.remote_password.set("")
         self.remote_key_path.set(remote.get("key_path", ""))
         self.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
         self.remote_python.set(remote.get("python", "python3"))
@@ -766,13 +1098,214 @@ class PipelineGUI:
             self.file_count_label.configure(text=f"Selected: {len(self.selected_files)} files")
         else:
             self.file_count_label.configure(text="")
+        self._validate_configuration()
+
+    def _setup_validation_traces(self) -> None:
+        variables = [
+            self.input_mode,
+            self.input_path,
+            self.output_dir,
+            self.license_dir,
+            self.device,
+            self.threads,
+            self.non_recursive,
+            self.run_target,
+            self.remote_host,
+            self.remote_port,
+            self.remote_username,
+            self.remote_key_path,
+            self.remote_workspace,
+            self.remote_python,
+            self.pipeline_mode,
+        ]
+        for variable in variables:
+            try:
+                variable.trace_add("write", lambda *_args: self._validate_configuration())
+            except tk.TclError:
+                pass
+        for tool_var in self.tool_vars.values():
+            tool_var.trace_add("write", lambda *_args: self._validate_configuration())
+
+    def _validate_configuration(self) -> bool:
+        errors: list[str] = []
+        mode = self.input_mode.get()
+        raw_input = self.input_path.get().strip()
+        if not raw_input:
+            errors.append("Choose an input MRI file or folder.")
+        elif mode == "file":
+            path = self.selected_files[0] if self.selected_files else raw_input
+            if not Path(path).is_file():
+                errors.append("Input file does not exist.")
+        elif mode == "files":
+            files = self.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
+            if not files:
+                errors.append("Choose at least one input file.")
+            elif any(not Path(p).is_file() for p in files):
+                errors.append("One or more selected input files do not exist.")
+        else:
+            if not Path(raw_input).is_dir():
+                errors.append("Input folder does not exist.")
+
+        if not self.output_dir.get().strip():
+            errors.append("Choose an output directory.")
+        try:
+            if int(self.threads.get()) < 1:
+                errors.append("Threads must be at least 1.")
+        except (tk.TclError, ValueError):
+            errors.append("Threads must be a valid integer.")
+
+        selected_tools = self._selected_tools()
+        missing_stages = [stage for stage in STAGE_ORDER if not selected_tools.get(stage)]
+        if missing_stages:
+            errors.append("Select one tool for every pipeline stage.")
+
+        needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
+        if needs_license and not Path(self.license_dir.get().strip()).exists():
+            errors.append("FreeSurfer license directory is required for selected tools.")
+
+        if self.run_target.get() == "Server":
+            if not self.remote_host.get().strip():
+                errors.append("Remote Host/IP is required.")
+            if not self.remote_username.get().strip():
+                errors.append("Remote Username is required.")
+            try:
+                port = int(self.remote_port.get())
+                if port < 1 or port > 65535:
+                    errors.append("Remote port must be between 1 and 65535.")
+            except (tk.TclError, ValueError):
+                errors.append("Remote port must be a valid integer.")
+            if not self.remote_workspace.get().strip():
+                errors.append("Remote workspace is required.")
+            if not self.remote_python.get().strip():
+                errors.append("Remote Python command is required.")
+
+        ok = not errors
+        if hasattr(self, "run_button"):
+            self.run_button.configure(state=tk.NORMAL if ok and not self.running else tk.DISABLED)
+        self.config_status.set("Configuration complete. Ready to run." if ok else errors[0])
+        return ok
+
+    def _check_images_action(self) -> None:
+        if not self._validate_configuration():
+            messagebox.showerror("Configuration incomplete", self.config_status.get())
+            return
+        if self.run_target.get() == "Server":
+            runner = self._build_remote_runner()
+            if runner and self._ensure_remote_images_with_dialog(runner):
+                self.remote_runner = runner
+                self._log("Remote image preflight completed successfully.")
+        else:
+            if self._ensure_local_images_with_dialog():
+                self._log("Local image preflight completed successfully.")
+
+    def _build_image_dialog(self, title: str) -> tuple[tk.Toplevel, tk.Text, ttk.Progressbar, dict[str, bool]]:
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.geometry("760x460")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        ttk.Label(dialog, text=title, font=("Segoe UI", 12, "bold")).pack(anchor=tk.W, padx=12, pady=(12, 6))
+        log = tk.Text(dialog, wrap=tk.WORD, height=20, bg="#0f172a", fg="#dbeafe", font=("Consolas", 10), state=tk.DISABLED)
+        scroll = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=log.yview)
+        log.configure(yscrollcommand=scroll.set)
+        log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(12, 0), pady=(0, 12))
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 12), pady=(0, 12))
+        progress = ttk.Progressbar(dialog, mode="indeterminate")
+        progress.pack(fill=tk.X, padx=12, pady=(0, 12))
+        progress.start(10)
+        state = {"ok": False, "done": False}
+        return dialog, log, progress, state
+
+    def _append_dialog_log(self, log: tk.Text, line: str) -> None:
+        log.configure(state=tk.NORMAL)
+        log.insert(tk.END, line + "\n")
+        log.see(tk.END)
+        log.configure(state=tk.DISABLED)
+
+    def _ensure_local_images_with_dialog(self) -> bool:
+        dialog, log, progress, state = self._build_image_dialog("Docker image preflight")
+        required_tools = list(dict.fromkeys(self._selected_tools().values()))
+
+        def worker() -> None:
+            ok = True
+            try:
+                for tool_key in required_tools:
+                    tool = TOOL_DEFS.get(tool_key, {})
+                    image = tool.get("image", tool_key)
+                    self.root.after(0, lambda i=image: self._append_dialog_log(log, f"Checking {i}"))
+                    result, err, _build_time = ensure_image(
+                        tool_key,
+                        on_progress=None,
+                        on_build_log=lambda line: self.root.after(0, lambda l=line: self._append_dialog_log(log, l)),
+                    )
+                    if not result:
+                        ok = False
+                        self.root.after(0, lambda e=err: self._append_dialog_log(log, f"ERROR: {e}"))
+                        break
+                    if not image_exists(image):
+                        ok = False
+                        self.root.after(0, lambda i=image: self._append_dialog_log(log, f"ERROR: image still missing after ensure: {i}"))
+                        break
+                    self.root.after(0, lambda i=image: self._append_dialog_log(log, f"OK image: {i}"))
+            finally:
+                state["ok"] = ok
+                state["done"] = True
+                self.root.after(0, progress.stop)
+                self.root.after(0, dialog.destroy if ok else lambda: None)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.wait_window(dialog)
+        return state["ok"]
+
+    def _ensure_remote_images_with_dialog(self, runner: RemoteRunner) -> bool:
+        dialog, log, progress, state = self._build_image_dialog("Remote Docker image preflight")
+
+        def worker() -> None:
+            ok = True
+            try:
+                def on_line(line: str) -> None:
+                    self.root.after(0, lambda l=line: self._append_dialog_log(log, l))
+
+                runner.on_log = on_line
+                if not runner.remote_job_dir:
+                    runner.upload_job()
+                ok = runner.ensure_images()
+            except Exception as exc:
+                ok = False
+                self.root.after(0, lambda: self._append_dialog_log(log, f"REMOTE IMAGE ERROR: {type(exc).__name__}: {exc}"))
+            finally:
+                runner.on_log = self._remote_log_event
+                state["ok"] = ok
+                state["done"] = True
+                self.root.after(0, progress.stop)
+                self.root.after(0, dialog.destroy if ok else lambda: None)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.wait_window(dialog)
+        return state["ok"]
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
         if self.running:
             return
 
+        if not self._validate_configuration():
+            messagebox.showerror("Configuration incomplete", self.config_status.get())
+            return
+
         if self.run_target.get() == "Server":
-            self._start_remote_pipeline(resume=resume, restart=restart)
+            runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume)
+            if not runner:
+                return
+            if restart:
+                self.remote_runner = None
+            runner.config.resume = resume
+            if not self._ensure_remote_images_with_dialog(runner):
+                messagebox.showerror("Docker images missing", "Remote Docker image preflight failed. Pipeline was not started.")
+                return
+            self.remote_runner = runner
+            self._prepare_progress_tab(self._input_files_for_progress())
+            self._show_progress_tab()
+            self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
             return
 
         run_request = self._build_run_request()
@@ -781,6 +1314,13 @@ class PipelineGUI:
         run_request["resume"] = resume
         run_request["restart"] = restart
 
+        if not self._ensure_local_images_with_dialog():
+            messagebox.showerror("Docker images missing", "Local Docker image preflight failed. Pipeline was not started.")
+            return
+
+        self._prepare_progress_tab(self._input_files_for_progress(run_request))
+        self._show_progress_tab()
+
         self.running = True
         self.stop_requested.clear()
         self.run_button.configure(state=tk.DISABLED)
@@ -788,7 +1328,8 @@ class PipelineGUI:
         self.restart_button.configure(state=tk.DISABLED)
         self.stop_button.configure(state=tk.NORMAL)
         self.progress.start(10)
-        self.chart.reset()
+        self.detail_chart.reset()
+        self.gpu_chart.reset()
         self.overall_progress_var.set(0)
         self.overall_progress_text.set("0%")
         self.status_text.set("Running")
@@ -805,8 +1346,8 @@ class PipelineGUI:
         self.worker = threading.Thread(target=self._run_worker, args=(run_request,), daemon=True)
         self.worker.start()
 
-    def _start_remote_pipeline(self, resume: bool = False, restart: bool = False) -> None:
-        runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume)
+    def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None) -> None:
+        runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
         if not runner:
             return
         if resume and self.remote_runner is None:
@@ -868,6 +1409,126 @@ class PipelineGUI:
 
         return base
 
+    def _input_files_for_progress(self, req: dict | None = None) -> list[str]:
+        if req is None:
+            req = self._build_run_request()
+        if not req:
+            return []
+        if req["mode"] == "file":
+            return [req["input_file"]]
+        if req["mode"] == "files":
+            return list(req["input_files"])
+        return _discover_mri_files(req["input_dir"], recursive=req.get("recursive", True))
+
+    def _show_progress_tab(self) -> None:
+        if self.notebook is None or self.progress_tab is None:
+            return
+        self.notebook.tab(self.progress_tab, state="normal")
+        self.notebook.select(self.progress_tab)
+
+    def _prepare_progress_tab(self, files: list[str]) -> None:
+        self.image_runs.clear()
+        self.image_rows.clear()
+        self.current_image_key = ""
+        self.current_total_images = len(files)
+        self.current_success_images = 0
+        self.current_failed_images = 0
+        self.current_running_images = 0
+        self._update_batch_summary()
+        for child in self.image_list_frame.winfo_children():
+            child.destroy()
+        self._clear_log()
+        self.detail_chart.reset()
+        self.gpu_chart.reset()
+        self.detail_title.set("Select an input image")
+        for idx, path in enumerate(files, start=1):
+            self._create_image_run(path, idx, len(files))
+        if files:
+            self._select_image(files[0])
+
+    def _create_image_run(self, input_file: str, idx: int, total: int) -> None:
+        if input_file in self.image_runs:
+            return
+        name = Path(input_file).name or input_file
+        self.image_runs[input_file] = {
+            "input_file": input_file,
+            "name": name,
+            "idx": idx,
+            "total": total,
+            "status": "Pending",
+            "percent": 0.0,
+            "logs": [],
+            "cpu": [],
+            "ram": [],
+            "gpu": [],
+            "container": "n/a",
+        }
+        row = tk.Frame(self.image_list_frame, bg=self.colors["card"], highlightthickness=1, highlightbackground=self.colors["border"])
+        row.pack(fill=tk.X, pady=(0, 6))
+        top = tk.Frame(row, bg=self.colors["card"])
+        top.pack(fill=tk.X, padx=8, pady=(6, 2))
+        title = tk.Label(top, text=f"{idx}/{total} {name}", bg=self.colors["card"], fg=self.colors["text"], anchor=tk.W, font=("Segoe UI", 9, "bold"))
+        title.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        status = tk.Label(top, text="Pending", bg=self.colors["card"], fg=self.colors["muted"], anchor=tk.E, font=("Segoe UI", 8))
+        status.pack(side=tk.RIGHT)
+        var = tk.DoubleVar(value=0)
+        bar = ttk.Progressbar(row, variable=var, maximum=100, mode="determinate")
+        bar.pack(fill=tk.X, padx=8, pady=(0, 8))
+        for widget in (row, top, title, status, bar):
+            widget.bind("<Button-1>", lambda _e, key=input_file: self._select_image(key))
+        self.image_rows[input_file] = {"frame": row, "title": title, "status": status, "var": var}
+
+    def _select_image(self, input_file: str) -> None:
+        if input_file not in self.image_runs:
+            return
+        self.current_image_key = input_file
+        for key, row in self.image_rows.items():
+            row["frame"].configure(highlightbackground=self.colors["accent"] if key == input_file else self.colors["border"])
+        run = self.image_runs[input_file]
+        self.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']}")
+        self._render_selected_detail()
+
+    def _render_selected_detail(self) -> None:
+        run = self.image_runs.get(self.current_image_key)
+        if not run:
+            return
+        self.detail_chart.reset()
+        self.gpu_chart.reset()
+        self.detail_chart.container_label.set(f"Container: {run.get('container', 'n/a')}")
+        for cpu, ram, container in zip(run["cpu"], run["ram"], [run.get("container", "n/a")] * len(run["cpu"])):
+            self.detail_chart.add(cpu, ram, container)
+        for gpu in run["gpu"]:
+            self.gpu_chart.add(gpu, f"{gpu:.1f}%")
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.insert(tk.END, "\n".join(run["logs"][-2000:]))
+        if run["logs"]:
+            self.log_text.insert(tk.END, "\n")
+        self.log_text.see(tk.END)
+        self.log_text.configure(state=tk.DISABLED)
+
+    def _update_image_run(self, input_file: str, status: str | None = None, percent: float | None = None, log_line: str | None = None) -> None:
+        if input_file not in self.image_runs:
+            self._create_image_run(input_file, len(self.image_runs) + 1, max(self.current_total_images, len(self.image_runs) + 1))
+        run = self.image_runs[input_file]
+        if status is not None:
+            run["status"] = status
+            self.image_rows[input_file]["status"].configure(text=status)
+        if percent is not None:
+            pct = max(0.0, min(100.0, percent))
+            run["percent"] = pct
+            self.image_rows[input_file]["var"].set(pct)
+        if log_line:
+            run["logs"].append(log_line)
+            run["logs"] = run["logs"][-2500:]
+        if self.current_image_key == input_file:
+            self.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']}")
+
+    def _update_batch_summary(self) -> None:
+        self.batch_total_text.set(f"Success: {self.current_success_images} / {self.current_total_images}")
+        self.batch_running_text.set(f"Running: {self.current_running_images}")
+        self.batch_failed_text.set(f"Failed: {self.current_failed_images}")
+
     def _build_ssh_config(self) -> SSHConfig | None:
         host = self.remote_host.get().strip()
         username = self.remote_username.get().strip()
@@ -907,7 +1568,69 @@ class PipelineGUI:
             selected_tools=req["selected_tools"],
             resume=resume,
         )
-        return RemoteRunner(remote_config, on_log=self._log)
+        return RemoteRunner(remote_config, on_log=self._remote_log_event)
+
+    def _match_progress_input_key(self, input_file: str) -> str:
+        if input_file in self.image_runs:
+            return input_file
+        remote_name = Path(input_file).name
+        if len(remote_name) > 5 and remote_name[:4].isdigit() and remote_name[4] == "_":
+            remote_name = remote_name[5:]
+        for key, run in self.image_runs.items():
+            if Path(key).name == remote_name or run.get("name") == remote_name:
+                return key
+        return input_file
+
+    def _remote_log_event(self, line: str) -> None:
+        self.root.after(0, lambda l=line: self._handle_remote_log_event(l))
+
+    def _handle_remote_log_event(self, line: str) -> None:
+        if not line.startswith("MRI_EVENT "):
+            self._log(line)
+            if self.current_image_key:
+                self._update_image_run(self.current_image_key, log_line=line)
+            return
+        try:
+            event = json.loads(line[len("MRI_EVENT "):])
+        except json.JSONDecodeError:
+            self._log(line)
+            return
+
+        kind = event.get("kind")
+        if kind == "image_start":
+            key = self._match_progress_input_key(str(event.get("input_file", "")))
+            idx = int(event.get("idx", len(self.image_runs) + 1))
+            total = int(event.get("total", max(self.current_total_images, idx)))
+            self.current_total_images = max(self.current_total_images, total)
+            self.current_image_key = key
+            self.current_running_images = 1
+            self._update_batch_summary()
+            self._update_image_run(key, status="Running", percent=0, log_line=f"Remote image {idx}/{total} started: {key}")
+            self.root.after(0, lambda k=key: self._select_image(k))
+        elif kind == "progress":
+            pct = float(event.get("pct", 0)) * 100
+            status = str(event.get("status", "running"))
+            stage = str(event.get("stage", "pipeline"))
+            msg = str(event.get("msg", ""))
+            label = {"running": "Running", "success": "Running", "failed": "Failed", "paused": "Paused"}.get(status, status.capitalize())
+            self.overall_progress_var.set(max(0, min(100, pct)))
+            self.overall_progress_text.set(f"{int(max(0, min(100, pct)))}%")
+            self.status_text.set(status.capitalize())
+            if self.current_image_key:
+                self._update_image_run(self.current_image_key, status=label, percent=pct, log_line=f"REMOTE {status.upper()} {stage}: {msg}")
+        elif kind == "image_done":
+            key = self._match_progress_input_key(str(event.get("input_file", "")))
+            success = bool(event.get("success"))
+            self.current_running_images = 0
+            if success:
+                self.current_success_images += 1
+                self._update_image_run(key, status="Done", percent=100, log_line=f"Remote image done: {event.get('subject_id', key)} | OK")
+            else:
+                self.current_failed_images += 1
+                self._update_image_run(key, status="Failed", log_line=f"Remote image failed: {event.get('error', '')}")
+            self._update_batch_summary()
+        elif kind == "image_preflight":
+            self._log(f"Remote image preflight {event.get('status')}: {event.get('tool')}")
 
     def _run_remote_task(self, title: str, task, clear_log: bool = False, enable_pause: bool = False) -> None:
         if self.running:
@@ -923,7 +1646,8 @@ class PipelineGUI:
         self.progress.start(10)
         if clear_log:
             self._clear_log()
-            self.chart.reset()
+            self.detail_chart.reset()
+            self.gpu_chart.reset()
             self.overall_progress_var.set(0)
             self.overall_progress_text.set("0%")
             self.status_text.set("Running")
@@ -1126,6 +1850,7 @@ class PipelineGUI:
     def _run_single(self, req: dict) -> None:
         input_file = req["input_file"]
         subject_id = _derive_subject_id(input_file)
+        self.root.after(0, lambda: self._on_image_start(input_file, 1, 1))
         config = PipelineConfig(
             input_file=input_file,
             output_dir=req["output_dir"],
@@ -1145,6 +1870,14 @@ class PipelineGUI:
         )
         ok = bool(results) and all(step.success for step in results)
         self._log(f"Single file finished: {subject_id} | status={'OK' if ok else 'FAILED'}")
+        self.current_running_images = 0
+        if ok:
+            self.current_success_images += 1
+            self._update_image_run(input_file, status="Done", percent=100, log_line=f"Single file finished: {subject_id} | OK")
+        else:
+            self.current_failed_images += 1
+            self._update_image_run(input_file, status="Failed", log_line=f"Single file finished: {subject_id} | FAILED")
+        self._update_batch_summary()
 
     def _run_multiple(self, req: dict) -> None:
         files = req["input_files"]
@@ -1192,11 +1925,20 @@ class PipelineGUI:
 
     def _on_progress(self, stage: str, status: str, pct: float, msg: str) -> None:
         ts = time.strftime("%H:%M:%S")
-        self._log(f"[{ts}] {status.upper()} {stage}: {msg}")
+        line = f"[{ts}] {status.upper()} {stage}: {msg}"
+        self._log(line)
         pct_value = max(0, min(100, pct * 100))
         self.overall_progress_var.set(pct_value)
         self.overall_progress_text.set(f"{int(pct_value)}%")
         self.status_text.set(status.capitalize())
+        if self.current_image_key:
+            label = {
+                "running": "Running",
+                "success": "Running" if stage != "pipeline" else "Done",
+                "failed": "Failed",
+                "paused": "Paused",
+            }.get(status, status.capitalize())
+            self._update_image_run(self.current_image_key, status=label, percent=pct_value, log_line=line)
         if stage in self.stage_items:
             label = {
                 "running": "Running",
@@ -1212,13 +1954,38 @@ class PipelineGUI:
 
     def _on_image_start(self, input_file: str, idx: int, total: int) -> None:
         self._log(f"Starting image {idx}/{total}: {input_file}")
+        self.current_image_key = input_file
+        self.current_running_images = 1
+        self._update_batch_summary()
+        self._update_image_run(input_file, status="Running", percent=0, log_line=f"Starting image {idx}/{total}: {input_file}")
+        self._select_image(input_file)
         self.metrics_queue.put((0.0, 0, "new image"))
 
     def _on_image_done(self, result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
         self._log(f"Done image {idx}/{total}: {result.subject_id} | {status}")
+        self.current_running_images = 0
+        if result.success:
+            self.current_success_images += 1
+            row_status = "Done"
+            pct = 100
+        else:
+            self.current_failed_images += 1
+            row_status = "Failed"
+            pct = self.image_runs.get(result.input_file, {}).get("percent", 0)
+        self._update_batch_summary()
+        self._update_image_run(result.input_file, status=row_status, percent=pct, log_line=f"Done image {idx}/{total}: {result.subject_id} | {status}")
 
     def _on_metrics(self, stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str) -> None:
+        if self.current_image_key and self.current_image_key in self.image_runs:
+            run = self.image_runs[self.current_image_key]
+            run["cpu"].append(max(cpu_pct or 0.0, 0.0))
+            run["ram"].append(ram_bytes or 0)
+            run["gpu"].append(0.0)
+            run["container"] = container_name or "n/a"
+            run["cpu"] = run["cpu"][-180:]
+            run["ram"] = run["ram"][-180:]
+            run["gpu"] = run["gpu"][-180:]
         self.metrics_queue.put((cpu_pct, ram_bytes, container_name))
 
     def _request_stop(self) -> None:
@@ -1237,7 +2004,7 @@ class PipelineGUI:
 
     def _set_idle_state(self) -> None:
         self.progress.stop()
-        self.run_button.configure(state=tk.NORMAL)
+        self.run_button.configure(state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
         self.resume_button.configure(state=tk.NORMAL)
         self.restart_button.configure(state=tk.NORMAL)
         self.stop_button.configure(state=tk.DISABLED)
@@ -1259,7 +2026,8 @@ class PipelineGUI:
                 cpu_pct, ram_bytes, container_name = self.metrics_queue.get_nowait()
             except queue.Empty:
                 break
-            self.chart.add(cpu_pct, ram_bytes, container_name)
+            if hasattr(self, "detail_chart"):
+                self.detail_chart.add(cpu_pct, ram_bytes, container_name)
             cpu = max(cpu_pct or 0.0, 0.0)
             ram_mib = (ram_bytes or 0) / (1024 * 1024)
             self.cpu_text.set(f"CPU {cpu:.0f}%")
@@ -1293,21 +2061,39 @@ def main() -> None:
         print(f"ERROR: Could not start Tkinter GUI: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    PipelineGUI(root)
-    root.update_idletasks()
-    try:
-        root.state("zoomed")
-    except tk.TclError:
-        try:
-            root.attributes("-zoomed", True)
-        except tk.TclError:
-            pass
-    root.deiconify()
-    root.attributes("-topmost", True)
-    root.lift()
-    root.focus_force()
-    root.after(1500, lambda: root.attributes("-topmost", False))
-    print("MRI Pipeline GUI is running.", flush=True)
+    root.withdraw()
+
+    if "--probe-window" in sys.argv:
+        probe = tk.Toplevel(root)
+        probe.title("MRI Pipeline Probe Window")
+        probe.geometry("640x360+120+90")
+        probe.minsize(640, 360)
+        probe.configure(bg="#dc2626")
+        tk.Label(
+            probe,
+            text="Tkinter / WSLg probe window\nIf you can see this, GUI display works.",
+            bg="#dc2626",
+            fg="white",
+            font=("Segoe UI", 16, "bold"),
+        ).pack(fill=tk.BOTH, expand=True, padx=24, pady=24)
+        probe.protocol("WM_DELETE_WINDOW", root.destroy)
+        probe.deiconify()
+        probe.lift()
+        print(f"Probe window is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
+        root.mainloop()
+        return
+
+    window = tk.Toplevel(root)
+    window.title("MRI Pipeline GUI - Tkinter")
+    window.geometry("1250x950+80+60")
+    window.minsize(1050, 760)
+    window.protocol("WM_DELETE_WINDOW", root.destroy)
+    PipelineGUI(window)
+    window.geometry("1250x950+80+60")
+    window.update_idletasks()
+    window.deiconify()
+    window.lift()
+    print(f"MRI Pipeline GUI is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
     root.mainloop()
 
 

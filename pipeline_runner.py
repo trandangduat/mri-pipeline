@@ -1208,6 +1208,10 @@ def _cli_image_done(result: BatchImageResult, idx: int, total: int) -> None:
     )
 
 
+def _emit_json_event(kind: str, **payload) -> None:
+    print("MRI_EVENT " + json.dumps({"kind": kind, **payload}, ensure_ascii=False), flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     default_tools = PipelineConfig("", "", "").selected_tools
     tools_by_stage = {
@@ -1229,6 +1233,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true", help="Skip completed stages recorded in logs/pipeline_state.json")
     parser.add_argument("--stop-file", default="", help="Pause safely after current stage if this file exists")
     parser.add_argument("--non-recursive", action="store_true", help="Only scan files directly inside --input-dir")
+    parser.add_argument("--json-events", action="store_true", help="Emit machine-readable progress events for GUI clients")
+    parser.add_argument("--ensure-images-only", action="store_true", help="Only pull/build/check selected Docker images, then exit")
     parser.add_argument("--reorientation", choices=tools_by_stage["reorientation"], default=default_tools["reorientation"])
     parser.add_argument("--brain-extraction", choices=tools_by_stage["brain_extraction"], default=default_tools["brain_extraction"])
     parser.add_argument("--segmentation", choices=tools_by_stage["segmentation"], default=default_tools["segmentation"])
@@ -1239,6 +1245,49 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     selected_tools = _cli_selected_tools(args)
+
+    if args.ensure_images_only:
+        ok = True
+        for tool_key in dict.fromkeys(selected_tools.values()):
+            if args.json_events:
+                _emit_json_event("image_preflight", tool=tool_key, status="running")
+            result, err, _build_time = ensure_image(
+                tool_key,
+                on_progress=_cli_progress,
+                on_build_log=_cli_build_log,
+            )
+            if not result:
+                ok = False
+                if args.json_events:
+                    _emit_json_event("image_preflight", tool=tool_key, status="failed", error=err)
+                print(f"Image preflight failed for {tool_key}: {err}", file=sys.stderr, flush=True)
+                break
+            if args.json_events:
+                _emit_json_event("image_preflight", tool=tool_key, status="success")
+        return 0 if ok else 2
+
+    progress_cb = _cli_progress
+    image_start_cb = None
+    image_done_cb = _cli_image_done
+    if args.json_events:
+        def progress_cb(stage: str, status: str, pct: float, msg: str) -> None:
+            _cli_progress(stage, status, pct, msg)
+            _emit_json_event("progress", stage=stage, status=status, pct=pct, msg=msg)
+
+        def image_start_cb(input_file: str, idx: int, total: int) -> None:
+            _emit_json_event("image_start", input_file=input_file, idx=idx, total=total)
+
+        def image_done_cb(result: BatchImageResult, idx: int, total: int) -> None:
+            _cli_image_done(result, idx, total)
+            _emit_json_event(
+                "image_done",
+                input_file=result.input_file,
+                subject_id=result.subject_id,
+                idx=idx,
+                total=total,
+                success=result.success,
+                error=result.error,
+            )
 
     if args.input_file:
         input_path = str(Path(args.input_file).expanduser().resolve())
@@ -1259,10 +1308,22 @@ def main(argv: list[str] | None = None) -> int:
             selected_tools=selected_tools,
         )
         should_stop = (lambda: Path(args.stop_file).exists()) if args.stop_file else None
-        results = run_pipeline(config, on_progress=_cli_progress, on_build_log=_cli_build_log, should_stop=should_stop)
+        if image_start_cb:
+            image_start_cb(args.input_file, 1, 1)
+        results = run_pipeline(config, on_progress=progress_cb, on_build_log=_cli_build_log, should_stop=should_stop)
         success = bool(results) and all(step.success for step in results)
         subject_dir = Path(args.output_dir).resolve() / subject_id
         print(f"Đã xử lý xong ảnh: {args.input_file} | status={'OK' if success else 'FAILED'} | log={subject_dir / 'logs' / 'pipeline_metrics.log'}", flush=True)
+        if args.json_events:
+            _emit_json_event(
+                "image_done",
+                input_file=args.input_file,
+                subject_id=subject_id,
+                idx=1,
+                total=1,
+                success=success,
+                error="" if success else "one or more pipeline steps failed",
+            )
         return 0 if success else 1
 
     input_dir = args.input_dir or DEFAULT_BATCH_INPUT_DIR
@@ -1281,9 +1342,10 @@ def main(argv: list[str] | None = None) -> int:
         resume=args.resume,
         selected_tools=selected_tools,
         recursive=not args.non_recursive,
-        on_progress=_cli_progress,
+        on_progress=progress_cb,
         on_build_log=_cli_build_log,
-        on_image_done=_cli_image_done,
+        on_image_start=image_start_cb,
+        on_image_done=image_done_cb,
         should_stop=(lambda: Path(args.stop_file).exists()) if args.stop_file else None,
     )
 
