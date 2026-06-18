@@ -17,6 +17,7 @@ class LineChart(ttk.Frame):
         # so we keep the dark background for the chart.
         self.canvas = tk.Canvas(self, height=90, highlightthickness=1, highlightbackground="#374151")
         self.canvas.pack(fill=tk.X, expand=True)
+        self.canvas.bind("<Configure>", lambda _e: self._draw_chart())
 
     def reset(self) -> None:
         self.points.clear()
@@ -49,6 +50,11 @@ class LineChart(ttk.Frame):
             y = height - pad_bottom - frac * (height - pad_bottom - pad_top)
             self.canvas.create_line(pad_left, y, width - pad_right, y, fill="#1f2937")
 
+        if len(self.points) == 1:
+            x = pad_left
+            y = height - pad_bottom - (min(self.points[0], max_value) / max_value) * (height - pad_bottom - pad_top)
+            self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=self.color, outline=self.color)
+            return
         if len(self.points) < 2:
             return
 
@@ -60,7 +66,7 @@ class LineChart(ttk.Frame):
             x = pad_left + idx * step
             y = height - pad_bottom - (min(point, max_value) / max_value) * usable_h
             coords.extend([x, y])
-        self.canvas.create_line(*coords, fill=self.color, width=20, smooth=True)
+        self.canvas.create_line(*coords, fill=self.color, width=2, smooth=True)
 
 
 class MetricsCharts(ttk.Frame):

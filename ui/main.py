@@ -32,8 +32,10 @@ from pipeline_runner import (
     _derive_subject_id,
     _discover_mri_files,
     build_subject_id_map,
+    enabled_tools_for_stage,
     ensure_image,
     image_exists,
+    is_tool_enabled,
     run_batch_pipeline,
     run_pipeline,
 )
@@ -59,9 +61,9 @@ class PipelineGUI:
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
         "bias_correction": "ants_n4",
-        "template_registration": "synthmorph_fs8",
-        "white_matter_segmentation": "wm_seg",
-        "stats_extraction": "freesurfer_stats_fs8",
+        "template_registration": "",
+        "white_matter_segmentation": "",
+        "stats_extraction": "",
     }
 
     def __init__(self, root: tk.Tk) -> None:
@@ -76,7 +78,7 @@ class PipelineGUI:
         # Apply Styles
 
         self.log_queue: queue.Queue[str] = queue.Queue()
-        self.metrics_queue: queue.Queue[tuple[float | None, int | None, str]] = queue.Queue()
+        self.metrics_queue: queue.Queue[tuple[float | None, int | None, float | None, str]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.running = False
         self.stop_requested = threading.Event()
@@ -255,7 +257,7 @@ class PipelineGUI:
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
             self.state.pipeline_note.set(
-                "Fixed FreeSurfer stack. Note: bias correction still uses ants_n4 until a FreeSurfer replacement image exists."
+                "Fixed FreeSurfer stack with FS8 tools temporarily disabled to save disk. Template registration and stats extraction are skipped."
             )
         else:
             for combo in self.tool_combos.values():
@@ -309,7 +311,7 @@ class PipelineGUI:
         tools = config.get("tools", {})
         for stage, value in tools.items():
             if stage in self.state.tool_vars:
-                self.state.tool_vars[stage].set(value)
+                self.state.tool_vars[stage].set(value if is_tool_enabled(value) else "")
 
         self._apply_pipeline_mode()
 
@@ -438,9 +440,12 @@ class PipelineGUI:
             errors.append("Threads must be a valid integer.")
 
         selected_tools = self.state.get_selected_tools()
-        missing_stages = [stage for stage in STAGE_ORDER if not selected_tools.get(stage)]
+        missing_stages = [stage for stage in STAGE_ORDER if enabled_tools_for_stage(stage) and not selected_tools.get(stage)]
         if missing_stages:
             errors.append("Select one tool for every pipeline stage.")
+        disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]
+        if disabled_tools:
+            errors.append(f"Disabled tools selected: {', '.join(disabled_tools)}")
 
         needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
         if needs_license and not Path(self.state.license_dir.get().strip()).exists():
@@ -507,7 +512,7 @@ class PipelineGUI:
 
     def _ensure_local_images_with_dialog(self) -> bool:
         dialog, log, progress, state = build_image_dialog(self.root, "Docker image preflight")
-        required_tools = list(dict.fromkeys(self.state.get_selected_tools().values()))
+        required_tools = [tool for tool in dict.fromkeys(self.state.get_selected_tools().values()) if tool and is_tool_enabled(tool)]
 
         def worker() -> None:
             ok = True
@@ -756,6 +761,8 @@ class PipelineGUI:
             "ram": [],
             "gpu": [],
             "container": "n/a",
+            "stage": "Queued",
+            "stage_detail": "Waiting to start",
         }
         
         container = ttk.Frame(self.image_list_frame)
@@ -768,12 +775,18 @@ class PipelineGUI:
         top.pack(fill=tk.X, padx=4, pady=(4, 2))
         
         icon_img = self._get_status_icon("Pending")
-        icon_label = ttk.Label(top, image=icon_img) if icon_img else ttk.Label(top, text="⏳")
+        icon_label = ttk.Label(top, image=icon_img) if icon_img else ttk.Label(top, text="..")
         icon_label.pack(side=tk.LEFT, padx=(0, 4))
         
         display_name = truncate_middle(name, 25)
         title = ttk.Label(top, text=display_name, anchor=tk.W, font=("Inter", 9, "bold"))
         title.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        status_label = ttk.Label(top, text="Pending", anchor=tk.E, foreground="#64748b")
+        status_label.pack(side=tk.RIGHT, padx=(6, 0))
+
+        stage_label = ttk.Label(row, text="Queued - waiting to start", anchor=tk.W, foreground="#64748b")
+        stage_label.pack(fill=tk.X, padx=4, pady=(0, 2))
         
         var = tk.DoubleVar(value=0)
         bar = ttk.Progressbar(row, variable=var, maximum=100, mode="determinate")
@@ -785,7 +798,14 @@ class PipelineGUI:
         for widget in (container, row, top, icon_label, title, bar, sep):
             widget.bind("<Button-1>", lambda _e, key=input_file: self._select_image(key))
             
-        self.image_rows[input_file] = {"frame": row, "icon": icon_label, "title": title, "var": var}
+        self.image_rows[input_file] = {
+            "frame": row,
+            "icon": icon_label,
+            "title": title,
+            "status": status_label,
+            "stage": stage_label,
+            "var": var,
+        }
 
     def _select_image(self, input_file: str) -> None:
         if input_file not in self.image_runs:
@@ -794,7 +814,7 @@ class PipelineGUI:
         for key, row in self.image_rows.items():
             row["frame"].configure(relief="solid" if key == input_file else "flat")
         run = self.image_runs[input_file]
-        self.state.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']}")
+        self.state.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']} - {run.get('stage', 'Queued')}")
         self._render_selected_detail()
 
     def _render_selected_detail(self) -> None:
@@ -816,12 +836,20 @@ class PipelineGUI:
         self.log_text.see(tk.END)
         self.log_text.configure(state=tk.DISABLED)
 
-    def _update_image_run(self, input_file: str, status: str | None = None, percent: float | None = None, log_line: str | None = None) -> None:
+    def _update_image_run(
+        self,
+        input_file: str,
+        status: str | None = None,
+        percent: float | None = None,
+        log_line: str | None = None,
+        stage_text: str | None = None,
+    ) -> None:
         if input_file not in self.image_runs:
             self._create_image_run(input_file, len(self.image_runs) + 1, max(self.state.current_total_images, len(self.image_runs) + 1))
         run = self.image_runs[input_file]
         if status is not None:
             run["status"] = status
+            self.image_rows[input_file]["status"].configure(text=status)
             icon_img = self._get_status_icon(status)
             if icon_img:
                 self.image_rows[input_file]["icon"].configure(image=icon_img, text="")
@@ -831,11 +859,15 @@ class PipelineGUI:
             pct = max(0.0, min(100.0, percent))
             run["percent"] = pct
             self.image_rows[input_file]["var"].set(pct)
+        if stage_text is not None:
+            run["stage"] = stage_text
+            run["stage_detail"] = stage_text
+            self.image_rows[input_file]["stage"].configure(text=stage_text)
         if log_line:
             run["logs"].append(log_line)
             run["logs"] = run["logs"][-2500:]
         if self.current_image_key == input_file:
-            self.state.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']}")
+            self.state.detail_title.set(f"{run['idx']}/{run['total']} {run['name']} - {run['status']} - {run.get('stage', 'Queued')}")
 
     def _update_batch_summary(self) -> None:
         self.state.batch_total_text.set(f"Success: {self.state.current_success_images} / {self.state.current_total_images}")
@@ -918,7 +950,7 @@ class PipelineGUI:
             self.current_image_key = key
             self.state.current_running_images = 1
             self._update_batch_summary()
-            self._update_image_run(key, status="Running", percent=0, log_line=f"Remote image {idx}/{total} started: {key}")
+            self._update_image_run(key, status="Running", percent=0, log_line=f"Remote image {idx}/{total} started: {key}", stage_text="Starting")
             self.root.after(0, lambda k=key: self._select_image(k))
         elif kind == "progress":
             pct = float(event.get("pct", 0)) * 100
@@ -926,24 +958,50 @@ class PipelineGUI:
             stage = str(event.get("stage", "pipeline"))
             msg = str(event.get("msg", ""))
             label = {"running": "Running", "success": "Running", "failed": "Failed", "paused": "Paused"}.get(status, status.capitalize())
-            self.state.overall_progress_var.set(max(0, min(100, pct)))
-            self.state.overall_progress_text.set(f"{int(max(0, min(100, pct)))}%")
+            current_run = self.image_runs.get(self.current_image_key, {}) if self.current_image_key else {}
+            idx = int(current_run.get("idx", 1) or 1)
+            total = max(int(current_run.get("total", self.state.current_total_images) or 1), 1)
+            overall_pct = pct if stage == "batch" else (((idx - 1) + (pct / 100.0)) / total) * 100.0
+            self.state.overall_progress_var.set(max(0, min(100, overall_pct)))
+            self.state.overall_progress_text.set(f"{int(max(0, min(100, overall_pct)))}%")
             self.state.status_text.set(status.capitalize())
             if self.current_image_key:
-                self._update_image_run(self.current_image_key, status=label, percent=pct, log_line=f"REMOTE {status.upper()} {stage}: {msg}")
+                stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
+                stage_text = f"{stage_name} - {status.capitalize()}"
+                image_pct = None if stage == "batch" else pct
+                self._update_image_run(
+                    self.current_image_key,
+                    status=label,
+                    percent=image_pct,
+                    log_line=f"REMOTE {status.upper()} {stage}: {msg}",
+                    stage_text=stage_text,
+                )
         elif kind == "image_done":
             key = self._match_progress_input_key(str(event.get("input_file", "")))
             success = bool(event.get("success"))
             self.state.current_running_images = 0
             if success:
                 self.state.current_success_images += 1
-                self._update_image_run(key, status="Done", percent=100, log_line=f"Remote image done: {event.get('subject_id', key)} | OK")
+                self._update_image_run(key, status="Done", percent=100, log_line=f"Remote image done: {event.get('subject_id', key)} | OK", stage_text="Completed")
             else:
                 self.state.current_failed_images += 1
-                self._update_image_run(key, status="Failed", log_line=f"Remote image failed: {event.get('error', '')}")
+                self._update_image_run(key, status="Failed", log_line=f"Remote image failed: {event.get('error', '')}", stage_text="Failed")
             self._update_batch_summary()
         elif kind == "image_preflight":
             self._log(f"Remote image preflight {event.get('status')}: {event.get('tool')}")
+        elif kind == "metrics":
+            cpu_pct = event.get("cpu_pct")
+            ram_bytes = event.get("ram_bytes")
+            gpu_pct = event.get("gpu_pct")
+            self._on_metrics(
+                str(event.get("stage", "")),
+                str(event.get("tool", "")),
+                float(cpu_pct) if cpu_pct is not None else None,
+                int(ram_bytes) if ram_bytes is not None else None,
+                float(event.get("elapsed", 0.0) or 0.0),
+                str(event.get("container_name", "")),
+                float(gpu_pct or 0.0),
+            )
 
     def _run_remote_task(self, title: str, task, clear_log: bool = False, enable_pause: bool = False) -> None:
         if self.running:
@@ -1073,6 +1131,8 @@ class PipelineGUI:
     def _required_images_for_current_tools(self) -> list[str]:
         images: list[str] = []
         for tool_key in self.state.get_selected_tools().values():
+            if not tool_key or not is_tool_enabled(tool_key):
+                continue
             tool = TOOL_DEFS.get(tool_key)
             if not tool:
                 continue
@@ -1212,10 +1272,10 @@ class PipelineGUI:
         self.state.current_running_images = 0
         if ok:
             self.state.current_success_images += 1
-            self._update_image_run(input_file, status="Done", percent=100, log_line=f"Single file finished: {subject_id} | OK")
+            self._update_image_run(input_file, status="Done", percent=100, log_line=f"Single file finished: {subject_id} | OK", stage_text="Completed")
         else:
             self.state.current_failed_images += 1
-            self._update_image_run(input_file, status="Failed", log_line=f"Single file finished: {subject_id} | FAILED")
+            self._update_image_run(input_file, status="Failed", log_line=f"Single file finished: {subject_id} | FAILED", stage_text="Failed")
         self._update_batch_summary()
 
     def _run_multiple(self, req: dict) -> None:
@@ -1267,8 +1327,13 @@ class PipelineGUI:
         line = f"[{ts}] {status.upper()} {stage}: {msg}"
         self._log(line)
         pct_value = max(0, min(100, pct * 100))
-        self.state.overall_progress_var.set(pct_value)
-        self.state.overall_progress_text.set(f"{int(pct_value)}%")
+        current_run = self.image_runs.get(self.current_image_key, {}) if self.current_image_key else {}
+        idx = int(current_run.get("idx", 1) or 1)
+        total = max(int(current_run.get("total", self.state.current_total_images) or 1), 1)
+        overall_pct = pct_value if stage == "batch" else (((idx - 1) + (pct_value / 100.0)) / total) * 100.0
+        overall_pct = max(0, min(100, overall_pct))
+        self.state.overall_progress_var.set(overall_pct)
+        self.state.overall_progress_text.set(f"{int(overall_pct)}%")
         self.state.status_text.set(status.capitalize())
         if self.current_image_key:
             label = {
@@ -1277,7 +1342,15 @@ class PipelineGUI:
                 "failed": "Failed",
                 "paused": "Paused",
             }.get(status, status.capitalize())
-            self._update_image_run(self.current_image_key, status=label, percent=pct_value, log_line=line)
+            stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
+            stage_text = f"{stage_name} - {status.capitalize()}"
+            self._update_image_run(
+                self.current_image_key,
+                status=label,
+                percent=None if stage == "batch" else pct_value,
+                log_line=line,
+                stage_text=stage_text,
+            )
         if stage in self.stage_items:
             label = {
                 "running": "Running",
@@ -1297,9 +1370,9 @@ class PipelineGUI:
         self.current_image_key = input_file
         self.state.current_running_images = 1
         self._update_batch_summary()
-        self._update_image_run(input_file, status="Running", percent=0, log_line=f"Starting image {idx}/{total}: {input_file}")
+        self._update_image_run(input_file, status="Running", percent=0, log_line=f"Starting image {idx}/{total}: {input_file}", stage_text="Starting")
         self._select_image(input_file)
-        self.metrics_queue.put((0.0, 0, "new image"))
+        self.metrics_queue.put((0.0, 0, 0.0, "new image"))
 
     def _on_image_done(self, result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
@@ -1314,19 +1387,19 @@ class PipelineGUI:
             row_status = "Failed"
             pct = self.image_runs.get(result.input_file, {}).get("percent", 0)
         self._update_batch_summary()
-        self._update_image_run(result.input_file, status=row_status, percent=pct, log_line=f"Done image {idx}/{total}: {result.subject_id} | {status}")
+        self._update_image_run(result.input_file, status=row_status, percent=pct, log_line=f"Done image {idx}/{total}: {result.subject_id} | {status}", stage_text="Completed" if result.success else "Failed")
 
-    def _on_metrics(self, stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str) -> None:
+    def _on_metrics(self, stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str, gpu_pct: float | None = 0.0) -> None:
         if self.current_image_key and self.current_image_key in self.image_runs:
             run = self.image_runs[self.current_image_key]
             run["cpu"].append(max(cpu_pct or 0.0, 0.0))
             run["ram"].append(ram_bytes or 0)
-            run["gpu"].append(0.0)
+            run["gpu"].append(max(gpu_pct or 0.0, 0.0))
             run["container"] = container_name or "n/a"
             run["cpu"] = run["cpu"][-180:]
             run["ram"] = run["ram"][-180:]
             run["gpu"] = run["gpu"][-180:]
-        self.metrics_queue.put((cpu_pct, ram_bytes, container_name))
+        self.metrics_queue.put((cpu_pct, ram_bytes, gpu_pct, container_name))
 
     def _request_stop(self) -> None:
         self.stop_requested.set()
@@ -1368,11 +1441,14 @@ class PipelineGUI:
 
         while True:
             try:
-                cpu_pct, ram_bytes, container_name = self.metrics_queue.get_nowait()
+                cpu_pct, ram_bytes, gpu_pct, container_name = self.metrics_queue.get_nowait()
             except queue.Empty:
                 break
             if hasattr(self, "detail_chart"):
                 self.detail_chart.add(cpu_pct, ram_bytes, container_name)
+            if hasattr(self, "gpu_chart"):
+                gpu = max(gpu_pct or 0.0, 0.0)
+                self.gpu_chart.add(gpu, f"{gpu:.1f}%")
             cpu = max(cpu_pct or 0.0, 0.0)
             ram_mib = (ram_bytes or 0) / (1024 * 1024)
             self.state.cpu_text.set(f"CPU {cpu:.0f}%")

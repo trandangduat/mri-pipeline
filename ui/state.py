@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from pipeline_runner import PROJECT_ROOT, STAGE_ORDER, TOOL_DEFS
+from pipeline_runner import PROJECT_ROOT, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled
 
 class AppState:
     def __init__(self):
@@ -38,12 +38,12 @@ class AppState:
             "brain_extraction": "synthstrip_fs7",
             "segmentation": "synthseg_freesurfer_fs7",
             "bias_correction": "ants_n4",
-            "template_registration": "synthmorph_fs8",
-            "white_matter_segmentation": "wm_seg",
-            "stats_extraction": "freesurfer_stats_fs8",
+            "template_registration": "",
+            "white_matter_segmentation": "",
+            "stats_extraction": "",
         }
         for stage in STAGE_ORDER:
-            tools = [name for name, meta in TOOL_DEFS.items() if meta["stage"] == stage]
+            tools = enabled_tools_for_stage(stage)
             self.tool_vars[stage] = tk.StringVar(value=defaults.get(stage, tools[0] if tools else ""))
 
         # UI state variables
@@ -107,7 +107,7 @@ class AppState:
         tools = config.get("tools", {})
         for stage, value in tools.items():
             if stage in self.tool_vars:
-                self.tool_vars[stage].set(value)
+                self.tool_vars[stage].set(value if is_tool_enabled(value) else "")
 
         remote = config.get("remote", {})
         self.remote_host.set(remote.get("host", ""))

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from pipeline_runner import PROJECT_ROOT, TOOL_DEFS
+from pipeline_runner import PROJECT_ROOT, TOOL_DEFS, is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
 
@@ -80,6 +80,11 @@ class RemoteRunner:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.run(f"rm -f {shlex.quote(posixpath.join(self.remote_job_dir, 'stop_requested'))}", stream=False, check=False)
+            ssh.run(
+                f"df -h {shlex.quote(self.remote_job_dir)} {shlex.quote(posixpath.join(self.remote_job_dir, 'outputs'))}",
+                stream=True,
+                check=False,
+            )
             command = self._remote_command()
             return ssh.run(command, stream=True)
 
@@ -121,6 +126,8 @@ class RemoteRunner:
     def required_images(self) -> list[str]:
         images: list[str] = []
         for tool_key in self.config.selected_tools.values():
+            if not tool_key or not is_tool_enabled(tool_key):
+                continue
             tool = TOOL_DEFS.get(tool_key)
             if not tool:
                 continue
@@ -133,6 +140,9 @@ class RemoteRunner:
     def _upload_code(self, ssh: RemoteSSHClient) -> None:
         remote_code = posixpath.join(self.remote_job_dir, "code")
         ssh.upload_file(PROJECT_ROOT / "pipeline_runner.py", posixpath.join(remote_code, "pipeline_runner.py"))
+        pipeline_pkg = PROJECT_ROOT / "pipeline"
+        if pipeline_pkg.exists():
+            ssh.upload_dir(pipeline_pkg, posixpath.join(remote_code, "pipeline"), skip_dirs={"__pycache__"}, allowed_extensions={".py"})
         req = PROJECT_ROOT / "requirements.txt"
         if req.exists():
             ssh.upload_file(req, posixpath.join(remote_code, "requirements.txt"))
@@ -209,6 +219,6 @@ class RemoteRunner:
         }
         for stage, opt in option_map.items():
             value = self.config.selected_tools.get(stage)
-            if value:
+            if value and is_tool_enabled(value):
                 args += [opt, value]
         return args

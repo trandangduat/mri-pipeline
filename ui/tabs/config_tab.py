@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
-from pipeline_runner import STAGE_ORDER, STAGE_LABELS, TOOL_DEFS
+from pipeline_runner import STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage
 
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
@@ -38,7 +38,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     for idx, stage in enumerate(STAGE_ORDER):
         row = idx + 1
-        tools = [name for name, meta in TOOL_DEFS.items() if meta["stage"] == stage]
+        tools = enabled_tools_for_stage(stage)
         var = gui.state.tool_vars[stage]
         
         step = ttk.Frame(frame)
