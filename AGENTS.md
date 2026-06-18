@@ -1,0 +1,40 @@
+# AGENTS.md — MRI Pipeline
+
+## Entrypoints
+
+| Entrypoint | Command | When to use |
+|---|---|---|
+| Tkinter GUI | `python gui.py` | Desktop GUI; needs `python3-tk` on Linux |
+| Batch CLI | `python pipeline_runner.py --input-dir <path>` | Headless batch processing |
+| Python API | `from pipeline_runner import PipelineConfig, run_pipeline` | Embedding in other scripts |
+
+If `.venv/` or `venv/` exists in the project root, activate it first: `. .venv/bin/activate` and use `python` from there — don't install packages globally.
+
+## Pipeline stages (run sequentially)
+
+`reorientation` → `brain_extraction` → `segmentation` → `bias_correction` → `template_registration` → `white_matter_segmentation` → `stats_extraction`
+
+Each stage picks a tool from `TOOL_DEFS` (defined at `pipeline_runner.py:43-136`). Every tool runs as a **Docker container** via `subprocess`. Docker images come from registries (`mkdayyyy/`, `duattran05/`, `magicianfrog/`). Images are pulled on first use by `ensure_image()` — no manual `docker pull`.
+
+## CLI flags
+
+```bash
+python pipeline_runner.py --input-dir <path> --device cpu --threads 4 --resume
+```
+
+`--resume` skips completed stages via `pipeline_state.json`. Other flags: `--non-recursive`, `--json-events`, `--ensure-images-only`, `--stop-file <path>`. Each stage also has a tool-override flag (e.g. `--segmentation`, `--brain-extraction`).
+
+## Output structure
+
+```
+outputs/<subject_id>/
+  mri/     — NIfTI/MGZ volumes
+  stats/   — TSV/CSV statistics
+  logs/    — tool logs + pipeline_metrics.log + pipeline_state.json
+```
+
+Subject ID defaults to filename stem. For generic ADNI names (`001.mgz`, `002.mgz`, etc.) it uses the parent folder path to avoid collisions.
+
+## GUI 
+- **Theme & Typography**: Uses `sv-ttk` (SunValley theme) with the `Inter` font globally enforced for a modern look.
+- **Icons**: Uses colored 20x20 PNG icons sourced from Icons8 (stored in `ui/icons/`). Loaded dynamically via `tk.PhotoImage` in the toolbar.

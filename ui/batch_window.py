@@ -1,0 +1,161 @@
+import tkinter as tk
+from tkinter import ttk, simpledialog, messagebox
+import os
+import glob
+
+def find_mri_files(directory: str, recursive: bool = True) -> list[str]:
+    exts = ['.mgz', '.nii', '.nii.gz']
+    results = []
+    if recursive:
+        for root, _, files in os.walk(directory):
+            for f in files:
+                if any(f.endswith(ext) for ext in exts):
+                    results.append(os.path.join(root, f))
+    else:
+        for f in os.listdir(directory):
+            if any(f.endswith(ext) for ext in exts):
+                results.append(os.path.join(directory, f))
+    return sorted(results)
+
+def format_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+class BatchConfigWindow(tk.Toplevel):
+    def __init__(self, parent, gui):
+        super().__init__(parent)
+        self.gui = gui
+        self.title("Configure Batch MRI Files")
+        self.geometry("800x600")
+        self.transient(parent)
+        self.grab_set()
+        
+        self.files_data = [] # List of dict: {"path": str, "size": str, "selected": bool}
+        
+        self.recursive_var = tk.BooleanVar(value=not self.gui.state.non_recursive.get())
+        
+        self._build_ui()
+        self._scan_folder()
+        
+    def _build_ui(self):
+        main_frame = ttk.Frame(self, padding=16)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Checkbox
+        top_frame = ttk.Frame(main_frame)
+        top_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Checkbutton(top_frame, text="Scan recursively for .mgz/.nii/.nii.gz", 
+                        variable=self.recursive_var, command=self._scan_folder).pack(side=tk.LEFT)
+                        
+        # Buttons
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(btn_frame, text="Select X first files", command=self._select_x_first).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="Select all", command=self._select_all).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(btn_frame, text="Unselect all", command=self._unselect_all).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Treeview
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        self.tree = ttk.Treeview(tree_frame, columns=("select", "path", "size"), show="headings", selectmode="none")
+        self.tree.heading("select", text="Selected")
+        self.tree.heading("path", text="File Path")
+        self.tree.heading("size", text="File Size")
+        self.tree.column("select", width=80, anchor=tk.CENTER)
+        self.tree.column("path", width=550, anchor=tk.W)
+        self.tree.column("size", width=100, anchor=tk.E)
+        
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
+        
+        # Bottom Buttons
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.pack(fill=tk.X)
+        ttk.Button(bottom_frame, text="Save", style="Accent.TButton", command=self._save).pack(side=tk.RIGHT, padx=(10, 0))
+        ttk.Button(bottom_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        
+    def _scan_folder(self):
+        directory = self.gui.state.input_path.get().strip()
+        if not os.path.isdir(directory):
+            self.files_data = []
+            self._refresh_tree()
+            return
+            
+        files = find_mri_files(directory, self.recursive_var.get())
+        # Preserve selection if path already exists
+        old_selected = {f["path"] for f in self.files_data if f["selected"]}
+        # Also check gui.state.selected_files if this is first load
+        if not self.files_data and self.gui.state.selected_files:
+            old_selected.update(self.gui.state.selected_files)
+            
+        self.files_data = []
+        for f in files:
+            size_str = "Unknown"
+            try:
+                size_str = format_size(os.path.getsize(f))
+            except Exception:
+                pass
+                
+            selected = (f in old_selected) or (not old_selected and not self.gui.state.selected_files) # Default all true if no old selection
+            self.files_data.append({
+                "path": f,
+                "size": size_str,
+                "selected": selected
+            })
+            
+        self._refresh_tree()
+        
+    def _refresh_tree(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        for idx, f in enumerate(self.files_data):
+            sel_text = "☑" if f["selected"] else "☐"
+            self.tree.insert("", tk.END, iid=str(idx), values=(sel_text, f["path"], f["size"]))
+            
+    def _on_tree_click(self, event):
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "cell":
+            col = self.tree.identify_column(event.x)
+            if col == "#1": # select column
+                item_id = self.tree.identify_row(event.y)
+                if item_id:
+                    idx = int(item_id)
+                    self.files_data[idx]["selected"] = not self.files_data[idx]["selected"]
+                    self._refresh_tree()
+                    
+    def _select_x_first(self):
+        x = simpledialog.askinteger("Select X first files", "Enter number of files to select:", parent=self, minvalue=1, maxvalue=len(self.files_data))
+        if x is not None:
+            self._unselect_all(refresh=False)
+            for i in range(min(x, len(self.files_data))):
+                self.files_data[i]["selected"] = True
+            self._refresh_tree()
+            
+    def _select_all(self):
+        for f in self.files_data:
+            f["selected"] = True
+        self._refresh_tree()
+        
+    def _unselect_all(self, refresh=True):
+        for f in self.files_data:
+            f["selected"] = False
+        if refresh:
+            self._refresh_tree()
+            
+    def _save(self):
+        selected_paths = [f["path"] for f in self.files_data if f["selected"]]
+        self.gui.state.selected_files = selected_paths
+        self.gui.state.non_recursive.set(not self.recursive_var.get())
+        self.gui._refresh_input_label()
+        self.destroy()
