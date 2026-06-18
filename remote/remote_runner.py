@@ -136,10 +136,9 @@ class RemoteRunner:
         req = PROJECT_ROOT / "requirements.txt"
         if req.exists():
             ssh.upload_file(req, posixpath.join(remote_code, "requirements.txt"))
-        docker_dir = PROJECT_ROOT / "docker"
-        if docker_dir.exists():
-            self.on_log("Uploading docker/ metadata and Dockerfiles...")
-            ssh.upload_dir(docker_dir, posixpath.join(remote_code, "docker"), skip_dirs={"__pycache__"})
+        norm_vol = PROJECT_ROOT / "normalize_volumes.py"
+        if norm_vol.exists():
+            ssh.upload_file(norm_vol, posixpath.join(remote_code, "normalize_volumes.py"))
 
     def _upload_inputs(self, ssh: RemoteSSHClient) -> None:
         remote_input = posixpath.join(self.remote_job_dir, "input")
@@ -152,17 +151,24 @@ class RemoteRunner:
                 remote_name = f"{idx:04d}_{src.name}"
                 ssh.upload_file(src, posixpath.join(remote_input, remote_name))
         else:
-            self.on_log("Uploading input directory recursively...")
-            ssh.upload_dir(self.config.input_dir, remote_input, skip_dirs={"__pycache__"})
+            self.on_log("Uploading input directory recursively (only MRI files)...")
+            ssh.upload_dir(self.config.input_dir, remote_input, skip_dirs={"__pycache__", "venv", ".venv", ".git", ".idea", ".vscode"}, allowed_extensions={".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"})
 
     def _upload_license(self, ssh: RemoteSSHClient) -> None:
         if not self.config.license_dir:
             return
         local_license = Path(self.config.license_dir)
         if not local_license.exists():
-            self.on_log(f"License directory not found locally: {local_license}")
+            self.on_log(f"License not found locally: {local_license}")
             return
-        ssh.upload_dir(local_license, posixpath.join(self.remote_job_dir, "license"), skip_dirs={"__pycache__"})
+            
+        remote_license_dir = posixpath.join(self.remote_job_dir, "license")
+        if local_license.is_file():
+            self.on_log(f"Uploading license file: {local_license.name}")
+            ssh.upload_file(local_license, posixpath.join(remote_license_dir, "license.txt"))
+        else:
+            self.on_log("Uploading license directory...")
+            ssh.upload_dir(local_license, remote_license_dir, skip_dirs={"__pycache__"})
 
     def _remote_command(self) -> str:
         remote_code = posixpath.join(self.remote_job_dir, "code")

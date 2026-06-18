@@ -133,7 +133,7 @@ class RemoteSSHClient:
         self.on_log(f"Uploading file: {local} -> {remote_path}")
         self.sftp.put(str(local), remote_path)
 
-    def upload_dir(self, local_dir: str | Path, remote_dir: str, skip_dirs: set[str] | None = None) -> None:
+    def upload_dir(self, local_dir: str | Path, remote_dir: str, skip_dirs: set[str] | None = None, allowed_extensions: set[str] | None = None) -> None:
         local_root = Path(local_dir)
         remote_root = self.expand_path(remote_dir)
         skip_dirs = skip_dirs or set()
@@ -142,8 +142,16 @@ class RemoteSSHClient:
             dirs[:] = [d for d in dirs if d not in skip_dirs]
             rel = Path(root).relative_to(local_root)
             remote_subdir = remote_root if str(rel) == "." else posixpath.join(remote_root, rel.as_posix())
+            
+            files_to_upload = files
+            if allowed_extensions:
+                files_to_upload = [f for f in files if any(f.endswith(ext) for ext in allowed_extensions)]
+            
+            if not files_to_upload:
+                continue
+
             self.mkdir_p(remote_subdir)
-            for name in files:
+            for name in files_to_upload:
                 local_file = Path(root) / name
                 remote_file = posixpath.join(remote_subdir, name)
                 self.sftp.put(str(local_file), remote_file)

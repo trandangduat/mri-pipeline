@@ -160,7 +160,8 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     buttons.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
     ttk.Button(buttons, text="Test SSH", style="Accent.TButton", command=gui._remote_test_ssh).pack(side=tk.LEFT)
 
-    ttk.Label(frame, textvariable=gui.state.remote_status).grid(row=5, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+    gui.remote_status_label = ttk.Label(frame, textvariable=gui.state.remote_status)
+    gui.remote_status_label.grid(row=5, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
 
     frame.columnconfigure(1, weight=1)
     frame.columnconfigure(3, weight=1)

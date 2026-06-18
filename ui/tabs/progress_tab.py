@@ -23,7 +23,10 @@ def build_progress_tab(parent: ttk.Frame, gui) -> None:
     image_scroll = ttk.Scrollbar(list_card, orient=tk.VERTICAL, command=gui.image_list_canvas.yview)
     gui.image_list_frame = ttk.Frame(gui.image_list_canvas)
     gui.image_list_frame.bind("<Configure>", lambda _e: gui.image_list_canvas.configure(scrollregion=gui.image_list_canvas.bbox("all")))
-    gui.image_list_canvas.create_window((0, 0), window=gui.image_list_frame, anchor=tk.NW)
+    frame_id = gui.image_list_canvas.create_window((0, 0), window=gui.image_list_frame, anchor=tk.NW)
+    def _on_canvas_configure(event):
+        gui.image_list_canvas.itemconfig(frame_id, width=event.width)
+    gui.image_list_canvas.bind("<Configure>", _on_canvas_configure)
     gui.image_list_canvas.configure(yscrollcommand=image_scroll.set)
     gui.image_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     image_scroll.pack(side=tk.RIGHT, fill=tk.Y)

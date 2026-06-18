@@ -41,13 +41,18 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TOOL_DEFS: dict[str, dict] = {
-    "mri_convert": {
-        "image": "mkdayyyy/mri-mri-convert:latest",
-        "dockerfile": "docker/freesurfer-mri-convert",
-        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
-        "base_dockerfile": "docker/freesurfer-base",
+    "mri_convert_fs8": {
+        "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
+        "command": ["python3", "/app/run_convert.py"],
+        "output_files": ["01_reoriented.nii.gz"],
+    },
+    "mri_convert_fs7": {
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "reorientation",
+        "needs_license": True,
+        "command": ["python3", "/app/run_convert.py"],
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {
@@ -57,13 +62,18 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": False,
         "output_files": ["01_nibabel_reoriented.nii.gz"],
     },
-    "synthstrip": {
-        "image": "mkdayyyy/mri-synthstrip:latest",
-        "dockerfile": "docker/freesurfer-synthstrip",
-        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
-        "base_dockerfile": "docker/freesurfer-base",
+    "synthstrip_fs8": {
+        "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
+        "command": ["python3", "/app/run_synthstrip.py"],
+        "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
+    },
+    "synthstrip_fs7": {
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "brain_extraction",
+        "needs_license": True,
+        "command": ["python3", "/app/run_synthstrip.py"],
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "hdbet": {
@@ -74,13 +84,18 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["02_hdbet_brain.nii.gz", "02_hdbet_brain_bet.nii.gz"],
         "extra_mounts": {"hdbet_weights": "/root/.cache/torch/hub/checkpoints"},
     },
-    "synthseg_freesurfer": {
-        "image": "mkdayyyy/mri-synthseg-freesurfer:latest",
-        "dockerfile": "docker/freesurfer-synthseg",
-        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
-        "base_dockerfile": "docker/freesurfer-base",
+    "synthseg_freesurfer_fs8": {
+        "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "segmentation",
         "needs_license": True,
+        "command": ["python3", "/app/run_synthseg.py"],
+        "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
+    },
+    "synthseg_freesurfer_fs7": {
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "segmentation",
+        "needs_license": True,
+        "command": ["python3", "/app/run_synthseg.py"],
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_standalone": {
@@ -104,11 +119,11 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": False,
         "output_files": ["05_standardized.nii.gz"],
     },
-    "synthmorph": {
-        "image": "magicianfrog/mri-synthmorph:latest",
-        "dockerfile": "docker/synthmorph",
+    "synthmorph_fs8": {
+        "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "template_registration",
         "needs_license": True,
+        "command": ["python3", "/app/run_synthmorph.py"],
         "output_files": ["04_warped.nii.gz", "04_deformation_field.nii.gz"],
     },
     "wm_seg": {
@@ -118,11 +133,8 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "output_files": ["06_wm_mask.nii.gz"],
     },
-    "freesurfer_stats": {
-        "image": "mkdayyyy/mri-freesurfer-stats:latest",
-        "dockerfile": "docker/freesurfer-stats",
-        "base_image": "mkdayyyy/mri-freesurfer-base:latest",
-        "base_dockerfile": "docker/freesurfer-base",
+    "freesurfer_stats_fs8": {
+        "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "stats_extraction",
         "needs_license": True,
         "output_files": [
@@ -170,13 +182,13 @@ class PipelineConfig:
     threads: int = 4
     resume: bool = False
     selected_tools: dict[str, str] = field(default_factory=lambda: {
-        "reorientation": "mri_convert",
-        "brain_extraction": "synthstrip",
-        "segmentation": "synthseg_freesurfer",
+        "reorientation": "mri_convert_fs7",
+        "brain_extraction": "synthstrip_fs7",
+        "segmentation": "synthseg_freesurfer_fs7",
         "bias_correction": "ants_n4",
-        "template_registration": "synthmorph",
+        "template_registration": "synthmorph_fs8",
         "white_matter_segmentation": "wm_seg",
-        "stats_extraction": "freesurfer_stats",
+        "stats_extraction": "freesurfer_stats_fs8",
     })
 
 
@@ -777,6 +789,7 @@ def _run_docker(
     timeout: int = 7200,
     container_name: str | None = None,
     on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
+    command: list[str] | None = None,
 ) -> tuple[int, str, int | None, float | None]:
     cmd = ["docker", "run", "--rm"]
     if container_name:
@@ -791,6 +804,8 @@ def _run_docker(
         for k, v in env.items():
             cmd += ["-e", f"{k}={v}"]
     cmd.append(image)
+    if command:
+        cmd.extend(command)
     cmd += args
 
     log.info("Running: %s", " ".join(cmd))
@@ -888,7 +903,11 @@ def run_pipeline(
 
     license_mount: list[tuple[str, str]] = []
     if config.license_dir:
-        license_mount.append((os.path.abspath(config.license_dir), "/license"))
+        lic_path = Path(config.license_dir).absolute()
+        if lic_path.is_file():
+            license_mount.append((str(lic_path), "/license/license.txt"))
+        else:
+            license_mount.append((str(lic_path), "/license"))
 
     results: list[StepResult] = []
     input_for_next_step: str | None = None
@@ -958,6 +977,10 @@ def run_pipeline(
             host = os.path.join(subject_dir, "mri", rel)
             Path(host).mkdir(parents=True, exist_ok=True)
             mounts.append((host, container))
+            
+        norm_vol = Path(__file__).parent / "normalize_volumes.py"
+        if norm_vol.exists():
+            mounts.append((str(norm_vol.resolve()), "/app/normalize_volumes.py"))
 
         args = [
             "--input", input_path,
@@ -979,6 +1002,7 @@ def run_pipeline(
             image=tool["image"], args=args, mounts=mounts,
             gpus=(config.device == "gpu"),
             container_name=container_name,
+            command=tool.get("command"),
             on_metrics=_metrics_relay if on_metrics else None,
         )
         duration = time.time() - t0
@@ -986,9 +1010,26 @@ def run_pipeline(
         # Organize scattered outputs into mri/, stats/, logs/
         _organize_output(subject_dir)
 
-        # Verify output
         success = code == 0
-        error = "" if success else f"exit code {code}"
+        if success:
+            error = ""
+        else:
+            if not output.strip():
+                try:
+                    logs = [p for p in Path(logs_dir).glob("*.log") if p.name not in ("pipeline_metrics.log", "pipeline_state.json")]
+                    if logs:
+                        latest_log = max(logs, key=lambda p: p.stat().st_mtime)
+                        output = latest_log.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            tail = " | ".join(output.strip().splitlines()[-3:]) if output.strip() else "No output"
+            error = f"exit code {code} ({tail})"
+            if output.strip():
+                print(f"\n--- DOCKER ERROR LOG ({tool_key}) ---", flush=True)
+                for line in output.strip().splitlines()[-20:]:
+                    print(line, flush=True)
+                print("-" * 40, flush=True)
         if success:
             found = _find_output_file(subject_dir, tool["output_files"])
             if found:

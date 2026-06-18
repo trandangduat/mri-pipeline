@@ -34,13 +34,13 @@ class AppState:
         # Pipeline tools
         self.tool_vars: dict[str, tk.StringVar] = {}
         defaults = {
-            "reorientation": "mri_convert",
-            "brain_extraction": "synthstrip",
-            "segmentation": "fastsurfervinn",
+            "reorientation": "mri_convert_fs7",
+            "brain_extraction": "synthstrip_fs7",
+            "segmentation": "synthseg_freesurfer_fs7",
             "bias_correction": "ants_n4",
-            "template_registration": "synthmorph",
+            "template_registration": "synthmorph_fs8",
             "white_matter_segmentation": "wm_seg",
-            "stats_extraction": "freesurfer_stats",
+            "stats_extraction": "freesurfer_stats_fs8",
         }
         for stage in STAGE_ORDER:
             tools = [name for name, meta in TOOL_DEFS.items() if meta["stage"] == stage]

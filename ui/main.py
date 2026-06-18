@@ -37,6 +37,13 @@ from pipeline_runner import (
     run_batch_pipeline,
     run_pipeline,
 )
+
+def truncate_middle(text: str, max_len: int = 30) -> str:
+    if len(text) <= max_len:
+        return text
+    half = (max_len - 3) // 2
+    return text[:half] + "..." + text[-half:]
+
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from ui.state import AppState
 from ui.styles import setup_styles
@@ -48,13 +55,13 @@ from remote.ssh_client import SSHConfig
 
 class PipelineGUI:
     FREESURFER_FIXED_TOOLS = {
-        "reorientation": "mri_convert",
-        "brain_extraction": "synthstrip",
-        "segmentation": "synthseg_freesurfer",
+        "reorientation": "mri_convert_fs7",
+        "brain_extraction": "synthstrip_fs7",
+        "segmentation": "synthseg_freesurfer_fs7",
         "bias_correction": "ants_n4",
-        "template_registration": "synthmorph",
+        "template_registration": "synthmorph_fs8",
         "white_matter_segmentation": "wm_seg",
-        "stats_extraction": "freesurfer_stats",
+        "stats_extraction": "freesurfer_stats_fs8",
     }
 
     def __init__(self, root: tk.Tk) -> None:
@@ -117,6 +124,29 @@ class PipelineGUI:
             pass
         return None
 
+    def _get_status_icon(self, status: str) -> tk.PhotoImage | None:
+        s = status.lower()
+        if "pending" in s: name = "pending"
+        elif "running" in s: name = "running"
+        elif "fail" in s: name = "failed"
+        elif "done" in s or "success" in s or "ok" in s: name = "success"
+        else: return None
+        
+        icon_key = f"status_{name}"
+        if icon_key in self.toolbar_icons:
+            return self.toolbar_icons[icon_key]
+        
+        try:
+            import os
+            icon_path = os.path.join(os.path.dirname(__file__), "icons", f"{name}.png")
+            if os.path.exists(icon_path):
+                img = tk.PhotoImage(file=icon_path).subsample(2, 2)
+                self.toolbar_icons[icon_key] = img
+                return img
+        except Exception:
+            pass
+        return None
+
     def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command) -> ttk.Button:
         icon = self._make_icon(key)
         options = {"text": f" {label} ", "command": command}
@@ -137,6 +167,7 @@ class PipelineGUI:
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
         self.run_button = self._toolbar_button(toolbar, "run", "Run Pipeline", lambda: self._start_pipeline(resume=True, restart=False))
+        self.run_button.configure(style="Accent.TButton")
         self.stop_button = self._toolbar_button(toolbar, "pause", "Stop", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
         
@@ -524,7 +555,8 @@ class PipelineGUI:
                 ok = runner.ensure_images()
             except Exception as exc:
                 ok = False
-                self.root.after(0, lambda: append_dialog_log(log, f"REMOTE IMAGE ERROR: {type(exc).__name__}: {exc}"))
+                err_msg = f"REMOTE IMAGE ERROR: {type(exc).__name__}: {exc}"
+                self.root.after(0, lambda m=err_msg: append_dialog_log(log, m))
             finally:
                 runner.on_log = self._remote_log_event
                 state["ok"] = ok
@@ -576,17 +608,22 @@ class PipelineGUI:
         self.running = True
         self.stop_requested.clear()
         self.run_button.configure(state=tk.DISABLED)
-        self.resume_button.configure(state=tk.DISABLED)
-        self.restart_button.configure(state=tk.DISABLED)
-        self.stop_button.configure(state=tk.NORMAL)
-        self.progress.start(10)
+        if hasattr(self, "resume_button"):
+            self.resume_button.configure(state=tk.DISABLED)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.DISABLED)
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state=tk.NORMAL)
+        if hasattr(self, "progress"):
+            self.progress.start(10)
         self.detail_chart.reset()
         self.gpu_chart.reset()
         self.state.overall_progress_var.set(0)
         self.state.overall_progress_text.set("0%")
         self.state.status_text.set("Running")
         for stage in STAGE_ORDER:
-            self._set_step_status(stage, "Ready", 0)
+            if hasattr(self, "_set_step_status"):
+                self._set_step_status(stage, "Ready", 0)
         self._clear_log()
         self._log("=" * 80)
         if restart:
@@ -656,8 +693,13 @@ class PipelineGUI:
             if not Path(raw_input).is_dir():
                 messagebox.showerror("Invalid input", f"Không tồn tại folder: {raw_input}")
                 return None
-            base["input_dir"] = raw_input
-            base["recursive"] = not self.state.non_recursive.get()
+            if self.state.selected_files:
+                base["mode"] = "files"
+                base["input_files"] = self.state.selected_files
+                base["input_dir"] = self._common_input_root(self.state.selected_files)
+            else:
+                base["input_dir"] = raw_input
+                base["recursive"] = not self.state.non_recursive.get()
 
         return base
 
@@ -701,7 +743,7 @@ class PipelineGUI:
     def _create_image_run(self, input_file: str, idx: int, total: int) -> None:
         if input_file in self.image_runs:
             return
-        name = Path(input_file).name or input_file
+        name = _derive_subject_id(input_file)
         self.image_runs[input_file] = {
             "input_file": input_file,
             "name": name,
@@ -715,20 +757,35 @@ class PipelineGUI:
             "gpu": [],
             "container": "n/a",
         }
-        row = ttk.Frame(self.image_list_frame)
-        row.pack(fill=tk.X, pady=(0, 6))
+        
+        container = ttk.Frame(self.image_list_frame)
+        container.pack(fill=tk.X)
+        
+        row = ttk.Frame(container)
+        row.pack(fill=tk.X, padx=4, pady=4)
+        
         top = ttk.Frame(row)
-        top.pack(fill=tk.X, padx=8, pady=(6, 2))
-        title = ttk.Label(top, text=f"{idx}/{total} {name}", anchor=tk.W, font=("Inter", 9, "bold"))
+        top.pack(fill=tk.X, padx=4, pady=(4, 2))
+        
+        icon_img = self._get_status_icon("Pending")
+        icon_label = ttk.Label(top, image=icon_img) if icon_img else ttk.Label(top, text="⏳")
+        icon_label.pack(side=tk.LEFT, padx=(0, 4))
+        
+        display_name = truncate_middle(name, 25)
+        title = ttk.Label(top, text=display_name, anchor=tk.W, font=("Inter", 9, "bold"))
         title.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        status = ttk.Label(top, text="Pending", anchor=tk.E, font=("Inter", 8))
-        status.pack(side=tk.RIGHT)
+        
         var = tk.DoubleVar(value=0)
         bar = ttk.Progressbar(row, variable=var, maximum=100, mode="determinate")
-        bar.pack(fill=tk.X, padx=8, pady=(0, 8))
-        for widget in (row, top, title, status, bar):
+        bar.pack(fill=tk.X, padx=4, pady=(0, 4))
+        
+        sep = ttk.Separator(container, orient=tk.HORIZONTAL)
+        sep.pack(fill=tk.X)
+        
+        for widget in (container, row, top, icon_label, title, bar, sep):
             widget.bind("<Button-1>", lambda _e, key=input_file: self._select_image(key))
-        self.image_rows[input_file] = {"frame": row, "title": title, "status": status, "var": var}
+            
+        self.image_rows[input_file] = {"frame": row, "icon": icon_label, "title": title, "var": var}
 
     def _select_image(self, input_file: str) -> None:
         if input_file not in self.image_runs:
@@ -765,7 +822,11 @@ class PipelineGUI:
         run = self.image_runs[input_file]
         if status is not None:
             run["status"] = status
-            self.image_rows[input_file]["status"].configure(text=status)
+            icon_img = self._get_status_icon(status)
+            if icon_img:
+                self.image_rows[input_file]["icon"].configure(image=icon_img, text="")
+            else:
+                self.image_rows[input_file]["icon"].configure(image="", text="•")
         if percent is not None:
             pct = max(0.0, min(100.0, percent))
             run["percent"] = pct
@@ -891,11 +952,16 @@ class PipelineGUI:
         self.running = True
         self.state.remote_status.set(f"Remote: {title} running...")
         self.stop_requested.clear()
-        self.run_button.configure(state=tk.DISABLED)
-        self.resume_button.configure(state=tk.DISABLED)
-        self.restart_button.configure(state=tk.DISABLED)
-        self.stop_button.configure(state=tk.NORMAL if enable_pause else tk.DISABLED)
-        self.progress.start(10)
+        if hasattr(self, "run_button"):
+            self.run_button.configure(state=tk.DISABLED)
+        if hasattr(self, "resume_button"):
+            self.resume_button.configure(state=tk.DISABLED)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.DISABLED)
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state=tk.NORMAL if enable_pause else tk.DISABLED)
+        if hasattr(self, "progress"):
+            self.progress.start(10)
         if clear_log:
             self._clear_log()
             self.detail_chart.reset()
@@ -904,7 +970,8 @@ class PipelineGUI:
             self.state.overall_progress_text.set("0%")
             self.state.status_text.set("Running")
             for stage in STAGE_ORDER:
-                self._set_step_status(stage, "Ready", 0)
+                if hasattr(self, "_set_step_status"):
+                    self._set_step_status(stage, "Ready", 0)
         self._append_log("=" * 80)
         self._append_log(f"Remote task started: {title}")
 
@@ -927,12 +994,25 @@ class PipelineGUI:
 
         def task():
             try:
-                self.root.after(0, lambda: self.state.remote_status.set("Testing SSH connection..."))
+                def set_testing():
+                    self.state.remote_status.set("Testing SSH connection...")
+                    if hasattr(self, "remote_status_label"):
+                        self.remote_status_label.configure(foreground="")
+                self.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
                 runner.test_ssh()
-                self.root.after(0, lambda: self.state.remote_status.set("✅ SSH Connection Successful"))
+                def set_success():
+                    self.state.remote_status.set("✅ SSH Connection Successful")
+                    if hasattr(self, "remote_status_label"):
+                        self.remote_status_label.configure(foreground="#16a34a") # green
+                self.root.after(0, set_success)
             except Exception as exc:
-                self.root.after(0, lambda: self.state.remote_status.set(f"❌ SSH Connection Failed: {exc}"))
+                err_msg = f"❌ SSH Connection Failed: {exc}"
+                def set_failed(m=err_msg):
+                    self.state.remote_status.set(m)
+                    if hasattr(self, "remote_status_label"):
+                        self.remote_status_label.configure(foreground="#dc2626") # red
+                self.root.after(0, set_failed)
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -1007,7 +1087,8 @@ class PipelineGUI:
             self._append_log("Task ignored: another task is already running.")
             return
         self.running = True
-        self.progress.start(10)
+        if hasattr(self, "progress"):
+            self.progress.start(10)
         self.state.status_text.set(title)
         self._append_log("=" * 80)
         self._append_log(f"Task started: {title}")
@@ -1204,7 +1285,8 @@ class PipelineGUI:
                 "failed": "Failed",
                 "paused": "Paused",
             }.get(status, status.capitalize())
-            self._set_step_status(stage, label, pct)
+            if hasattr(self, "_set_step_status"):
+                self._set_step_status(stage, label, pct)
         if self.state.run_target.get() == "Server":
             self.state.server_text.set("Server: connected")
         else:
@@ -1261,11 +1343,16 @@ class PipelineGUI:
         self._log("Pause requested. The current Docker step will finish, then state will be saved as PAUSED.")
 
     def _set_idle_state(self) -> None:
-        self.progress.stop()
-        self.run_button.configure(state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
-        self.resume_button.configure(state=tk.NORMAL)
-        self.restart_button.configure(state=tk.NORMAL)
-        self.stop_button.configure(state=tk.DISABLED)
+        if hasattr(self, "progress"):
+            self.progress.stop()
+        if hasattr(self, "run_button"):
+            self.run_button.configure(state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
+        if hasattr(self, "resume_button"):
+            self.resume_button.configure(state=tk.NORMAL)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.NORMAL)
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state=tk.DISABLED)
         self.running = False
         self.state.status_text.set("Ready")
         self._log("Pipeline finished.")

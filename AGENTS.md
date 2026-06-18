@@ -8,13 +8,11 @@
 | Batch CLI | `python pipeline_runner.py --input-dir <path>` | Headless batch processing |
 | Python API | `from pipeline_runner import PipelineConfig, run_pipeline` | Embedding in other scripts |
 
-If `.venv/` or `venv/` exists in the project root, activate it first: `. .venv/bin/activate` and use `python` from there — don't install packages globally.
+If `.venv/` or `venv/` exists in the project root, activate it first: `. .venv/bin/activate` and use `python` from there. Else create one, don't install packages globally.
 
-## Pipeline stages (run sequentially)
+## Pipeline 
 
-`reorientation` → `brain_extraction` → `segmentation` → `bias_correction` → `template_registration` → `white_matter_segmentation` → `stats_extraction`
-
-Each stage picks a tool from `TOOL_DEFS` (defined at `pipeline_runner.py:43-136`). Every tool runs as a **Docker container** via `subprocess`. Docker images come from registries (`mkdayyyy/`, `duattran05/`, `magicianfrog/`). Images are pulled on first use by `ensure_image()` — no manual `docker pull`.
+Each stage picks a tool from `TOOL_DEFS` (defined at `pipeline_runner.py`). Every tool runs as a **Docker container** via `subprocess`. Docker images come from registries (`mkdayyyy/`, `duattran05/`, `magicianfrog/`). Images are pulled on first use by `ensure_image()` — no manual `docker pull`.
 
 ## CLI flags
 
