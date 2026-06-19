@@ -41,3 +41,7 @@ def setup_styles(root) -> None:
     
     # Define custom ttk styles here for Card and Accent buttons
     style.configure("Card.TFrame", relief="solid", borderwidth=1)
+    
+    # Selected list item background
+    style.configure("Selected.TFrame", background="#e2e8f0")
+    style.configure("Selected.TLabel", background="#e2e8f0")
