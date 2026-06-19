@@ -17,6 +17,7 @@ from .config import (
     STAGE_ORDER,
     StepResult,
     TOOL_DEFS,
+    ToolContext,
     is_tool_enabled,
 )
 from .docker_ops import _run_docker, ensure_image
@@ -161,6 +162,19 @@ def run_pipeline(
             mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
 
         args = ["--input", input_path, "--output-dir", "/output", "--work-dir", "/work", "--subject-id", config.subject_id, "--threads", str(config.threads), "--device", config.device]
+        command = tool.get("command")
+
+        if "command_builder" in tool:
+            ctx = ToolContext(
+                input_path=input_path,
+                subject_id=config.subject_id,
+                threads=config.threads,
+                device=config.device
+            )
+            actual_cmd = tool["command_builder"](ctx)
+            command = ["bash", "-c", actual_cmd]
+            args = []
+
         t0 = time.time()
         container_name = _safe_container_name("mri", config.subject_id, tool_key)
 
@@ -172,9 +186,9 @@ def run_pipeline(
             image=tool["image"],
             args=args,
             mounts=mounts,
-            gpus=(config.device == "gpu"),
+            gpus=(config.device == "gpu" or config.device == "cuda"),
             container_name=container_name,
-            command=tool.get("command"),
+            command=command,
             on_metrics=_metrics_relay if on_metrics else None,
         )
         duration = time.time() - t0

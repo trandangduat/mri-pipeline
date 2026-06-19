@@ -36,3 +36,8 @@ Subject ID defaults to filename stem. For generic ADNI names (`001.mgz`, `002.mg
 ## GUI 
 - **Theme & Typography**: Uses `sv-ttk` (SunValley theme) with the `Inter` font globally enforced for a modern look.
 - **Icons**: Uses colored 20x20 PNG icons sourced from Icons8 (stored in `ui/icons/`). Loaded dynamically via `tk.PhotoImage` in the toolbar.
+
+## Architecture Notes
+- **Docker Execution**: `TOOL_DEFS` in `pipeline/config.py` uses `command_builder` instead of Python wrappers inside Docker. Docker commands are constructed on the host via `ToolContext` and run via `bash -c`. No need to rebuild images just to change arguments.
+- **Freesurfer Flags**: To run `mri_synthseg` on CPU, the correct flag is `--cpu` (not `--nocpu`).
+- **Tool Mapping**: `white_matter_segmentation` stage uses `mri_binarize` instead of `wm_seg`.

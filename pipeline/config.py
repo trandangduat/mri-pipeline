@@ -8,19 +8,26 @@ from typing import Callable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+@dataclass
+class ToolContext:
+    input_path: str
+    subject_id: str
+    threads: int
+    device: str
+
 TOOL_DEFS: dict[str, dict] = {
     "mri_convert_fs8": {
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
-        "command": ["python3", "/app/run_convert.py"],
+        "command_builder": lambda ctx: f"mri_convert {ctx.input_path} /work/01_reoriented.nii.gz",
         "output_files": ["01_reoriented.nii.gz"],
     },
     "mri_convert_fs7": {
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "reorientation",
         "needs_license": True,
-        "command": ["python3", "/app/run_convert.py"],
+        "command_builder": lambda ctx: f"mri_convert {ctx.input_path} /work/01_reoriented.nii.gz",
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {
@@ -34,14 +41,24 @@ TOOL_DEFS: dict[str, dict] = {
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
-        "command": ["python3", "/app/run_synthstrip.py"],
+        "command_builder": lambda ctx: (
+            f"mri_synthstrip -i {ctx.input_path} "
+            f"-o /work/02_synthstrip_brain.nii.gz "
+            f"-m /work/02_synthstrip_brain_mask.nii.gz "
+            f"{'-g' if ctx.device != 'cpu' else ''}"
+        ),
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "synthstrip_fs7": {
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
-        "command": ["python3", "/app/run_synthstrip.py"],
+        "command_builder": lambda ctx: (
+            f"mri_synthstrip -i {ctx.input_path} "
+            f"-o /work/02_synthstrip_brain.nii.gz "
+            f"-m /work/02_synthstrip_brain_mask.nii.gz "
+            f"{'-g' if ctx.device != 'cpu' else ''}"
+        ),
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "hdbet": {
@@ -56,14 +73,26 @@ TOOL_DEFS: dict[str, dict] = {
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "segmentation",
         "needs_license": True,
-        "command": ["python3", "/app/run_synthseg.py"],
+        "command_builder": lambda ctx: (
+            f"mri_synthseg --i {ctx.input_path} --o /work/03_freesurfer_synthseg_segmentation.nii.gz "
+            f"--vol /work/03_freesurfer_synthseg_volumes.csv --threads {ctx.threads} --crop 160 "
+            f"{'--cpu' if ctx.device == 'cpu' else ''} "
+            f"&& python3 /app/normalize_volumes.py /work/03_freesurfer_synthseg_volumes.csv "
+            f"/output/stats/subcortical_volume.tsv /output/stats/cortical_volume.tsv {ctx.subject_id} FreeSurferSynthSeg"
+        ),
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_freesurfer_fs7": {
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "segmentation",
         "needs_license": True,
-        "command": ["python3", "/app/run_synthseg.py"],
+        "command_builder": lambda ctx: (
+            f"mri_synthseg --i {ctx.input_path} --o /work/03_freesurfer_synthseg_segmentation.nii.gz "
+            f"--vol /work/03_freesurfer_synthseg_volumes.csv --threads {ctx.threads} --crop 160 "
+            f"{'--cpu' if ctx.device == 'cpu' else ''} "
+            f"&& python3 /app/normalize_volumes.py /work/03_freesurfer_synthseg_volumes.csv "
+            f"/output/stats/subcortical_volume.tsv /output/stats/cortical_volume.tsv {ctx.subject_id} FreeSurferSynthSeg"
+        ),
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_standalone": {
@@ -91,7 +120,10 @@ TOOL_DEFS: dict[str, dict] = {
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "template_registration",
         "needs_license": True,
-        "command": ["python3", "/app/run_synthmorph.py"],
+        "command_builder": lambda ctx: (
+            f"mri_synthmorph register -m deform -j {ctx.threads} "
+            f"-o /work/04_synthmorph_registered.nii.gz {ctx.input_path} {ctx.input_path}"
+        ),
         "output_files": [
             "04_warped.nii.gz",
             "04_deformation_field.nii.gz",
@@ -107,11 +139,11 @@ TOOL_DEFS: dict[str, dict] = {
             "*registered*.mgz",
         ],
     },
-    "wm_seg": {
-        "image": "magicianfrog/mri-wm-seg:latest",
-        "dockerfile": "docker/wm-segmentation",
+    "mri_binarize": {
+        "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "white_matter_segmentation",
         "needs_license": True,
+        "command_builder": lambda ctx: f"mri_binarize --i {ctx.input_path} --wm --o /work/06_wm_mask.nii.gz",
         "output_files": ["06_wm_mask.nii.gz"],
     },
     "freesurfer_stats_fs8": {
@@ -131,7 +163,6 @@ TOOL_DEFS: dict[str, dict] = {
 
 DISABLED_DOCKER_IMAGES = {
     "mkdayyyy/mri-fs8-all:latest",
-    "magicianfrog/mri-wm-seg:latest",
 }
 
 

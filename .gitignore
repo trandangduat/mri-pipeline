@@ -67,3 +67,5 @@ license/*
 
 # Model weights directory
 models/
+
+configs/*.json
