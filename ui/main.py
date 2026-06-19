@@ -52,6 +52,7 @@ from ui.styles import setup_styles
 from ui.components.dialogs import build_image_dialog, append_dialog_log
 from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.progress_tab import build_progress_tab
+from ui.tabs.tools_tab import build_tools_tab
 from remote.ssh_client import SSHConfig
 
 
@@ -68,7 +69,7 @@ class PipelineGUI:
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("MRI Pipeline GUI - Tkinter")
+        self.root.title("MRI Pipeline GUI")
         self.root.geometry("1250x950")
         self.root.minsize(1050, 760)
 
@@ -100,6 +101,12 @@ class PipelineGUI:
         self.image_rows: dict[str, dict] = {}
         self.current_image_key = ""
         self.active_image_key = ""
+        self.tools_tab: ttk.Frame | None = None
+        self.tools_tree: ttk.Treeview | None = None
+        self.tools_log_text: tk.Text | None = None
+        self.python_env_status = tk.StringVar(value="Not checked")
+        self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
+        self.tool_status_labels: dict[str, ttk.Label] = {}
 
         self._build_ui()
         self._setup_validation_traces()
@@ -112,6 +119,7 @@ class PipelineGUI:
 
         self._build_app_toolbar(root_frame)
         self._build_tabs(root_frame)
+        self._build_status_bar(root_frame)
 
     def _make_icon(self, name: str) -> tk.PhotoImage | None:
         if name in self.toolbar_icons:
@@ -169,9 +177,11 @@ class PipelineGUI:
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
-        self.run_button = self._toolbar_button(toolbar, "run", "Run Pipeline", lambda: self._start_pipeline(resume=True, restart=False))
-        self.run_button.configure(style="Accent.TButton")
-        self.stop_button = self._toolbar_button(toolbar, "pause", "Stop", self._request_stop)
+        self.resume_button = self._toolbar_button(toolbar, "run", "Run / Resume", lambda: self._start_pipeline(resume=True, restart=False))
+        self.resume_button.configure(style="Accent.TButton")
+        self.run_button = self.resume_button
+        self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
+        self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
         
         status = ttk.Frame(toolbar)
@@ -189,12 +199,25 @@ class PipelineGUI:
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.config_tab = ttk.Frame(self.notebook)
+        self.tools_tab = ttk.Frame(self.notebook)
         self.progress_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.config_tab, text="Pipeline configuration")
+        self.notebook.add(self.tools_tab, text="Tools / Docker Images")
         self.notebook.add(self.progress_tab, text="Run progress", state="disabled")
 
         build_configuration_tab(self.config_tab, self)
+        build_tools_tab(self.tools_tab, self)
         build_progress_tab(self.progress_tab, self)
+
+    def _build_status_bar(self, parent: ttk.Frame) -> None:
+        bar = ttk.Frame(parent, padding=(10, 5))
+        bar.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Separator(bar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 5))
+        left = ttk.Frame(bar)
+        left.pack(fill=tk.X)
+        ttk.Label(left, text="Status", font=("Inter", 9, "bold")).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(left, textvariable=self.state.config_status, foreground="#334155").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(left, textvariable=self.state.status_text, foreground="#64748b").pack(side=tk.RIGHT, padx=(8, 0))
 
     def _set_widget_tree_state(self, widget: tk.Widget, state: str) -> None:
         for child in widget.winfo_children():
@@ -212,6 +235,8 @@ class PipelineGUI:
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
         self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
+        self._refresh_tools_tree()
+        self._update_config_tool_status_labels()
         self._validate_configuration()
 
     def _browse_input(self) -> None:
@@ -264,6 +289,7 @@ class PipelineGUI:
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
+        self._update_config_tool_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
         if self.state.pipeline_mode.get() == "FreeSurfer Fixed (7 steps)":
@@ -410,7 +436,7 @@ class PipelineGUI:
         self.state.input_path.trace_add("write", self._refresh_input_label)
 
         for tool_var in self.state.tool_vars.values():
-            tool_var.trace_add("write", lambda *_args: self._validate_configuration())
+            tool_var.trace_add("write", lambda *_args: (self._validate_configuration(), self._update_config_tool_status_labels()))
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
@@ -471,6 +497,8 @@ class PipelineGUI:
         ok = not errors
         if hasattr(self, "run_button"):
             self.run_button.configure(state=tk.NORMAL if ok and not self.running else tk.DISABLED)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.NORMAL if ok and not self.running else tk.DISABLED)
         self.state.config_status.set("Configuration complete. Ready to run." if ok else errors[0])
         return ok
 
@@ -486,6 +514,309 @@ class PipelineGUI:
         else:
             if self._ensure_local_images_with_dialog():
                 self._log("Local image preflight completed successfully.")
+
+    def _tool_image(self, tool_key: str) -> str:
+        return str(TOOL_DEFS.get(tool_key, {}).get("image", ""))
+
+    def _all_enabled_images(self) -> list[str]:
+        images: list[str] = []
+        for tool_key, tool in TOOL_DEFS.items():
+            if not is_tool_enabled(tool_key):
+                continue
+            image = str(tool.get("image", ""))
+            if image and image not in images:
+                images.append(image)
+        return images
+
+    def _tool_status(self, tool_key: str, target: str | None = None) -> str:
+        if not tool_key:
+            return "Skipped"
+        if not is_tool_enabled(tool_key):
+            return "Disabled"
+        image = self._tool_image(tool_key)
+        if not image:
+            return "Unknown"
+        target = target or self.state.run_target.get()
+        return self.tool_image_statuses.setdefault(target, {}).get(image, "Unknown")
+
+    def _status_label_text(self, status: str) -> str:
+        return "Not checked" if status == "Unknown" else status
+
+    def _status_color(self, status: str) -> str:
+        return {
+            "Installed": "#16a34a",
+            "Missing": "#dc2626",
+            "Downloading": "#2563eb",
+            "Checking": "#2563eb",
+            "Disabled": "#64748b",
+            "Skipped": "#64748b",
+            "Error": "#dc2626",
+        }.get(status, "#64748b")
+
+    def _set_image_status(self, target: str, image: str, status: str) -> None:
+        if not image:
+            return
+        self.tool_image_statuses.setdefault(target, {})[image] = status
+        self._refresh_tools_tree()
+        self._update_config_tool_status_labels()
+
+    def _refresh_tools_tree(self) -> None:
+        tree = getattr(self, "tools_tree", None)
+        if tree is None:
+            return
+        target = self.state.run_target.get()
+        for item in tree.get_children():
+            tree.delete(item)
+        for status, color in {
+            "Installed": "#16a34a",
+            "Missing": "#dc2626",
+            "Downloading": "#2563eb",
+            "Checking": "#2563eb",
+            "Disabled": "#64748b",
+            "Unknown": "#64748b",
+            "Error": "#dc2626",
+        }.items():
+            tree.tag_configure(status, foreground=color)
+        for tool_key, tool in TOOL_DEFS.items():
+            stage = str(tool.get("stage", ""))
+            image = str(tool.get("image", ""))
+            status = self._tool_status(tool_key, target)
+            tree.insert(
+                "",
+                tk.END,
+                iid=tool_key,
+                values=(STAGE_LABELS.get(stage, stage), tool_key, image, self._status_label_text(status)),
+                tags=(status,),
+            )
+
+    def _append_tools_log(self, line: str) -> None:
+        log = getattr(self, "tools_log_text", None)
+        if log is None:
+            return
+        log.configure(state=tk.NORMAL)
+        log.insert(tk.END, line + "\n")
+        log.see(tk.END)
+        log.configure(state=tk.DISABLED)
+
+    def _selected_tool_rows(self) -> list[str]:
+        tree = getattr(self, "tools_tree", None)
+        if tree is None:
+            return []
+        return [item for item in tree.selection() if item in TOOL_DEFS]
+
+    def _build_image_remote_runner(self) -> RemoteRunner | None:
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return None
+        return RemoteRunner(
+            RemoteRunConfig(
+                ssh=ssh_config,
+                remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
+                remote_python=self.state.remote_python.get().strip() or "python3",
+                output_dir=self.state.output_dir.get().strip(),
+                license_dir=self.state.license_dir.get().strip(),
+                selected_tools={},
+            ),
+            on_log=self._tools_remote_log_event,
+        )
+
+    def _tools_remote_log_event(self, line: str) -> None:
+        keep = ("Connecting SSH", "SSH connected", "Python OK:", "Python missing:", "pip OK:", "pip missing:", "Installing", "Installed:", "Missing:", "Downloading:", "Failed:")
+        if line.startswith(keep):
+            self.root.after(0, lambda l=line: self._append_tools_log(l))
+
+    def _set_python_env_status(self, status: str) -> None:
+        self.python_env_status.set(status)
+
+    def _check_python_environment(self) -> None:
+        target = self.state.run_target.get()
+        self._set_python_env_status("Checking...")
+        self._append_tools_log(f"Checking Python: {target}")
+
+        def worker() -> None:
+            if target == "Local":
+                try:
+                    version = subprocess.run([sys.executable, "--version"], capture_output=True, text=True, timeout=30)
+                    pip = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
+                    py_text = (version.stdout or version.stderr).strip() or "Python not found"
+                    pip_text = (pip.stdout or pip.stderr).strip() or "pip not found"
+                    python_ok = version.returncode == 0
+                    pip_ok = pip.returncode == 0
+                    self.root.after(0, lambda t=py_text, ok=python_ok: self._append_tools_log(("Python OK: " if ok else "Python missing: ") + t))
+                    self.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_tools_log(("pip OK: " if ok else "pip missing: ") + t))
+                    if python_ok and pip_ok:
+                        status = "Local: Python OK, pip OK"
+                    elif python_ok:
+                        status = "Local: Python OK, pip missing"
+                    else:
+                        status = "Local: Python missing"
+                    self.root.after(0, lambda s=status: self._set_python_env_status(s))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
+                    self.root.after(0, lambda: self._set_python_env_status("Local: Error"))
+                return
+
+            runner = self._build_image_remote_runner()
+            if runner is None:
+                self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                return
+            try:
+                details = runner.check_python_details()
+                python_ok = bool(details["python_ok"])
+                pip_ok = bool(details["pip_ok"])
+                if python_ok and pip_ok:
+                    status = "Server: Python OK, pip OK"
+                elif python_ok:
+                    status = "Server: Python OK, pip missing"
+                else:
+                    status = "Server: Python missing"
+                self.root.after(0, lambda s=status: self._set_python_env_status(s))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
+                self.root.after(0, lambda: self._set_python_env_status("Server: Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _install_python_requirements(self) -> None:
+        target = self.state.run_target.get()
+        requirements = PROJECT_ROOT / "requirements.txt"
+        if not requirements.exists():
+            messagebox.showerror("Missing requirements", f"requirements.txt not found: {requirements}")
+            return
+        self._set_python_env_status("Installing...")
+        self._append_tools_log(f"Installing Python packages from requirements.txt: {target}")
+
+        def worker() -> None:
+            if target == "Local":
+                try:
+                    pip_check = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
+                    if pip_check.returncode != 0:
+                        self.root.after(0, lambda: self._append_tools_log("pip missing: trying ensurepip..."))
+                        subprocess.run([sys.executable, "-m", "ensurepip", "--user", "--upgrade"], capture_output=True, text=True, timeout=120)
+                    proc = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "--user", "-r", str(requirements)],
+                        capture_output=True,
+                        text=True,
+                        timeout=900,
+                    )
+                    ok = proc.returncode == 0
+                    msg = "Python packages installed: Local" if ok else "Python packages failed: Local"
+                    self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                    if not ok:
+                        tail = " | ".join((proc.stderr or proc.stdout).strip().splitlines()[-3:])
+                        self.root.after(0, lambda t=tail: self._append_tools_log(f"pip error: {t}"))
+                    self.root.after(0, lambda: self._set_python_env_status("Local: Python packages installed" if ok else "Local: Package install failed"))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
+                    self.root.after(0, lambda: self._set_python_env_status("Local: Package install failed"))
+                return
+
+            runner = self._build_image_remote_runner()
+            if runner is None:
+                self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                return
+            try:
+                ok = runner.install_python_requirements()
+                msg = "Python packages installed: Server" if ok else "Python packages failed: Server"
+                self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                self.root.after(0, lambda: self._set_python_env_status("Server: Python packages installed" if ok else "Server: Package install failed"))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
+                self.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _refresh_tool_image_statuses(self) -> None:
+        target = self.state.run_target.get()
+        images = self._all_enabled_images()
+        if not images:
+            self._append_tools_log("No enabled tool images to check.")
+            return
+        for image in images:
+            self.tool_image_statuses.setdefault(target, {})[image] = "Checking"
+        self._refresh_tools_tree()
+        self._update_config_tool_status_labels()
+
+        def worker() -> None:
+            if target == "Local":
+                for image in images:
+                    self.root.after(0, lambda i=image: self._append_tools_log(f"Checking: {i}"))
+                    status = "Installed" if image_exists(image) else "Missing"
+                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                    self.root.after(0, lambda i=image, s=status: self._append_tools_log(f"{s}: {i}"))
+                return
+
+            runner = self._build_image_remote_runner()
+            if runner is None:
+                for image in images:
+                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
+                return
+            try:
+                statuses = runner.check_image_statuses(images)
+                for image, installed in statuses.items():
+                    status = "Installed" if installed else "Missing"
+                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                for image in images:
+                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _ensure_tool_images(self, tool_keys: list[str]) -> None:
+        target = self.state.run_target.get()
+        tool_keys = [tool for tool in dict.fromkeys(tool_keys) if tool in TOOL_DEFS and is_tool_enabled(tool)]
+        if not tool_keys:
+            self._append_tools_log("No enabled tools selected.")
+            return
+        for tool_key in tool_keys:
+            self._set_image_status(target, self._tool_image(tool_key), "Downloading")
+
+        def worker() -> None:
+            if target == "Local":
+                for tool_key in tool_keys:
+                    image = self._tool_image(tool_key)
+                    self.root.after(0, lambda i=image: self._append_tools_log(f"Downloading: {i}"))
+                    ok, err, _ = ensure_image(tool_key, on_build_log=None)
+                    status = "Installed" if ok and image_exists(image) else "Error"
+                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                    msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
+                    self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                return
+
+            runner = self._build_image_remote_runner()
+            if runner is None:
+                return
+            try:
+                ok = runner.ensure_tool_images(tool_keys)
+                images = [self._tool_image(tool) for tool in tool_keys]
+                statuses = runner.check_image_statuses(images)
+                for image, installed in statuses.items():
+                    status = "Installed" if installed else ("Missing" if ok else "Error")
+                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+            except Exception as exc:
+                self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                for tool_key in tool_keys:
+                    self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _ensure_selected_tool_images(self) -> None:
+        self._ensure_tool_images(self._selected_tool_rows())
+
+    def _ensure_missing_tool_images(self) -> None:
+        target = self.state.run_target.get()
+        missing = [tool for tool in TOOL_DEFS if self._tool_status(tool, target) in ("Missing", "Unknown") and is_tool_enabled(tool)]
+        self._ensure_tool_images(missing)
+
+    def _update_config_tool_status_labels(self) -> None:
+        if not getattr(self, "tool_status_labels", None):
+            return
+        target = self.state.run_target.get()
+        for stage, label in self.tool_status_labels.items():
+            tool_key = self.state.tool_vars.get(stage).get() if stage in self.state.tool_vars else ""
+            status = self._tool_status(tool_key, target)
+            label.configure(text=self._status_label_text(status), foreground=self._status_color(status))
 
     def _build_image_dialog(self, title: str) -> tuple[tk.Toplevel, tk.Text, ttk.Progressbar, dict[str, bool]]:
         dialog = tk.Toplevel(self.root)

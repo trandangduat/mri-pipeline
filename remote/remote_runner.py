@@ -48,6 +48,55 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.run("docker ps", check=True)
 
+    def check_python_details(self) -> dict[str, str | bool]:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            return self._check_python_details(ssh)
+
+    def _check_python_details(self, ssh: RemoteSSHClient) -> dict[str, str | bool]:
+        py_cmd = f"{shlex.quote(self.config.remote_python)} --version 2>&1"
+        pip_cmd = f"{shlex.quote(self.config.remote_python)} -m pip --version 2>&1"
+        py_code, py_text = ssh.read_text(py_cmd)
+        pip_code, pip_text = ssh.read_text(pip_cmd)
+        python_text = py_text.strip() or "Python not found"
+        pip_text = pip_text.strip() or "pip not found"
+        self.on_log(("Python OK: " if py_code == 0 else "Python missing: ") + python_text)
+        self.on_log(("pip OK: " if pip_code == 0 else "pip missing: ") + pip_text)
+        return {
+            "python_ok": py_code == 0,
+            "pip_ok": pip_code == 0,
+            "python_text": python_text,
+            "pip_text": pip_text,
+        }
+
+    def check_python(self) -> bool:
+        details = self.check_python_details()
+        return bool(details["python_ok"] and details["pip_ok"])
+
+    def install_python_requirements(self) -> bool:
+        if not self.remote_job_dir:
+            self.upload_job()
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = posixpath.join(self.remote_job_dir, "code")
+            details = self._check_python_details(ssh)
+            if not details["python_ok"]:
+                self.on_log("Failed: Python is not installed or remote_python is invalid. Install Python on the server first.")
+                return False
+            if not details["pip_ok"]:
+                self.on_log("Installing pip with ensurepip...")
+                ensurepip_cmd = f"{shlex.quote(self.config.remote_python)} -m ensurepip --user --upgrade >/tmp/mri_ensurepip.log 2>&1"
+                ensurepip_code = ssh.run(ensurepip_cmd, stream=False, check=False)
+                if ensurepip_code != 0:
+                    self.on_log("Failed: pip is missing and ensurepip could not install it. Install python3-pip on the server first.")
+                    return False
+            cmd = (
+                f"cd {shlex.quote(remote_code)} && "
+                f"{shlex.quote(self.config.remote_python)} -m pip install --user -r requirements.txt >/tmp/mri_requirements.log 2>&1"
+            )
+            self.on_log("Installing packages from requirements.txt...")
+            code = ssh.run(cmd, stream=False, check=False)
+            self.on_log("Installed: Python packages from requirements.txt" if code == 0 else "Failed: Python package install. See /tmp/mri_requirements.log on server.")
+            return code == 0
+
     def check_images(self) -> list[str]:
         required = self.required_images()
         missing: list[str] = []
@@ -60,6 +109,43 @@ class RemoteRunner:
                     self.on_log(f"MISSING image: {image}")
                     missing.append(image)
         return missing
+
+    def check_image_statuses(self, images: list[str]) -> dict[str, bool]:
+        statuses: dict[str, bool] = {}
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            for image in dict.fromkeys(images):
+                code = ssh.run(f"docker image inspect {shlex.quote(image)} >/dev/null 2>&1", stream=False)
+                statuses[image] = code == 0
+                self.on_log(("Installed: " if code == 0 else "Missing: ") + image)
+        return statuses
+
+    def ensure_tool_images(self, tool_keys: list[str]) -> bool:
+        tool_keys = [tool for tool in dict.fromkeys(tool_keys) if tool and is_tool_enabled(tool)]
+        if not tool_keys:
+            return True
+        if not self.remote_job_dir:
+            self.upload_job()
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = posixpath.join(self.remote_job_dir, "code")
+            script = (
+                "import sys\n"
+                "from pipeline_runner import ensure_image, TOOL_DEFS\n"
+                "ok = True\n"
+                "for tool in sys.argv[1:]:\n"
+                "    image = TOOL_DEFS.get(tool, {}).get('image', tool)\n"
+                "    print(f'Downloading: {image}', flush=True)\n"
+                "    result, err, _ = ensure_image(tool)\n"
+                "    if result:\n"
+                "        print(f'Installed: {image}', flush=True)\n"
+                "    else:\n"
+                "        print(f'Failed: {image} {err}', flush=True)\n"
+                "        ok = False\n"
+                "sys.exit(0 if ok else 2)\n"
+            )
+            cmd = [self.config.remote_python, "-c", script, *tool_keys]
+            quoted = " ".join(shlex.quote(str(part)) for part in cmd)
+            code = ssh.run(f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}", stream=True)
+            return code == 0
 
     def upload_job(self) -> str:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
@@ -153,14 +239,20 @@ class RemoteRunner:
     def _upload_inputs(self, ssh: RemoteSSHClient) -> None:
         remote_input = posixpath.join(self.remote_job_dir, "input")
         if self.config.input_mode == "file":
+            if not self.config.input_file:
+                return
             src = Path(self.config.input_file)
             ssh.upload_file(src, posixpath.join(remote_input, src.name))
         elif self.config.input_mode == "files":
+            if not self.config.input_files:
+                return
             for idx, path in enumerate(self.config.input_files, start=1):
                 src = Path(path)
                 remote_name = f"{idx:04d}_{src.name}"
                 ssh.upload_file(src, posixpath.join(remote_input, remote_name))
         else:
+            if not self.config.input_dir:
+                return
             self.on_log("Uploading input directory recursively (only MRI files)...")
             ssh.upload_dir(self.config.input_dir, remote_input, skip_dirs={"__pycache__", "venv", ".venv", ".git", ".idea", ".vscode"}, allowed_extensions={".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"})
 

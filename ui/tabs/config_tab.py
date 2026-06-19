@@ -4,7 +4,47 @@ from ui.components.cards import create_card
 from pipeline_runner import STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage
 
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
-    panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
+    canvas = tk.Canvas(parent, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
+    scroll_frame = ttk.Frame(canvas)
+    window_id = canvas.create_window((0, 0), window=scroll_frame, anchor=tk.NW)
+
+    def _sync_scroll_region(_event=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def _sync_window_width(event):
+        canvas.itemconfigure(window_id, width=event.width)
+
+    def _on_mousewheel(event):
+        if event.num == 4:
+            canvas.yview_scroll(-3, "units")
+        elif event.num == 5:
+            canvas.yview_scroll(3, "units")
+        else:
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _bind_mousewheel(_event=None):
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind_all("<Button-4>", _on_mousewheel)
+        canvas.bind_all("<Button-5>", _on_mousewheel)
+
+    def _unbind_mousewheel(_event=None):
+        canvas.unbind_all("<MouseWheel>")
+        canvas.unbind_all("<Button-4>")
+        canvas.unbind_all("<Button-5>")
+
+    scroll_frame.bind("<Configure>", _sync_scroll_region)
+    canvas.bind("<Configure>", _sync_window_width)
+    canvas.bind("<MouseWheel>", _on_mousewheel)
+    canvas.bind("<Button-4>", _on_mousewheel)
+    canvas.bind("<Button-5>", _on_mousewheel)
+    canvas.bind("<Enter>", _bind_mousewheel)
+    canvas.bind("<Leave>", _unbind_mousewheel)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    panes = ttk.PanedWindow(scroll_frame, orient=tk.HORIZONTAL)
     panes.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
     left = ttk.Frame(panes, padding=8)
@@ -18,7 +58,6 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     _build_remote_section(right, gui)
     
     gui.state.remote_visible.set(True)
-    ttk.Label(right, textvariable=gui.state.config_status).pack(fill=tk.X, pady=(0, 8))
     gui._on_run_target_changed()
 
 def _build_tools_section(parent: ttk.Frame, gui) -> None:
@@ -35,6 +74,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     ).pack(side=tk.LEFT, padx=(8, 12))
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
+    gui.tool_status_labels = getattr(gui, "tool_status_labels", {})
 
     for idx, stage in enumerate(STAGE_ORDER):
         row = idx + 1
@@ -55,9 +95,13 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         combo = ttk.Combobox(frame, textvariable=var, values=tools, state="readonly", width=24)
         combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=5)
         gui.tool_combos[stage] = combo
+        status = ttk.Label(frame, text="Not checked", width=14, anchor=tk.W, foreground="#64748b")
+        status.grid(row=row, column=2, sticky=tk.W, padx=(10, 0), pady=5)
+        gui.tool_status_labels[stage] = status
 
     frame.columnconfigure(0, weight=1)
     frame.columnconfigure(1, weight=1)
+    frame.columnconfigure(2, weight=0)
 
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=8, column=0, columnspan=2, sticky=tk.EW, pady=10)
     
@@ -71,6 +115,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     gui.state.pipeline_mode.trace_add("write", lambda *_args: gui._apply_pipeline_mode())
     gui._apply_pipeline_mode()
+    gui._update_config_tool_status_labels()
 
 def _build_input_section(parent: ttk.Frame, gui) -> None:
     frame = create_card(parent, "", "Input & output", "", {"fill": tk.X, "pady": (0, 10)})
