@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Callable
 
-from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback, TOOL_DEFS, is_tool_enabled
+from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback, TOOL_DEFS, is_tool_enabled, tool_display_name
 from .utils import _parse_docker_stats_line
 
 
@@ -100,7 +100,7 @@ def ensure_image(tool_key: str, on_progress: ProgressCallback | None = None, on_
     if not tool:
         return False, f"Unknown tool: {tool_key}", 0.0
     if not is_tool_enabled(tool_key):
-        return False, f"Tool is disabled because image is disabled: {tool_key} ({tool.get('image', '')})", 0.0
+        return False, f"Tool is disabled because image is disabled: {tool_display_name(tool_key)} ({tool.get('image', '')})", 0.0
 
     image = tool["image"]
     total_build = 0.0

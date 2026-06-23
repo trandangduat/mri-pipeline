@@ -52,7 +52,7 @@ EXPORT_OUTPUT_ITEMS: dict[str, dict[str, str]] = {
     "segmentation.primary": {"stage": "segmentation", "label": "Segmentation", "default_name": "03_segmentation"},
     "template_registration.primary": {"stage": "template_registration", "label": "Registered MRI", "default_name": "04_registered"},
     "template_registration.deformation": {"stage": "template_registration", "label": "Deformation field", "default_name": "04_deformation_field"},
-    "bias_correction.primary": {"stage": "bias_correction", "label": "Bias corrected MRI", "default_name": "05_bias_corrected"},
+    "bias_correction.primary": {"stage": "bias_correction", "label": "Standardized MRI", "default_name": "05_standardized"},
     "white_matter_segmentation.primary": {"stage": "white_matter_segmentation", "label": "White matter mask", "default_name": "06_white_matter_mask"},
 }
 
@@ -66,7 +66,7 @@ STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_volume": {
         "label": "Cortical volume",
         "value_column": "volume_mm3",
-        "atlases": ("yale", "kong", "schaefer2018"),
+        "atlases": (),
     },
     "subcortical_volume": {
         "label": "Subcortical volume",
@@ -92,7 +92,6 @@ class StatsVectorConfig:
     })
     atlases: dict[str, list[str]] = field(default_factory=lambda: {
         "cortical_thickness": [],
-        "cortical_volume": [],
     })
 
     @classmethod
@@ -114,6 +113,7 @@ class StatsVectorConfig:
 
 TOOL_DEFS: dict[str, dict] = {
     "mri_convert_fs8": {
+        "display_name": "Mri Convert FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -121,6 +121,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_reoriented.nii.gz"],
     },
     "mri_convert_fs7": {
+        "display_name": "Mri Convert FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -128,6 +129,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {
+        "display_name": "NiBabel",
         "image": "duattran05/mri-nibabel-utils:latest",
         "dockerfile": "docker/nibabel-utils",
         "stage": "reorientation",
@@ -135,6 +137,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_nibabel_reoriented.nii.gz"],
     },
     "synthstrip_fs8": {
+        "display_name": "SynthStrip FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
@@ -147,6 +150,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "synthstrip_fs7": {
+        "display_name": "SynthStrip FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
@@ -159,6 +163,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "hdbet": {
+        "display_name": "HD-BET",
         "image": "duattran05/mri-hdbet:latest",
         "dockerfile": "docker/hdbet",
         "stage": "brain_extraction",
@@ -167,6 +172,7 @@ TOOL_DEFS: dict[str, dict] = {
         "extra_mounts": {"hdbet_weights": "/root/.cache/torch/hub/checkpoints"},
     },
     "synthseg_freesurfer_fs8": {
+        "display_name": "FreeSurfer SynthSeg FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -180,6 +186,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_freesurfer_fs7": {
+        "display_name": "FreeSurfer SynthSeg FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -193,6 +200,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_standalone": {
+        "display_name": "SynthSeg Standalone",
         "image": "duattran05/mri-synthseg-standalone:latest",
         "dockerfile": "docker/synthseg-standalone",
         "stage": "segmentation",
@@ -200,6 +208,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_synthseg_standalone_segmentation.nii.gz"],
     },
     "fastsurfervinn": {
+        "display_name": "FastSurferVINN",
         "image": "duattran05/mri-fastsurfervinn:latest",
         "dockerfile": "docker/fastsurfervinn",
         "stage": "segmentation",
@@ -207,6 +216,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_fastsurfervinn_segmentation.nii.gz", "aparc.DKTatlas+aseg.deep.mgz"],
     },
     "ants_n4": {
+        "display_name": "ANTs N4",
         "image": "duattran05/mri-ants:latest",
         "dockerfile": "docker/ants",
         "stage": "bias_correction",
@@ -214,6 +224,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["05_standardized.nii.gz"],
     },
     "synthmorph_fs8": {
+        "display_name": "SynthMorph FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "template_registration",
         "needs_license": True,
@@ -237,6 +248,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "mri_binarize": {
+        "display_name": "Mri Binarize",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "white_matter_segmentation",
         "needs_license": True,
@@ -244,6 +256,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["06_wm_mask.nii.gz"],
     },
     "freesurfer_stats_fs8": {
+        "display_name": "FreeSurfer Stats FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "stats_extraction",
         "needs_license": True,
@@ -267,22 +280,42 @@ STAGE_ORDER = [
     "reorientation",
     "brain_extraction",
     "segmentation",
-    "bias_correction",
     "template_registration",
+    "bias_correction",
     "white_matter_segmentation",
+    "surface_reconstruction",
+    "surface_registration",
     "stats_extraction",
 ]
 
 
 STAGE_LABELS = {
-    "reorientation": "Reorientation & Resampling",
+    "reorientation": "Reorientation, resize",
     "brain_extraction": "Brain Extraction",
     "segmentation": "Subcortical Segmentation",
-    "bias_correction": "Bias Field Correction (N4)",
-    "template_registration": "Template Registration (SynthMorph)",
-    "white_matter_segmentation": "White Matter Segmentation",
-    "stats_extraction": "FreeSurfer Stats Extraction",
+    "template_registration": "Template Registration",
+    "bias_correction": "Image standardization",
+    "white_matter_segmentation": "WM Segmentation",
+    "surface_reconstruction": "Surface Reconstruction",
+    "surface_registration": "Surface Registration",
+    "stats_extraction": "Statistics & Atlas Mapping",
 }
+
+
+def tool_display_name(tool_key: str) -> str:
+    tool = TOOL_DEFS.get(tool_key)
+    if not tool:
+        return ""
+    return str(tool.get("display_name") or tool_key.replace("_", " ").title())
+
+
+def tool_key_from_display(value: str) -> str:
+    if value in TOOL_DEFS:
+        return value
+    for tool_key in TOOL_DEFS:
+        if tool_display_name(tool_key) == value:
+            return tool_key
+    return ""
 
 
 def is_tool_enabled(tool_key: str) -> bool:
@@ -309,9 +342,11 @@ class PipelineConfig:
         "reorientation": "mri_convert_fs7",
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
-        "bias_correction": "ants_n4",
         "template_registration": "",
+        "bias_correction": "ants_n4",
         "white_matter_segmentation": "",
+        "surface_reconstruction": "",
+        "surface_registration": "",
         "stats_extraction": "",
     })
     export_config: ExportConfig = field(default_factory=ExportConfig)

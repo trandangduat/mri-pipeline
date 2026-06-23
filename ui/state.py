@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled
+from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
 
 class AppState:
     def __init__(self):
@@ -12,6 +12,7 @@ class AppState:
         self.output_dir = tk.StringVar(value=str(PROJECT_ROOT / "outputs"))
         self.license_dir = tk.StringVar(value=str(PROJECT_ROOT / "license"))
         self.export_outputs_enabled = tk.BooleanVar(value=False)
+        self.export_default_format = tk.StringVar(value=".nii.gz")
         self.export_name_vars: dict[str, tk.StringVar] = {}
         self.export_format_vars: dict[str, tk.StringVar] = {}
         for item_id, item in EXPORT_OUTPUT_ITEMS.items():
@@ -43,14 +44,17 @@ class AppState:
             "reorientation": "mri_convert_fs7",
             "brain_extraction": "synthstrip_fs7",
             "segmentation": "synthseg_freesurfer_fs7",
-            "bias_correction": "ants_n4",
             "template_registration": "",
+            "bias_correction": "ants_n4",
             "white_matter_segmentation": "",
+            "surface_reconstruction": "",
+            "surface_registration": "",
             "stats_extraction": "",
         }
         for stage in STAGE_ORDER:
             tools = enabled_tools_for_stage(stage)
-            self.tool_vars[stage] = tk.StringVar(value=defaults.get(stage, tools[0] if tools else ""))
+            default_tool = defaults.get(stage, tools[0] if tools else "")
+            self.tool_vars[stage] = tk.StringVar(value=tool_display_name(default_tool) if default_tool else "")
 
         # Downloadable stats vectors
         self.stat_vector_enabled_vars: dict[str, tk.BooleanVar] = {}
@@ -79,15 +83,15 @@ class AppState:
         self.detail_title = tk.StringVar(value="Select an input image")
 
     def get_selected_tools(self) -> dict[str, str]:
-        return {stage: var.get() for stage, var in self.tool_vars.items()}
+        return {stage: tool_key_from_display(var.get()) for stage, var in self.tool_vars.items()}
 
     def get_export_config(self) -> dict:
         return {
             "enabled": self.export_outputs_enabled.get(),
             "folder": "exports",
-            "default_format": ".nii.gz",
+            "default_format": self.export_default_format.get() or ".nii.gz",
             "names": {item_id: var.get().strip() for item_id, var in self.export_name_vars.items()},
-            "formats": {item_id: var.get() or ".nii.gz" for item_id, var in self.export_format_vars.items()},
+            "formats": {item_id: self.export_default_format.get() or ".nii.gz" for item_id in self.export_name_vars},
         }
 
     def get_stats_vector_config(self) -> dict:
@@ -144,6 +148,9 @@ class AppState:
 
         export = workspace.get("export_outputs", {})
         self.export_outputs_enabled.set(bool(export.get("enabled", False)))
+        old_formats = export.get("formats") if isinstance(export.get("formats"), dict) else {}
+        default_format = export.get("default_format") or next(iter(old_formats.values()), ".nii.gz")
+        self.export_default_format.set(default_format if default_format in (".nii.gz", ".mgz") else ".nii.gz")
         for item_id, value in export.get("names", {}).items():
             if item_id in self.export_name_vars:
                 self.export_name_vars[item_id].set(value)
@@ -197,7 +204,9 @@ class AppState:
         self.input_mode.set(config.get("input_mode", "file"))
         self.run_target.set(config.get("run_target", "Local"))
         loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
-        if loaded_pipeline_mode not in ("FreeSurfer Fixed (7 steps)", "Custom Tools"):
+        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
+            loaded_pipeline_mode = "FreeSurfer Fixed"
+        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
             loaded_pipeline_mode = "Custom Tools"
         self.pipeline_mode.set(loaded_pipeline_mode)
         self.input_path.set(config.get("input_path", ""))
@@ -206,6 +215,9 @@ class AppState:
         self.license_dir.set(config.get("license_dir", str(PROJECT_ROOT / "license")))
         export = config.get("export_outputs", {})
         self.export_outputs_enabled.set(bool(export.get("enabled", False)))
+        old_formats = export.get("formats") if isinstance(export.get("formats"), dict) else {}
+        default_format = export.get("default_format") or next(iter(old_formats.values()), ".nii.gz")
+        self.export_default_format.set(default_format if default_format in (".nii.gz", ".mgz") else ".nii.gz")
         for item_id, value in export.get("names", {}).items():
             if item_id in self.export_name_vars:
                 self.export_name_vars[item_id].set(value)
@@ -220,7 +232,8 @@ class AppState:
         tools = config.get("tools", {})
         for stage, value in tools.items():
             if stage in self.tool_vars:
-                self.tool_vars[stage].set(value if is_tool_enabled(value) else "")
+                tool_key = tool_key_from_display(value)
+                self.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
 
         remote = config.get("remote", {})
         self.remote_host.set(remote.get("host", ""))

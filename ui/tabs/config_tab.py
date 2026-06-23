@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
-from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage
+from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
 
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     canvas = tk.Canvas(parent, highlightthickness=0)
@@ -60,14 +60,14 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     gui._on_run_target_changed()
 
 def _build_tools_section(parent: ttk.Frame, gui) -> None:
-    frame = create_card(parent, "01", "Pipeline Tools", "Seven-stage MRI processing pipeline", {"fill": tk.BOTH, "expand": True})
+    frame = create_card(parent, "01", "Pipeline Tools", "Nine-step MRI processing pipeline", {"fill": tk.BOTH, "expand": True})
 
     mode_row = ttk.Frame(frame)
     mode_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
     ttk.Label(mode_row, text="Mode").pack(side=tk.LEFT)
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
-        values=("FreeSurfer Fixed (7 steps)", "Custom Tools"),
+        values=("FreeSurfer Fixed", "Custom Tools"),
         state="readonly",
         width=28,
     ).pack(side=tk.LEFT, padx=(8, 12))
@@ -78,6 +78,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     for idx, stage in enumerate(STAGE_ORDER):
         row = idx + 1
         tools = enabled_tools_for_stage(stage)
+        tool_labels = [tool_display_name(tool) for tool in tools]
         var = gui.state.tool_vars[stage]
         
         step = ttk.Frame(frame)
@@ -91,7 +92,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
             anchor=tk.W,
         ).pack(side=tk.LEFT)
         
-        combo = ttk.Combobox(frame, textvariable=var, values=tools, state="readonly", width=24)
+        combo = ttk.Combobox(frame, textvariable=var, values=tool_labels, state="readonly", width=28)
         combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=5)
         gui.tool_combos[stage] = combo
         status = ttk.Label(frame, text="Not checked", width=14, anchor=tk.W, foreground="#64748b")
@@ -102,16 +103,12 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     frame.columnconfigure(1, weight=1)
     frame.columnconfigure(2, weight=0)
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=8, column=0, columnspan=3, sticky=tk.EW, pady=10)
+    stats_row = len(STAGE_ORDER) + 2
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=stats_row - 1, column=0, columnspan=3, sticky=tk.EW, pady=10)
 
     stats_frame = ttk.LabelFrame(frame, text=" Stats vectors ")
-    stats_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+    stats_frame.grid(row=stats_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
     stats_frame.columnconfigure(1, weight=1)
-    ttk.Label(
-        stats_frame,
-        text="Select measures to export as feature vectors. Cortical measures show supported atlas choices.",
-        foreground="#64748b",
-    ).grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=8, pady=(8, 4))
 
     stat_option_frames: dict[str, ttk.Frame] = {}
 
@@ -122,7 +119,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
             else:
                 atlas_frame.grid_remove()
 
-    for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items(), start=1):
+    for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items()):
         row = idx
         ttk.Checkbutton(
             stats_frame,
@@ -137,13 +134,11 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         for atlas in stat_def.get("atlases", ()):
             if atlas in ATLAS_DEFS:
                 ttk.Checkbutton(atlas_frame, text=ATLAS_DEFS[atlas], variable=gui.state.stat_atlas_vars[stat][atlas]).pack(side=tk.LEFT, padx=(0, 10))
-        if not stat_def.get("atlases"):
-            ttk.Label(atlas_frame, text="No atlas selection", foreground="#64748b").pack(side=tk.LEFT)
         gui.state.stat_vector_enabled_vars[stat].trace_add("write", sync_stats_options)
     sync_stats_options()
 
     lic_row = ttk.Frame(frame)
-    lic_row.grid(row=10, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
+    lic_row.grid(row=stats_row + 1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
     ttk.Label(lic_row, text="FreeSurfer license").pack(anchor=tk.W, pady=(0, 2))
     input_frame = ttk.Frame(lic_row)
     input_frame.pack(fill=tk.X, expand=True)
@@ -183,32 +178,27 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     _path_row(frame, "Output directory", gui.state.output_dir, 3, lambda: gui._browse_directory(gui.state.output_dir))
 
-    export_frame = ttk.LabelFrame(frame, text="Exported outputs")
+    export_frame = ttk.Frame(frame)
     export_frame.grid(row=4, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
     def sync_export_options(*_args) -> None:
         if gui.state.export_outputs_enabled.get():
-            options.grid(row=2, column=0, columnspan=3, sticky=tk.EW, padx=0, pady=(2, 0))
+            options.grid(row=1, column=0, columnspan=3, sticky=tk.EW, padx=0, pady=(2, 0))
         else:
             options.grid_remove()
 
-    ttk.Checkbutton(export_frame, text="Create downloadable export files", variable=gui.state.export_outputs_enabled, command=sync_export_options).grid(row=0, column=0, columnspan=3, sticky=tk.W, padx=8, pady=(8, 2))
-    ttk.Label(
-        export_frame,
-        text="Copies/converts selected outputs into each subject's exports folder with the names and formats below.",
-        foreground="#64748b",
-    ).grid(row=1, column=0, columnspan=3, sticky=tk.W, padx=8, pady=(0, 4))
+    ttk.Checkbutton(export_frame, text="Custom output files", variable=gui.state.export_outputs_enabled, command=sync_export_options).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 2))
 
     options = ttk.Frame(export_frame)
     options.columnconfigure(1, weight=1)
-    ttk.Label(options, text="Output", font=("Inter", 9, "bold")).grid(row=0, column=0, sticky=tk.W, padx=8, pady=(8, 3))
-    ttk.Label(options, text="File name", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(8, 3))
-    ttk.Label(options, text="Format", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(8, 3))
-    for idx, (item_id, item) in enumerate(EXPORT_OUTPUT_ITEMS.items(), start=1):
+    ttk.Label(options, text="Output extension").grid(row=0, column=0, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Combobox(options, textvariable=gui.state.export_default_format, values=(".mgz", ".nii.gz"), state="readonly", width=10).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Label(options, text="Output", font=("Inter", 9, "bold")).grid(row=1, column=0, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Label(options, text="File name", font=("Inter", 9, "bold")).grid(row=1, column=1, sticky=tk.W, padx=8, pady=(8, 3))
+    for idx, (item_id, item) in enumerate(EXPORT_OUTPUT_ITEMS.items(), start=2):
         ttk.Label(options, text=item["label"]).grid(row=idx, column=0, sticky=tk.W, padx=8, pady=2)
         ttk.Entry(options, textvariable=gui.state.export_name_vars[item_id]).grid(row=idx, column=1, sticky=tk.EW, padx=8, pady=2)
-        ttk.Combobox(options, textvariable=gui.state.export_format_vars[item_id], values=(".nii.gz", ".mgz"), state="readonly", width=10).grid(row=idx, column=2, sticky=tk.W, padx=8, pady=2)
     gui.state.export_outputs_enabled.trace_add("write", sync_export_options)
     sync_export_options()
 

@@ -24,6 +24,7 @@ from .config import (
     TOOL_DEFS,
     ToolContext,
     is_tool_enabled,
+    tool_display_name,
 )
 from .docker_ops import _run_docker, ensure_image
 from .utils import (
@@ -161,6 +162,8 @@ def _sanitize_vector_feature(value: str) -> str:
 def _stats_source_candidates(stats_dir: Path, stat: str, atlas: str = "") -> list[Path]:
     if stat == "subcortical_volume":
         return [stats_dir / "subcortical_volume.tsv"]
+    if stat == "cortical_volume" and not atlas:
+        return [stats_dir / "cortical_volume.tsv"]
     if not atlas:
         return []
     if stat == "cortical_volume":
@@ -298,10 +301,13 @@ def run_pipeline(
 
     for stage_idx, stage in enumerate(STAGE_ORDER):
         tool_key = config.selected_tools.get(stage)
-        if not tool_key or tool_key not in TOOL_DEFS:
+        if not tool_key:
+            progress(stage, "success", (stage_idx + 1) / total_stages, f"Skipped {STAGE_LABELS[stage]}: no tool selected")
+            continue
+        if tool_key not in TOOL_DEFS:
             continue
         if not is_tool_enabled(tool_key):
-            progress(stage, "success", (stage_idx + 1) / total_stages, f"Skipping disabled tool: {tool_key}")
+            progress(stage, "success", (stage_idx + 1) / total_stages, f"Skipping disabled tool: {tool_display_name(tool_key)}")
             continue
 
         tool = TOOL_DEFS[tool_key]
@@ -329,10 +335,10 @@ def run_pipeline(
                     duration_sec=0.0,
                 )
                 results.append(StepResult(stage=stage, tool=tool_key, success=True, duration_sec=0.0, output_files=tool["output_files"], log_text="resumed from verified output files"))
-                progress(stage, "success", (stage_idx + 1) / total_stages, f"Resume: verified outputs and skipped {STAGE_LABELS[stage]} with {tool_key}")
+                progress(stage, "success", (stage_idx + 1) / total_stages, f"Resume: verified outputs and skipped {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
                 continue
 
-        progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_key}")
+        progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
         _set_stage_state(logs_dir, state, stage, tool_key, "running")
 
         ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
@@ -449,7 +455,7 @@ def run_pipeline(
 
         step_log_lines = [
             f"Stage: {stage}",
-            f"Tool: {tool_key}",
+            f"Tool: {tool_display_name(tool_key)}",
             f"Duration: {duration:.1f}s",
             f"Build: {build_time:.1f}s",
             f"Peak RAM: {_format_bytes(peak_ram)}",

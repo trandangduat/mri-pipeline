@@ -41,6 +41,8 @@ from pipeline_runner import (
     is_tool_enabled,
     run_batch_pipeline,
     run_pipeline,
+    tool_display_name,
+    tool_key_from_display,
 )
 
 def truncate_middle(text: str, max_len: int = 30) -> str:
@@ -64,9 +66,11 @@ class PipelineGUI:
         "reorientation": "mri_convert_fs7",
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
-        "bias_correction": "ants_n4",
         "template_registration": "",
+        "bias_correction": "ants_n4",
         "white_matter_segmentation": "",
+        "surface_reconstruction": "",
+        "surface_registration": "",
         "stats_extraction": "",
     }
 
@@ -288,11 +292,11 @@ class PipelineGUI:
             self.state.remote_key_path.set(path)
 
     def _apply_pipeline_mode(self) -> None:
-        fixed = self.state.pipeline_mode.get() == "FreeSurfer Fixed (7 steps)"
+        fixed = self.state.pipeline_mode.get() == "FreeSurfer Fixed"
         if fixed:
             for stage, tool in self.FREESURFER_FIXED_TOOLS.items():
                 if stage in self.state.tool_vars:
-                    self.state.tool_vars[stage].set(tool)
+                    self.state.tool_vars[stage].set(tool_display_name(tool) if tool else "")
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
             self.state.pipeline_note.set(
@@ -305,9 +309,9 @@ class PipelineGUI:
         self._update_config_tool_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
-        if self.state.pipeline_mode.get() == "FreeSurfer Fixed (7 steps)":
+        if self.state.pipeline_mode.get() == "FreeSurfer Fixed":
             self._apply_pipeline_mode()
-        return {stage: var.get() for stage, var in self.state.tool_vars.items()}
+        return self.state.get_selected_tools()
 
     def _collect_config(self) -> dict:
         return {
@@ -337,7 +341,9 @@ class PipelineGUI:
         self.state.input_mode.set(config.get("input_mode", "file"))
         self.state.run_target.set(config.get("run_target", "Local"))
         loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
-        if loaded_pipeline_mode not in ("FreeSurfer Fixed (7 steps)", "Custom Tools"):
+        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
+            loaded_pipeline_mode = "FreeSurfer Fixed"
+        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
             loaded_pipeline_mode = "Custom Tools"
         self.state.pipeline_mode.set(loaded_pipeline_mode)
         self.state.input_path.set(config.get("input_path", ""))
@@ -351,7 +357,8 @@ class PipelineGUI:
         tools = config.get("tools", {})
         for stage, value in tools.items():
             if stage in self.state.tool_vars:
-                self.state.tool_vars[stage].set(value if is_tool_enabled(value) else "")
+                tool_key = tool_key_from_display(value)
+                self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
 
         self._apply_pipeline_mode()
 
@@ -451,6 +458,7 @@ class PipelineGUI:
             self.state.remote_python,
             self.state.pipeline_mode,
             self.state.export_outputs_enabled,
+            self.state.export_default_format,
         ]
         for var in variables:
             var.trace_add("write", lambda *_args: self._validate_configuration())
@@ -508,7 +516,7 @@ class PipelineGUI:
             errors.append("Select one tool for every pipeline stage.")
         disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]
         if disabled_tools:
-            errors.append(f"Disabled tools selected: {', '.join(disabled_tools)}")
+            errors.append(f"Disabled tools selected: {', '.join(tool_display_name(tool) for tool in disabled_tools)}")
 
         needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
         if needs_license and not Path(self.state.license_dir.get().strip()).exists():
@@ -621,7 +629,7 @@ class PipelineGUI:
                 "",
                 tk.END,
                 iid=tool_key,
-                values=(STAGE_LABELS.get(stage, stage), tool_key, image, self._status_label_text(status)),
+                values=(STAGE_LABELS.get(stage, stage), tool_display_name(tool_key), image, self._status_label_text(status)),
                 tags=(status,),
             )
 
@@ -852,7 +860,7 @@ class PipelineGUI:
             return
         target = self.state.run_target.get()
         for stage, label in self.tool_status_labels.items():
-            tool_key = self.state.tool_vars.get(stage).get() if stage in self.state.tool_vars else ""
+            tool_key = tool_key_from_display(self.state.tool_vars.get(stage).get()) if stage in self.state.tool_vars else ""
             status = self._tool_status(tool_key, target)
             label.configure(text=self._status_label_text(status), foreground=self._status_color(status))
 
@@ -1414,7 +1422,7 @@ class PipelineGUI:
                 self._update_image_run(key, status="Failed", stage_text="Failed")
             self._update_batch_summary()
         elif kind == "image_preflight":
-            self._log(f"Remote image preflight {event.get('status')}: {event.get('tool')}")
+            self._log(f"Remote image preflight {event.get('status')}: {tool_display_name(str(event.get('tool', '')))}")
         elif kind == "metrics":
             cpu_pct = event.get("cpu_pct")
             ram_bytes = event.get("ram_bytes")

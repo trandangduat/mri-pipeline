@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import BatchImageResult, ExportConfig, PROJECT_ROOT, PipelineConfig, STAGE_ORDER, TOOL_DEFS, StatsVectorConfig, enabled_tools_for_stage, is_tool_enabled
+from .config import BatchImageResult, ExportConfig, PROJECT_ROOT, PipelineConfig, STAGE_ORDER, TOOL_DEFS, StatsVectorConfig, enabled_tools_for_stage, is_tool_enabled, tool_display_name
 from .docker_ops import ensure_image
 from .runner import run_batch_pipeline, run_pipeline
 from .utils import _derive_subject_id, _discover_mri_files, _duplicate_basenames
@@ -20,9 +20,11 @@ def _cli_selected_tools(args: argparse.Namespace) -> dict[str, str]:
         "reorientation": args.reorientation,
         "brain_extraction": args.brain_extraction,
         "segmentation": args.segmentation,
-        "bias_correction": args.bias_correction,
         "template_registration": args.template_registration,
+        "bias_correction": args.bias_correction,
         "white_matter_segmentation": args.white_matter_segmentation,
+        "surface_reconstruction": args.surface_reconstruction,
+        "surface_registration": args.surface_registration,
         "stats_extraction": args.stats_extraction,
     }
 
@@ -99,9 +101,11 @@ def main(argv: list[str] | None = None) -> int:
     add_tool_option("--reorientation", "reorientation")
     add_tool_option("--brain-extraction", "brain_extraction")
     add_tool_option("--segmentation", "segmentation")
-    add_tool_option("--bias-correction", "bias_correction")
     add_tool_option("--template-registration", "template_registration")
+    add_tool_option("--bias-correction", "bias_correction")
     add_tool_option("--white-matter-segmentation", "white_matter_segmentation")
+    add_tool_option("--surface-reconstruction", "surface_reconstruction")
+    add_tool_option("--surface-registration", "surface_registration")
     add_tool_option("--stats-extraction", "stats_extraction")
     args = parser.parse_args(argv)
     selected_tools = _cli_selected_tools(args)
@@ -119,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
                 ok = False
                 if args.json_events:
                     _emit_json_event("image_preflight", tool=tool_key, status="failed", error=err)
-                print(f"Image preflight failed for {tool_key}: {err}", file=sys.stderr, flush=True)
+                print(f"Image preflight failed for {tool_display_name(tool_key)}: {err}", file=sys.stderr, flush=True)
                 break
             if args.json_events:
                 _emit_json_event("image_preflight", tool=tool_key, status="success")
