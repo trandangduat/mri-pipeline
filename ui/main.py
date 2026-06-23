@@ -20,7 +20,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from pipeline_runner import (
     PROJECT_ROOT,
@@ -59,6 +59,7 @@ from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.progress_tab import build_progress_tab
 from ui.tabs.tools_tab import build_tools_tab
 from remote.ssh_client import SSHConfig
+from pipeline.jobs import create_local_job_dir, load_job_registry, read_json, upsert_job_registry, write_json
 
 
 class PipelineGUI:
@@ -92,6 +93,9 @@ class PipelineGUI:
         self.stop_requested = threading.Event()
         
         self.remote_runner: RemoteRunner | None = None
+        self.active_job: dict | None = None
+        self.job_poll_after_id: str | None = None
+        self.job_log_offset = 0
         self.remote_frame: ttk.Frame | None = None
         self.remote_body: ttk.Frame | None = None
         self.remote_pack_options: dict | None = None
@@ -111,7 +115,16 @@ class PipelineGUI:
         self.active_image_key = ""
         self.tools_tab: ttk.Frame | None = None
         self.tools_tree: ttk.Treeview | None = None
+        self.tools_table_frame: ttk.Frame | None = None
         self.tools_log_text: tk.Text | None = None
+        self.tools_log_body: ttk.Frame | None = None
+        self.tools_log_toggle_text: tk.StringVar | None = None
+        self.tools_log_visible = False
+        self.tools_checked_tools: set[str] = set()
+        self.tools_check_vars: dict[str, tk.BooleanVar] = {}
+        self.tools_status_icon_labels: dict[str, ttk.Label] = {}
+        self.tools_download_button: ttk.Button | None = None
+        self.tools_row_widgets: dict[str, dict] = {}
         self.python_env_status = tk.StringVar(value="Not checked")
         self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
         self.tool_status_labels: dict[str, ttk.Label] = {}
@@ -120,6 +133,7 @@ class PipelineGUI:
         self._setup_validation_traces()
         self._validate_configuration()
         self._poll_queues()
+        self.root.after(700, self._maybe_prompt_existing_jobs)
 
     def _build_ui(self) -> None:
         root_frame = ttk.Frame(self.root)
@@ -191,6 +205,7 @@ class PipelineGUI:
         self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
         self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
+        self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
         
         status = ttk.Frame(toolbar)
         status.pack(side=tk.RIGHT, fill=tk.Y)
@@ -422,6 +437,381 @@ class PipelineGUI:
     def _load_config(self) -> None:
         self._load_workspace()
 
+    def _collect_run_config(self) -> dict:
+        return {
+            "version": 1,
+            "type": "mri-pipeline-run-config",
+            "pipeline_mode": self.state.pipeline_mode.get(),
+            "tools": self.state.get_selected_tools(),
+            "stats_vectors": self.state.get_stats_vector_config(),
+            "license_dir": self.state.license_dir.get(),
+            "device": self.state.device.get(),
+            "threads": int(self.state.threads.get()),
+            "non_recursive": self.state.non_recursive.get(),
+        }
+
+    def _apply_run_config(self, config: dict) -> None:
+        loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
+        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
+            loaded_pipeline_mode = "FreeSurfer Fixed"
+        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
+            loaded_pipeline_mode = "Custom Tools"
+        self.state.pipeline_mode.set(loaded_pipeline_mode)
+
+        tools = config.get("tools", {})
+        for stage, value in tools.items():
+            if stage in self.state.tool_vars:
+                tool_key = tool_key_from_display(value)
+                if not tool_key and value in TOOL_DEFS:
+                    tool_key = value
+                self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
+
+        self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
+        if "license_dir" in config:
+            self.state.license_dir.set(config.get("license_dir", ""))
+        if "device" in config:
+            self.state.device.set(config.get("device", "cpu"))
+        if "threads" in config:
+            self.state.threads.set(int(config.get("threads", 4)))
+        if "non_recursive" in config:
+            self.state.non_recursive.set(bool(config.get("non_recursive", False)))
+        self._apply_pipeline_mode()
+        self._update_config_tool_status_labels()
+        self._validate_configuration()
+
+    def _save_run_config(self) -> None:
+        config_dir = PROJECT_ROOT / "configs" / "run_configs"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        path = filedialog.asksaveasfilename(
+            title="Save run config",
+            initialdir=str(config_dir),
+            defaultextension=".json",
+            filetypes=(("Run Config JSON", "*.json"), ("All files", "*.*")),
+        )
+        if not path:
+            return
+        data = self._collect_run_config()
+        data["name"] = Path(path).stem
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._log(f"Saved run config: {path}")
+        except Exception as exc:
+            messagebox.showerror("Save run config failed", str(exc))
+
+    def _load_run_config(self) -> None:
+        config_dir = PROJECT_ROOT / "configs" / "run_configs"
+        path = filedialog.askopenfilename(
+            title="Load run config",
+            initialdir=str(config_dir),
+            filetypes=(("Run Config JSON", "*.json"), ("All files", "*.*")),
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            if config.get("type") not in (None, "mri-pipeline-run-config"):
+                messagebox.showerror("Invalid run config", "Selected file is not an MRI pipeline run config.")
+                return
+            self._apply_run_config(config)
+            self._log(f"Loaded run config: {path}")
+        except Exception as exc:
+            messagebox.showerror("Load run config failed", str(exc))
+
+    def _attach_job_dialog(self) -> None:
+        if self.running:
+            messagebox.showinfo("Job running", "A job is already being monitored.")
+            return
+        jobs = self._known_jobs()
+        if not jobs:
+            self._attach_manual_job_dialog()
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Background Jobs")
+        dialog.geometry("900x420")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="Select a background job to view progress/logs or download completed remote outputs.").pack(anchor=tk.W, padx=12, pady=(12, 6))
+        columns = ("target", "state", "job", "output")
+        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12)
+        tree.heading("target", text="Target")
+        tree.heading("state", text="State")
+        tree.heading("job", text="Job")
+        tree.heading("output", text="Output")
+        tree.column("target", width=80, anchor=tk.W)
+        tree.column("state", width=90, anchor=tk.W)
+        tree.column("job", width=360, anchor=tk.W)
+        tree.column("output", width=300, anchor=tk.W)
+        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        item_to_job: dict[str, dict] = {}
+        for idx, job in enumerate(jobs):
+            job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
+            item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
+            item_to_job[item] = job
+            if idx == 0:
+                tree.selection_set(item)
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=12, pady=(4, 12))
+
+        def selected_job() -> dict | None:
+            selection = tree.selection()
+            if not selection:
+                return None
+            return item_to_job.get(selection[0])
+
+        def attach_selected() -> None:
+            job = selected_job()
+            if not job:
+                return
+            dialog.destroy()
+            self._attach_registry_job(job)
+
+        def download_selected() -> None:
+            job = selected_job()
+            if not job:
+                return
+            dialog.destroy()
+            self._download_registry_job(job)
+
+        ttk.Button(buttons, text="View / Attach", style="Accent.TButton", command=attach_selected).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Download Outputs", command=download_selected).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Manual Attach", command=lambda: (dialog.destroy(), self._attach_manual_job_dialog())).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
+        tree.bind("<Double-1>", lambda _event: attach_selected())
+
+    def _attach_manual_job_dialog(self) -> None:
+        if self.state.run_target.get() == "Server":
+            remote_dir = simpledialog.askstring("Attach remote job", "Remote job directory:", parent=self.root)
+            if remote_dir:
+                self._attach_registry_job({"target": "Server", "remote_job_dir": remote_dir.strip(), "state": "unknown"})
+            return
+        job_dir = filedialog.askdirectory(title="Attach local job", initialdir=str(Path(self.state.output_dir.get()) / "jobs"))
+        if job_dir:
+            self._attach_registry_job({"target": "Local", "job_dir": job_dir, "state": "unknown"})
+
+    def _attach_registry_job(self, job: dict) -> None:
+        target = job.get("target")
+        if target == "Server":
+            runner = self._remote_runner_from_job_entry(job)
+            if runner is None:
+                return
+            self.remote_runner = runner
+            self.state.run_target.set("Server")
+            self._on_run_target_changed()
+            input_files = list(job.get("input_files") or [])
+            self.active_job = {"target": "Server", "remote_job_dir": runner.remote_job_dir, "done": False, "registry_entry": job}
+        else:
+            job_dir = Path(str(job.get("job_dir", "")))
+            config = read_json(job_dir / "job_config.json", {})
+            input_files = list(job.get("input_files") or []) or (self._input_files_for_progress(config) if config else [])
+            self.active_job = {"target": "Local", "job_dir": str(job_dir), "done": False, "registry_entry": job}
+            self.state.run_target.set("Local")
+            self._on_run_target_changed()
+        self.job_log_offset = 0
+        self._prepare_progress_tab(input_files)
+        self._show_progress_tab()
+        self._enter_background_monitor_state("Attached background job")
+        self._schedule_job_poll()
+
+    def _remote_runner_from_job_entry(self, job: dict) -> RemoteRunner | None:
+        remote = dict(job.get("remote") or {})
+        if remote:
+            self.state.remote_host.set(remote.get("host", self.state.remote_host.get()))
+            self.state.remote_port.set(int(remote.get("port", self.state.remote_port.get() or 22)))
+            self.state.remote_username.set(remote.get("username", self.state.remote_username.get()))
+            self.state.remote_key_path.set(remote.get("key_path", self.state.remote_key_path.get()))
+            self.state.remote_workspace.set(remote.get("workspace", self.state.remote_workspace.get()))
+            self.state.remote_python.set(remote.get("python", self.state.remote_python.get()))
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return None
+        runner = RemoteRunner(
+            RemoteRunConfig(
+                ssh=ssh_config,
+                remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
+                remote_python=self.state.remote_python.get().strip() or "python3",
+                output_dir=str(job.get("output_dir") or self.state.output_dir.get().strip()),
+                download_subdir=str(job.get("download_subdir") or ""),
+            ),
+            on_log=self._remote_log_event,
+        )
+        remote_dir = str(job.get("remote_job_dir") or "").strip()
+        if not remote_dir:
+            messagebox.showerror("Missing remote job", "Selected registry entry has no remote job directory.")
+            return None
+        runner.attach_job(remote_dir)
+        metadata = runner.read_remote_metadata()
+        if metadata.get("download_subdir"):
+            runner.config.download_subdir = str(metadata.get("download_subdir"))
+        return runner
+
+    def _download_registry_job(self, job: dict) -> None:
+        if job.get("target") == "Server":
+            runner = self._remote_runner_from_job_entry(job)
+            if runner is None:
+                return
+            self.remote_runner = runner
+            self._remote_download_outputs()
+            return
+        output_dir = job.get("effective_output_dir") or job.get("output_dir")
+        self._log(f"Local outputs are already available in: {output_dir}")
+
+    def _enter_background_monitor_state(self, title: str) -> None:
+        self.running = True
+        self.stop_requested.clear()
+        if hasattr(self, "run_button"):
+            self.run_button.configure(state=tk.DISABLED)
+        if hasattr(self, "resume_button"):
+            self.resume_button.configure(state=tk.DISABLED)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.DISABLED)
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state=tk.NORMAL)
+        if hasattr(self, "progress"):
+            self.progress.start(10)
+        self.state.status_text.set("Running in background")
+        self._log(title)
+
+    def _registry_entry_for_local_job(self, job_dir: Path, req: dict, pid: int | None = None, state: str = "running") -> dict:
+        files = self._input_files_for_progress(req)
+        now = time.time()
+        return {
+            "job_id": job_dir.name,
+            "target": "Local",
+            "state": state,
+            "job_dir": str(job_dir),
+            "pid": pid,
+            "started_at": now,
+            "updated_at": now,
+            "output_dir": req.get("output_dir", ""),
+            "effective_output_dir": req.get("effective_output_dir", req.get("output_dir", "")),
+            "download_subdir": req.get("batch_output_name", "") if req.get("is_batch") else "",
+            "input_files": files,
+            "run_request": req,
+        }
+
+    def _registry_entry_for_remote_job(self, runner: RemoteRunner, remote_dir: str, state: str = "running") -> dict:
+        cfg = runner.config
+        files = []
+        if cfg.input_mode == "file" and cfg.input_file:
+            files = [cfg.input_file]
+        elif cfg.input_mode == "files":
+            files = list(cfg.input_files)
+        elif cfg.input_dir:
+            try:
+                files = _discover_mri_files(cfg.input_dir, recursive=cfg.recursive)
+            except Exception:
+                files = []
+        now = time.time()
+        return {
+            "job_id": Path(remote_dir).name,
+            "target": "Server",
+            "state": state,
+            "remote_job_dir": remote_dir,
+            "started_at": now,
+            "updated_at": now,
+            "output_dir": cfg.output_dir,
+            "download_subdir": cfg.download_subdir,
+            "input_files": files,
+            "remote": {
+                "host": cfg.ssh.host,
+                "port": int(cfg.ssh.port),
+                "username": cfg.ssh.username,
+                "key_path": cfg.ssh.key_path,
+                "workspace": cfg.remote_workspace,
+                "python": cfg.remote_python,
+            },
+        }
+
+    def _update_registry_for_active_job(self, state: str, exit_code=None) -> None:
+        if not self.active_job:
+            return
+        entry = dict(self.active_job.get("registry_entry") or {})
+        if not entry:
+            entry = dict(self.active_job)
+        entry.update({"state": state, "exit_code": exit_code, "updated_at": time.time()})
+        upsert_job_registry(entry)
+        self.active_job["registry_entry"] = entry
+
+    def _pid_is_running(self, pid: int | str | None) -> bool:
+        if not pid:
+            return False
+        try:
+            pid_int = int(pid)
+            if pid_int <= 0:
+                return False
+            os.kill(pid_int, 0)
+            return True
+        except Exception:
+            return False
+
+    def _refresh_registry_entry_status(self, entry: dict) -> dict:
+        entry = dict(entry)
+        if entry.get("target") != "Local":
+            return entry
+        job_dir = Path(str(entry.get("job_dir", "")))
+        if not job_dir.exists():
+            entry["state"] = "missing"
+            return entry
+        status = read_json(job_dir / "job_status.json", {})
+        exit_path = job_dir / "exit_code.txt"
+        if exit_path.exists() or status.get("state") in {"completed", "failed"}:
+            code = status.get("exit_code")
+            if code is None and exit_path.exists():
+                code = exit_path.read_text(encoding="utf-8", errors="replace").strip()
+            entry["state"] = "completed" if str(code) == "0" else "failed"
+            entry["exit_code"] = code
+        elif self._pid_is_running(status.get("pid") or entry.get("pid")):
+            entry["state"] = "running"
+        elif entry.get("state") == "running":
+            entry["state"] = "unknown"
+        entry["updated_at"] = time.time()
+        return entry
+
+    def _known_jobs(self) -> list[dict]:
+        jobs = [self._refresh_registry_entry_status(entry) for entry in load_job_registry()]
+        for entry in jobs:
+            upsert_job_registry(entry)
+        return jobs
+
+    def _running_or_unknown_jobs(self) -> list[dict]:
+        return [entry for entry in self._known_jobs() if entry.get("state") in {"running", "unknown", "uploaded"}]
+
+    def _maybe_prompt_existing_jobs(self) -> None:
+        if self.running or self.active_job:
+            return
+        candidates = self._running_or_unknown_jobs()
+        if not candidates:
+            return
+        job = candidates[0]
+        label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "background job")
+        answer = messagebox.askyesnocancel(
+            "Background job found",
+            f"Found an unfinished background job:\n\n{label}\n\nAttach now to view progress?\n\nYes = Attach\nNo = Start/continue without attaching\nCancel = Do nothing",
+        )
+        if answer is True:
+            self._attach_registry_job(job)
+
+    def _confirm_start_with_existing_jobs(self) -> bool:
+        candidates = self._running_or_unknown_jobs()
+        if not candidates:
+            return True
+        job = candidates[0]
+        label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "background job")
+        answer = messagebox.askyesnocancel(
+            "Background job already exists",
+            f"There is an unfinished background job:\n\n{label}\n\nAttach to it instead of starting another job?\n\nYes = Attach existing job\nNo = Start a new job anyway\nCancel = Do nothing",
+        )
+        if answer is True:
+            self._attach_registry_job(job)
+            return False
+        return answer is False
+
     def _refresh_input_label(self, *_args) -> None:
         if self.state.input_mode.get() == "files":
             self.file_count_label.configure(text=f"Selected: {len(self.state.selected_files)} files")
@@ -586,6 +976,58 @@ class PipelineGUI:
     def _status_label_text(self, status: str) -> str:
         return "Not checked" if status == "Unknown" else status
 
+    def _tool_status_icon(self, status: str) -> str:
+        return {
+            "Installed": "✓",
+            "Missing": "✕",
+            "Downloading": "↓",
+            "Checking": "…",
+            "Disabled": "-",
+            "Skipped": "-",
+            "Error": "!",
+            "Unknown": "?",
+        }.get(status, "?")
+
+    def _tool_check_text(self, tool_key: str) -> str:
+        return "[x]" if tool_key in self.tools_checked_tools else "[ ]"
+
+    def _tool_status_icon_image(self, status: str) -> tk.PhotoImage | None:
+        icon_name = {
+            "Installed": "success",
+            "Missing": "failed",
+            "Downloading": "running",
+            "Checking": "running",
+            "Error": "failed",
+            "Disabled": "pending",
+            "Skipped": "pending",
+            "Unknown": "pending",
+        }.get(status, "pending")
+        key = f"tool_status_{icon_name}"
+        if key in self.toolbar_icons:
+            return self.toolbar_icons[key]
+        icon_path = Path(__file__).parent / "icons" / f"{icon_name}.png"
+        if not icon_path.exists():
+            return None
+        try:
+            img = tk.PhotoImage(file=str(icon_path))
+            self.toolbar_icons[key] = img
+            return img
+        except Exception:
+            return None
+
+    def _tools_checkbox_enabled(self, tool_key: str, status: str | None = None) -> bool:
+        if not is_tool_enabled(tool_key):
+            return False
+        status = status or self._tool_status(tool_key)
+        return status != "Installed"
+
+    def _update_tools_download_button(self) -> None:
+        button = getattr(self, "tools_download_button", None)
+        if button is None:
+            return
+        enabled = any(self._tools_checkbox_enabled(tool) for tool in self.tools_checked_tools)
+        button.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+
     def _status_color(self, status: str) -> str:
         return {
             "Installed": "#16a34a",
@@ -605,33 +1047,118 @@ class PipelineGUI:
         self._update_config_tool_status_labels()
 
     def _refresh_tools_tree(self) -> None:
-        tree = getattr(self, "tools_tree", None)
-        if tree is None:
+        table = getattr(self, "tools_table_frame", None)
+        if table is None:
             return
         target = self.state.run_target.get()
-        for item in tree.get_children():
-            tree.delete(item)
-        for status, color in {
-            "Installed": "#16a34a",
-            "Missing": "#dc2626",
-            "Downloading": "#2563eb",
-            "Checking": "#2563eb",
-            "Disabled": "#64748b",
-            "Unknown": "#64748b",
-            "Error": "#dc2626",
-        }.items():
-            tree.tag_configure(status, foreground=color)
-        for tool_key, tool in TOOL_DEFS.items():
+        for row, (tool_key, tool) in enumerate(TOOL_DEFS.items(), start=2):
             stage = str(tool.get("stage", ""))
             image = str(tool.get("image", ""))
             status = self._tool_status(tool_key, target)
-            tree.insert(
-                "",
-                tk.END,
-                iid=tool_key,
-                values=(STAGE_LABELS.get(stage, stage), tool_display_name(tool_key), image, self._status_label_text(status)),
-                tags=(status,),
-            )
+            enabled = self._tools_checkbox_enabled(tool_key, status)
+            if not enabled:
+                self.tools_checked_tools.discard(tool_key)
+            var = self.tools_check_vars.get(tool_key)
+            if var is None:
+                var = tk.BooleanVar(value=tool_key in self.tools_checked_tools)
+                self.tools_check_vars[tool_key] = var
+            var.set(tool_key in self.tools_checked_tools)
+
+            def on_check(key=tool_key, check_var=var) -> None:
+                if check_var.get():
+                    self.tools_checked_tools.add(key)
+                else:
+                    self.tools_checked_tools.discard(key)
+                self._refresh_tools_tree()
+                self._update_tools_download_button()
+
+            widgets = self.tools_row_widgets.get(tool_key)
+            if widgets is None:
+                cells = []
+                for col in range(5):
+                    cell = tk.Frame(table, padx=4, pady=2, bg="#fafafa")
+                    cell.grid(row=row, column=col, sticky=tk.NSEW, padx=0, pady=1)
+                    cells.append(cell)
+                check = tk.Checkbutton(
+                    cells[0],
+                    variable=var,
+                    command=on_check,
+                    bg="#fafafa",
+                    activebackground="#fafafa",
+                    highlightthickness=0,
+                    borderwidth=0,
+                    padx=0,
+                    pady=0,
+                )
+                check.pack(anchor=tk.W)
+                stage_label = tk.Label(cells[1], anchor=tk.W, bg="#fafafa", fg="#111827")
+                stage_label.pack(fill=tk.BOTH, expand=True)
+                tool_label = tk.Label(cells[2], anchor=tk.W, bg="#fafafa", fg="#111827")
+                tool_label.pack(fill=tk.BOTH, expand=True)
+                image_label = tk.Label(cells[3], anchor=tk.W, bg="#fafafa", fg="#475569")
+                image_label.pack(fill=tk.BOTH, expand=True)
+                status_label = tk.Label(cells[4], text="", anchor=tk.CENTER, bg="#fafafa", fg="#111827")
+                status_label.pack(anchor=tk.W)
+                widgets = {
+                    "cells": cells,
+                    "check": check,
+                    "stage": stage_label,
+                    "tool": tool_label,
+                    "image": image_label,
+                    "status": status_label,
+                }
+                self.tools_row_widgets[tool_key] = widgets
+
+            row_selected = tool_key in self.tools_checked_tools
+            bg = "#cbd5e1" if row_selected else "#fafafa"
+            for cell in widgets["cells"]:
+                cell.configure(bg=bg)
+            widgets["check"].configure(state=tk.NORMAL if enabled else tk.DISABLED, bg=bg, activebackground=bg)
+            widgets["stage"].configure(text=STAGE_LABELS.get(stage, stage), bg=bg)
+            widgets["tool"].configure(text=tool_display_name(tool_key), bg=bg)
+            widgets["image"].configure(text=image, bg=bg)
+            icon = self._tool_status_icon_image(status)
+            if icon is not None:
+                widgets["status"].configure(image=icon, text="", bg=bg)
+            else:
+                widgets["status"].configure(image="", text=self._tool_status_icon(status), bg=bg)
+            self.tools_status_icon_labels[tool_key] = widgets["status"]
+        self._update_tools_download_button()
+
+    def _on_tools_tree_click(self, event) -> None:
+        tree = getattr(self, "tools_tree", None)
+        if tree is None:
+            return
+        region = tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        column = tree.identify_column(event.x)
+        if column != "#1":
+            return
+        item = tree.identify_row(event.y)
+        if not item or item not in TOOL_DEFS or not is_tool_enabled(item):
+            return
+        if item in self.tools_checked_tools:
+            self.tools_checked_tools.remove(item)
+        else:
+            self.tools_checked_tools.add(item)
+        self._refresh_tools_tree()
+        return "break"
+
+    def _toggle_tools_log(self) -> None:
+        body = getattr(self, "tools_log_body", None)
+        label = getattr(self, "tools_log_toggle_text", None)
+        if body is None:
+            return
+        self.tools_log_visible = not self.tools_log_visible
+        if self.tools_log_visible:
+            body.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+            if label is not None:
+                label.set("Hide Image Log")
+        else:
+            body.pack_forget()
+            if label is not None:
+                label.set("Show Image Log")
 
     def _append_tools_log(self, line: str) -> None:
         log = getattr(self, "tools_log_text", None)
@@ -643,10 +1170,7 @@ class PipelineGUI:
         log.configure(state=tk.DISABLED)
 
     def _selected_tool_rows(self) -> list[str]:
-        tree = getattr(self, "tools_tree", None)
-        if tree is None:
-            return []
-        return [item for item in tree.selection() if item in TOOL_DEFS]
+        return [tool for tool in self.tools_checked_tools if tool in TOOL_DEFS]
 
     def _build_image_remote_runner(self) -> RemoteRunner | None:
         ssh_config = self._build_ssh_config()
@@ -847,8 +1371,32 @@ class PipelineGUI:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _ensure_selected_tool_images(self) -> None:
+    def _ensure_checked_tool_images(self) -> None:
         self._ensure_tool_images(self._selected_tool_rows())
+
+    def _select_all_tool_images(self) -> None:
+        target = self.state.run_target.get()
+        self.tools_checked_tools = {
+            tool for tool in TOOL_DEFS
+            if self._tools_checkbox_enabled(tool, self._tool_status(tool, target))
+        }
+        self._refresh_tools_tree()
+        self._update_tools_download_button()
+
+    def _unselect_all_tool_images(self) -> None:
+        self.tools_checked_tools.clear()
+        self._refresh_tools_tree()
+        self._update_tools_download_button()
+
+    def _select_missing_tool_images(self) -> None:
+        target = self.state.run_target.get()
+        self.tools_checked_tools = {
+            tool for tool in TOOL_DEFS
+            if self._tools_checkbox_enabled(tool, self._tool_status(tool, target))
+            and self._tool_status(tool, target) in ("Missing", "Unknown", "Error")
+        }
+        self._refresh_tools_tree()
+        self._update_tools_download_button()
 
     def _ensure_missing_tool_images(self) -> None:
         target = self.state.run_target.get()
@@ -959,6 +1507,9 @@ class PipelineGUI:
             messagebox.showerror("Configuration incomplete", self.state.config_status.get())
             return
 
+        if not self._confirm_start_with_existing_jobs():
+            return
+
         if self.state.run_target.get() == "Server":
             runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume)
             if not runner:
@@ -1014,9 +1565,36 @@ class PipelineGUI:
         elif resume:
             self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
         self._log("Starting pipeline...")
+        self._start_local_background_pipeline(run_request)
 
-        self.worker = threading.Thread(target=self._run_worker, args=(run_request,), daemon=True)
-        self.worker.start()
+    def _start_local_background_pipeline(self, run_request: dict) -> None:
+        job_dir = create_local_job_dir(run_request.get("output_dir") or PROJECT_ROOT / "outputs")
+        run_request = dict(run_request)
+        run_request["job_dir"] = str(job_dir)
+        run_request["run_target"] = "Local"
+        config_path = job_dir / "job_config.json"
+        write_json(config_path, run_request)
+
+        cmd = [sys.executable, "-m", "pipeline.job_worker", "--job-config", str(config_path)]
+        kwargs = {
+            "cwd": str(PROJECT_ROOT),
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **kwargs)
+        write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
+        entry = self._registry_entry_for_local_job(job_dir, run_request, proc.pid)
+        upsert_job_registry(entry)
+        self._log(f"Local background job started: {job_dir}")
+        self._log("You can close the GUI. The local worker process will keep running.")
+        self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
+        self.job_log_offset = 0
+        self._schedule_job_poll()
 
     def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None) -> None:
         runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
@@ -1028,18 +1606,15 @@ class PipelineGUI:
             self.remote_runner = None
         runner.config.resume = resume
         self.remote_runner = runner
-
-        def task():
-            if not runner.remote_job_dir:
-                runner.upload_job()
-            code = runner.run_remote()
-            self._log(f"Remote pipeline exited with code {code}")
-            if code == 0:
-                local_path = runner.download_outputs(self.state.output_dir.get())
-                self._log(f"Downloaded outputs to: {local_path}")
-
-        title = "Remote Resume" if resume else ("Remote Restart" if restart else "Remote Run")
-        self._run_remote_task(title, task, clear_log=True, enable_pause=True)
+        self._enter_background_monitor_state("Starting remote background job...")
+        remote_dir = runner.start_remote_detached()
+        entry = self._registry_entry_for_remote_job(runner, remote_dir)
+        upsert_job_registry(entry)
+        self._log(f"Remote background job started: {remote_dir}")
+        self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
+        self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
+        self.job_log_offset = 0
+        self._schedule_job_poll()
 
     def _build_run_request(self) -> dict | None:
         mode = self.state.input_mode.get()
@@ -1361,6 +1936,81 @@ class PipelineGUI:
     def _remote_log_event(self, line: str) -> None:
         self.root.after(0, lambda l=line: self._handle_remote_log_event(l))
 
+    def _schedule_job_poll(self) -> None:
+        if self.job_poll_after_id:
+            try:
+                self.root.after_cancel(self.job_poll_after_id)
+            except Exception:
+                pass
+        self.job_poll_after_id = self.root.after(1500, self._poll_active_job)
+
+    def _poll_active_job(self) -> None:
+        if not self.active_job:
+            self.job_poll_after_id = None
+            return
+        try:
+            target = self.active_job.get("target")
+            if target == "Server":
+                done = self._poll_remote_background_job()
+            else:
+                done = self._poll_local_background_job()
+        except Exception as exc:
+            self._log(f"BACKGROUND POLL ERROR: {type(exc).__name__}: {exc}")
+            done = False
+
+        if done:
+            self.active_job["done"] = True
+            self.job_poll_after_id = None
+            self._set_idle_state()
+            return
+        self._schedule_job_poll()
+
+    def _poll_local_background_job(self) -> bool:
+        if not self.active_job:
+            return True
+        job_dir = Path(str(self.active_job.get("job_dir", "")))
+        log_path = job_dir / "run.log"
+        if log_path.exists():
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                f.seek(self.job_log_offset)
+                data = f.read()
+                self.job_log_offset = f.tell()
+            self._handle_background_log_chunk(data)
+
+        status = read_json(job_dir / "job_status.json", {})
+        state = str(status.get("state", "running"))
+        exit_path = job_dir / "exit_code.txt"
+        if exit_path.exists() or state in {"completed", "failed"}:
+            code = status.get("exit_code")
+            if code is None and exit_path.exists():
+                code = exit_path.read_text(encoding="utf-8", errors="replace").strip()
+            self._log(f"Local background job finished with exit code {code}")
+            self._update_registry_for_active_job("completed" if str(code) == "0" else "failed", code)
+            return True
+        self.state.status_text.set("Running in background")
+        return False
+
+    def _poll_remote_background_job(self) -> bool:
+        if not self.remote_runner:
+            return True
+        data, self.job_log_offset = self.remote_runner.read_remote_log_since(self.job_log_offset)
+        self._handle_background_log_chunk(data)
+        status = self.remote_runner.remote_status()
+        state = str(status.get("state", "running"))
+        if state in {"completed", "failed"}:
+            self._log(f"Remote background job finished with exit code {status.get('exit_code')}")
+            self._log("Use Download Outputs to copy remote outputs to the local output folder.")
+            self._update_registry_for_active_job(state, status.get("exit_code"))
+            return True
+        self.state.status_text.set("Running in background")
+        self.state.remote_status.set(f"Remote: {state}")
+        return False
+
+    def _handle_background_log_chunk(self, data: str) -> None:
+        for line in data.splitlines():
+            if line.strip():
+                self._handle_remote_log_event(line.rstrip())
+
     def _handle_remote_log_event(self, line: str) -> None:
         if not line.startswith("MRI_EVENT "):
             self._log(line)
@@ -1397,7 +2047,8 @@ class PipelineGUI:
             self.state.overall_progress_var.set(max(0, min(100, overall_pct)))
             self.state.overall_progress_text.set(f"{int(max(0, min(100, overall_pct)))}%")
             self.state.status_text.set(status.capitalize())
-            self._log(f"REMOTE {status.upper()} {stage}: {msg}")
+            prefix = "REMOTE " if self.state.run_target.get() == "Server" else ""
+            self._log(f"{prefix}{status.upper()} {stage}: {msg}")
             if target_key:
                 stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
                 stage_text = f"{stage_name} - {status.capitalize()}"
@@ -1613,13 +2264,18 @@ class PipelineGUI:
         runner = self.remote_runner or self._build_remote_runner(resume=resume)
         if not runner:
             return
-
-        def task():
-            runner.config.resume = resume
-            code = runner.run_remote()
-            self.remote_runner = runner
-            self._log(f"Remote pipeline exited with code {code}")
-        self._run_remote_task("Run On Server" if not resume else "Resume Remote", task)
+        runner.config.resume = resume
+        self.remote_runner = runner
+        self._prepare_progress_tab(self._input_files_for_progress())
+        self._show_progress_tab()
+        self._enter_background_monitor_state("Starting remote background job...")
+        remote_dir = runner.start_remote_detached()
+        entry = self._registry_entry_for_remote_job(runner, remote_dir)
+        upsert_job_registry(entry)
+        self._log(f"Remote background job started: {remote_dir}")
+        self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
+        self.job_log_offset = 0
+        self._schedule_job_poll()
 
     def _remote_download_outputs(self) -> None:
         def task():
@@ -1856,6 +2512,14 @@ class PipelineGUI:
 
             threading.Thread(target=request_remote_pause, daemon=True).start()
             self._log("Remote pause requested. Server will pause after the current pipeline stage.")
+            return
+        if self.active_job and self.active_job.get("target") == "Local" and self.active_job.get("job_dir"):
+            try:
+                stop_file = Path(str(self.active_job["job_dir"])) / "stop_requested"
+                stop_file.touch()
+                self._log(f"Local pause requested via stop file: {stop_file}")
+            except Exception as exc:
+                self._log(f"LOCAL PAUSE ERROR: {type(exc).__name__}: {exc}")
             return
         self._log("Pause requested. The current Docker step will finish, then state will be saved as PAUSED.")
 

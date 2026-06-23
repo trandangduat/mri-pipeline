@@ -71,6 +71,8 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         state="readonly",
         width=28,
     ).pack(side=tk.LEFT, padx=(8, 12))
+    ttk.Button(mode_row, text="Save Run Config", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
+    ttk.Button(mode_row, text="Load Run Config", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
     gui.tool_status_labels = getattr(gui, "tool_status_labels", {})

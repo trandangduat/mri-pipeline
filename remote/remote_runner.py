@@ -167,7 +167,39 @@ class RemoteRunner:
             self._upload_code(ssh)
             self._upload_inputs(ssh)
             self._upload_license(ssh)
+            self._write_job_metadata(ssh)
             return self.remote_job_dir
+
+    def attach_job(self, remote_job_dir: str) -> None:
+        self.remote_job_dir = remote_job_dir.rstrip("/")
+        self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
+
+    def read_remote_metadata(self) -> dict:
+        if not self.remote_job_dir:
+            return {}
+        metadata_path = posixpath.join(self.remote_job_dir, "job_metadata.json")
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            try:
+                with ssh.sftp.open(metadata_path, "r") as f:
+                    data = f.read().decode(errors="replace")
+                parsed = json.loads(data)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+
+    def _write_job_metadata(self, ssh: RemoteSSHClient) -> None:
+        remote_path = posixpath.join(self.remote_job_dir, "job_metadata.json")
+        metadata = {
+            "job_id": self.job_id,
+            "remote_job_dir": self.remote_job_dir,
+            "remote_output_dir": self.remote_output_dir,
+            "created_at": time.time(),
+            "input_mode": self.config.input_mode,
+            "output_dir": self.config.output_dir,
+            "download_subdir": self.config.download_subdir,
+        }
+        with ssh.sftp.open(remote_path, "w") as f:
+            f.write(json.dumps(metadata, indent=2))
 
     def _upload_export_config(self, ssh: RemoteSSHClient) -> None:
         remote_path = posixpath.join(self.remote_job_dir, "export_config.json")
@@ -216,6 +248,62 @@ class RemoteRunner:
             )
             command = self._remote_command()
             return ssh.run(command, stream=True)
+
+    def start_remote_detached(self) -> str:
+        if not self.remote_job_dir:
+            self.upload_job()
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            run_log = posixpath.join(self.remote_job_dir, "run.log")
+            exit_code = posixpath.join(self.remote_job_dir, "exit_code.txt")
+            pid_file = posixpath.join(self.remote_job_dir, "pid.txt")
+            finished_at = posixpath.join(self.remote_job_dir, "finished_at.txt")
+            stop_file = posixpath.join(self.remote_job_dir, "stop_requested")
+            ssh.run(f"rm -f {shlex.quote(stop_file)} {shlex.quote(exit_code)} {shlex.quote(finished_at)} {shlex.quote(run_log)}", stream=False, check=False)
+            ssh.run(
+                f"df -h {shlex.quote(self.remote_job_dir)} {shlex.quote(posixpath.join(self.remote_job_dir, 'outputs'))} > {shlex.quote(posixpath.join(self.remote_job_dir, 'disk.log'))} 2>&1",
+                stream=False,
+                check=False,
+            )
+            worker_script = (
+                f"{self._remote_command()} > {shlex.quote(run_log)} 2>&1; "
+                f"code=$?; echo $code > {shlex.quote(exit_code)}; date +%s > {shlex.quote(finished_at)}; exit $code"
+            )
+            start_cmd = f"nohup bash -lc {shlex.quote(worker_script)} >/dev/null 2>&1 & echo $! > {shlex.quote(pid_file)}"
+            code = ssh.run(start_cmd, stream=False, check=False)
+            if code != 0:
+                raise RuntimeError(f"Failed to start detached remote job: exit {code}")
+            self.on_log(f"Remote background job started: {self.remote_job_dir}")
+            return self.remote_job_dir
+
+    def remote_status(self) -> dict[str, str | int | bool]:
+        if not self.remote_job_dir:
+            return {"state": "not_started"}
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            exit_path = posixpath.join(self.remote_job_dir, "exit_code.txt")
+            pid_path = posixpath.join(self.remote_job_dir, "pid.txt")
+            exit_code, exit_text = ssh.read_text(f"cat {shlex.quote(exit_path)} 2>/dev/null")
+            pid_code, pid_text = ssh.read_text(f"cat {shlex.quote(pid_path)} 2>/dev/null")
+            pid = pid_text.strip()
+            if exit_code == 0 and exit_text.strip() != "":
+                code = int(exit_text.strip().splitlines()[-1])
+                return {"state": "completed" if code == 0 else "failed", "exit_code": code, "pid": pid, "remote_job_dir": self.remote_job_dir}
+            if pid_code == 0 and pid:
+                ps_code = ssh.run(f"kill -0 {shlex.quote(pid)} >/dev/null 2>&1", stream=False, check=False)
+                return {"state": "running" if ps_code == 0 else "unknown", "pid": pid, "remote_job_dir": self.remote_job_dir}
+            return {"state": "uploaded", "remote_job_dir": self.remote_job_dir}
+
+    def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
+        if not self.remote_job_dir:
+            return "", offset
+        remote_log = posixpath.join(self.remote_job_dir, "run.log")
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            try:
+                with ssh.sftp.open(remote_log, "r") as f:
+                    f.seek(offset)
+                    data = f.read().decode(errors="replace")
+                    return data, f.tell()
+            except OSError:
+                return "", offset
 
     def ensure_images(self) -> bool:
         if not self.remote_job_dir:

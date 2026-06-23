@@ -45,3 +45,6 @@ def setup_styles(root) -> None:
     # Selected list item background
     style.configure("Selected.TFrame", background="#e2e8f0")
     style.configure("Selected.TLabel", background="#e2e8f0")
+    style.configure("ToolSelected.TFrame", background="#cbd5e1")
+    style.configure("ToolSelected.TLabel", background="#cbd5e1")
+    style.configure("ToolSelected.TCheckbutton", background="#cbd5e1")
