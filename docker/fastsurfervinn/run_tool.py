@@ -83,6 +83,16 @@ def main():
             if os.path.isfile(src):
                 shutil.copy(src, os.path.join(stats_dir, fname))
                 print(f"Copied stats: {fname}")
+        norm = subprocess.run([
+            "python3",
+            "/app/normalize_volumes.py",
+            "--subject-id", args.subject_id,
+            "--stats-dir", stats_dir,
+            "--output-subcortical", os.path.join(stats_dir, "subcortical_volume.tsv"),
+            "--output-cortical", os.path.join(stats_dir, "cortical_volume.tsv"),
+        ], capture_output=True, text=True)
+        if norm.returncode != 0:
+            print(f"normalize_volumes warning: {norm.stderr or norm.stdout}")
     else:
         print(f"No stats directory found at {src_stats}")
 

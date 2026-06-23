@@ -4,11 +4,13 @@ import json
 import os
 import re
 import shutil
+import statistics
+import csv
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .config import PipelineConfig, StepResult
+from .config import PipelineConfig, StepResult, BatchImageResult, STAGE_LABELS, tool_display_name
 
 
 def _file_stem(filename: str) -> str:
@@ -304,11 +306,61 @@ def _describe_subject_files(subject_dir: str, limit: int = 80) -> str:
     return "; ".join(rels)
 
 
+def _step_metrics_row(config: PipelineConfig, subject_dir: str, result: StepResult) -> dict:
+    peak_ram_mb = (result.peak_ram_bytes / (1024 * 1024)) if result.peak_ram_bytes is not None else None
+    return {
+        "subject_id": config.subject_id,
+        "input_file": os.path.abspath(config.input_file),
+        "subject_dir": subject_dir,
+        "stage": result.stage,
+        "stage_label": STAGE_LABELS.get(result.stage, result.stage),
+        "tool": result.tool,
+        "tool_label": tool_display_name(result.tool) or result.tool,
+        "status": "OK" if result.success else "FAILED",
+        "success": result.success,
+        "run_sec": round(result.duration_sec, 3),
+        "build_pull_sec": round(result.build_duration_sec, 3),
+        "peak_ram_bytes": result.peak_ram_bytes,
+        "peak_ram_mb": round(peak_ram_mb, 3) if peak_ram_mb is not None else None,
+        "peak_cpu_pct": round(result.peak_cpu_pct, 3) if result.peak_cpu_pct is not None else None,
+        "error": result.error,
+    }
+
+
+def _write_rows_tsv(path: Path, rows: list[dict], fields: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+BENCHMARK_STEP_FIELDS = [
+    "subject_id",
+    "input_file",
+    "subject_dir",
+    "stage",
+    "stage_label",
+    "tool",
+    "tool_label",
+    "status",
+    "success",
+    "run_sec",
+    "build_pull_sec",
+    "peak_ram_bytes",
+    "peak_ram_mb",
+    "peak_cpu_pct",
+    "error",
+]
+
+
 def _write_pipeline_metrics_log(logs_dir: str, config: PipelineConfig, subject_dir: str, results: list[StepResult], started_at: float, ended_at: float) -> str:
     metrics_log = Path(logs_dir) / "pipeline_metrics.log"
     total_run = sum(r.duration_sec for r in results)
     total_build = sum(r.build_duration_sec for r in results)
     status = "SUCCESS" if results and all(r.success for r in results) else "FAILED"
+    rows = [_step_metrics_row(config, subject_dir, r) for r in results]
     with open(metrics_log, "w", encoding="utf-8") as f:
         f.write("MRI Pipeline Metrics\n")
         f.write(f"Input file: {os.path.abspath(config.input_file)}\n")
@@ -320,10 +372,157 @@ def _write_pipeline_metrics_log(logs_dir: str, config: PipelineConfig, subject_d
         f.write(f"Total wall time: {ended_at - started_at:.1f}s\n")
         f.write(f"Total run time: {total_run:.1f}s\n")
         f.write(f"Total build/pull time: {total_build:.1f}s\n\n")
-        f.write("Stage\tTool\tStatus\tRun(s)\tBuild/Pull(s)\tPeak RAM\tError\n")
+        f.write("Stage\tTool\tStatus\tRun(s)\tBuild/Pull(s)\tPeak RAM\tPeak CPU\tError\n")
         for r in results:
-            f.write(f"{r.stage}\t{r.tool}\t{'OK' if r.success else 'FAILED'}\t{r.duration_sec:.1f}\t{r.build_duration_sec:.1f}\t{_format_bytes(r.peak_ram_bytes)}\t{r.error}\n")
+            peak_cpu = f"{r.peak_cpu_pct:.0f}%" if r.peak_cpu_pct is not None else "n/a"
+            f.write(f"{r.stage}\t{r.tool}\t{'OK' if r.success else 'FAILED'}\t{r.duration_sec:.1f}\t{r.build_duration_sec:.1f}\t{_format_bytes(r.peak_ram_bytes)}\t{peak_cpu}\t{r.error}\n")
+    metrics_json = Path(logs_dir) / "pipeline_metrics.json"
+    with open(metrics_json, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "input_file": os.path.abspath(config.input_file),
+                "subject_id": config.subject_id,
+                "subject_dir": subject_dir,
+                "started_at": datetime.fromtimestamp(started_at).isoformat(timespec="seconds"),
+                "finished_at": datetime.fromtimestamp(ended_at).isoformat(timespec="seconds"),
+                "status": status,
+                "total_wall_sec": round(ended_at - started_at, 3),
+                "total_run_sec": round(total_run, 3),
+                "total_build_pull_sec": round(total_build, 3),
+                "steps": rows,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+    _write_rows_tsv(Path(logs_dir) / "pipeline_steps.tsv", rows, BENCHMARK_STEP_FIELDS)
     return str(metrics_log)
+
+
+def _number_values(rows: list[dict], key: str) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        value = row.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def _avg(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 3) if values else None
+
+
+def _median(values: list[float]) -> float | None:
+    return round(float(statistics.median(values)), 3) if values else None
+
+
+def _min(values: list[float]) -> float | None:
+    return round(min(values), 3) if values else None
+
+
+def _max(values: list[float]) -> float | None:
+    return round(max(values), 3) if values else None
+
+
+BENCHMARK_SUMMARY_FIELDS = [
+    "stage",
+    "stage_label",
+    "tool",
+    "tool_label",
+    "images",
+    "success",
+    "failed",
+    "success_rate_pct",
+    "avg_run_sec",
+    "median_run_sec",
+    "min_run_sec",
+    "max_run_sec",
+    "avg_build_pull_sec",
+    "avg_peak_ram_mb",
+    "max_peak_ram_mb",
+    "avg_peak_cpu_pct",
+    "max_peak_cpu_pct",
+    "errors",
+]
+
+
+def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchImageResult]) -> str:
+    benchmark_dir = Path(output_dir) / "benchmark"
+    rows: list[dict] = []
+    for image_result in batch_results:
+        if image_result.steps:
+            config = PipelineConfig(
+                input_file=image_result.input_file,
+                output_dir=str(Path(image_result.subject_dir).parent),
+                subject_id=image_result.subject_id,
+            )
+            rows.extend(_step_metrics_row(config, image_result.subject_dir, step) for step in image_result.steps)
+        else:
+            rows.append({
+                "subject_id": image_result.subject_id,
+                "input_file": os.path.abspath(image_result.input_file),
+                "subject_dir": image_result.subject_dir,
+                "stage": "pipeline",
+                "stage_label": "Pipeline",
+                "tool": "pipeline",
+                "tool_label": "Pipeline",
+                "status": "FAILED" if not image_result.success else "OK",
+                "success": image_result.success,
+                "run_sec": round(image_result.duration_sec, 3),
+                "build_pull_sec": 0.0,
+                "peak_ram_bytes": None,
+                "peak_ram_mb": None,
+                "peak_cpu_pct": None,
+                "error": image_result.error,
+            })
+
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        groups.setdefault((str(row.get("stage", "")), str(row.get("tool", ""))), []).append(row)
+
+    summary: list[dict] = []
+    for (stage, tool), group in sorted(groups.items()):
+        total = len(group)
+        successes = sum(1 for row in group if bool(row.get("success")))
+        run_values = _number_values(group, "run_sec")
+        build_values = _number_values(group, "build_pull_sec")
+        ram_values = _number_values(group, "peak_ram_mb")
+        cpu_values = _number_values(group, "peak_cpu_pct")
+        errors = sorted({str(row.get("error", "")) for row in group if row.get("error")})
+        first = group[0]
+        summary.append({
+            "stage": stage,
+            "stage_label": first.get("stage_label", stage),
+            "tool": tool,
+            "tool_label": first.get("tool_label", tool),
+            "images": total,
+            "success": successes,
+            "failed": total - successes,
+            "success_rate_pct": round((successes / total) * 100, 1) if total else 0.0,
+            "avg_run_sec": _avg(run_values),
+            "median_run_sec": _median(run_values),
+            "min_run_sec": _min(run_values),
+            "max_run_sec": _max(run_values),
+            "avg_build_pull_sec": _avg(build_values),
+            "avg_peak_ram_mb": _avg(ram_values),
+            "max_peak_ram_mb": _max(ram_values),
+            "avg_peak_cpu_pct": _avg(cpu_values),
+            "max_peak_cpu_pct": _max(cpu_values),
+            "errors": " | ".join(errors[:5]),
+        })
+
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    _write_rows_tsv(benchmark_dir / "benchmark_steps.tsv", rows, BENCHMARK_STEP_FIELDS)
+    _write_rows_tsv(benchmark_dir / "benchmark_summary.tsv", summary, BENCHMARK_SUMMARY_FIELDS)
+    with open(benchmark_dir / "benchmark_steps.json", "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2, ensure_ascii=False)
+    with open(benchmark_dir / "benchmark_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    return str(benchmark_dir)
 
 
 def _pipeline_state_path(logs_dir: str) -> Path:

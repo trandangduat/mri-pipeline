@@ -368,6 +368,9 @@ class RemoteRunner:
         norm_vol = PROJECT_ROOT / "normalize_volumes.py"
         if norm_vol.exists():
             ssh.upload_file(norm_vol, posixpath.join(remote_code, "normalize_volumes.py"))
+        info_dir = PROJECT_ROOT / "info"
+        if info_dir.exists():
+            ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
 
     def _upload_inputs(self, ssh: RemoteSSHClient) -> None:
         remote_input = posixpath.join(self.remote_job_dir, "input")

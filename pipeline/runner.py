@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import csv
+import re
 import shutil
 import time
 from datetime import datetime
@@ -18,6 +19,7 @@ from .config import (
     MetricsCallback,
     PipelineConfig,
     ProgressCallback,
+    PROJECT_ROOT,
     STAGE_LABELS,
     STAGE_ORDER,
     StepResult,
@@ -44,6 +46,7 @@ from .utils import (
     _resume_output_for_stage,
     _safe_container_name,
     _set_stage_state,
+    _write_batch_benchmark_reports,
     _write_pipeline_metrics_log,
     _write_pipeline_state,
 )
@@ -181,6 +184,224 @@ def _stats_source_candidates(stats_dir: Path, stat: str, atlas: str = "") -> lis
     return []
 
 
+VECTOR_SPECS = {
+    "subcortical_volume": {
+        "column": "subcortical_volume",
+        "features": "subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "cortical_volume": {
+        "column": "cortical_volume",
+        "features": "cortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "schaefer2018": {
+        "column": "schaefer200_7network",
+        "features": "schaefer200_7network_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "schaefer200_7network",
+    },
+    "kong": {
+        "column": "200Parcels_Kong2022_17Networks",
+        "features": "200Parcels_Kong2022_17Networks_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "200Parcels_Kong2022_17Networks",
+    },
+    "yale": {
+        "column": "YBA_696parcels",
+        "features": "YBA_696parcels_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "YBA_696parcels",
+    },
+}
+
+
+def _norm_feature(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+
+def _load_vector_features(filename: str) -> list[str]:
+    path = PROJECT_ROOT / "info" / filename
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines() if line.strip()]
+
+
+def _as_number(value: str | float | int | None) -> float | str:
+    if value is None:
+        return "NA"
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().strip("'").strip('"')
+    if not text or text.upper() in {"NA", "NAN", "NONE"}:
+        return "NA"
+    try:
+        return float(text)
+    except ValueError:
+        return "NA"
+
+
+def _vector_list_string(values: list[str | float | int | None]) -> str:
+    return repr([_as_number(value) for value in values])
+
+
+def _parse_freesurfer_stats_table(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    headers: list[str] = []
+    rows: list[dict[str, str]] = []
+    if not path.exists():
+        return headers, rows
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# ColHeaders"):
+            headers = line.split()[2:]
+            continue
+        if line.startswith("#") or not headers:
+            continue
+        parts = line.split()
+        if len(parts) >= len(headers):
+            rows.append(dict(zip(headers, parts[: len(headers)])))
+    return headers, rows
+
+
+def _parse_freesurfer_measures(path: Path) -> dict[str, str]:
+    measures: dict[str, str] = {}
+    if not path.exists():
+        return measures
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line.startswith("# Measure "):
+            continue
+        parts = [part.strip() for part in line[len("# Measure "):].split(",")]
+        if len(parts) < 2:
+            continue
+        numeric = next((part for part in reversed(parts) if re.fullmatch(r"[-+]?\d+(\.\d+)?([eE][-+]?\d+)?", part)), "")
+        if not numeric:
+            continue
+        for key in parts[:2]:
+            if key:
+                measures[key] = numeric
+                measures[_norm_feature(key)] = numeric
+    return measures
+
+
+def _put_value(values: dict[str, str], key: str, value: str) -> None:
+    if not key:
+        return
+    values[key] = value
+    values[_norm_feature(key)] = value
+
+
+def _read_subcortical_values(stats_dir: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for path in [stats_dir / "aseg.stats", stats_dir / "aparc.DKTatlas+aseg.deep.stats", stats_dir / "aseg+DKT.stats"]:
+        _headers, rows = _parse_freesurfer_stats_table(path)
+        for row in rows:
+            name = row.get("StructName", "")
+            volume = row.get("Volume_mm3") or row.get("Volume") or row.get("NVoxels")
+            if name and volume:
+                _put_value(values, name, volume)
+        for key, value in _parse_freesurfer_measures(path).items():
+            _put_value(values, key, value)
+
+    tsv = stats_dir / "subcortical_volume.tsv"
+    if tsv.exists():
+        with open(tsv, "r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                _put_value(values, row.get("structure", ""), row.get("volume_mm3", ""))
+    return values
+
+
+def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for hemi in ("lh", "rh"):
+        for path in [stats_dir / f"{hemi}.aparc.stats", stats_dir / f"{hemi}.aparc.DKTatlas.stats"]:
+            _headers, rows = _parse_freesurfer_stats_table(path)
+            for row in rows:
+                name = row.get("StructName", "")
+                volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+                if name and volume:
+                    _put_value(values, f"{hemi}_{name}", volume)
+
+    tsv = stats_dir / "cortical_volume.tsv"
+    if tsv.exists():
+        with open(tsv, "r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                hemi = row.get("hemisphere", "")
+                region = row.get("region", "")
+                if hemi and region:
+                    _put_value(values, f"{hemi}_{region}", row.get("volume_mm3", ""))
+    return values
+
+
+def _atlas_stats_candidates(stats_dir: Path, atlas: str, hemi: str) -> list[Path]:
+    stem = str(VECTOR_SPECS[atlas].get("stats_stem", atlas))
+    return [
+        stats_dir / f"{hemi}.{stem}.stats",
+        stats_dir / f"{hemi}_{stem}.stats",
+        stats_dir / f"{hemi}.{stem.lower()}.stats",
+        stats_dir / f"{hemi}_{stem.lower()}.stats",
+    ]
+
+
+def _read_atlas_thickness_values(stats_dir: Path, atlas: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for hemi in ("lh", "rh"):
+        hemi_upper = hemi.upper()
+        for path in _atlas_stats_candidates(stats_dir, atlas, hemi):
+            _headers, rows = _parse_freesurfer_stats_table(path)
+            for row in rows:
+                name = row.get("StructName", "")
+                thick = row.get("ThickAvg") or row.get("MeanThickness") or row.get("thickness_mm")
+                if not name or not thick:
+                    continue
+                for key in (name, f"{hemi}_{name}", f"{hemi_upper}_{name}"):
+                    _put_value(values, key, thick)
+    return values
+
+
+def _values_for_vector(stats_dir: Path, stat: str, atlas: str = "") -> dict[str, str]:
+    if stat == "subcortical_volume":
+        return _read_subcortical_values(stats_dir)
+    if stat == "cortical_volume":
+        return _read_cortical_volume_values(stats_dir)
+    if stat == "cortical_thickness" and atlas:
+        return _read_atlas_thickness_values(stats_dir, atlas)
+    return {}
+
+
+def _lookup_feature(values: dict[str, str], feature: str) -> str:
+    if feature in values:
+        return values[feature]
+    norm = _norm_feature(feature)
+    if norm in values:
+        return values[norm]
+    return "NA"
+
+
+def _write_standard_vector(
+    vectors_dir: Path,
+    subject_id: str,
+    column: str,
+    features: list[str],
+    values_by_feature: dict[str, str],
+) -> tuple[list[str], str, int]:
+    vector_values = [_lookup_feature(values_by_feature, feature) for feature in features]
+    missing = sum(1 for value in vector_values if _as_number(value) == "NA")
+    list_text = _vector_list_string(vector_values)
+    vectors_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = vectors_dir / f"{column}.txt"
+    txt_path.write_text(list_text + "\n", encoding="utf-8")
+    feature_path = vectors_dir / f"{column}_features.tsv"
+    with open(feature_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerow(["index", "feature", "value"])
+        for idx, (feature, value) in enumerate(zip(features, vector_values), start=1):
+            writer.writerow([idx, feature, _as_number(value)])
+    return [str(txt_path), str(feature_path)], list_text, missing
+
+
 def _write_vector_from_long_tsv(src: Path, dst: Path, subject_id: str, value_column: str) -> tuple[bool, str]:
     delimiter = "\t" if src.suffix.lower() == ".tsv" else ","
     with open(src, "r", encoding="utf-8", newline="") as f:
@@ -223,32 +444,60 @@ def _generate_stats_vectors(subject_dir: str, subject_id: str, config: StatsVect
     warnings: list[str] = []
     stats_dir = Path(subject_dir) / "stats"
     vectors_dir = stats_dir / "vectors"
+    vector_columns: dict[str, str] = {}
 
-    for stat, enabled in config.enabled_stats.items():
-        if not enabled:
-            continue
-        stat_def = STAT_VECTOR_DEFS.get(stat)
-        if not stat_def:
-            continue
-        value_column = str(stat_def.get("value_column", "value"))
-        atlases = list(config.atlases.get(stat, [])) if stat_def.get("atlases") else [""]
-        if stat_def.get("atlases") and not atlases:
-            warnings.append(f"{stat}: no atlas selected")
-            continue
+    requested: list[tuple[str, str, str]] = []
+    if config.enabled_stats.get("subcortical_volume"):
+        requested.append(("subcortical_volume", "", "subcortical_volume"))
+    if config.enabled_stats.get("cortical_volume"):
+        requested.append(("cortical_volume", "", "cortical_volume"))
+    if config.enabled_stats.get("cortical_thickness"):
+        atlases = list(config.atlases.get("cortical_thickness", []))
+        if not atlases:
+            warnings.append("cortical_thickness: no atlas selected")
         for atlas in atlases:
-            candidates = _stats_source_candidates(stats_dir, stat, atlas)
-            src = next((path for path in candidates if path.exists()), None)
-            label = f"{stat}:{atlas}" if atlas else stat
-            if src is None:
-                expected = ", ".join(path.name for path in candidates) or "no source pattern"
-                warnings.append(f"{label}: missing source stats file ({expected})")
-                continue
-            out_name = f"{stat}_{atlas}_vector.tsv" if atlas else f"{stat}_vector.tsv"
-            ok, err = _write_vector_from_long_tsv(src, vectors_dir / out_name, subject_id, value_column)
-            if ok:
-                generated.append(str(vectors_dir / out_name))
-            else:
-                warnings.append(f"{label}: {err}")
+            requested.append(("cortical_thickness", atlas, atlas))
+
+    for stat, atlas, spec_key in requested:
+        spec = VECTOR_SPECS.get(spec_key)
+        if not spec:
+            warnings.append(f"{stat}:{atlas or 'default'}: no vector spec")
+            continue
+        column = str(spec["column"])
+        features = _load_vector_features(str(spec["features"]))
+        if not features:
+            warnings.append(f"{column}: missing feature list info/{spec['features']}")
+            continue
+        values = _values_for_vector(stats_dir, stat, atlas)
+        paths, list_text, missing = _write_standard_vector(vectors_dir, subject_id, column, features, values)
+        generated.extend(paths)
+        vector_columns[column] = list_text
+        if missing:
+            warnings.append(f"{column}: {missing}/{len(features)} features missing; filled with NA")
+
+    if vector_columns:
+        csv_path = vectors_dir / "stats_vectors.csv"
+        columns = ["subject", *vector_columns.keys()]
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+            writer.writerow([subject_id, *[vector_columns[col] for col in vector_columns]])
+        generated.append(str(csv_path))
+        manifest_path = vectors_dir / "stats_vectors_manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            import json
+            json.dump(
+                {
+                    "subject": subject_id,
+                    "columns": list(vector_columns.keys()),
+                    "feature_files": {key: str(value["features"]) for key, value in VECTOR_SPECS.items()},
+                    "format": "CSV cells contain Python-list-style vectors aligned 1:1 with the corresponding *_feats.txt file.",
+                },
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+        generated.append(str(manifest_path))
     return generated, warnings
 
 
@@ -570,9 +819,10 @@ def run_batch_pipeline(
             success = bool(steps) and all(step.success for step in steps)
             error = "" if success else "one or more pipeline steps failed"
         except Exception as exc:
-            steps = []
+            failed_duration = time.time() - started_at
             success = False
             error = str(exc)
+            steps = [StepResult(stage="pipeline", tool="pipeline", success=False, duration_sec=failed_duration, error=error)]
             logs_dir = Path(subject_dir) / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
             with open(logs_dir / "pipeline_metrics.log", "w", encoding="utf-8") as f:
@@ -584,9 +834,12 @@ def run_batch_pipeline(
                 f.write(f"Finished: {datetime.now().isoformat(timespec='seconds')}\n")
                 f.write("Status: FAILED\n")
                 f.write(f"Error: {error}\n")
+            _write_pipeline_metrics_log(str(logs_dir), PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools), subject_dir, steps, started_at, time.time())
 
         image_result = BatchImageResult(input_file=input_file, subject_id=subject_id, subject_dir=subject_dir, success=success, duration_sec=time.time() - started_at, steps=steps, error=error)
         batch_results.append(image_result)
         if on_image_done:
             on_image_done(image_result, idx, total)
+    if batch_results:
+        _write_batch_benchmark_reports(output_dir, batch_results)
     return batch_results

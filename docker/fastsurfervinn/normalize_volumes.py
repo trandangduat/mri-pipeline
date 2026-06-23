@@ -1,77 +1,111 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
-import nibabel as nib
-import numpy as np
-import pandas as pd
+import csv
 import os
+import re
+from pathlib import Path
 
-# Simplified mapping for demo purposes. In reality, we'd use FreeSurferColorLUT.txt
-SUBCORTICAL_LABELS = {
-    10: 'Left-Thalamus',
-    11: 'Left-Caudate',
-    12: 'Left-Putamen',
-    13: 'Left-Pallidum',
-    17: 'Left-Hippocampus',
-    18: 'Left-Amygdala',
-    49: 'Right-Thalamus',
-    50: 'Right-Caudate',
-    51: 'Right-Putamen',
-    52: 'Right-Pallidum',
-    53: 'Right-Hippocampus',
-    54: 'Right-Amygdala'
-}
 
-CORTICAL_LABELS = {
-    1003: 'ctx-lh-caudalmiddlefrontal',
-    1028: 'ctx-lh-superiorfrontal',
-    2003: 'ctx-rh-caudalmiddlefrontal',
-    2028: 'ctx-rh-superiorfrontal'
-    # Adding a few for demonstration
-}
+def _parse_stats_table(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    headers: list[str] = []
+    rows: list[dict[str, str]] = []
+    if not path.exists():
+        return headers, rows
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# ColHeaders"):
+            headers = line.split()[2:]
+            continue
+        if line.startswith("#") or not headers:
+            continue
+        parts = line.split()
+        if len(parts) >= len(headers):
+            rows.append(dict(zip(headers, parts[: len(headers)])))
+    return headers, rows
 
-def main():
+
+def _parse_measures(path: Path) -> list[tuple[str, str]]:
+    measures: list[tuple[str, str]] = []
+    if not path.exists():
+        return measures
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line.startswith("# Measure "):
+            continue
+        parts = [part.strip() for part in line[len("# Measure "):].split(",")]
+        if len(parts) < 2:
+            continue
+        value = next((part for part in reversed(parts) if re.fullmatch(r"[-+]?\d+(\.\d+)?([eE][-+]?\d+)?", part)), "")
+        name = parts[1] if len(parts) > 1 else parts[0]
+        if name and value:
+            measures.append((name, value))
+    return measures
+
+
+def _write_subcortical(stats_dir: Path, output_path: Path, subject_id: str) -> None:
+    rows: list[list[str]] = []
+    for name in ("aseg.stats", "aparc.DKTatlas+aseg.deep.stats", "aseg+DKT.stats"):
+        path = stats_dir / name
+        _headers, table_rows = _parse_stats_table(path)
+        for row in table_rows:
+            structure = row.get("StructName", "")
+            volume = row.get("Volume_mm3") or row.get("Volume") or row.get("NVoxels")
+            if structure and volume:
+                rows.append([subject_id, structure, volume, "FastSurferVINN"])
+        for measure, volume in _parse_measures(path):
+            rows.append([subject_id, measure, volume, "FastSurferVINN"])
+        if rows:
+            break
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerow(["subject", "structure", "volume_mm3", "tool"])
+        writer.writerows(rows)
+
+
+def _write_cortical(stats_dir: Path, output_path: Path, subject_id: str) -> None:
+    rows: list[list[str]] = []
+    for hemi in ("lh", "rh"):
+        for stats_name in (f"{hemi}.aparc.stats", f"{hemi}.aparc.DKTatlas.stats"):
+            path = stats_dir / stats_name
+            _headers, table_rows = _parse_stats_table(path)
+            for row in table_rows:
+                region = row.get("StructName", "")
+                volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+                if region and volume:
+                    rows.append([subject_id, region, hemi, volume, "FastSurferVINN"])
+            if table_rows:
+                break
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerow(["subject", "region", "hemisphere", "volume_mm3", "tool"])
+        writer.writerows(rows)
+
+
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject-id", required=True)
-    parser.add_argument("--input-seg", required=True)
+    parser.add_argument("--stats-dir", required=True)
     parser.add_argument("--output-subcortical", required=True)
     parser.add_argument("--output-cortical", required=True)
     args = parser.parse_args()
 
-    if not os.path.exists(args.input_seg):
-        print(f"Segmentation file not found: {args.input_seg}")
-        return
+    stats_dir = Path(args.stats_dir)
+    if not stats_dir.is_dir():
+        print(f"Stats directory not found: {stats_dir}")
+        return 0
 
-    img = nib.load(args.input_seg)
-    data = img.get_fdata()
-    header = img.header
-    zooms = header.get_zooms()
-    voxel_vol = np.prod(zooms)
+    _write_subcortical(stats_dir, Path(args.output_subcortical), args.subject_id)
+    _write_cortical(stats_dir, Path(args.output_cortical), args.subject_id)
+    return 0
 
-    subcortical_data = []
-    cortical_data = []
-
-    unique_labels, counts = np.unique(data, return_counts=True)
-    label_vol_map = {lbl: count * voxel_vol for lbl, count in zip(unique_labels, counts)}
-
-    for lbl, name in SUBCORTICAL_LABELS.items():
-        if lbl in label_vol_map:
-            subcortical_data.append([args.subject_id, name, label_vol_map[lbl], "FastSurferVINN"])
-
-    for lbl, name in CORTICAL_LABELS.items():
-        if lbl in label_vol_map:
-            hemi = "lh" if name.startswith("ctx-lh") else "rh"
-            region = name.split("-")[-1]
-            cortical_data.append([args.subject_id, region, hemi, label_vol_map[lbl], "FastSurferVINN"])
-
-    df_sub = pd.DataFrame(subcortical_data, columns=["subject", "structure", "volume_mm3", "tool"])
-    df_sub.to_csv(args.output_subcortical, sep="\t", index=False)
-
-    df_cort = pd.DataFrame(cortical_data, columns=["subject", "region", "hemisphere", "volume_mm3", "tool"])
-    df_cort.to_csv(args.output_cortical, sep="\t", index=False)
-    
-    # Touch volumes.tsv for requirement
-    work_dir = os.path.dirname(args.input_seg)
-    pd.concat([df_sub, df_cort]).to_csv(os.path.join(work_dir, "03_fastsurfervinn_volumes.tsv"), sep="\t", index=False)
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
