@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import BatchImageResult, PROJECT_ROOT, PipelineConfig, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled
+from .config import BatchImageResult, ExportConfig, PROJECT_ROOT, PipelineConfig, STAGE_ORDER, TOOL_DEFS, StatsVectorConfig, enabled_tools_for_stage, is_tool_enabled
 from .docker_ops import ensure_image
 from .runner import run_batch_pipeline, run_pipeline
 from .utils import _derive_subject_id, _discover_mri_files, _duplicate_basenames
@@ -25,6 +25,28 @@ def _cli_selected_tools(args: argparse.Namespace) -> dict[str, str]:
         "white_matter_segmentation": args.white_matter_segmentation,
         "stats_extraction": args.stats_extraction,
     }
+
+
+def _load_export_config(path: str) -> ExportConfig:
+    if not path:
+        return ExportConfig()
+    with open(path, "r", encoding="utf-8") as f:
+        return ExportConfig.from_dict(json.load(f))
+
+
+def _load_subject_id_map(path: str) -> dict[str, str]:
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {str(k): str(v) for k, v in dict(data).items()}
+
+
+def _load_stats_vector_config(path: str) -> StatsVectorConfig:
+    if not path:
+        return StatsVectorConfig()
+    with open(path, "r", encoding="utf-8") as f:
+        return StatsVectorConfig.from_dict(json.load(f))
 
 
 def _cli_progress(stage: str, status: str, pct: float, msg: str) -> None:
@@ -63,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--non-recursive", action="store_true", help="Only scan files directly inside --input-dir")
     parser.add_argument("--json-events", action="store_true", help="Emit machine-readable progress events for GUI clients")
     parser.add_argument("--ensure-images-only", action="store_true", help="Only pull/build/check selected Docker images, then exit")
+    parser.add_argument("--export-config", default="", help="JSON file with exported output names and formats")
+    parser.add_argument("--subject-id-map", default="", help="JSON map from input path to output subject ID")
+    parser.add_argument("--stats-vector-config", default="", help="JSON file with requested stat vectors and atlases")
 
     def add_tool_option(option: str, stage: str) -> None:
         choices = tools_by_stage[stage]
@@ -80,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
     add_tool_option("--stats-extraction", "stats_extraction")
     args = parser.parse_args(argv)
     selected_tools = _cli_selected_tools(args)
+    export_config = _load_export_config(args.export_config)
+    subject_id_map = _load_subject_id_map(args.subject_id_map)
+    stats_vector_config = _load_stats_vector_config(args.stats_vector_config)
 
     if args.ensure_images_only:
         ok = True
@@ -120,8 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.input_file:
         input_path = str(Path(args.input_file).expanduser().resolve())
         root = args.input_dir or str(Path(input_path).parent)
-        subject_id = _derive_subject_id(input_path, root, _duplicate_basenames([input_path]) if args.input_dir else None)
-        config = PipelineConfig(input_file=args.input_file, output_dir=args.output_dir, subject_id=subject_id, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, selected_tools=selected_tools)
+        subject_id = subject_id_map.get(args.input_file) or subject_id_map.get(input_path) or _derive_subject_id(input_path, root, _duplicate_basenames([input_path]) if args.input_dir else None)
+        config = PipelineConfig(input_file=args.input_file, output_dir=args.output_dir, subject_id=subject_id, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, export_config=export_config, stats_vector_config=stats_vector_config, selected_tools=selected_tools)
         if image_start_cb:
             image_start_cb(args.input_file, 1, 1)
         results = run_pipeline(config, on_progress=progress_cb, on_build_log=_cli_build_log, on_metrics=metrics_cb, should_stop=should_stop)
@@ -138,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Không tìm thấy file MRI hợp lệ trong folder: {input_dir}", file=sys.stderr, flush=True)
         return 1
     print(f"Tìm thấy {len(input_files)} ảnh MRI trong {input_dir}. Bắt đầu xử lý tuần tự.", flush=True)
-    batch_results = run_batch_pipeline(input_dir=input_dir, output_dir=args.output_dir, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, selected_tools=selected_tools, recursive=not args.non_recursive, on_progress=progress_cb, on_build_log=_cli_build_log, on_image_start=image_start_cb, on_image_done=image_done_cb, on_metrics=metrics_cb, should_stop=should_stop)
+    batch_results = run_batch_pipeline(input_dir=input_dir, output_dir=args.output_dir, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, selected_tools=selected_tools, export_config=export_config, stats_vector_config=stats_vector_config, subject_id_map=subject_id_map, recursive=not args.non_recursive, on_progress=progress_cb, on_build_log=_cli_build_log, on_image_start=image_start_cb, on_image_done=image_done_cb, on_metrics=metrics_cb, should_stop=should_stop)
     failed = [result for result in batch_results if not result.success]
     print(f"Batch hoàn tất: {len(batch_results) - len(failed)}/{len(batch_results)} ảnh thành công.", flush=True)
     return 1 if failed else 0

@@ -248,36 +248,38 @@ def _append_step_log(logs_dir: str, tool_key: str, lines: list[str]) -> None:
         print(f"WARNING: could not write step log for {tool_key}: {exc}", flush=True)
 
 
-def _organize_output(subject_dir: str) -> None:
+def _organize_output(subject_dir: str, preserve_dirs: set[str] | None = None) -> None:
     sd = Path(subject_dir)
     mri_dir = sd / "mri"
     stats_dir = sd / "stats"
     logs_dir = sd / "logs"
+    preserved = {sd / name for name in (preserve_dirs or set()) if name}
+    standard_dirs = {mri_dir, stats_dir, logs_dir, *preserved}
     mri_dir.mkdir(parents=True, exist_ok=True)
     stats_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     volume_exts = (".nii", ".nii.gz", ".mgz", ".mgh")
     for f in sd.rglob("*"):
-        if f.is_file() and f.parent not in (mri_dir, stats_dir, logs_dir) and f.name.lower().endswith(volume_exts):
+        if f.is_file() and not any(f.parent == d or d in f.parents for d in standard_dirs) and f.name.lower().endswith(volume_exts):
             dest = mri_dir / f.name
             if not dest.exists():
                 shutil.move(str(f), str(dest))
 
     for f in sd.rglob("*"):
-        if f.is_file() and f.parent not in (mri_dir, stats_dir, logs_dir) and f.suffix.lower() in (".tsv", ".csv", ".stats"):
+        if f.is_file() and not any(f.parent == d or d in f.parents for d in standard_dirs) and f.suffix.lower() in (".tsv", ".csv", ".stats"):
             dest = stats_dir / f.name
             if not dest.exists():
                 shutil.move(str(f), str(dest))
 
     for f in sd.rglob("*"):
-        if f.is_file() and f.parent not in (mri_dir, stats_dir, logs_dir) and f.suffix.lower() == ".log":
+        if f.is_file() and not any(f.parent == d or d in f.parents for d in standard_dirs) and f.suffix.lower() == ".log":
             dest = logs_dir / f.name
             if not dest.exists():
                 shutil.move(str(f), str(dest))
 
     for d in sorted(sd.rglob("*"), reverse=True):
-        if d.is_dir() and d not in (mri_dir, stats_dir, logs_dir):
+        if d.is_dir() and d not in standard_dirs and not any(parent in standard_dirs for parent in d.parents):
             try:
                 d.rmdir()
             except OSError:
@@ -360,6 +362,8 @@ def _new_pipeline_state(config: PipelineConfig, subject_dir: str) -> dict:
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "selected_tools": config.selected_tools,
+        "export_config": config.export_config.to_dict(),
+        "stats_vector_config": config.stats_vector_config.to_dict(),
         "stages": {},
     }
 

@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
-from pipeline_runner import STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage
+from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage
 
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     canvas = tk.Canvas(parent, highlightthickness=0)
@@ -57,7 +57,6 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     _build_settings_section(right, gui)
     _build_remote_section(right, gui)
     
-    gui.state.remote_visible.set(True)
     gui._on_run_target_changed()
 
 def _build_tools_section(parent: ttk.Frame, gui) -> None:
@@ -103,10 +102,48 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     frame.columnconfigure(1, weight=1)
     frame.columnconfigure(2, weight=0)
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=8, column=0, columnspan=2, sticky=tk.EW, pady=10)
-    
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=8, column=0, columnspan=3, sticky=tk.EW, pady=10)
+
+    stats_frame = ttk.LabelFrame(frame, text=" Stats vectors ")
+    stats_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
+    stats_frame.columnconfigure(1, weight=1)
+    ttk.Label(
+        stats_frame,
+        text="Select measures to export as feature vectors. Cortical measures show supported atlas choices.",
+        foreground="#64748b",
+    ).grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=8, pady=(8, 4))
+
+    stat_option_frames: dict[str, ttk.Frame] = {}
+
+    def sync_stats_options(*_args) -> None:
+        for stat, atlas_frame in stat_option_frames.items():
+            if gui.state.stat_vector_enabled_vars[stat].get() and gui.state.stat_atlas_vars.get(stat):
+                atlas_frame.grid()
+            else:
+                atlas_frame.grid_remove()
+
+    for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items(), start=1):
+        row = idx
+        ttk.Checkbutton(
+            stats_frame,
+            text=stat_def["label"],
+            variable=gui.state.stat_vector_enabled_vars[stat],
+            command=sync_stats_options,
+        ).grid(row=row, column=0, sticky=tk.W, padx=8, pady=3)
+
+        atlas_frame = ttk.Frame(stats_frame)
+        atlas_frame.grid(row=row, column=1, sticky=tk.W, padx=8, pady=3)
+        stat_option_frames[stat] = atlas_frame
+        for atlas in stat_def.get("atlases", ()):
+            if atlas in ATLAS_DEFS:
+                ttk.Checkbutton(atlas_frame, text=ATLAS_DEFS[atlas], variable=gui.state.stat_atlas_vars[stat][atlas]).pack(side=tk.LEFT, padx=(0, 10))
+        if not stat_def.get("atlases"):
+            ttk.Label(atlas_frame, text="No atlas selection", foreground="#64748b").pack(side=tk.LEFT)
+        gui.state.stat_vector_enabled_vars[stat].trace_add("write", sync_stats_options)
+    sync_stats_options()
+
     lic_row = ttk.Frame(frame)
-    lic_row.grid(row=9, column=0, columnspan=2, sticky=tk.EW, pady=(0, 5))
+    lic_row.grid(row=10, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
     ttk.Label(lic_row, text="FreeSurfer license").pack(anchor=tk.W, pady=(0, 2))
     input_frame = ttk.Frame(lic_row)
     input_frame.pack(fill=tk.X, expand=True)
@@ -146,6 +183,35 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     _path_row(frame, "Output directory", gui.state.output_dir, 3, lambda: gui._browse_directory(gui.state.output_dir))
 
+    export_frame = ttk.LabelFrame(frame, text="Exported outputs")
+    export_frame.grid(row=4, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
+    export_frame.columnconfigure(1, weight=1)
+
+    def sync_export_options(*_args) -> None:
+        if gui.state.export_outputs_enabled.get():
+            options.grid(row=2, column=0, columnspan=3, sticky=tk.EW, padx=0, pady=(2, 0))
+        else:
+            options.grid_remove()
+
+    ttk.Checkbutton(export_frame, text="Create downloadable export files", variable=gui.state.export_outputs_enabled, command=sync_export_options).grid(row=0, column=0, columnspan=3, sticky=tk.W, padx=8, pady=(8, 2))
+    ttk.Label(
+        export_frame,
+        text="Copies/converts selected outputs into each subject's exports folder with the names and formats below.",
+        foreground="#64748b",
+    ).grid(row=1, column=0, columnspan=3, sticky=tk.W, padx=8, pady=(0, 4))
+
+    options = ttk.Frame(export_frame)
+    options.columnconfigure(1, weight=1)
+    ttk.Label(options, text="Output", font=("Inter", 9, "bold")).grid(row=0, column=0, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Label(options, text="File name", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Label(options, text="Format", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(8, 3))
+    for idx, (item_id, item) in enumerate(EXPORT_OUTPUT_ITEMS.items(), start=1):
+        ttk.Label(options, text=item["label"]).grid(row=idx, column=0, sticky=tk.W, padx=8, pady=2)
+        ttk.Entry(options, textvariable=gui.state.export_name_vars[item_id]).grid(row=idx, column=1, sticky=tk.EW, padx=8, pady=2)
+        ttk.Combobox(options, textvariable=gui.state.export_format_vars[item_id], values=(".nii.gz", ".mgz"), state="readonly", width=10).grid(row=idx, column=2, sticky=tk.W, padx=8, pady=2)
+    gui.state.export_outputs_enabled.trace_add("write", sync_export_options)
+    sync_export_options()
+
     frame.columnconfigure(1, weight=1)
 
 def _build_settings_section(parent: ttk.Frame, gui) -> None:
@@ -174,7 +240,8 @@ def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, b
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=browse_cmd).pack(side=tk.RIGHT)
 
 def _build_remote_section(parent: ttk.Frame, gui) -> None:
-    frame = create_card(parent, "", "Remote Server", "", {"fill": tk.X, "pady": (0, 10)})
+    gui.remote_pack_options = {"fill": tk.X, "pady": (0, 10)}
+    frame = create_card(parent, "", "Remote Server", "", gui.remote_pack_options)
     gui.remote_frame = frame
     gui.remote_body = frame
 

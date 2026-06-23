@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import posixpath
 import shlex
 import time
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from pipeline_runner import PROJECT_ROOT, TOOL_DEFS, is_tool_enabled
+from pipeline_runner import PROJECT_ROOT, TOOL_DEFS, _derive_subject_id, _discover_mri_files, build_subject_id_map, is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
 
@@ -29,6 +30,10 @@ class RemoteRunConfig:
     device: str = "cpu"
     threads: int = 4
     selected_tools: dict[str, str] = field(default_factory=dict)
+    export_config: dict = field(default_factory=dict)
+    stats_vector_config: dict = field(default_factory=dict)
+    recursive: bool = True
+    download_subdir: str = ""
     resume: bool = False
 
 
@@ -156,10 +161,48 @@ class RemoteRunner:
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
+            self._upload_export_config(ssh)
+            self._upload_stats_vector_config(ssh)
+            self._upload_subject_id_map(ssh)
             self._upload_code(ssh)
             self._upload_inputs(ssh)
             self._upload_license(ssh)
             return self.remote_job_dir
+
+    def _upload_export_config(self, ssh: RemoteSSHClient) -> None:
+        remote_path = posixpath.join(self.remote_job_dir, "export_config.json")
+        with ssh.sftp.open(remote_path, "w") as f:
+            f.write(json.dumps(self.config.export_config or {}, indent=2))
+
+    def _upload_stats_vector_config(self, ssh: RemoteSSHClient) -> None:
+        remote_path = posixpath.join(self.remote_job_dir, "stats_vector_config.json")
+        with ssh.sftp.open(remote_path, "w") as f:
+            f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
+
+    def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
+        remote_input = posixpath.join(self.remote_job_dir, "input")
+        mapping: dict[str, str] = {}
+        if self.config.input_mode == "file" and self.config.input_file:
+            src = Path(self.config.input_file)
+            mapping[posixpath.join(remote_input, src.name)] = _derive_subject_id(str(src))
+        elif self.config.input_mode == "files" and self.config.input_files:
+            ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
+            for idx, path in enumerate(self.config.input_files, start=1):
+                src = Path(path)
+                remote_name = f"{idx:04d}_{src.name}"
+                mapping[posixpath.join(remote_input, remote_name)] = ids.get(path, _derive_subject_id(path))
+        elif self.config.input_dir:
+            files = _discover_mri_files(self.config.input_dir, recursive=self.config.recursive)
+            ids = build_subject_id_map(files, self.config.input_dir)
+            root = Path(self.config.input_dir).resolve()
+            for path in files:
+                src = Path(path).resolve()
+                rel = src.relative_to(root).as_posix()
+                mapping[posixpath.join(remote_input, rel)] = ids.get(path, _derive_subject_id(path))
+
+        remote_path = posixpath.join(self.remote_job_dir, "subject_ids.json")
+        with ssh.sftp.open(remote_path, "w") as f:
+            f.write(json.dumps(mapping, indent=2))
 
     def run_remote(self) -> int:
         if not self.remote_job_dir:
@@ -198,7 +241,9 @@ class RemoteRunner:
     def download_outputs(self, local_target_dir: str | Path | None = None) -> Path:
         if not self.remote_job_dir:
             raise RuntimeError("No remote job has been uploaded/run yet")
-        local_target = Path(local_target_dir or self.config.output_dir or (PROJECT_ROOT / "outputs")) / f"remote_{self.job_id}"
+        local_target = Path(local_target_dir or self.config.output_dir or (PROJECT_ROOT / "outputs"))
+        if self.config.download_subdir:
+            local_target = local_target / self.config.download_subdir
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.download_dir(posixpath.join(self.remote_job_dir, "outputs"), local_target)
         return local_target
@@ -287,10 +332,15 @@ class RemoteRunner:
 
         cmd += ["--output-dir", remote_output]
         cmd += ["--license-dir", remote_license]
+        cmd += ["--export-config", posixpath.join(self.remote_job_dir, "export_config.json")]
+        cmd += ["--stats-vector-config", posixpath.join(self.remote_job_dir, "stats_vector_config.json")]
+        cmd += ["--subject-id-map", posixpath.join(self.remote_job_dir, "subject_ids.json")]
         cmd += ["--device", self.config.device]
         cmd += ["--threads", str(self.config.threads)]
         if self.config.resume:
             cmd.append("--resume")
+        if not self.config.recursive:
+            cmd.append("--non-recursive")
         cmd += ["--stop-file", posixpath.join(self.remote_job_dir, "stop_requested")]
 
         cmd += self._tool_args()

@@ -15,6 +15,103 @@ class ToolContext:
     threads: int
     device: str
 
+
+@dataclass
+class ExportConfig:
+    enabled: bool = True
+    folder: str = "exports"
+    default_format: str = ".nii.gz"
+    names: dict[str, str] = field(default_factory=dict)
+    formats: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "ExportConfig":
+        data = data or {}
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            folder=str(data.get("folder", "exports") or "exports"),
+            default_format=str(data.get("default_format", ".nii.gz") or ".nii.gz"),
+            names={str(k): str(v) for k, v in dict(data.get("names", {})).items()},
+            formats={str(k): str(v) for k, v in dict(data.get("formats", {})).items()},
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "folder": self.folder,
+            "default_format": self.default_format,
+            "names": self.names,
+            "formats": self.formats,
+        }
+
+
+EXPORT_OUTPUT_ITEMS: dict[str, dict[str, str]] = {
+    "reorientation.primary": {"stage": "reorientation", "label": "Reoriented MRI", "default_name": "01_reoriented"},
+    "brain_extraction.primary": {"stage": "brain_extraction", "label": "Brain extracted MRI", "default_name": "02_brain"},
+    "brain_extraction.mask": {"stage": "brain_extraction", "label": "Brain mask", "default_name": "02_brain_mask"},
+    "segmentation.primary": {"stage": "segmentation", "label": "Segmentation", "default_name": "03_segmentation"},
+    "template_registration.primary": {"stage": "template_registration", "label": "Registered MRI", "default_name": "04_registered"},
+    "template_registration.deformation": {"stage": "template_registration", "label": "Deformation field", "default_name": "04_deformation_field"},
+    "bias_correction.primary": {"stage": "bias_correction", "label": "Bias corrected MRI", "default_name": "05_bias_corrected"},
+    "white_matter_segmentation.primary": {"stage": "white_matter_segmentation", "label": "White matter mask", "default_name": "06_white_matter_mask"},
+}
+
+
+STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
+    "cortical_thickness": {
+        "label": "Cortical thickness",
+        "value_column": "thickness_mm",
+        "atlases": ("yale", "kong", "schaefer2018"),
+    },
+    "cortical_volume": {
+        "label": "Cortical volume",
+        "value_column": "volume_mm3",
+        "atlases": ("yale", "kong", "schaefer2018"),
+    },
+    "subcortical_volume": {
+        "label": "Subcortical volume",
+        "value_column": "volume_mm3",
+        "atlases": (),
+    },
+}
+
+
+ATLAS_DEFS: dict[str, str] = {
+    "yale": "Yale",
+    "kong": "Kong",
+    "schaefer2018": "Schaefer 2018",
+}
+
+
+@dataclass
+class StatsVectorConfig:
+    enabled_stats: dict[str, bool] = field(default_factory=lambda: {
+        "cortical_thickness": False,
+        "cortical_volume": False,
+        "subcortical_volume": False,
+    })
+    atlases: dict[str, list[str]] = field(default_factory=lambda: {
+        "cortical_thickness": [],
+        "cortical_volume": [],
+    })
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "StatsVectorConfig":
+        data = data or {}
+        enabled = {key: bool(data.get("enabled_stats", {}).get(key, False)) for key in STAT_VECTOR_DEFS}
+        atlases: dict[str, list[str]] = {}
+        raw_atlases = data.get("atlases", {})
+        for stat, stat_def in STAT_VECTOR_DEFS.items():
+            allowed = set(stat_def.get("atlases", ()))
+            atlases[stat] = [atlas for atlas in raw_atlases.get(stat, []) if atlas in allowed]
+        return cls(enabled_stats=enabled, atlases=atlases)
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled_stats": self.enabled_stats,
+            "atlases": self.atlases,
+        }
+
 TOOL_DEFS: dict[str, dict] = {
     "mri_convert_fs8": {
         "image": "mkdayyyy/mri-fs8-all:latest",
@@ -217,6 +314,8 @@ class PipelineConfig:
         "white_matter_segmentation": "",
         "stats_extraction": "",
     })
+    export_config: ExportConfig = field(default_factory=ExportConfig)
+    stats_vector_config: StatsVectorConfig = field(default_factory=StatsVectorConfig)
 
 
 @dataclass

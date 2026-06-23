@@ -28,7 +28,10 @@ from pipeline_runner import (
     STAGE_ORDER,
     TOOL_DEFS,
     BatchImageResult,
+    ExportConfig,
     PipelineConfig,
+    STAT_VECTOR_DEFS,
+    StatsVectorConfig,
     _derive_subject_id,
     _discover_mri_files,
     build_subject_id_map,
@@ -87,6 +90,7 @@ class PipelineGUI:
         self.remote_runner: RemoteRunner | None = None
         self.remote_frame: ttk.Frame | None = None
         self.remote_body: ttk.Frame | None = None
+        self.remote_pack_options: dict | None = None
         self.remote_toggle_button: ttk.Button | None = None
         self.actions_frame: ttk.Frame | None = None
 
@@ -172,8 +176,8 @@ class PipelineGUI:
         # Sửa padding để nút không bị cropped ở phía trên (thêm top padding)
         toolbar.pack(fill=tk.X, padx=8, pady=(12, 8))
 
-        self.save_button = self._toolbar_button(toolbar, "save", "Save Config", self._save_config)
-        self.load_button = self._toolbar_button(toolbar, "load", "Load Config", self._load_config)
+        self.save_button = self._toolbar_button(toolbar, "save", "Save Workspace", self._save_workspace)
+        self.load_button = self._toolbar_button(toolbar, "load", "Load Workspace", self._load_workspace)
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
@@ -233,6 +237,15 @@ class PipelineGUI:
             return
         enabled = self.state.run_target.get() == "Server"
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
+        self.state.remote_visible.set(enabled)
+        if self.remote_frame is not None:
+            if enabled:
+                try:
+                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 10)}))
+                except tk.TclError:
+                    pass
+            else:
+                self.remote_frame.pack_forget()
         self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
         self._refresh_tools_tree()
@@ -355,44 +368,52 @@ class PipelineGUI:
         self._refresh_input_label()
         self._log(f"Loaded config: {config.get('name', 'unnamed')}")
 
-    def _save_config(self) -> None:
+    def _save_workspace(self) -> None:
         config_dir = PROJECT_ROOT / "configs"
         config_dir.mkdir(parents=True, exist_ok=True)
         path = filedialog.asksaveasfilename(
-            title="Save pipeline config",
+            title="Save workspace",
             initialdir=str(config_dir),
             defaultextension=".json",
-            filetypes=(("JSON config", "*.json"), ("All files", "*.*")),
+            filetypes=(("Workspace JSON", "*.json"), ("All files", "*.*")),
         )
         if not path:
             return
 
-        config = self.state.collect_config()
-        config["name"] = Path(path).stem
+        workspace = self.state.collect_workspace()
+        workspace["name"] = Path(path).stem
         try:
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-            self._log(f"Saved config: {path}")
+                json.dump(workspace, f, indent=2, ensure_ascii=False)
+            self._log(f"Saved workspace: {path}")
         except Exception as exc:
-            messagebox.showerror("Save config failed", str(exc))
+            messagebox.showerror("Save workspace failed", str(exc))
 
-    def _load_config(self) -> None:
+    def _load_workspace(self) -> None:
         config_dir = PROJECT_ROOT / "configs"
         path = filedialog.askopenfilename(
-            title="Load pipeline config",
+            title="Load workspace",
             initialdir=str(config_dir),
-            filetypes=(("JSON config", "*.json"), ("All files", "*.*")),
+            filetypes=(("Workspace JSON", "*.json"), ("All files", "*.*")),
         )
         if not path:
             return
 
         try:
             with open(path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            self.state.apply_config(config)
-            self._log(f"Config path: {path}")
+                workspace = json.load(f)
+            self.state.apply_workspace(workspace)
+            self._refresh_input_label()
+            self._validate_configuration()
+            self._log(f"Loaded workspace: {path}")
         except Exception as exc:
-            messagebox.showerror("Load config failed", str(exc))
+            messagebox.showerror("Load workspace failed", str(exc))
+
+    def _save_config(self) -> None:
+        self._save_workspace()
+
+    def _load_config(self) -> None:
+        self._load_workspace()
 
     def _refresh_input_label(self, *_args) -> None:
         if self.state.input_mode.get() == "files":
@@ -429,6 +450,7 @@ class PipelineGUI:
             self.state.remote_workspace,
             self.state.remote_python,
             self.state.pipeline_mode,
+            self.state.export_outputs_enabled,
         ]
         for var in variables:
             var.trace_add("write", lambda *_args: self._validate_configuration())
@@ -437,6 +459,12 @@ class PipelineGUI:
 
         for tool_var in self.state.tool_vars.values():
             tool_var.trace_add("write", lambda *_args: (self._validate_configuration(), self._update_config_tool_status_labels()))
+
+        for var in [*self.state.export_name_vars.values(), *self.state.export_format_vars.values()]:
+            var.trace_add("write", lambda *_args: self._validate_configuration())
+
+        for var in [*self.state.stat_vector_enabled_vars.values(), *(atlas for atlas_vars in self.state.stat_atlas_vars.values() for atlas in atlas_vars.values())]:
+            var.trace_add("write", lambda *_args: self._validate_configuration())
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
@@ -460,6 +488,14 @@ class PipelineGUI:
 
         if not self.state.output_dir.get().strip():
             errors.append("Choose an output directory.")
+        if self.state.export_outputs_enabled.get():
+            invalid_names = [name.get().strip() for name in self.state.export_name_vars.values() if not name.get().strip() or any(sep in name.get() for sep in ("/", "\\"))]
+            if invalid_names:
+                errors.append("Export file names cannot be empty or contain path separators.")
+        for stat, stat_def in STAT_VECTOR_DEFS.items():
+            if self.state.stat_vector_enabled_vars.get(stat) and self.state.stat_vector_enabled_vars[stat].get():
+                if stat_def.get("atlases") and not any(var.get() for var in self.state.stat_atlas_vars.get(stat, {}).values()):
+                    errors.append(f"Choose at least one atlas for {stat_def['label']}.")
         try:
             if int(self.state.threads.get()) < 1:
                 errors.append("Threads must be at least 1.")
@@ -615,6 +651,8 @@ class PipelineGUI:
                 remote_python=self.state.remote_python.get().strip() or "python3",
                 output_dir=self.state.output_dir.get().strip(),
                 license_dir=self.state.license_dir.get().strip(),
+                export_config=self.state.get_export_config(),
+                stats_vector_config=self.state.get_stats_vector_config(),
                 selected_tools={},
             ),
             on_log=self._tools_remote_log_event,
@@ -1003,13 +1041,21 @@ class PipelineGUI:
             return None
 
         selected_tools = self.state.get_selected_tools()
+        is_batch = mode == "dir"
+        output_dir = self.state.output_dir.get().strip()
+        batch_output_name = f"batch_{time.strftime('%Y%m%d_%H%M%S')}" if is_batch else ""
         base = {
             "mode": mode,
-            "output_dir": self.state.output_dir.get().strip(),
+            "output_dir": output_dir,
+            "effective_output_dir": str(Path(output_dir) / batch_output_name) if batch_output_name else output_dir,
+            "is_batch": is_batch,
+            "batch_output_name": batch_output_name,
             "license_dir": self.state.license_dir.get().strip(),
             "device": self.state.device.get(),
             "threads": int(self.state.threads.get()),
             "selected_tools": selected_tools,
+            "export_config": self.state.get_export_config(),
+            "stats_vector_config": self.state.get_stats_vector_config(),
         }
 
         if mode == "file":
@@ -1275,6 +1321,10 @@ class PipelineGUI:
             device=req["device"],
             threads=req["threads"],
             selected_tools=req["selected_tools"],
+            export_config=req["export_config"],
+            stats_vector_config=req["stats_vector_config"],
+            recursive=req.get("recursive", True),
+            download_subdir=req.get("batch_output_name", "") if req.get("is_batch") else "",
             resume=resume,
         )
         return RemoteRunner(remote_config, on_log=self._remote_log_event)
@@ -1605,7 +1655,7 @@ class PipelineGUI:
             self.root.after(0, self._set_idle_state)
 
     def _delete_restart_outputs(self, req: dict) -> None:
-        output_dir = Path(req["output_dir"]).resolve()
+        output_dir = Path(req.get("effective_output_dir", req["output_dir"])).resolve()
         subject_ids: list[str] = []
 
         if req["mode"] == "file":
@@ -1628,12 +1678,14 @@ class PipelineGUI:
         self.root.after(0, lambda: self._on_image_start(input_file, 1, 1))
         config = PipelineConfig(
             input_file=input_file,
-            output_dir=req["output_dir"],
+            output_dir=req.get("effective_output_dir", req["output_dir"]),
             subject_id=subject_id,
             license_dir=req["license_dir"],
             device=req["device"],
             threads=req["threads"],
             resume=req.get("resume", False),
+            export_config=ExportConfig.from_dict(req.get("export_config")),
+            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
             selected_tools=req["selected_tools"],
         )
         results = run_pipeline(
@@ -1657,14 +1709,18 @@ class PipelineGUI:
     def _run_multiple(self, req: dict) -> None:
         files = req["input_files"]
         self._log(f"Selected {len(files)} files")
+        if req.get("is_batch"):
+            self._log(f"Batch outputs will be saved to: {req.get('effective_output_dir')}")
         run_batch_pipeline(
             input_dir=req["input_dir"],
-            output_dir=req["output_dir"],
+            output_dir=req.get("effective_output_dir", req["output_dir"]),
             license_dir=req["license_dir"],
             device=req["device"],
             threads=req["threads"],
             resume=req.get("resume", False),
             selected_tools=req["selected_tools"],
+            export_config=ExportConfig.from_dict(req.get("export_config")),
+            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
             recursive=True,
             input_files=files,
             on_progress=self._on_progress,
@@ -1680,14 +1736,17 @@ class PipelineGUI:
         self._log(f"Found {len(files)} MRI files")
         if not files:
             return
+        self._log(f"Batch outputs will be saved to: {req.get('effective_output_dir')}")
         run_batch_pipeline(
             input_dir=req["input_dir"],
-            output_dir=req["output_dir"],
+            output_dir=req.get("effective_output_dir", req["output_dir"]),
             license_dir=req["license_dir"],
             device=req["device"],
             threads=req["threads"],
             resume=req.get("resume", False),
             selected_tools=req["selected_tools"],
+            export_config=ExportConfig.from_dict(req.get("export_config")),
+            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
             recursive=req["recursive"],
             input_files=files,
             on_progress=self._on_progress,
