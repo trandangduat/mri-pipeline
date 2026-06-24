@@ -148,10 +148,14 @@ class PipelineGUI:
             icon_path = os.path.join(os.path.dirname(__file__), "icons", "running.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path).convert("RGBA")
+                img_small = img.resize((10, 10), resample=Image.BICUBIC)
+                self._spinner_frames_small = []
                 for i in range(12):
                     angle = -i * 30
                     rot = img.rotate(angle, resample=Image.BICUBIC)
                     self._spinner_frames.append(ImageTk.PhotoImage(rot))
+                    rot_small = img_small.rotate(angle, resample=Image.BICUBIC)
+                    self._spinner_frames_small.append(ImageTk.PhotoImage(rot_small))
         except Exception:
             pass
 
@@ -160,6 +164,7 @@ class PipelineGUI:
             return
         self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
         frame = self._spinner_frames[self._spinner_idx]
+        frame_small = self._spinner_frames_small[self._spinner_idx] if hasattr(self, "_spinner_frames_small") else frame
         
         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
             for tool_key, label in self.tools_status_icon_labels.items():
@@ -176,7 +181,7 @@ class PipelineGUI:
                     try:
                         status_text = row["status"].cget("text")
                         if status_text == "Running" and row.get("icon"):
-                            row["icon"].configure(image=frame)
+                            row["icon"].configure(image=frame_small)
                     except Exception:
                         pass
                         
@@ -1164,7 +1169,7 @@ class PipelineGUI:
             widgets["image"].configure(text=image, bg=bg)
             icon = self._tool_status_icon_image(status)
             if icon is not None:
-                widgets["status"].configure(image=icon, text="", compound=tk.CENTER, bg=bg)
+                widgets["status"].configure(image=icon, text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
             else:
                 widgets["status"].configure(image="", text=self._tool_status_icon(status), compound=tk.CENTER, bg=bg, fg=self._status_color(status), font=("Inter", 10, "bold"))
             self.tools_status_icon_labels[tool_key] = widgets["status"]
