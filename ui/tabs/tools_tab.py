@@ -81,6 +81,7 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     table.columnconfigure(1, weight=1)
     table.columnconfigure(2, weight=1)
     table.columnconfigure(3, weight=3)
+    table.columnconfigure(4, minsize=140)
     ttk.Label(table, text="", width=4).grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=(0, 6))
     ttk.Label(table, text="Stage", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(0, 6))
     ttk.Label(table, text="Tool", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(0, 6))
