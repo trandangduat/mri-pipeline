@@ -206,16 +206,6 @@ class PipelineGUI:
         self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
         self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
-        
-        status = ttk.Frame(toolbar)
-        status.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # We add some styling and spacing to the status texts to make them look like a cohesive modern status badge
-        ttk.Label(status, textvariable=self.state.overall_progress_text, width=4, anchor=tk.E).pack(side=tk.RIGHT, padx=(0, 8))
-        ttk.Separator(status, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, pady=6)
-        ttk.Label(status, textvariable=self.state.server_text, foreground="#475569").pack(side=tk.RIGHT, padx=8)
-        ttk.Separator(status, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, pady=6)
-        ttk.Label(status, textvariable=self.state.status_text).pack(side=tk.RIGHT, padx=8)
 
     def _build_tabs(self, parent: ttk.Frame) -> None:
         self.notebook = ttk.Notebook(parent)
@@ -240,7 +230,13 @@ class PipelineGUI:
         left.pack(fill=tk.X)
         ttk.Label(left, text="Status", font=("Inter", 9, "bold")).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Label(left, textvariable=self.state.config_status, foreground="#334155").pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(left, textvariable=self.state.status_text, foreground="#64748b").pack(side=tk.RIGHT, padx=(8, 0))
+        
+        # We add some styling and spacing to the status texts to make them look like a cohesive modern status badge
+        ttk.Label(left, textvariable=self.state.overall_progress_text, width=4, anchor=tk.E).pack(side=tk.RIGHT, padx=(0, 0))
+        ttk.Separator(left, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, pady=2, padx=8)
+        ttk.Label(left, textvariable=self.state.server_text, foreground="#475569").pack(side=tk.RIGHT, padx=0)
+        ttk.Separator(left, orient=tk.VERTICAL).pack(side=tk.RIGHT, fill=tk.Y, pady=2, padx=8)
+        ttk.Label(left, textvariable=self.state.status_text, foreground="#64748b").pack(side=tk.RIGHT, padx=0)
 
     def _set_widget_tree_state(self, widget: tk.Widget, state: str) -> None:
         for child in widget.winfo_children():
@@ -1123,16 +1119,10 @@ class PipelineGUI:
                     cell = tk.Frame(table, padx=4, pady=2, bg="#fafafa")
                     cell.grid(row=row, column=col, sticky=tk.NSEW, padx=0, pady=1)
                     cells.append(cell)
-                check = tk.Checkbutton(
+                check = ttk.Checkbutton(
                     cells[0],
                     variable=var,
                     command=on_check,
-                    bg="#fafafa",
-                    activebackground="#fafafa",
-                    highlightthickness=0,
-                    borderwidth=0,
-                    padx=0,
-                    pady=0,
                 )
                 check.pack(anchor=tk.W)
                 stage_label = tk.Label(cells[1], anchor=tk.W, bg="#fafafa", fg="#111827")
@@ -1157,7 +1147,13 @@ class PipelineGUI:
             bg = "#cbd5e1" if row_selected else "#fafafa"
             for cell in widgets["cells"]:
                 cell.configure(bg=bg)
-            widgets["check"].configure(state=tk.NORMAL if enabled else tk.DISABLED, bg=bg, activebackground=bg)
+                
+            style = ttk.Style()
+            style.configure("Selected.TCheckbutton", background="#cbd5e1")
+            style.configure("Unselected.TCheckbutton", background="#fafafa")
+            check_style = "Selected.TCheckbutton" if row_selected else "Unselected.TCheckbutton"
+            
+            widgets["check"].configure(state=tk.NORMAL if enabled else tk.DISABLED, style=check_style)
             widgets["stage"].configure(text=STAGE_LABELS.get(stage, stage), bg=bg)
             widgets["tool"].configure(text=tool_display_name(tool_key), bg=bg)
             widgets["image"].configure(text=image, bg=bg)
