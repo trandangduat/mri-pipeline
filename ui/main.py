@@ -978,8 +978,8 @@ class PipelineGUI:
             "Missing": "✕",
             "Downloading": "↓",
             "Checking": "…",
-            "Disabled": "-",
-            "Skipped": "-",
+            "Disabled": "",
+            "Skipped": "",
             "Error": "!",
             "Unknown": "?",
         }.get(status, "?")
@@ -994,10 +994,12 @@ class PipelineGUI:
             "Downloading": "running",
             "Checking": "running",
             "Error": "failed",
-            "Disabled": "pending",
-            "Skipped": "pending",
+            "Disabled": None,
+            "Skipped": None,
             "Unknown": "pending",
         }.get(status, "pending")
+        if not icon_name:
+            return None
         key = f"tool_status_{icon_name}"
         if key in self.toolbar_icons:
             return self.toolbar_icons[key]
