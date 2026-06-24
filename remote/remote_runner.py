@@ -35,6 +35,7 @@ class RemoteRunConfig:
     recursive: bool = True
     download_subdir: str = ""
     resume: bool = False
+    restart: bool = False
 
 
 class RemoteRunner:
@@ -44,6 +45,9 @@ class RemoteRunner:
         self.job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
         self.remote_job_dir = ""
         self.remote_output_dir = ""
+
+    def remote_venv_display_path(self) -> str:
+        return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
 
     def test_ssh(self) -> None:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
@@ -58,20 +62,57 @@ class RemoteRunner:
             return self._check_python_details(ssh)
 
     def _check_python_details(self, ssh: RemoteSSHClient) -> dict[str, str | bool]:
+        venv_dir = self._remote_venv_dir(ssh)
+        venv_python = self._remote_venv_python(ssh)
         py_cmd = f"{shlex.quote(self.config.remote_python)} --version 2>&1"
-        pip_cmd = f"{shlex.quote(self.config.remote_python)} -m pip --version 2>&1"
         py_code, py_text = ssh.read_text(py_cmd)
-        pip_code, pip_text = ssh.read_text(pip_cmd)
+        venv_code, _venv_text = ssh.read_text(f"test -x {shlex.quote(venv_python)}")
+        venv_py_code, venv_py_text = ssh.read_text(f"{shlex.quote(venv_python)} --version 2>&1") if venv_code == 0 else (1, "Virtual environment not created")
+        pip_code, pip_text = ssh.read_text(f"{shlex.quote(venv_python)} -m pip --version 2>&1") if venv_code == 0 else (1, "pip not available because venv is missing")
         python_text = py_text.strip() or "Python not found"
+        venv_python_text = venv_py_text.strip() or "Venv Python not found"
         pip_text = pip_text.strip() or "pip not found"
-        self.on_log(("Python OK: " if py_code == 0 else "Python missing: ") + python_text)
-        self.on_log(("pip OK: " if pip_code == 0 else "pip missing: ") + pip_text)
+        self.on_log(("Base Python OK: " if py_code == 0 else "Base Python missing: ") + python_text)
+        self.on_log(f"Remote venv: {venv_dir}")
+        self.on_log(("Venv Python OK: " if venv_py_code == 0 else "Venv Python missing: ") + venv_python_text)
+        self.on_log(("Venv pip OK: " if pip_code == 0 else "Venv pip missing: ") + pip_text)
         return {
-            "python_ok": py_code == 0,
+            "python_ok": venv_py_code == 0,
             "pip_ok": pip_code == 0,
-            "python_text": python_text,
+            "base_python_ok": py_code == 0,
+            "venv_exists": venv_code == 0,
+            "venv_python_ok": venv_py_code == 0,
+            "venv_pip_ok": pip_code == 0,
+            "python_text": venv_python_text,
+            "base_python_text": python_text,
+            "venv_path": venv_dir,
             "pip_text": pip_text,
         }
+
+    def _remote_venv_dir(self, ssh: RemoteSSHClient) -> str:
+        workspace = ssh.expand_path(self.config.remote_workspace)
+        return posixpath.join(workspace, ".venv")
+
+    def _remote_venv_python(self, ssh: RemoteSSHClient) -> str:
+        return posixpath.join(self._remote_venv_dir(ssh), "bin", "python")
+
+    def ensure_remote_venv(self, ssh: RemoteSSHClient) -> str:
+        workspace = ssh.expand_path(self.config.remote_workspace)
+        ssh.mkdir_p(workspace)
+        venv_dir = posixpath.join(workspace, ".venv")
+        venv_python = posixpath.join(venv_dir, "bin", "python")
+        if ssh.run(f"test -x {shlex.quote(venv_python)}", stream=False, check=False) != 0:
+            self.on_log(f"Creating remote venv: {venv_dir}")
+            code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
+            if code != 0:
+                raise RuntimeError("Could not create remote venv. Install python3-venv on the server or set a valid base Python.")
+        if ssh.run(f"{shlex.quote(venv_python)} -m pip --version >/dev/null 2>&1", stream=False, check=False) != 0:
+            self.on_log("Installing pip in remote venv with ensurepip...")
+            code = ssh.run(f"{shlex.quote(venv_python)} -m ensurepip --upgrade", stream=True, check=False)
+            if code != 0:
+                raise RuntimeError("Remote venv exists but pip is unavailable. Install python3-venv/ensurepip on the server.")
+        self.on_log(f"Using remote venv Python: {venv_python}")
+        return venv_python
 
     def check_python(self) -> bool:
         details = self.check_python_details()
@@ -83,23 +124,17 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = posixpath.join(self.remote_job_dir, "code")
             details = self._check_python_details(ssh)
-            if not details["python_ok"]:
-                self.on_log("Failed: Python is not installed or remote_python is invalid. Install Python on the server first.")
+            if not details["base_python_ok"]:
+                self.on_log("Failed: Base Python is not installed or remote_python is invalid. Install Python on the server first.")
                 return False
-            if not details["pip_ok"]:
-                self.on_log("Installing pip with ensurepip...")
-                ensurepip_cmd = f"{shlex.quote(self.config.remote_python)} -m ensurepip --user --upgrade >/tmp/mri_ensurepip.log 2>&1"
-                ensurepip_code = ssh.run(ensurepip_cmd, stream=False, check=False)
-                if ensurepip_code != 0:
-                    self.on_log("Failed: pip is missing and ensurepip could not install it. Install python3-pip on the server first.")
-                    return False
+            venv_python = self.ensure_remote_venv(ssh)
             cmd = (
                 f"cd {shlex.quote(remote_code)} && "
-                f"{shlex.quote(self.config.remote_python)} -m pip install --user -r requirements.txt >/tmp/mri_requirements.log 2>&1"
+                f"{shlex.quote(venv_python)} -m pip install --disable-pip-version-check -r requirements.txt"
             )
-            self.on_log("Installing packages from requirements.txt...")
-            code = ssh.run(cmd, stream=False, check=False)
-            self.on_log("Installed: Python packages from requirements.txt" if code == 0 else "Failed: Python package install. See /tmp/mri_requirements.log on server.")
+            self.on_log("Installing packages into remote venv from requirements.txt...")
+            code = ssh.run(cmd, stream=True, check=False)
+            self.on_log("Installed: Python packages into remote venv" if code == 0 else "Failed: Python package install in remote venv.")
             return code == 0
 
     def check_images(self) -> list[str]:
@@ -132,6 +167,7 @@ class RemoteRunner:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = posixpath.join(self.remote_job_dir, "code")
+            venv_python = self.ensure_remote_venv(ssh)
             script = (
                 "import sys\n"
                 "from pipeline_runner import ensure_image, TOOL_DEFS\n"
@@ -147,7 +183,7 @@ class RemoteRunner:
                 "        ok = False\n"
                 "sys.exit(0 if ok else 2)\n"
             )
-            cmd = [self.config.remote_python, "-c", script, *tool_keys]
+            cmd = [venv_python, "-c", script, *tool_keys]
             quoted = " ".join(shlex.quote(str(part)) for part in cmd)
             code = ssh.run(f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}", stream=True)
             return code == 0
@@ -161,13 +197,19 @@ class RemoteRunner:
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
+            self.on_log("Preparing run configuration...")
             self._upload_export_config(ssh)
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
+            self.on_log("Uploading pipeline code...")
             self._upload_code(ssh)
+            self.on_log("Uploading MRI input files...")
             self._upload_inputs(ssh)
+            self.on_log("Uploading license files...")
             self._upload_license(ssh)
+            self._write_job_config(ssh)
             self._write_job_metadata(ssh)
+            self.on_log("Remote upload complete.")
             return self.remote_job_dir
 
     def attach_job(self, remote_job_dir: str) -> None:
@@ -200,6 +242,77 @@ class RemoteRunner:
         }
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(metadata, indent=2))
+
+    def _remote_input_request(self) -> dict:
+        remote_input = posixpath.join(self.remote_job_dir, "input")
+        subject_id_map: dict[str, str] = {}
+        if self.config.input_mode == "file" and self.config.input_file:
+            input_name = Path(self.config.input_file).name
+            remote_file = posixpath.join(remote_input, input_name)
+            subject_id_map[remote_file] = _derive_subject_id(self.config.input_file)
+            return {
+                "mode": "file",
+                "input_file": remote_file,
+                "subject_id": subject_id_map[remote_file],
+                "subject_id_map": subject_id_map,
+            }
+        if self.config.input_mode == "files" and self.config.input_files:
+            remote_files: list[str] = []
+            ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
+            for idx, path in enumerate(self.config.input_files, start=1):
+                src = Path(path)
+                remote_name = f"{idx:04d}_{src.name}"
+                remote_file = posixpath.join(remote_input, remote_name)
+                remote_files.append(remote_file)
+                subject_id_map[remote_file] = ids.get(path, _derive_subject_id(path))
+            return {
+                "mode": "files",
+                "input_files": remote_files,
+                "input_dir": remote_input,
+                "subject_id_map": subject_id_map,
+            }
+
+        if not self.config.input_dir:
+            return {
+                "mode": "dir",
+                "input_dir": remote_input,
+                "recursive": self.config.recursive,
+                "subject_id_map": subject_id_map,
+            }
+
+        files = _discover_mri_files(self.config.input_dir, recursive=self.config.recursive)
+        ids = build_subject_id_map(files, self.config.input_dir)
+        root = Path(self.config.input_dir).resolve() if self.config.input_dir else None
+        for path in files:
+            src = Path(path).resolve()
+            rel = src.relative_to(root).as_posix() if root else src.name
+            subject_id_map[posixpath.join(remote_input, rel)] = ids.get(path, _derive_subject_id(path))
+        return {
+            "mode": "dir",
+            "input_dir": remote_input,
+            "recursive": self.config.recursive,
+            "subject_id_map": subject_id_map,
+        }
+
+    def _write_job_config(self, ssh: RemoteSSHClient) -> None:
+        remote_path = posixpath.join(self.remote_job_dir, "job_config.json")
+        remote_request = {
+            **self._remote_input_request(),
+            "job_dir": self.remote_job_dir,
+            "run_target": "Server",
+            "output_dir": self.remote_output_dir,
+            "effective_output_dir": self.remote_output_dir,
+            "license_dir": posixpath.join(self.remote_job_dir, "license"),
+            "device": self.config.device,
+            "threads": int(self.config.threads),
+            "selected_tools": self.config.selected_tools,
+            "export_config": self.config.export_config or {},
+            "stats_vector_config": self.config.stats_vector_config or {},
+            "resume": bool(self.config.resume),
+            "restart": bool(self.config.restart),
+        }
+        with ssh.sftp.open(remote_path, "w") as f:
+            f.write(json.dumps(remote_request, indent=2))
 
     def _upload_export_config(self, ssh: RemoteSSHClient) -> None:
         remote_path = posixpath.join(self.remote_job_dir, "export_config.json")
@@ -240,19 +353,23 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            venv_python = self.ensure_remote_venv(ssh)
             ssh.run(f"rm -f {shlex.quote(posixpath.join(self.remote_job_dir, 'stop_requested'))}", stream=False, check=False)
             ssh.run(
                 f"df -h {shlex.quote(self.remote_job_dir)} {shlex.quote(posixpath.join(self.remote_job_dir, 'outputs'))}",
                 stream=True,
                 check=False,
             )
-            command = self._remote_command()
+            command = self._remote_command(venv_python)
             return ssh.run(command, stream=True)
 
     def start_remote_detached(self) -> str:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            if self.config.input_file or self.config.input_files or self.config.input_dir:
+                self._write_job_config(ssh)
+            venv_python = self.ensure_remote_venv(ssh)
             run_log = posixpath.join(self.remote_job_dir, "run.log")
             exit_code = posixpath.join(self.remote_job_dir, "exit_code.txt")
             pid_file = posixpath.join(self.remote_job_dir, "pid.txt")
@@ -264,11 +381,33 @@ class RemoteRunner:
                 stream=False,
                 check=False,
             )
-            worker_script = (
-                f"{self._remote_command()} > {shlex.quote(run_log)} 2>&1; "
-                f"code=$?; echo $code > {shlex.quote(exit_code)}; date +%s > {shlex.quote(finished_at)}; exit $code"
+            remote_code = posixpath.join(self.remote_job_dir, "code")
+            config_path = posixpath.join(self.remote_job_dir, "job_config.json")
+            launcher_log = posixpath.join(self.remote_job_dir, "launcher.log")
+            command = (
+                f"cd {shlex.quote(remote_code)} && PYTHONPATH={shlex.quote(remote_code)}:$PYTHONPATH PYTHONUNBUFFERED=1 "
+                f"{shlex.quote(venv_python)} -m pipeline.job_worker --job-config {shlex.quote(config_path)}"
             )
-            start_cmd = f"nohup bash -lc {shlex.quote(worker_script)} >/dev/null 2>&1 & echo $! > {shlex.quote(pid_file)}"
+            worker_script = (
+                "set +e; "
+                f"printf '[%s] Remote launcher started\\n' \"$(date +%H:%M:%S)\" >> {shlex.quote(run_log)}; "
+                f"{command} > {shlex.quote(launcher_log)} 2>&1; "
+                "code=$?; "
+                f"if [ $code -ne 0 ]; then "
+                f"printf '[%s] Remote launcher failed with exit %s\\n' \"$(date +%H:%M:%S)\" \"$code\" >> {shlex.quote(run_log)}; "
+                f"cat {shlex.quote(launcher_log)} >> {shlex.quote(run_log)} 2>/dev/null; "
+                "fi; "
+                f"echo $code > {shlex.quote(exit_code)}; date +%s > {shlex.quote(finished_at)}; exit $code"
+            )
+            quoted_worker = shlex.quote(worker_script)
+            start_cmd = (
+                "if command -v setsid >/dev/null 2>&1; then "
+                f"setsid bash -lc {quoted_worker} >/dev/null 2>&1 < /dev/null & "
+                "else "
+                f"nohup bash -lc {quoted_worker} >/dev/null 2>&1 < /dev/null & "
+                "fi; "
+                f"echo $! > {shlex.quote(pid_file)}"
+            )
             code = ssh.run(start_cmd, stream=False, check=False)
             if code != 0:
                 raise RuntimeError(f"Failed to start detached remote job: exit {code}")
@@ -289,13 +428,44 @@ class RemoteRunner:
                 return {"state": "completed" if code == 0 else "failed", "exit_code": code, "pid": pid, "remote_job_dir": self.remote_job_dir}
             if pid_code == 0 and pid:
                 ps_code = ssh.run(f"kill -0 {shlex.quote(pid)} >/dev/null 2>&1", stream=False, check=False)
-                return {"state": "running" if ps_code == 0 else "unknown", "pid": pid, "remote_job_dir": self.remote_job_dir}
+                if ps_code == 0:
+                    return {"state": "running", "pid": pid, "remote_job_dir": self.remote_job_dir}
+                return {"state": "failed", "exit_code": None, "pid": pid, "remote_job_dir": self.remote_job_dir, "error": "process exited before writing exit_code.txt"}
             return {"state": "uploaded", "remote_job_dir": self.remote_job_dir}
+
+    def list_background_jobs(self) -> list[dict[str, str]]:
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            workspace = ssh.expand_path(self.config.remote_workspace)
+            cmd = (
+                f"for d in {shlex.quote(workspace)}/job_*; do "
+                "[ -d \"$d\" ] || continue; "
+                "pid=$(cat \"$d/pid.txt\" 2>/dev/null || true); "
+                "exit_code=$(cat \"$d/exit_code.txt\" 2>/dev/null || true); "
+                "state=uploaded; "
+                "if [ -n \"$exit_code\" ]; then "
+                "if [ \"$exit_code\" = 0 ]; then state=completed; else state=failed; fi; "
+                "elif [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then state=running; "
+                "elif [ -n \"$pid\" ]; then state=unknown; fi; "
+                "printf '%s\\t%s\\t%s\\n' \"$state\" \"$pid\" \"$d\"; "
+                "done"
+            )
+            code, text = ssh.read_text(cmd)
+            if code != 0:
+                return []
+        jobs: list[dict[str, str]] = []
+        for line in text.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                continue
+            state, pid, remote_job_dir = parts
+            jobs.append({"state": state, "pid": pid, "remote_job_dir": remote_job_dir})
+        return jobs
 
     def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
         if not self.remote_job_dir:
             return "", offset
         remote_log = posixpath.join(self.remote_job_dir, "run.log")
+        launcher_log = posixpath.join(self.remote_job_dir, "launcher.log")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             try:
                 with ssh.sftp.open(remote_log, "r") as f:
@@ -303,14 +473,21 @@ class RemoteRunner:
                     data = f.read().decode(errors="replace")
                     return data, f.tell()
             except OSError:
-                return "", offset
+                try:
+                    with ssh.sftp.open(launcher_log, "r") as f:
+                        f.seek(offset)
+                        data = f.read().decode(errors="replace")
+                        return data, f.tell()
+                except OSError:
+                    return "", offset
 
     def ensure_images(self) -> bool:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = posixpath.join(self.remote_job_dir, "code")
-            cmd = [self.config.remote_python, "pipeline_runner.py", "--ensure-images-only", "--json-events"]
+            venv_python = self.ensure_remote_venv(ssh)
+            cmd = [venv_python, "pipeline_runner.py", "--ensure-images-only", "--json-events"]
             cmd += self._tool_args()
             quoted = " ".join(shlex.quote(str(part)) for part in cmd)
             code = ssh.run(f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}", stream=True)
@@ -408,13 +585,13 @@ class RemoteRunner:
             self.on_log("Uploading license directory...")
             ssh.upload_dir(local_license, remote_license_dir, skip_dirs={"__pycache__"})
 
-    def _remote_command(self) -> str:
+    def _remote_command(self, python_cmd: str | None = None) -> str:
         remote_code = posixpath.join(self.remote_job_dir, "code")
         remote_input = posixpath.join(self.remote_job_dir, "input")
         remote_output = posixpath.join(self.remote_job_dir, "outputs")
         remote_license = posixpath.join(self.remote_job_dir, "license")
 
-        cmd = [self.config.remote_python, "pipeline_runner.py", "--json-events"]
+        cmd = [python_cmd or self.config.remote_python, "pipeline_runner.py", "--json-events"]
         if self.config.input_mode == "file":
             input_name = Path(self.config.input_file).name
             cmd += ["--input-file", posixpath.join(remote_input, input_name)]

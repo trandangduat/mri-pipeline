@@ -17,13 +17,10 @@ class LineChart(ttk.Frame):
         # so we keep the dark background for the chart.
         self.canvas = tk.Canvas(self, height=90, highlightthickness=1, highlightbackground="#374151")
         self.canvas.pack(fill=tk.X, expand=True)
-        self._resize_timer = None
         self.canvas.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, _event=None) -> None:
-        if self._resize_timer is not None:
-            self.after_cancel(self._resize_timer)
-        self._resize_timer = self.after(50, self._draw_chart)
+        self._draw_chart()
 
     def reset(self) -> None:
         self.points.clear()

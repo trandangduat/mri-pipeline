@@ -10,15 +10,10 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     window_id = canvas.create_window((0, 0), window=scroll_frame, anchor=tk.NW)
 
     def _sync_scroll_region(_event=None):
-        if getattr(canvas, "_scroll_timer", None):
-            canvas.after_cancel(canvas._scroll_timer)
-        canvas._scroll_timer = canvas.after(50, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.configure(scrollregion=canvas.bbox("all"))
 
     def _sync_window_width(event):
-        if getattr(canvas, "_width_timer", None):
-            canvas.after_cancel(canvas._width_timer)
-        w = event.width
-        canvas._width_timer = canvas.after(20, lambda: canvas.itemconfigure(window_id, width=w))
+        canvas.itemconfigure(window_id, width=event.width)
 
     def _on_mousewheel(event):
         if event.num == 4:
@@ -261,16 +256,20 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=gui._browse_remote_key).pack(side=tk.RIGHT)
 
     ttk.Label(frame, text="Workspace").grid(row=3, column=0, sticky=tk.W, pady=3)
-    ttk.Entry(frame, textvariable=gui.state.remote_workspace).grid(row=3, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
-    ttk.Label(frame, text="Python").grid(row=3, column=2, sticky=tk.W, pady=3)
-    ttk.Entry(frame, textvariable=gui.state.remote_python).grid(row=3, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
+    ttk.Entry(frame, textvariable=gui.state.remote_workspace).grid(row=3, column=1, columnspan=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
     buttons = ttk.Frame(frame)
     buttons.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
     ttk.Button(buttons, text="Test SSH", style="Accent.TButton", command=gui._remote_test_ssh).pack(side=tk.LEFT)
 
-    gui.remote_status_label = ttk.Label(frame, textvariable=gui.state.remote_status)
-    gui.remote_status_label.grid(row=5, column=0, columnspan=4, sticky=tk.W, pady=(8, 0))
+    status_row = ttk.Frame(frame)
+    status_row.grid(row=5, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
+    gui.remote_status_icon_label = ttk.Label(status_row)
+    gui.remote_status_icon_label.pack(side=tk.LEFT, padx=(0, 6))
+    if hasattr(gui, "_set_remote_status_icon"):
+        gui._set_remote_status_icon("pending")
+    gui.remote_status_label = ttk.Label(status_row, textvariable=gui.state.remote_status)
+    gui.remote_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     frame.columnconfigure(1, weight=1)
     frame.columnconfigure(3, weight=1)

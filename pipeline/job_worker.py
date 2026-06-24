@@ -32,8 +32,8 @@ def _log(job_dir: Path, message: str) -> None:
     _append_line(job_dir / "run.log", f"[{ts}] {message}")
 
 
-def _write_status(job_dir: Path, **updates) -> None:
-    status_path = job_dir / "job_status.json"
+def _write_status(job_path: Path, **updates) -> None:
+    status_path = job_path / "job_status.json"
     status = read_json(status_path, {})
     status.update(updates)
     status["updated_at"] = time.time()
@@ -43,14 +43,18 @@ def _write_status(job_dir: Path, **updates) -> None:
 def _delete_restart_outputs(req: dict, job_dir: Path) -> None:
     output_dir = Path(req.get("effective_output_dir", req["output_dir"])).resolve()
     mode = req.get("mode")
+    subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
     subject_ids: list[str]
     if mode == "file":
-        subject_ids = [_derive_subject_id(req["input_file"])]
+        subject_ids = [req.get("subject_id") or subject_id_map.get(req["input_file"]) or _derive_subject_id(req["input_file"])]
     elif mode == "files":
-        subject_ids = list(build_subject_id_map(req.get("input_files", []), req.get("input_dir", "")).values())
+        files = req.get("input_files", [])
+        subject_id_map = subject_id_map or build_subject_id_map(files, req.get("input_dir", ""))
+        subject_ids = [subject_id_map.get(path, _derive_subject_id(path)) for path in files]
     else:
         files = _discover_mri_files(req.get("input_dir", ""), recursive=req.get("recursive", True))
-        subject_ids = list(build_subject_id_map(files, req.get("input_dir", "")).values())
+        subject_id_map = subject_id_map or build_subject_id_map(files, req.get("input_dir", ""))
+        subject_ids = [subject_id_map.get(path, _derive_subject_id(path)) for path in files]
 
     for subject_id in subject_ids:
         subject_dir = output_dir / subject_id
@@ -111,7 +115,8 @@ def _run_job(job_dir: Path, req: dict) -> int:
     should_stop = stop_file.exists
     if mode == "file":
         input_file = req["input_file"]
-        subject_id = _derive_subject_id(input_file)
+        subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
+        subject_id = req.get("subject_id") or subject_id_map.get(input_file) or _derive_subject_id(input_file)
         image_start_cb(input_file, 1, 1)
         config = PipelineConfig(
             input_file=input_file,
@@ -144,7 +149,9 @@ def _run_job(job_dir: Path, req: dict) -> int:
         return 1
 
     _log(job_dir, f"Found {len(files)} MRI files. Running sequentially.")
-    subject_id_map = build_subject_id_map(files, input_dir)
+    subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
+    if not subject_id_map:
+        subject_id_map = build_subject_id_map(files, input_dir)
     results = run_batch_pipeline(
         input_dir=input_dir,
         output_dir=output_dir,

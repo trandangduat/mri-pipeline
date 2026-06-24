@@ -23,17 +23,12 @@ def build_progress_tab(parent: ttk.Frame, gui) -> None:
     image_scroll = ttk.Scrollbar(list_card, orient=tk.VERTICAL, command=gui.image_list_canvas.yview)
     gui.image_list_frame = ttk.Frame(gui.image_list_canvas)
     def _on_frame_configure(_event):
-        if getattr(gui.image_list_canvas, "_scroll_timer", None):
-            gui.image_list_canvas.after_cancel(gui.image_list_canvas._scroll_timer)
-        gui.image_list_canvas._scroll_timer = gui.image_list_canvas.after(50, lambda: gui.image_list_canvas.configure(scrollregion=gui.image_list_canvas.bbox("all")))
+        gui.image_list_canvas.configure(scrollregion=gui.image_list_canvas.bbox("all"))
     gui.image_list_frame.bind("<Configure>", _on_frame_configure)
     
     frame_id = gui.image_list_canvas.create_window((0, 0), window=gui.image_list_frame, anchor=tk.NW)
     def _on_canvas_configure(event):
-        if getattr(gui.image_list_canvas, "_width_timer", None):
-            gui.image_list_canvas.after_cancel(gui.image_list_canvas._width_timer)
-        w = event.width
-        gui.image_list_canvas._width_timer = gui.image_list_canvas.after(20, lambda: gui.image_list_canvas.itemconfig(frame_id, width=w))
+        gui.image_list_canvas.itemconfig(frame_id, width=event.width)
     gui.image_list_canvas.bind("<Configure>", _on_canvas_configure)
     gui.image_list_canvas.configure(yscrollcommand=image_scroll.set)
     gui.image_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

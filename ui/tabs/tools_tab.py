@@ -11,15 +11,10 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     window_id = canvas.create_window((0, 0), window=root, anchor=tk.NW)
 
     def _sync_scroll_region(_event=None):
-        if getattr(canvas, "_scroll_timer", None):
-            canvas.after_cancel(canvas._scroll_timer)
-        canvas._scroll_timer = canvas.after(50, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.configure(scrollregion=canvas.bbox("all"))
 
     def _sync_window_width(event):
-        if getattr(canvas, "_width_timer", None):
-            canvas.after_cancel(canvas._width_timer)
-        w = event.width
-        canvas._width_timer = canvas.after(20, lambda: canvas.itemconfigure(window_id, width=w))
+        canvas.itemconfigure(window_id, width=event.width)
 
     def _on_mousewheel(event):
         if event.num == 4:
@@ -50,15 +45,18 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    py_card = create_card(root, "PY", "Python Environment", "Check Python/pip and install packages for the selected target", {"fill": tk.X, "pady": (0, 8)})
-    py_row = ttk.Frame(py_card)
-    py_row.pack(fill=tk.X)
-    ttk.Label(py_row, text="Using target:").pack(side=tk.LEFT)
-    ttk.Label(py_row, textvariable=gui.state.run_target, width=8, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 16))
-    ttk.Label(py_row, text="Status:").pack(side=tk.LEFT)
-    ttk.Label(py_row, textvariable=gui.python_env_status, width=40, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 16))
-    ttk.Button(py_row, text="Check Python", command=gui._check_python_environment).pack(side=tk.LEFT, padx=3)
-    ttk.Button(py_row, text="Install Python Packages", command=gui._install_python_requirements).pack(side=tk.LEFT, padx=3)
+    py_card = create_card(root, "PY", "Python Environment", "Local Python and remote virtual environment", {"fill": tk.X, "pady": (0, 8)})
+    py_card.columnconfigure(1, weight=1)
+    ttk.Label(py_card, text="Target").grid(row=0, column=0, sticky=tk.W, pady=(0, 6))
+    ttk.Label(py_card, textvariable=gui.state.run_target, anchor=tk.W).grid(row=0, column=1, sticky=tk.W, padx=(10, 16), pady=(0, 6))
+    ttk.Label(py_card, text="Status").grid(row=1, column=0, sticky=tk.W, pady=(0, 6))
+    ttk.Label(py_card, textvariable=gui.python_env_status, anchor=tk.W).grid(row=1, column=1, sticky=tk.EW, padx=(10, 16), pady=(0, 6))
+    ttk.Label(py_card, text="Environment").grid(row=2, column=0, sticky=tk.W, pady=(0, 8))
+    ttk.Label(py_card, textvariable=gui.python_env_hint, anchor=tk.W, wraplength=720).grid(row=2, column=1, sticky=tk.EW, padx=(10, 16), pady=(0, 8))
+    py_buttons = ttk.Frame(py_card)
+    py_buttons.grid(row=0, column=2, rowspan=3, sticky=tk.E, padx=(8, 0))
+    ttk.Button(py_buttons, text="Check Environment", command=gui._check_python_environment).pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
+    ttk.Button(py_buttons, text="Create / Update Packages", command=gui._install_python_requirements).pack(side=tk.TOP, fill=tk.X)
 
     top = create_card(root, "IMG", "Docker Images", "Check and download local/server tool images", {"fill": tk.BOTH, "expand": True, "pady": (0, 8)})
 

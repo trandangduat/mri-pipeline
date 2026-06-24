@@ -85,7 +85,7 @@ class RemoteSSHClient:
 
     def run(self, command: str, stream: bool = True, check: bool = False) -> int:
         self.on_log(f">>> {command}")
-        stdin, stdout, stderr = self.client.exec_command(command, get_pty=True)
+        stdin, stdout, stderr = self.client.exec_command(command, get_pty=stream)
         if stream:
             for line in iter(stdout.readline, ""):
                 if line:
@@ -154,6 +154,7 @@ class RemoteSSHClient:
             for name in files_to_upload:
                 local_file = Path(root) / name
                 remote_file = posixpath.join(remote_subdir, name)
+                self.on_log(f"Uploading file: {local_file} -> {remote_file}")
                 self.sftp.put(str(local_file), remote_file)
 
     def download_dir(self, remote_dir: str, local_dir: str | Path) -> None:

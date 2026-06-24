@@ -53,7 +53,7 @@ def truncate_middle(text: str, max_len: int = 30) -> str:
 
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from ui.state import AppState
-from ui.styles import setup_styles
+from ui.styles import configure_windows_dpi_awareness, setup_styles
 from ui.components.dialogs import build_image_dialog, append_dialog_log
 from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.progress_tab import build_progress_tab
@@ -100,6 +100,7 @@ class PipelineGUI:
         self.remote_body: ttk.Frame | None = None
         self.remote_pack_options: dict | None = None
         self.remote_toggle_button: ttk.Button | None = None
+        self.remote_status_icon_label: ttk.Label | None = None
         self.actions_frame: ttk.Frame | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
@@ -126,14 +127,15 @@ class PipelineGUI:
         self.tools_download_button: ttk.Button | None = None
         self.tools_row_widgets: dict[str, dict] = {}
         self.python_env_status = tk.StringVar(value="Not checked")
+        self.python_env_hint = tk.StringVar(value=f"Local uses this GUI Python: {sys.executable}")
         self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
         self.tool_status_labels: dict[str, ttk.Label] = {}
 
         self._build_ui()
+        self._update_python_env_hint()
         self._setup_validation_traces()
         self._validate_configuration()
         self._poll_queues()
-        self.root.after(700, self._maybe_prompt_existing_jobs)
 
         self._spinner_frames = []
         self._spinner_idx = 0
@@ -232,6 +234,13 @@ class PipelineGUI:
             pass
         return None
 
+    def _set_remote_status_icon(self, icon_name: str | None) -> None:
+        label = getattr(self, "remote_status_icon_label", None)
+        if label is None:
+            return
+        icon = self._make_icon(icon_name) if icon_name else None
+        label.configure(image=icon if icon is not None else "")
+
     def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command) -> ttk.Button:
         icon = self._make_icon(key)
         options = {"text": f" {label} ", "command": command}
@@ -299,6 +308,16 @@ class PipelineGUI:
                 pass
             self._set_widget_tree_state(child, state)
 
+    def _remote_venv_display_path(self) -> str:
+        workspace = (self.state.remote_workspace.get().strip() or "~/mri-remote-jobs").rstrip("/")
+        return f"{workspace}/.venv"
+
+    def _update_python_env_hint(self) -> None:
+        if self.state.run_target.get() == "Server":
+            self.python_env_hint.set(f"Server uses isolated virtual environment: {self._remote_venv_display_path()}")
+        else:
+            self.python_env_hint.set(f"Local uses this GUI Python: {sys.executable}")
+
     def _on_run_target_changed(self) -> None:
         if self.remote_body is None:
             return
@@ -315,6 +334,8 @@ class PipelineGUI:
                 self.remote_frame.pack_forget()
         self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
+        self._update_python_env_hint()
+        self._set_python_env_status("Not checked")
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._validate_configuration()
@@ -827,38 +848,118 @@ class PipelineGUI:
             upsert_job_registry(entry)
         return jobs
 
-    def _running_or_unknown_jobs(self) -> list[dict]:
-        return [entry for entry in self._known_jobs() if entry.get("state") in {"running", "unknown", "uploaded"}]
+    def _running_local_jobs(self) -> list[dict]:
+        return [entry for entry in self._known_jobs() if entry.get("target") == "Local" and entry.get("state") == "running"]
 
-    def _maybe_prompt_existing_jobs(self) -> None:
-        if self.running or self.active_job:
-            return
-        candidates = self._running_or_unknown_jobs()
-        if not candidates:
-            return
-        job = candidates[0]
-        label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "background job")
-        answer = messagebox.askyesnocancel(
-            "Background job found",
-            f"Found an unfinished background job:\n\n{label}\n\nAttach now to view progress?\n\nYes = Attach\nNo = Start/continue without attaching\nCancel = Do nothing",
+    def _same_remote_server(self, entry: dict, host: str, port: int, username: str, workspace: str) -> bool:
+        remote = dict(entry.get("remote") or {})
+        if not remote:
+            return False
+        return (
+            str(remote.get("host", "")) == host
+            and int(remote.get("port", 22) or 22) == port
+            and str(remote.get("username", "")) == username
+            and str(remote.get("workspace", "~/mri-remote-jobs")) == workspace
         )
-        if answer is True:
-            self._attach_registry_job(job)
+
+    def _running_remote_jobs(self) -> list[dict] | None:
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return None
+        workspace = self.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
+        runner = RemoteRunner(
+            RemoteRunConfig(
+                ssh=ssh_config,
+                remote_workspace=workspace,
+                remote_python=self.state.remote_python.get().strip() or "python3",
+                output_dir=self.state.output_dir.get().strip(),
+            ),
+            on_log=self._remote_log_event,
+        )
+        try:
+            remote_jobs = [job for job in runner.list_background_jobs() if job.get("state") == "running"]
+        except Exception as exc:
+            messagebox.showerror("Remote check failed", f"Could not check remote background jobs:\n\n{type(exc).__name__}: {exc}")
+            return None
+
+        registry_by_dir = {
+            str(entry.get("remote_job_dir")): entry
+            for entry in self._known_jobs()
+            if entry.get("target") == "Server"
+            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+        }
+        jobs: list[dict] = []
+        for remote_job in remote_jobs:
+            remote_dir = str(remote_job.get("remote_job_dir", ""))
+            entry = dict(registry_by_dir.get(remote_dir, {}))
+            entry.update(remote_job)
+            entry["target"] = "Server"
+            entry["remote_job_dir"] = remote_dir
+            entry.setdefault("output_dir", self.state.output_dir.get().strip())
+            entry["remote"] = {
+                "host": ssh_config.host,
+                "port": int(ssh_config.port),
+                "username": ssh_config.username,
+                "key_path": ssh_config.key_path,
+                "workspace": workspace,
+                "python": self.state.remote_python.get().strip() or "python3",
+            }
+            jobs.append(entry)
+        return jobs
+
+    def _running_jobs_for_current_target(self) -> list[dict] | None:
+        if self.state.run_target.get() == "Server":
+            return self._running_remote_jobs()
+        return self._running_local_jobs()
+
+    def _pause_background_job(self, job: dict) -> bool:
+        target = job.get("target")
+        if target == "Server":
+            runner = self._remote_runner_from_job_entry(job)
+            if runner is None:
+                return False
+            try:
+                runner.request_pause()
+                self._log(f"Remote pause requested: {runner.remote_job_dir}")
+                return True
+            except Exception as exc:
+                messagebox.showerror("Remote pause failed", f"Could not pause remote job:\n\n{type(exc).__name__}: {exc}")
+                return False
+
+        raw_job_dir = str(job.get("job_dir", "")).strip()
+        if not raw_job_dir:
+            return False
+        job_dir = Path(raw_job_dir)
+        try:
+            stop_file = job_dir / "stop_requested"
+            stop_file.parent.mkdir(parents=True, exist_ok=True)
+            stop_file.touch()
+            self._log(f"Local pause requested: {stop_file}")
+            return True
+        except Exception as exc:
+            messagebox.showerror("Local pause failed", f"Could not pause local job:\n\n{type(exc).__name__}: {exc}")
+            return False
 
     def _confirm_start_with_existing_jobs(self) -> bool:
-        candidates = self._running_or_unknown_jobs()
+        candidates = self._running_jobs_for_current_target()
+        if candidates is None:
+            return False
         if not candidates:
             return True
         job = candidates[0]
         label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "background job")
+        more = f"\n\nAlso found {len(candidates) - 1} other running job(s) for this target." if len(candidates) > 1 else ""
+        target = self.state.run_target.get()
         answer = messagebox.askyesnocancel(
-            "Background job already exists",
-            f"There is an unfinished background job:\n\n{label}\n\nAttach to it instead of starting another job?\n\nYes = Attach existing job\nNo = Start a new job anyway\nCancel = Do nothing",
+            "Background pipeline running",
+            f"A {target} pipeline is already running in the background:\n\n{label}{more}\n\nYes = Continue / monitor the old pipeline\nNo = Pause the old pipeline and start the new current run\nCancel = Do nothing",
         )
         if answer is True:
             self._attach_registry_job(job)
             return False
-        return answer is False
+        if answer is False:
+            return all(self._pause_background_job(candidate) for candidate in candidates)
+        return False
 
     def _refresh_input_label(self, *_args) -> None:
         if self.state.input_mode.get() == "files":
@@ -900,6 +1001,9 @@ class PipelineGUI:
         ]
         for var in variables:
             var.trace_add("write", lambda *_args: self._validate_configuration())
+
+        self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
+        self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
 
         self.state.input_path.trace_add("write", self._refresh_input_label)
 
@@ -973,8 +1077,6 @@ class PipelineGUI:
                 errors.append("Remote port must be a valid integer.")
             if not self.state.remote_workspace.get().strip():
                 errors.append("Remote workspace is required.")
-            if not self.state.remote_python.get().strip():
-                errors.append("Remote Python command is required.")
 
         ok = not errors
         if hasattr(self, "run_button"):
@@ -1247,9 +1349,24 @@ class PipelineGUI:
         )
 
     def _tools_remote_log_event(self, line: str) -> None:
-        keep = ("Connecting SSH", "SSH connected", "Python OK:", "Python missing:", "pip OK:", "pip missing:", "Installing", "Installed:", "Missing:", "Downloading:", "Failed:")
+        keep = (
+            "Connecting SSH", "SSH connected", "Base Python", "Remote venv:", "Venv Python", "Venv pip",
+            "Creating remote venv", "Using remote venv", "Installing", "Installed:", "Missing:", "Downloading:", "Failed:",
+            "Requirement", "Collecting", "Using cached", "Downloading ", "Successfully", "ERROR:", "WARNING:",
+        )
         if line.startswith(keep):
             self.root.after(0, lambda l=line: self._append_tools_log(l))
+        status_prefixes = {
+            "Downloading: ": "Downloading",
+            "Installed: ": "Installed",
+            "Missing: ": "Missing",
+            "Failed: ": "Error",
+        }
+        for prefix, status in status_prefixes.items():
+            if line.startswith(prefix):
+                image = line[len(prefix):].strip().split()[0]
+                self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                break
 
     def _set_python_env_status(self, status: str) -> None:
         self.python_env_status.set(status)
@@ -1288,14 +1405,18 @@ class PipelineGUI:
                 return
             try:
                 details = runner.check_python_details()
-                python_ok = bool(details["python_ok"])
-                pip_ok = bool(details["pip_ok"])
+                base_ok = bool(details.get("base_python_ok"))
+                venv_exists = bool(details.get("venv_exists"))
+                python_ok = bool(details.get("venv_python_ok"))
+                pip_ok = bool(details.get("venv_pip_ok"))
                 if python_ok and pip_ok:
-                    status = "Server: Python OK, pip OK"
-                elif python_ok:
-                    status = "Server: Python OK, pip missing"
+                    status = "Server: venv ready"
+                elif not base_ok:
+                    status = "Server: base Python missing"
+                elif not venv_exists:
+                    status = "Server: venv not created"
                 else:
-                    status = "Server: Python missing"
+                    status = "Server: venv incomplete"
                 self.root.after(0, lambda s=status: self._set_python_env_status(s))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
@@ -1310,7 +1431,10 @@ class PipelineGUI:
             messagebox.showerror("Missing requirements", f"requirements.txt not found: {requirements}")
             return
         self._set_python_env_status("Installing...")
-        self._append_tools_log(f"Installing Python packages from requirements.txt: {target}")
+        action = "Installing Python packages from requirements.txt"
+        if target == "Server":
+            action = f"Creating/updating remote venv and packages: {self._remote_venv_display_path()}"
+        self._append_tools_log(f"{action}: {target}")
 
         def worker() -> None:
             if target == "Local":
@@ -1343,9 +1467,9 @@ class PipelineGUI:
                 return
             try:
                 ok = runner.install_python_requirements()
-                msg = "Python packages installed: Server" if ok else "Python packages failed: Server"
+                msg = "Remote venv packages installed: Server" if ok else "Remote venv package install failed: Server"
                 self.root.after(0, lambda m=msg: self._append_tools_log(m))
-                self.root.after(0, lambda: self._set_python_env_status("Server: Python packages installed" if ok else "Server: Package install failed"))
+                self.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
                 self.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
@@ -1404,7 +1528,7 @@ class PipelineGUI:
                     image = self._tool_image(tool_key)
                     self.root.after(0, lambda i=image: self._append_tools_log(f"Downloading: {i}"))
                     ok, err, _ = ensure_image(tool_key, on_build_log=None)
-                    status = "Installed" if ok and image_exists(image) else "Error"
+                    status = "Installed" if ok or image_exists(image) else "Error"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
                     msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
                     self.root.after(0, lambda m=msg: self._append_tools_log(m))
@@ -1412,6 +1536,8 @@ class PipelineGUI:
 
             runner = self._build_image_remote_runner()
             if runner is None:
+                for tool_key in tool_keys:
+                    self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Unknown"))
                 return
             try:
                 ok = runner.ensure_tool_images(tool_keys)
@@ -1555,6 +1681,79 @@ class PipelineGUI:
         self.root.wait_window(dialog)
         return state["ok"]
 
+    def _upload_remote_job_with_dialog(self, runner: RemoteRunner) -> bool:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Copy files to remote server")
+        dialog.geometry("760x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        header = ttk.Frame(dialog, padding=(14, 14, 14, 8))
+        header.pack(fill=tk.X)
+        ttk.Label(header, text="Copying files to remote server", font=("Inter", 12, "bold")).pack(anchor=tk.W)
+        ttk.Label(
+            header,
+            text="The pipeline code, run configuration, MRI input files, and license files are being copied before the remote background job starts.",
+            wraplength=720,
+        ).pack(anchor=tk.W, pady=(4, 0))
+
+        current_var = tk.StringVar(value="Preparing remote connection...")
+        count_var = tk.StringVar(value="Files copied: 0")
+        ttk.Label(dialog, textvariable=current_var, font=("Inter", 10, "bold")).pack(anchor=tk.W, padx=14, pady=(4, 2))
+        ttk.Label(dialog, textvariable=count_var).pack(anchor=tk.W, padx=14, pady=(0, 8))
+
+        progress = ttk.Progressbar(dialog, mode="indeterminate")
+        progress.pack(fill=tk.X, padx=14, pady=(0, 10))
+        progress.start(10)
+
+        log = tk.Text(dialog, wrap=tk.WORD, height=15, font=("JetBrains Mono", 10), state=tk.DISABLED)
+        scroll = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=log.yview)
+        log.configure(yscrollcommand=scroll.set)
+        log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(14, 0), pady=(0, 14))
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 14), pady=(0, 14))
+
+        state = {"ok": False, "done": False, "files": 0}
+        old_log = runner.on_log
+
+        def append_line(line: str) -> None:
+            if line.startswith("Uploading file:"):
+                state["files"] += 1
+                count_var.set(f"Files copied: {state['files']}")
+                current_var.set("Copying " + truncate_middle(line.split("->", 1)[0].replace("Uploading file:", "").strip(), 70))
+            elif line.startswith("Remote job:"):
+                current_var.set("Creating remote job workspace...")
+            elif line.endswith("...") or line.endswith("complete."):
+                current_var.set(line)
+            log.configure(state=tk.NORMAL)
+            log.insert(tk.END, line + "\n")
+            log.see(tk.END)
+            log.configure(state=tk.DISABLED)
+
+        def worker() -> None:
+            ok = True
+            try:
+                runner.on_log = lambda line: self.root.after(0, lambda l=line: append_line(l))
+                runner.upload_job()
+            except Exception as exc:
+                ok = False
+                err_msg = f"REMOTE UPLOAD ERROR: {type(exc).__name__}: {exc}"
+                self.root.after(0, lambda m=err_msg: append_line(m))
+                self.root.after(0, lambda: current_var.set("Copy failed. Check the log below."))
+            finally:
+                runner.on_log = old_log
+                state["ok"] = ok
+                state["done"] = True
+                self.root.after(0, progress.stop)
+                if ok:
+                    self.root.after(0, lambda: current_var.set("Copy complete. Starting remote job..."))
+                    self.root.after(250, dialog.destroy)
+                else:
+                    self.root.after(0, lambda: ttk.Button(dialog, text="Close", command=dialog.destroy).pack(anchor=tk.E, padx=14, pady=(0, 14)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.wait_window(dialog)
+        return state["ok"]
+
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
         if self.running:
             return
@@ -1567,17 +1766,21 @@ class PipelineGUI:
             return
 
         if self.state.run_target.get() == "Server":
-            runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume)
+            run_request = self._build_run_request()
+            if run_request is None:
+                return
+            runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
             if not runner:
                 return
             if restart:
                 self.remote_runner = None
             runner.config.resume = resume
-            if not self._ensure_remote_images_with_dialog(runner):
-                messagebox.showerror("Docker images missing", "Remote Docker image preflight failed. Pipeline was not started.")
+            runner.config.restart = restart
+            if not runner.remote_job_dir and not self._upload_remote_job_with_dialog(runner):
+                messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                 return
             self.remote_runner = runner
-            self._prepare_progress_tab(self._input_files_for_progress())
+            self._prepare_progress_tab(self._input_files_for_progress(run_request))
             self._show_progress_tab()
             self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
             return
@@ -1587,10 +1790,6 @@ class PipelineGUI:
             return
         run_request["resume"] = resume
         run_request["restart"] = restart
-
-        if not self._ensure_local_images_with_dialog():
-            messagebox.showerror("Docker images missing", "Local Docker image preflight failed. Pipeline was not started.")
-            return
 
         self._prepare_progress_tab(self._input_files_for_progress(run_request))
         self._show_progress_tab()
@@ -1661,6 +1860,7 @@ class PipelineGUI:
         if restart:
             self.remote_runner = None
         runner.config.resume = resume
+        runner.config.restart = restart
         self.remote_runner = runner
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
@@ -1938,8 +2138,8 @@ class PipelineGUI:
             key_path=self.state.remote_key_path.get().strip(),
         )
 
-    def _build_remote_runner(self, resume: bool = False) -> RemoteRunner | None:
-        req = self._build_run_request()
+    def _build_remote_runner(self, resume: bool = False, req: dict | None = None) -> RemoteRunner | None:
+        req = req or self._build_run_request()
         if req is None:
             return None
 
@@ -2055,6 +2255,12 @@ class PipelineGUI:
         state = str(status.get("state", "running"))
         if state in {"completed", "failed"}:
             self._log(f"Remote background job finished with exit code {status.get('exit_code')}")
+            if status.get("error"):
+                self._log(f"Remote background job error: {status.get('error')}")
+            if state == "failed":
+                for key, run in self.image_runs.items():
+                    if run.get("status") == "Pending":
+                        self._update_image_run(key, status="Failed", stage_text="Remote job failed before this image started")
             self._log("Use Download Outputs to copy remote outputs to the local output folder.")
             self._update_registry_for_active_job(state, status.get("exit_code"))
             return True
@@ -2195,20 +2401,23 @@ class PipelineGUI:
             try:
                 def set_testing():
                     self.state.remote_status.set("Testing SSH connection...")
+                    self._set_remote_status_icon("running")
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="")
                 self.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
                 runner.test_ssh()
                 def set_success():
-                    self.state.remote_status.set("✅ SSH Connection Successful")
+                    self.state.remote_status.set("SSH Connection Successful")
+                    self._set_remote_status_icon("success")
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#16a34a") # green
                 self.root.after(0, set_success)
             except Exception as exc:
-                err_msg = f"❌ SSH Connection Failed: {exc}"
+                err_msg = f"SSH Connection Failed: {exc}"
                 def set_failed(m=err_msg):
                     self.state.remote_status.set(m)
+                    self._set_remote_status_icon("failed")
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#dc2626") # red
                 self.root.after(0, set_failed)
@@ -2659,6 +2868,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
+        configure_windows_dpi_awareness()
         root = tk.Tk()
         setup_styles(root)
     except tk.TclError as exc:
