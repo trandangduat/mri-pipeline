@@ -135,6 +135,53 @@ class PipelineGUI:
         self._poll_queues()
         self.root.after(700, self._maybe_prompt_existing_jobs)
 
+        self._spinner_frames = []
+        self._spinner_idx = 0
+        self._init_spinner_frames()
+        if self._spinner_frames:
+            self.root.after(100, self._animate_spinner)
+
+    def _init_spinner_frames(self):
+        try:
+            from PIL import Image, ImageTk
+            import os
+            icon_path = os.path.join(os.path.dirname(__file__), "icons", "running.png")
+            if os.path.exists(icon_path):
+                img = Image.open(icon_path).convert("RGBA")
+                for i in range(12):
+                    angle = -i * 30
+                    rot = img.rotate(angle, resample=Image.BICUBIC)
+                    self._spinner_frames.append(ImageTk.PhotoImage(rot))
+        except Exception:
+            pass
+
+    def _animate_spinner(self):
+        if not self._spinner_frames:
+            return
+        self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
+        frame = self._spinner_frames[self._spinner_idx]
+        
+        if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
+            for tool_key, label in self.tools_status_icon_labels.items():
+                status = self._tool_status(tool_key)
+                if status in {"Downloading", "Checking"}:
+                    try:
+                        label.configure(image=frame)
+                    except Exception:
+                        pass
+                        
+        if hasattr(self, "image_rows"):
+            for key, row in self.image_rows.items():
+                if row.get("status"):
+                    try:
+                        status_text = row["status"].cget("text")
+                        if status_text == "Running" and row.get("icon"):
+                            row["icon"].configure(image=frame)
+                    except Exception:
+                        pass
+                        
+        self.root.after(100, self._animate_spinner)
+
     def _build_ui(self) -> None:
         root_frame = ttk.Frame(self.root)
         root_frame.pack(fill=tk.BOTH, expand=True)
