@@ -64,15 +64,15 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     mode_row = ttk.Frame(frame)
     mode_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
+    ttk.Button(mode_row, text="Save config", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
+    ttk.Button(mode_row, text="Load config", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
     ttk.Label(mode_row, text="Mode").pack(side=tk.LEFT)
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
         values=("FreeSurfer Fixed", "Custom Tools"),
         state="readonly",
-        width=28,
-    ).pack(side=tk.LEFT, padx=(8, 12))
-    ttk.Button(mode_row, text="Save Run Config", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
-    ttk.Button(mode_row, text="Load Run Config", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
+        width=24,
+    ).pack(side=tk.LEFT, padx=(8, 12), fill=tk.X, expand=True)
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
     gui.tool_status_labels = getattr(gui, "tool_status_labels", {})

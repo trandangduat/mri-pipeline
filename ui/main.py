@@ -1101,7 +1101,8 @@ class PipelineGUI:
         if table is None:
             return
         target = self.state.run_target.get()
-        for row, (tool_key, tool) in enumerate(TOOL_DEFS.items(), start=2):
+        for idx, (tool_key, tool) in enumerate(TOOL_DEFS.items(), start=0):
+            row = 2 + idx * 2
             stage = str(tool.get("stage", ""))
             image = str(tool.get("image", ""))
             status = self._tool_status(tool_key, target)
@@ -1143,6 +1144,10 @@ class PipelineGUI:
                 image_label.pack(fill=tk.BOTH, expand=True)
                 status_label = tk.Label(cells[4], text="", anchor=tk.CENTER, bg="#fafafa", fg="#111827")
                 status_label.pack(anchor=tk.W)
+                
+                sep = ttk.Separator(table, orient=tk.HORIZONTAL)
+                sep.grid(row=row+1, column=0, columnspan=5, sticky=tk.EW, pady=(2, 2))
+                
                 widgets = {
                     "cells": cells,
                     "check": check,
@@ -1150,6 +1155,7 @@ class PipelineGUI:
                     "tool": tool_label,
                     "image": image_label,
                     "status": status_label,
+                    "sep": sep,
                 }
                 self.tools_row_widgets[tool_key] = widgets
 

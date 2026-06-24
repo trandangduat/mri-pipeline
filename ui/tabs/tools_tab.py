@@ -54,11 +54,6 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     ttk.Label(py_row, textvariable=gui.python_env_status, width=40, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 16))
     ttk.Button(py_row, text="Check Python", command=gui._check_python_environment).pack(side=tk.LEFT, padx=3)
     ttk.Button(py_row, text="Install Python Packages", command=gui._install_python_requirements).pack(side=tk.LEFT, padx=3)
-    ttk.Label(
-        py_card,
-        text="Note: this installs packages from requirements.txt. Python itself must already be installed on the selected machine.",
-        foreground="#64748b",
-    ).pack(anchor=tk.W, pady=(6, 0))
 
     top = create_card(root, "IMG", "Docker Images", "Check and download local/server tool images", {"fill": tk.BOTH, "expand": True, "pady": (0, 8)})
 
@@ -96,7 +91,6 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     log_header.pack(fill=tk.X)
     gui.tools_log_toggle_text = tk.StringVar(value="Show Image Log")
     ttk.Button(log_header, textvariable=gui.tools_log_toggle_text, command=gui._toggle_tools_log).pack(side=tk.LEFT)
-    ttk.Label(log_header, text="Short install/check events", foreground="#64748b").pack(side=tk.LEFT, padx=(10, 0))
     gui.tools_log_body = ttk.Frame(log_card)
     gui.tools_log_text = tk.Text(gui.tools_log_body, wrap=tk.WORD, height=8, state=tk.DISABLED, font=("JetBrains Mono", 10))
     log_scroll = ttk.Scrollbar(gui.tools_log_body, orient=tk.VERTICAL, command=gui.tools_log_text.yview)
