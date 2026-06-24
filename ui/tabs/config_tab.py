@@ -72,7 +72,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         values=("FreeSurfer Fixed", "Custom Tools"),
         state="readonly",
         width=24,
-    ).pack(side=tk.LEFT, padx=(8, 12), fill=tk.X, expand=True)
+    ).pack(side=tk.LEFT, padx=(8, 12))
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
     gui.tool_status_labels = getattr(gui, "tool_status_labels", {})
