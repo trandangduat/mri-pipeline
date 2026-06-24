@@ -35,7 +35,7 @@ Subject ID defaults to filename stem. For generic ADNI names (`001.mgz`, `002.mg
 
 ## GUI 
 - **Theme & Typography**: Uses `sv-ttk` (SunValley theme) with the `Inter` font globally enforced for a modern look.
-- **Icons**: Uses 20x20 PNG icons sourced from Lucide (stored in `ui/icons/`). Loaded dynamically via `tk.PhotoImage` in the toolbar.
+- **Icons**: Uses 20x20 PNG icons sourced from Icons8 ("iOS Filled" style) (stored in `ui/icons/`). Loaded dynamically via `tk.PhotoImage` in the toolbar.
 
 ## Architecture Notes
 - **Docker Execution**: `TOOL_DEFS` in `pipeline/config.py` uses `command_builder` instead of Python wrappers inside Docker. Docker commands are constructed on the host via `ToolContext` and run via `bash -c`. No need to rebuild images just to change arguments.
