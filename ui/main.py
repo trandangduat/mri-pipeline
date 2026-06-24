@@ -988,10 +988,6 @@ class PipelineGUI:
         return "[x]" if tool_key in self.tools_checked_tools else "[ ]"
 
     def _tool_status_icon_image(self, status: str) -> tk.PhotoImage | None:
-        if status == "Installed":
-            return self._generated_tool_icon("installed")
-        if status in {"Downloading", "Checking"}:
-            return self._generated_tool_icon("loading")
         icon_name = {
             "Installed": "success",
             "Missing": "failed",
@@ -1010,46 +1006,6 @@ class PipelineGUI:
             return None
         try:
             img = tk.PhotoImage(file=str(icon_path))
-            self.toolbar_icons[key] = img
-            return img
-        except Exception:
-            return None
-
-    def _generated_tool_icon(self, name: str) -> tk.PhotoImage | None:
-        key = f"tool_generated_{name}"
-        if key in self.toolbar_icons:
-            return self.toolbar_icons[key]
-        try:
-            size = 18
-            img = tk.PhotoImage(width=size, height=size)
-            cx = cy = (size - 1) / 2
-            if name == "installed":
-                fill = "#15803d"
-                edge = "#166534"
-                for y in range(size):
-                    for x in range(size):
-                        d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
-                        if d <= 7.8:
-                            img.put(edge if d > 6.7 else fill, (x, y))
-                for x, y in ((5, 9), (6, 10), (7, 11), (8, 10), (9, 9), (10, 8), (11, 7), (12, 6), (13, 5)):
-                    for dx in (0, 1):
-                        for dy in (0, 1):
-                            px, py = x + dx, y + dy
-                            if 0 <= px < size and 0 <= py < size:
-                                img.put("#ffffff", (px, py))
-            elif name == "loading":
-                colors = ["#1d4ed8", "#2563eb", "#60a5fa", "#93c5fd"]
-                points = (
-                    (9, 2, 10, 2), (13, 4, 14, 5), (15, 9, 15, 10), (13, 13, 14, 14),
-                    (9, 15, 10, 15), (4, 13, 5, 14), (2, 9, 2, 10), (4, 4, 5, 5),
-                )
-                for idx, (x1, y1, x2, y2) in enumerate(points):
-                    color = colors[min(idx // 2, len(colors) - 1)]
-                    for y in range(y1, y2 + 1):
-                        for x in range(x1, x2 + 1):
-                            img.put(color, (x, y))
-            else:
-                return None
             self.toolbar_icons[key] = img
             return img
         except Exception:
