@@ -10,10 +10,15 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     window_id = canvas.create_window((0, 0), window=scroll_frame, anchor=tk.NW)
 
     def _sync_scroll_region(_event=None):
-        canvas.configure(scrollregion=canvas.bbox("all"))
+        if getattr(canvas, "_scroll_timer", None):
+            canvas.after_cancel(canvas._scroll_timer)
+        canvas._scroll_timer = canvas.after(50, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
 
     def _sync_window_width(event):
-        canvas.itemconfigure(window_id, width=event.width)
+        if getattr(canvas, "_width_timer", None):
+            canvas.after_cancel(canvas._width_timer)
+        w = event.width
+        canvas._width_timer = canvas.after(20, lambda: canvas.itemconfigure(window_id, width=w))
 
     def _on_mousewheel(event):
         if event.num == 4:
