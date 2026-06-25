@@ -630,7 +630,7 @@ def run_pipeline(
                 device=config.device
             )
             actual_cmd = tool["command_builder"](ctx)
-            command = ["bash", "-c", actual_cmd]
+            command = [tool.get("shell", "bash"), "-c", actual_cmd]
             args = []
 
         t0 = time.time()
@@ -647,6 +647,7 @@ def run_pipeline(
             gpus=(config.device == "gpu" or config.device == "cuda"),
             container_name=container_name,
             command=command,
+            entrypoint=tool.get("entrypoint"),
             on_metrics=_metrics_relay if on_metrics else None,
         )
         duration = time.time() - t0

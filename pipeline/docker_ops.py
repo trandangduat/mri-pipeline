@@ -145,6 +145,7 @@ def _run_docker(
     container_name: str | None = None,
     on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
     command: list[str] | None = None,
+    entrypoint: str | None = None,
 ) -> tuple[int, str, int | None, float | None]:
     cmd = ["docker", "run", "--rm"]
     if container_name:
@@ -157,6 +158,8 @@ def _run_docker(
     if env:
         for k, v in env.items():
             cmd += ["-e", f"{k}={v}"]
+    if entrypoint is not None:
+        cmd += ["--entrypoint", entrypoint]
     cmd.append(image)
     if command:
         cmd.extend(command)

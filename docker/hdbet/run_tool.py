@@ -50,6 +50,8 @@ def main():
             "-device", hdbet_device,
             "--save_bet_mask"
         ]
+        if hdbet_device == "cpu":
+            cmd.append("--disable_tta")
 
         log_file.write(f"Chạy lệnh hệ thống: {' '.join(cmd)}\n\n")
         log_file.flush()

@@ -22,10 +22,14 @@ from remote.ssh_client import SSHConfig
 
 class JobsMixin:
     def _attach_job_dialog(self) -> None:
-        if self.running:
-            messagebox.showinfo("Job running", "A job is already being monitored.")
-            return
         jobs = self._known_jobs()
+        if self.state.run_target.get() == "Server" and self.state.remote_host.get().strip() and self.state.remote_username.get().strip():
+            live_jobs = self._running_remote_jobs()
+            if live_jobs is None:
+                return
+            jobs = self._merge_job_lists(jobs, live_jobs)
+        elif self.state.run_target.get() == "Local":
+            jobs = self._merge_job_lists(jobs, self._running_local_jobs())
         if not jobs:
             self._attach_manual_job_dialog()
             return
@@ -86,6 +90,31 @@ class JobsMixin:
         ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
         tree.bind("<Double-1>", lambda _event: attach_selected())
 
+    def _job_identity(self, job: dict) -> str:
+        return str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or id(job))
+
+    def _merge_job_lists(self, *job_lists: list[dict]) -> list[dict]:
+        merged: dict[str, dict] = {}
+        for jobs in job_lists:
+            for job in jobs:
+                key = self._job_identity(job)
+                if key in merged:
+                    merged[key].update(job)
+                else:
+                    merged[key] = dict(job)
+        return list(merged.values())
+
+    def _stop_current_job_monitor(self) -> None:
+        if self.job_poll_after_id:
+            try:
+                self.root.after_cancel(self.job_poll_after_id)
+            except Exception:
+                pass
+        self.job_poll_after_id = None
+        self.remote_poll_in_flight = False
+        self.active_job = None
+        self.job_log_offset = 0
+
     def _attach_manual_job_dialog(self) -> None:
         if self.state.run_target.get() == "Server":
             remote_dir = simpledialog.askstring("Attach remote job", "Remote job directory:", parent=self.root)
@@ -97,6 +126,7 @@ class JobsMixin:
             self._attach_registry_job({"target": "Local", "job_dir": job_dir, "state": "unknown"})
 
     def _attach_registry_job(self, job: dict) -> None:
+        self._stop_current_job_monitor()
         target = job.get("target")
         selected_tools = dict((job.get("run_request") or {}).get("selected_tools") or {})
         config: dict = {}
@@ -561,11 +591,13 @@ class JobsMixin:
                 status = runner.remote_status()
             except Exception as exc:
                 error = exc
-            self.root.after(0, lambda: self._finish_remote_poll(data, new_offset, status, error))
+            self.root.after(0, lambda r=runner: self._finish_remote_poll(r, data, new_offset, status, error))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_remote_poll(self, data: str, new_offset: int, status: dict, error: Exception | None) -> None:
+    def _finish_remote_poll(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None) -> None:
+        if runner is not self.remote_runner:
+            return
         self.remote_poll_in_flight = False
         if not self.active_job or self.active_job.get("target") != "Server":
             self.job_poll_after_id = None

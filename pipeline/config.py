@@ -168,7 +168,16 @@ TOOL_DEFS: dict[str, dict] = {
         "dockerfile": "docker/hdbet",
         "stage": "brain_extraction",
         "needs_license": False,
-        "output_files": ["02_hdbet_brain.nii.gz", "02_hdbet_brain_bet.nii.gz"],
+        "entrypoint": "",
+        "shell": "sh",
+        "command_builder": lambda ctx: (
+            f"hd-bet -i {ctx.input_path} "
+            f"-o /work/02_hdbet_brain.nii.gz "
+            f"-device {'cpu' if ctx.device == 'cpu' else '0'} "
+            f"--save_bet_mask "
+            f"{'--disable_tta' if ctx.device == 'cpu' else ''}"
+        ),
+        "output_files": ["02_hdbet_brain.nii.gz", "02_hdbet_brain_mask.nii.gz"],
         "extra_mounts": {"hdbet_weights": "/root/.cache/torch/hub/checkpoints"},
     },
     "synthseg_freesurfer_fs8": {
@@ -255,6 +264,14 @@ TOOL_DEFS: dict[str, dict] = {
         "command_builder": lambda ctx: f"mri_binarize --i {ctx.input_path} --wm --o /work/06_wm_mask.nii.gz",
         "output_files": ["06_wm_mask.nii.gz"],
     },
+    "mri_binarize_fs8": {
+        "display_name": "MRI Binarize FS8",
+        "image": "mkdayyyy/mri-fs8-all:latest",
+        "stage": "white_matter_segmentation",
+        "needs_license": True,
+        "command_builder": lambda ctx: f"mri_binarize --i {ctx.input_path} --wm --o /work/06_wm_mask.nii.gz",
+        "output_files": ["06_wm_mask.nii.gz"],
+    },
     "freesurfer_stats_fs8": {
         "display_name": "FreeSurfer Stats FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
@@ -282,12 +299,12 @@ TOOL_DISPLAY_ALIASES = {
     "FreeSurfer SynthSeg Fs7": "synthseg_freesurfer_fs7",
     "Mri Binarize": "mri_binarize",
     "MRI Binarize": "mri_binarize",
+    "Mri Binarize FS8": "mri_binarize_fs8",
+    "MRI Binarize FS8": "mri_binarize_fs8",
 }
 
 
-DISABLED_DOCKER_IMAGES = {
-    "mkdayyyy/mri-fs8-all:latest",
-}
+DISABLED_DOCKER_IMAGES: set[str] = set()
 
 
 STAGE_ORDER = [

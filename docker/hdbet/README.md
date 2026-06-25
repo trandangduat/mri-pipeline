@@ -36,7 +36,7 @@ outputs_test/member3/<subject>/
 │   └── hdbet.log
 work/member3/<subject>/
 ├── 02_hdbet_brain.nii.gz
-└── 02_hdbet_brain_bet.nii.gz
+└── 02_hdbet_brain_mask.nii.gz
 ```
 
 ## GPU
@@ -62,5 +62,7 @@ docker run --rm --gpus all \
 - `2`: Loi khi chay HD-BET
 
 ## Thoi gian
-- CPU: ~15 phut
-- GPU: ~1-2 phut
+- CPU: khoang 2 phut voi `--disable_tta`, tuy kich thuoc anh va CPU
+- GPU: vai giay den 1-2 phut, tuy GPU va kich thuoc anh
+
+Tham khao upstream HD-BET: https://github.com/MIC-DKFZ/HD-BET

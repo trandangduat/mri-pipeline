@@ -123,6 +123,43 @@ class RemoteRunner:
     def _remote_venv_python(self, ssh: RemoteSSHClient) -> str:
         return posixpath.join(self._remote_venv_dir(ssh), "bin", "python")
 
+    def _remote_venv_has_pip(self, ssh: RemoteSSHClient, venv_python: str) -> bool:
+        return ssh.run(f"{shlex.quote(venv_python)} -m pip --version >/dev/null 2>&1", stream=False, check=False) == 0
+
+    def _bootstrap_remote_venv_pip(self, ssh: RemoteSSHClient, venv_dir: str, venv_python: str) -> bool:
+        if self._remote_venv_has_pip(ssh, venv_python):
+            return True
+
+        self.on_log("Installing pip in remote venv with ensurepip...")
+        code = ssh.run(f"{shlex.quote(venv_python)} -m ensurepip --upgrade", stream=True, check=False)
+        if code == 0 and self._remote_venv_has_pip(ssh, venv_python):
+            return True
+
+        self.on_log("Recreating remote venv because pip is unavailable...")
+        ssh.run(f"rm -rf {shlex.quote(venv_dir)}", stream=True, check=False)
+        code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
+        if code != 0:
+            return False
+        if self._remote_venv_has_pip(ssh, venv_python):
+            return True
+
+        self.on_log("Bootstrapping pip in remote venv with get-pip.py...")
+        download_get_pip = "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', '/tmp/get-pip.py')"
+        code = ssh.run(
+            f"{shlex.quote(venv_python)} -c {shlex.quote(download_get_pip)} && "
+            f"{shlex.quote(venv_python)} /tmp/get-pip.py",
+            stream=True,
+            check=False,
+        )
+        return code == 0 and self._remote_venv_has_pip(ssh, venv_python)
+
+    def _remote_venv_fix_hint(self, venv_dir: str) -> str:
+        return (
+            "Remote venv exists but pip is unavailable and automatic repair failed. "
+            "Run on the server: `sudo apt-get update && sudo apt-get install -y python3-venv python3-pip`, "
+            f"then `rm -rf {venv_dir}` and retry."
+        )
+
     def ensure_remote_venv(self, ssh: RemoteSSHClient) -> str:
         workspace = ssh.expand_path(self.config.remote_workspace)
         ssh.mkdir_p(workspace)
@@ -133,11 +170,8 @@ class RemoteRunner:
             code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
             if code != 0:
                 raise RuntimeError("Could not create remote venv. Install python3-venv on the server or set a valid base Python.")
-        if ssh.run(f"{shlex.quote(venv_python)} -m pip --version >/dev/null 2>&1", stream=False, check=False) != 0:
-            self.on_log("Installing pip in remote venv with ensurepip...")
-            code = ssh.run(f"{shlex.quote(venv_python)} -m ensurepip --upgrade", stream=True, check=False)
-            if code != 0:
-                raise RuntimeError("Remote venv exists but pip is unavailable. Install python3-venv/ensurepip on the server.")
+        if not self._bootstrap_remote_venv_pip(ssh, venv_dir, venv_python):
+            raise RuntimeError(self._remote_venv_fix_hint(venv_dir))
         self.on_log(f"Using remote venv Python: {venv_python}")
         return venv_python
 

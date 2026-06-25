@@ -41,7 +41,19 @@ from ui.tabs.tools_tab import build_tools_tab
 
 
 class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
-    FREESURFER_FIXED_TOOLS = {
+    PIPELINE_MODES = ("FreeSurfer 7", "FreeSurfer 8", "Custom Tools")
+    PIPELINE_MODE_ALIASES = {
+        "FreeSurfer Fixed": "FreeSurfer 7",
+        "FreeSurfer Fixed (7 steps)": "FreeSurfer 7",
+    }
+    OPTIONAL_STAGES = {
+        "template_registration",
+        "white_matter_segmentation",
+        "surface_reconstruction",
+        "surface_registration",
+        "stats_extraction",
+    }
+    FREESURFER_7_TOOLS = {
         "reorientation": "mri_convert_fs7",
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
@@ -52,6 +64,25 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "surface_registration": "",
         "stats_extraction": "",
     }
+    FREESURFER_8_TOOLS = {
+        "reorientation": "mri_convert_fs8",
+        "brain_extraction": "synthstrip_fs8",
+        "segmentation": "synthseg_freesurfer_fs8",
+        "template_registration": "synthmorph_fs8",
+        "bias_correction": "ants_n4",
+        "white_matter_segmentation": "",
+        "surface_reconstruction": "",
+        "surface_registration": "",
+        "stats_extraction": "",
+    }
+    MODE_TOOLSETS = {
+        "FreeSurfer 7": FREESURFER_7_TOOLS,
+        "FreeSurfer 8": FREESURFER_8_TOOLS,
+    }
+
+    def _normalize_pipeline_mode(self, mode: str) -> str:
+        normalized = self.PIPELINE_MODE_ALIASES.get(mode, mode)
+        return normalized if normalized in self.PIPELINE_MODES else "Custom Tools"
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -372,16 +403,21 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.remote_key_path.set(path)
 
     def _apply_pipeline_mode(self) -> None:
-        fixed = self.state.pipeline_mode.get() == "FreeSurfer Fixed"
-        if fixed:
-            for stage, tool in self.FREESURFER_FIXED_TOOLS.items():
+        mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+        if mode != self.state.pipeline_mode.get():
+            self.state.pipeline_mode.set(mode)
+            return
+        fixed_tools = self.MODE_TOOLSETS.get(mode)
+        if fixed_tools is not None:
+            for stage, tool in fixed_tools.items():
                 if stage in self.state.tool_vars:
                     self.state.tool_vars[stage].set(tool_display_name(tool) if tool else "")
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
-            self.state.pipeline_note.set(
-                "Fixed FreeSurfer stack with FS8 tools temporarily disabled to save disk. Template registration and stats extraction are skipped."
-            )
+            if mode == "FreeSurfer 8":
+                self.state.pipeline_note.set("Fixed FreeSurfer 8 stack: FS8 convert, SynthStrip, SynthSeg, and SynthMorph; optional downstream stages are skipped.")
+            else:
+                self.state.pipeline_note.set("Fixed FreeSurfer 7 stack: FS7 convert, SynthStrip, and SynthSeg; optional downstream stages are skipped.")
         else:
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
@@ -389,7 +425,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._update_config_tool_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
-        if self.state.pipeline_mode.get() == "FreeSurfer Fixed":
+        if self._normalize_pipeline_mode(self.state.pipeline_mode.get()) != "Custom Tools":
             self._apply_pipeline_mode()
         return self.state.get_selected_tools()
 
@@ -420,12 +456,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _apply_config(self, config: dict) -> None:
         self.state.input_mode.set(config.get("input_mode", "file"))
         self.state.run_target.set(config.get("run_target", "Local"))
-        loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
-        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
-            loaded_pipeline_mode = "FreeSurfer Fixed"
-        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
-            loaded_pipeline_mode = "Custom Tools"
-        self.state.pipeline_mode.set(loaded_pipeline_mode)
+        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
         self.state.input_path.set(config.get("input_path", ""))
         self.state.selected_files = list(config.get("selected_files", []))
         self.state.output_dir.set(config.get("output_dir", str(PROJECT_ROOT / "outputs")))
@@ -509,19 +540,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             "pipeline_mode": self.state.pipeline_mode.get(),
             "tools": self.state.get_selected_tools(),
             "stats_vectors": self.state.get_stats_vector_config(),
-            "license_dir": self.state.license_dir.get(),
-            "device": self.state.device.get(),
-            "threads": int(self.state.threads.get()),
-            "non_recursive": self.state.non_recursive.get(),
         }
 
     def _apply_run_config(self, config: dict) -> None:
-        loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
-        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
-            loaded_pipeline_mode = "FreeSurfer Fixed"
-        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
-            loaded_pipeline_mode = "Custom Tools"
-        self.state.pipeline_mode.set(loaded_pipeline_mode)
+        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
 
         tools = config.get("tools", {})
         for stage, value in tools.items():
@@ -532,14 +554,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
 
         self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
-        if "license_dir" in config:
-            self.state.license_dir.set(config.get("license_dir", ""))
-        if "device" in config:
-            self.state.device.set(config.get("device", "cpu"))
-        if "threads" in config:
-            self.state.threads.set(int(config.get("threads", 4)))
-        if "non_recursive" in config:
-            self.state.non_recursive.set(bool(config.get("non_recursive", False)))
         self._apply_pipeline_mode()
         self._update_config_tool_status_labels()
         self._validate_configuration()
@@ -677,7 +691,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             errors.append("Threads must be a valid integer.")
 
         selected_tools = self.state.get_selected_tools()
-        missing_stages = [stage for stage in STAGE_ORDER if enabled_tools_for_stage(stage) and not selected_tools.get(stage)]
+        missing_stages = [
+            stage for stage in STAGE_ORDER
+            if stage not in self.OPTIONAL_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
+        ]
         if missing_stages:
             errors.append("Select one tool for every pipeline stage.")
         disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]

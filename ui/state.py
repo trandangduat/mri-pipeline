@@ -3,6 +3,18 @@ from tkinter import ttk
 from pathlib import Path
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
 
+
+PIPELINE_MODES = ("FreeSurfer 7", "FreeSurfer 8", "Custom Tools")
+PIPELINE_MODE_ALIASES = {
+    "FreeSurfer Fixed": "FreeSurfer 7",
+    "FreeSurfer Fixed (7 steps)": "FreeSurfer 7",
+}
+
+
+def normalize_pipeline_mode(mode: str) -> str:
+    normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
+    return normalized if normalized in PIPELINE_MODES else "Custom Tools"
+
 class AppState:
     def __init__(self):
         # Input & Output
@@ -203,12 +215,7 @@ class AppState:
     def apply_config(self, config: dict) -> None:
         self.input_mode.set(config.get("input_mode", "file"))
         self.run_target.set(config.get("run_target", "Local"))
-        loaded_pipeline_mode = config.get("pipeline_mode", "Custom Tools")
-        if loaded_pipeline_mode == "FreeSurfer Fixed (7 steps)":
-            loaded_pipeline_mode = "FreeSurfer Fixed"
-        if loaded_pipeline_mode not in ("FreeSurfer Fixed", "Custom Tools"):
-            loaded_pipeline_mode = "Custom Tools"
-        self.pipeline_mode.set(loaded_pipeline_mode)
+        self.pipeline_mode.set(normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
         self.input_path.set(config.get("input_path", ""))
         self.selected_files = list(config.get("selected_files", []))
         self.output_dir.set(config.get("output_dir", str(PROJECT_ROOT / "outputs")))
