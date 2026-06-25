@@ -113,7 +113,7 @@ class StatsVectorConfig:
 
 TOOL_DEFS: dict[str, dict] = {
     "mri_convert_fs8": {
-        "display_name": "Mri Convert FS8",
+        "display_name": "MRI Convert FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -121,7 +121,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_reoriented.nii.gz"],
     },
     "mri_convert_fs7": {
-        "display_name": "Mri Convert FS7",
+        "display_name": "MRI Convert FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -172,7 +172,7 @@ TOOL_DEFS: dict[str, dict] = {
         "extra_mounts": {"hdbet_weights": "/root/.cache/torch/hub/checkpoints"},
     },
     "synthseg_freesurfer_fs8": {
-        "display_name": "FreeSurfer SynthSeg FS8",
+        "display_name": "SynthSeg FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -186,7 +186,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_freesurfer_fs7": {
-        "display_name": "FreeSurfer SynthSeg FS7",
+        "display_name": "SynthSeg FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -248,7 +248,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "mri_binarize": {
-        "display_name": "Mri Binarize",
+        "display_name": "MRI Binarize FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "white_matter_segmentation",
         "needs_license": True,
@@ -268,6 +268,20 @@ TOOL_DEFS: dict[str, dict] = {
             "rh_aparc.DKTatlas_volume.tsv",
         ],
     },
+}
+
+
+TOOL_DISPLAY_ALIASES = {
+    "Mri Convert FS8": "mri_convert_fs8",
+    "Mri Convert FS7": "mri_convert_fs7",
+    "Mri Convert Fs8": "mri_convert_fs8",
+    "Mri Convert Fs7": "mri_convert_fs7",
+    "FreeSurfer SynthSeg FS8": "synthseg_freesurfer_fs8",
+    "FreeSurfer SynthSeg FS7": "synthseg_freesurfer_fs7",
+    "FreeSurfer SynthSeg Fs8": "synthseg_freesurfer_fs8",
+    "FreeSurfer SynthSeg Fs7": "synthseg_freesurfer_fs7",
+    "Mri Binarize": "mri_binarize",
+    "MRI Binarize": "mri_binarize",
 }
 
 
@@ -312,6 +326,8 @@ def tool_display_name(tool_key: str) -> str:
 def tool_key_from_display(value: str) -> str:
     if value in TOOL_DEFS:
         return value
+    if value in TOOL_DISPLAY_ALIASES:
+        return TOOL_DISPLAY_ALIASES[value]
     for tool_key in TOOL_DEFS:
         if tool_display_name(tool_key) == value:
             return tool_key

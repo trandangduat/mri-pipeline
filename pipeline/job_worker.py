@@ -98,6 +98,23 @@ def _run_job(job_dir: Path, req: dict) -> int:
     def image_done_cb(result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
         _log(job_dir, f"Done image {idx}/{total}: {result.subject_id} | {status}")
+        for step in result.steps:
+            _emit_event(
+                job_dir,
+                "step_result",
+                input_file=result.input_file,
+                subject_id=result.subject_id,
+                idx=idx,
+                total=total,
+                stage=step.stage,
+                tool=step.tool,
+                success=step.success,
+                duration_sec=step.duration_sec,
+                build_duration_sec=step.build_duration_sec,
+                peak_ram_bytes=step.peak_ram_bytes,
+                peak_cpu_pct=step.peak_cpu_pct,
+                error=step.error,
+            )
         _emit_event(
             job_dir,
             "image_done",

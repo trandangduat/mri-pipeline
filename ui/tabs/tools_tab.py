@@ -50,7 +50,12 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     ttk.Label(py_card, text="Target").grid(row=0, column=0, sticky=tk.W, pady=(0, 6))
     ttk.Label(py_card, textvariable=gui.state.run_target, anchor=tk.W).grid(row=0, column=1, sticky=tk.W, padx=(10, 16), pady=(0, 6))
     ttk.Label(py_card, text="Status").grid(row=1, column=0, sticky=tk.W, pady=(0, 6))
-    ttk.Label(py_card, textvariable=gui.python_env_status, anchor=tk.W).grid(row=1, column=1, sticky=tk.EW, padx=(10, 16), pady=(0, 6))
+    status_frame = ttk.Frame(py_card)
+    status_frame.grid(row=1, column=1, sticky=tk.EW, padx=(10, 16), pady=(0, 6))
+    gui.python_env_status_icon_label = ttk.Label(status_frame)
+    gui.python_env_status_icon_label.pack(side=tk.LEFT, padx=(0, 6))
+    gui.python_env_status_label = ttk.Label(status_frame, textvariable=gui.python_env_status, anchor=tk.W)
+    gui.python_env_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
     ttk.Label(py_card, text="Environment").grid(row=2, column=0, sticky=tk.W, pady=(0, 8))
     ttk.Label(py_card, textvariable=gui.python_env_hint, anchor=tk.W, wraplength=720).grid(row=2, column=1, sticky=tk.EW, padx=(10, 16), pady=(0, 8))
     py_buttons = ttk.Frame(py_card)
@@ -102,3 +107,4 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     gui._refresh_tools_tree()
+    gui._set_python_env_status(gui.python_env_status.get())

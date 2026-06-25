@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import json
 import posixpath
 import shlex
@@ -48,6 +49,32 @@ class RemoteRunner:
 
     def remote_venv_display_path(self) -> str:
         return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
+
+    def _remote_code_dir(self, ssh: RemoteSSHClient | None = None) -> str:
+        if ssh is not None:
+            workspace = ssh.expand_path(self.config.remote_workspace)
+        elif self.remote_job_dir:
+            workspace = posixpath.dirname(self.remote_job_dir.rstrip("/"))
+        else:
+            workspace = (self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/")
+        return posixpath.join(workspace, "code")
+
+    def _local_code_signature(self) -> str:
+        hasher = hashlib.sha256()
+        roots: list[Path] = [PROJECT_ROOT / "pipeline_runner.py", PROJECT_ROOT / "requirements.txt", PROJECT_ROOT / "normalize_volumes.py"]
+        for folder, extensions in ((PROJECT_ROOT / "pipeline", {".py"}), (PROJECT_ROOT / "info", {".txt"})):
+            if folder.exists():
+                for root, dirs, files in os.walk(folder):
+                    dirs[:] = [d for d in dirs if d != "__pycache__"]
+                    for name in sorted(files):
+                        path = Path(root) / name
+                        if path.suffix in extensions:
+                            roots.append(path)
+        for path in sorted((p for p in roots if p.exists()), key=lambda p: p.relative_to(PROJECT_ROOT).as_posix()):
+            rel = path.relative_to(PROJECT_ROOT).as_posix()
+            hasher.update(rel.encode("utf-8"))
+            hasher.update(path.read_bytes())
+        return hasher.hexdigest()
 
     def test_ssh(self) -> None:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
@@ -122,7 +149,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = posixpath.join(self.remote_job_dir, "code")
+            remote_code = self._remote_code_dir(ssh)
+            self._ensure_shared_code(ssh)
             details = self._check_python_details(ssh)
             if not details["base_python_ok"]:
                 self.on_log("Failed: Base Python is not installed or remote_python is invalid. Install Python on the server first.")
@@ -166,7 +194,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = posixpath.join(self.remote_job_dir, "code")
+            remote_code = self._remote_code_dir(ssh)
+            self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
             script = (
                 "import sys\n"
@@ -193,7 +222,8 @@ class RemoteRunner:
             workspace = ssh.expand_path(self.config.remote_workspace)
             self.remote_job_dir = posixpath.join(workspace, self.job_id)
             self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
-            for sub in ("code", "input", "license", "outputs"):
+            ssh.mkdir_p(workspace)
+            for sub in ("input", "license", "outputs"):
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
@@ -201,8 +231,7 @@ class RemoteRunner:
             self._upload_export_config(ssh)
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
-            self.on_log("Uploading pipeline code...")
-            self._upload_code(ssh)
+            self._ensure_shared_code(ssh)
             self.on_log("Uploading MRI input files...")
             self._upload_inputs(ssh)
             self.on_log("Uploading license files...")
@@ -235,6 +264,7 @@ class RemoteRunner:
             "job_id": self.job_id,
             "remote_job_dir": self.remote_job_dir,
             "remote_output_dir": self.remote_output_dir,
+            "remote_code_dir": self._remote_code_dir(ssh),
             "created_at": time.time(),
             "input_mode": self.config.input_mode,
             "output_dir": self.config.output_dir,
@@ -353,6 +383,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = self._remote_code_dir(ssh)
+            self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
             ssh.run(f"rm -f {shlex.quote(posixpath.join(self.remote_job_dir, 'stop_requested'))}", stream=False, check=False)
             ssh.run(
@@ -360,7 +392,7 @@ class RemoteRunner:
                 stream=True,
                 check=False,
             )
-            command = self._remote_command(venv_python)
+            command = self._remote_command(venv_python, remote_code)
             return ssh.run(command, stream=True)
 
     def start_remote_detached(self) -> str:
@@ -369,6 +401,8 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             if self.config.input_file or self.config.input_files or self.config.input_dir:
                 self._write_job_config(ssh)
+            remote_code = self._remote_code_dir(ssh)
+            self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
             run_log = posixpath.join(self.remote_job_dir, "run.log")
             exit_code = posixpath.join(self.remote_job_dir, "exit_code.txt")
@@ -381,7 +415,6 @@ class RemoteRunner:
                 stream=False,
                 check=False,
             )
-            remote_code = posixpath.join(self.remote_job_dir, "code")
             config_path = posixpath.join(self.remote_job_dir, "job_config.json")
             launcher_log = posixpath.join(self.remote_job_dir, "launcher.log")
             command = (
@@ -485,7 +518,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = posixpath.join(self.remote_job_dir, "code")
+            remote_code = self._remote_code_dir(ssh)
+            self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
             cmd = [venv_python, "pipeline_runner.py", "--ensure-images-only", "--json-events"]
             cmd += self._tool_args()
@@ -533,8 +567,30 @@ class RemoteRunner:
                     images.append(image)
         return images
 
-    def _upload_code(self, ssh: RemoteSSHClient) -> None:
-        remote_code = posixpath.join(self.remote_job_dir, "code")
+    def _ensure_shared_code(self, ssh: RemoteSSHClient) -> str:
+        remote_code = self._remote_code_dir(ssh)
+        signature = self._local_code_signature()
+        manifest_path = posixpath.join(remote_code, "code_manifest.json")
+        manifest_probe = 'import json,sys; print(json.load(open(sys.argv[1])).get("signature", ""))'
+        ready_cmd = (
+            f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline_runner.py'))} && "
+            f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline', 'job_worker.py'))} && "
+            f"test -f {shlex.quote(manifest_path)} && "
+            f"{shlex.quote(self.config.remote_python)} -c {shlex.quote(manifest_probe)} {shlex.quote(manifest_path)}"
+        )
+        ready_code, ready_text = ssh.read_text(ready_cmd)
+        if ready_code == 0 and ready_text.strip().splitlines()[-1:] == [signature]:
+            self.on_log(f"Using shared remote pipeline code: {remote_code}")
+            return remote_code
+
+        self.on_log(f"Uploading shared pipeline code once: {remote_code}")
+        self._upload_code(ssh, remote_code)
+        with ssh.sftp.open(manifest_path, "w") as f:
+            f.write(json.dumps({"signature": signature, "updated_at": time.time()}, indent=2))
+        return remote_code
+
+    def _upload_code(self, ssh: RemoteSSHClient, remote_code: str) -> None:
+        ssh.mkdir_p(remote_code)
         ssh.upload_file(PROJECT_ROOT / "pipeline_runner.py", posixpath.join(remote_code, "pipeline_runner.py"))
         pipeline_pkg = PROJECT_ROOT / "pipeline"
         if pipeline_pkg.exists():
@@ -585,8 +641,8 @@ class RemoteRunner:
             self.on_log("Uploading license directory...")
             ssh.upload_dir(local_license, remote_license_dir, skip_dirs={"__pycache__"})
 
-    def _remote_command(self, python_cmd: str | None = None) -> str:
-        remote_code = posixpath.join(self.remote_job_dir, "code")
+    def _remote_command(self, python_cmd: str | None = None, remote_code: str | None = None) -> str:
+        remote_code = remote_code or self._remote_code_dir()
         remote_input = posixpath.join(self.remote_job_dir, "input")
         remote_output = posixpath.join(self.remote_job_dir, "outputs")
         remote_license = posixpath.join(self.remote_job_dir, "license")

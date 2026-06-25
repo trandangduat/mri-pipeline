@@ -51,6 +51,43 @@ def truncate_middle(text: str, max_len: int = 30) -> str:
     half = (max_len - 3) // 2
     return text[:half] + "..." + text[-half:]
 
+
+def format_duration(seconds: float | int | None) -> str:
+    if seconds is None:
+        return ""
+    seconds = float(seconds)
+    if seconds <= 0:
+        return "0s"
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    minutes, sec = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {sec}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def format_bytes(value: int | float | None) -> str:
+    if value is None:
+        return ""
+    value = float(value)
+    if value <= 0:
+        return "0 MB"
+    units = ("B", "KB", "MB", "GB", "TB")
+    idx = 0
+    while value >= 1024 and idx < len(units) - 1:
+        value /= 1024
+        idx += 1
+    if idx < 2:
+        return f"{value:.0f} {units[idx]}"
+    return f"{value:.1f} {units[idx]}"
+
+
+def format_percent(value: float | int | None) -> str:
+    if value is None:
+        return ""
+    return f"{float(value):.0f}%"
+
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from ui.state import AppState
 from ui.styles import configure_windows_dpi_awareness, setup_styles
@@ -127,9 +164,17 @@ class PipelineGUI:
         self.tools_download_button: ttk.Button | None = None
         self.tools_row_widgets: dict[str, dict] = {}
         self.python_env_status = tk.StringVar(value="Not checked")
-        self.python_env_hint = tk.StringVar(value=f"Local uses this GUI Python: {sys.executable}")
+        self.python_env_hint = tk.StringVar(value=sys.executable or "")
+        self.python_env_status_icon_label: ttk.Label | None = None
+        self.python_env_status_label: ttk.Label | None = None
         self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
         self.tool_status_labels: dict[str, ttk.Label] = {}
+        self.progress_log_body: ttk.Frame | None = None
+        self.progress_log_toggle_text: tk.StringVar | None = None
+        self.progress_log_visible = False
+        self.step_summary_rows: dict[str, dict[str, ttk.Label]] = {}
+        self.progress_selected_tools: dict[str, str] = {}
+        self.remote_poll_in_flight = False
 
         self._build_ui()
         self._update_python_env_hint()
@@ -150,7 +195,7 @@ class PipelineGUI:
             icon_path = os.path.join(os.path.dirname(__file__), "icons", "running.png")
             if os.path.exists(icon_path):
                 img = Image.open(icon_path).convert("RGBA")
-                img_small = img.resize((10, 10), resample=Image.BICUBIC)
+                img_small = img.resize((20, 20), resample=Image.BICUBIC)
                 self._spinner_frames_small = []
                 for i in range(12):
                     angle = -i * 30
@@ -186,7 +231,16 @@ class PipelineGUI:
                             row["icon"].configure(image=frame_small)
                     except Exception:
                         pass
-                        
+
+        run = getattr(self, "image_runs", {}).get(getattr(self, "current_image_key", ""))
+        if run and hasattr(self, "step_summary_rows"):
+            for stage, step in run.get("steps", {}).items():
+                if step.get("status") == "Running" and stage in self.step_summary_rows:
+                    try:
+                        self.step_summary_rows[stage]["icon"].configure(image=frame)
+                    except Exception:
+                        pass
+
         self.root.after(100, self._animate_spinner)
 
     def _build_ui(self) -> None:
@@ -194,8 +248,8 @@ class PipelineGUI:
         root_frame.pack(fill=tk.BOTH, expand=True)
 
         self._build_app_toolbar(root_frame)
-        self._build_tabs(root_frame)
         self._build_status_bar(root_frame)
+        self._build_tabs(root_frame)
 
     def _make_icon(self, name: str) -> tk.PhotoImage | None:
         if name in self.toolbar_icons:
@@ -215,6 +269,7 @@ class PipelineGUI:
         s = status.lower()
         if "pending" in s: name = "pending"
         elif "running" in s: name = "running"
+        elif "paused" in s: name = "pause"
         elif "fail" in s: name = "failed"
         elif "done" in s or "success" in s or "ok" in s: name = "success"
         else: return None
@@ -227,7 +282,7 @@ class PipelineGUI:
             import os
             icon_path = os.path.join(os.path.dirname(__file__), "icons", f"{name}.png")
             if os.path.exists(icon_path):
-                img = tk.PhotoImage(file=icon_path).subsample(2, 2)
+                img = tk.PhotoImage(file=icon_path)
                 self.toolbar_icons[icon_key] = img
                 return img
         except Exception:
@@ -260,9 +315,9 @@ class PipelineGUI:
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
-        self.resume_button = self._toolbar_button(toolbar, "run", "Run / Resume", lambda: self._start_pipeline(resume=True, restart=False))
-        self.resume_button.configure(style="Accent.TButton")
-        self.run_button = self.resume_button
+        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False))
+        self.run_button.configure(style="Accent.TButton")
+        self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
         self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
         self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
@@ -314,9 +369,9 @@ class PipelineGUI:
 
     def _update_python_env_hint(self) -> None:
         if self.state.run_target.get() == "Server":
-            self.python_env_hint.set(f"Server uses isolated virtual environment: {self._remote_venv_display_path()}")
+            self.python_env_hint.set(self._remote_venv_display_path() if self.state.remote_workspace.get().strip() else "")
         else:
-            self.python_env_hint.set(f"Local uses this GUI Python: {sys.executable}")
+            self.python_env_hint.set(sys.executable or "")
 
     def _on_run_target_changed(self) -> None:
         if self.remote_body is None:
@@ -665,8 +720,10 @@ class PipelineGUI:
 
     def _attach_registry_job(self, job: dict) -> None:
         target = job.get("target")
+        selected_tools = dict((job.get("run_request") or {}).get("selected_tools") or {})
+        config: dict = {}
         if target == "Server":
-            runner = self._remote_runner_from_job_entry(job)
+            runner = self._remote_runner_from_job_entry(job, read_metadata=False)
             if runner is None:
                 return
             self.remote_runner = runner
@@ -678,16 +735,20 @@ class PipelineGUI:
             job_dir = Path(str(job.get("job_dir", "")))
             config = read_json(job_dir / "job_config.json", {})
             input_files = list(job.get("input_files") or []) or (self._input_files_for_progress(config) if config else [])
+            selected_tools = dict(config.get("selected_tools") or selected_tools)
             self.active_job = {"target": "Local", "job_dir": str(job_dir), "done": False, "registry_entry": job}
             self.state.run_target.set("Local")
             self._on_run_target_changed()
         self.job_log_offset = 0
-        self._prepare_progress_tab(input_files)
+        self._prepare_progress_tab(input_files, selected_tools or self.state.get_selected_tools())
         self._show_progress_tab()
-        self._enter_background_monitor_state("Attached background job")
-        self._schedule_job_poll()
+        self.state.detail_title.set("Attaching job...")
+        self._enter_background_monitor_state("Attaching background job...")
+        if target != "Server":
+            self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
+        self._schedule_job_poll(delay_ms=0)
 
-    def _remote_runner_from_job_entry(self, job: dict) -> RemoteRunner | None:
+    def _remote_runner_from_job_entry(self, job: dict, read_metadata: bool = True) -> RemoteRunner | None:
         remote = dict(job.get("remote") or {})
         if remote:
             self.state.remote_host.set(remote.get("host", self.state.remote_host.get()))
@@ -714,10 +775,65 @@ class PipelineGUI:
             messagebox.showerror("Missing remote job", "Selected registry entry has no remote job directory.")
             return None
         runner.attach_job(remote_dir)
-        metadata = runner.read_remote_metadata()
-        if metadata.get("download_subdir"):
-            runner.config.download_subdir = str(metadata.get("download_subdir"))
+        if read_metadata:
+            metadata = runner.read_remote_metadata()
+            if metadata.get("download_subdir"):
+                runner.config.download_subdir = str(metadata.get("download_subdir"))
         return runner
+
+    def _load_local_progress_state(self, job_dir: Path, config: dict) -> None:
+        if not config or not self.image_runs:
+            return
+        output_dir = Path(str(config.get("effective_output_dir") or config.get("output_dir") or ""))
+        input_files = list(self.image_runs.keys())
+        subject_id_map = config.get("subject_id_map") if isinstance(config.get("subject_id_map"), dict) else {}
+        if not subject_id_map and input_files:
+            subject_id_map = build_subject_id_map(input_files, config.get("input_dir", ""))
+
+        success_count = 0
+        failed_count = 0
+        running_count = 0
+        for input_file, run in self.image_runs.items():
+            subject_id = subject_id_map.get(input_file) or config.get("subject_id") or _derive_subject_id(input_file, config.get("input_dir", ""))
+            state_path = output_dir / subject_id / "logs" / "pipeline_state.json"
+            state = read_json(state_path, {})
+            stages = state.get("stages", {}) if isinstance(state.get("stages"), dict) else {}
+            for stage, step_state in stages.items():
+                if stage not in STAGE_ORDER or not isinstance(step_state, dict):
+                    continue
+                raw_status = str(step_state.get("status", "")).lower()
+                status = {"completed": "Done", "running": "Running", "failed": "Failed"}.get(raw_status, raw_status.capitalize() or "Pending")
+                self._update_run_step(
+                    input_file,
+                    stage,
+                    tool=str(step_state.get("tool", "")),
+                    status=status,
+                    duration_sec=step_state.get("duration_sec"),
+                    error=str(step_state.get("error", "")),
+                )
+            pipeline_status = str(state.get("status", "")).lower()
+            active_steps = [step for step in run.get("steps", {}).values() if step.get("status") != "Skipped"]
+            completed_steps = sum(1 for step in active_steps if step.get("status") == "Done")
+            percent = min(100.0, (completed_steps / max(1, len(active_steps))) * 100.0)
+            if pipeline_status == "success":
+                success_count += 1
+                self._update_image_run(input_file, status="Done", percent=100, stage_text="Completed")
+            elif pipeline_status == "failed":
+                failed_count += 1
+                self._update_image_run(input_file, status="Failed", percent=percent, stage_text="Failed")
+            elif pipeline_status in {"running", "paused"}:
+                running_count += 1 if pipeline_status == "running" else 0
+                self.active_image_key = input_file if pipeline_status == "running" else self.active_image_key
+                self._update_image_run(input_file, status="Running" if pipeline_status == "running" else "Paused", percent=percent, stage_text=pipeline_status.capitalize())
+            elif stages:
+                self._update_image_run(input_file, percent=percent)
+
+        self.state.current_success_images = success_count
+        self.state.current_failed_images = failed_count
+        self.state.current_running_images = running_count
+        self._update_batch_summary()
+        if self.current_image_key in self.image_runs:
+            self._render_selected_detail()
 
     def _download_registry_job(self, job: dict) -> None:
         if job.get("target") == "Server":
@@ -960,6 +1076,17 @@ class PipelineGUI:
         if answer is False:
             return all(self._pause_background_job(candidate) for candidate in candidates)
         return False
+
+    def _resume_pipeline(self) -> None:
+        if self.running:
+            return
+        candidates = self._running_jobs_for_current_target()
+        if candidates is None:
+            return
+        if candidates:
+            self._attach_registry_job(candidates[0])
+            return
+        self._start_pipeline(resume=True, restart=False)
 
     def _refresh_input_label(self, *_args) -> None:
         if self.state.input_mode.get() == "files":
@@ -1318,6 +1445,21 @@ class PipelineGUI:
             if label is not None:
                 label.set("Show Image Log")
 
+    def _toggle_progress_log(self) -> None:
+        body = getattr(self, "progress_log_body", None)
+        label = getattr(self, "progress_log_toggle_text", None)
+        if body is None:
+            return
+        self.progress_log_visible = not self.progress_log_visible
+        if self.progress_log_visible:
+            body.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+            if label is not None:
+                label.set("Hide Image Log")
+        else:
+            body.pack_forget()
+            if label is not None:
+                label.set("Show Image Log")
+
     def _append_tools_log(self, line: str) -> None:
         log = getattr(self, "tools_log_text", None)
         if log is None:
@@ -1370,6 +1512,29 @@ class PipelineGUI:
 
     def _set_python_env_status(self, status: str) -> None:
         self.python_env_status.set(status)
+        label = getattr(self, "python_env_status_label", None)
+        icon_label = getattr(self, "python_env_status_icon_label", None)
+        lower = status.lower()
+        if "checking" in lower or "installing" in lower:
+            color = "#2563eb"
+            icon_name = "running"
+        elif "ok" in lower or "ready" in lower or "installed" in lower:
+            color = "#16a34a"
+            icon_name = "success"
+        elif "not checked" in lower:
+            color = "#64748b"
+            icon_name = "pending"
+        elif "missing" in lower or "failed" in lower or "error" in lower or "incomplete" in lower or "not configured" in lower:
+            color = "#dc2626"
+            icon_name = "failed"
+        else:
+            color = "#64748b"
+            icon_name = "pending"
+        if label is not None:
+            label.configure(foreground=color)
+        if icon_label is not None:
+            icon = self._make_icon(icon_name)
+            icon_label.configure(image=icon if icon is not None else "")
 
     def _check_python_environment(self) -> None:
         target = self.state.run_target.get()
@@ -1405,6 +1570,7 @@ class PipelineGUI:
                 return
             try:
                 details = runner.check_python_details()
+                venv_path = str(details.get("venv_path") or "")
                 base_ok = bool(details.get("base_python_ok"))
                 venv_exists = bool(details.get("venv_exists"))
                 python_ok = bool(details.get("venv_python_ok"))
@@ -1417,6 +1583,7 @@ class PipelineGUI:
                     status = "Server: venv not created"
                 else:
                     status = "Server: venv incomplete"
+                self.root.after(0, lambda p=venv_path: self.python_env_hint.set(p))
                 self.root.after(0, lambda s=status: self._set_python_env_status(s))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
@@ -1693,7 +1860,7 @@ class PipelineGUI:
         ttk.Label(header, text="Copying files to remote server", font=("Inter", 12, "bold")).pack(anchor=tk.W)
         ttk.Label(
             header,
-            text="The pipeline code, run configuration, MRI input files, and license files are being copied before the remote background job starts.",
+            text="Shared pipeline code is reused from the remote workspace when available. This job only copies run configuration, MRI input files, and license files.",
             wraplength=720,
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -1722,6 +1889,10 @@ class PipelineGUI:
                 current_var.set("Copying " + truncate_middle(line.split("->", 1)[0].replace("Uploading file:", "").strip(), 70))
             elif line.startswith("Remote job:"):
                 current_var.set("Creating remote job workspace...")
+            elif line.startswith("Using shared remote pipeline code:"):
+                current_var.set("Using shared remote pipeline code.")
+            elif line.startswith("Uploading shared pipeline code once:"):
+                current_var.set("Copying shared pipeline code for first use...")
             elif line.endswith("...") or line.endswith("complete."):
                 current_var.set(line)
             log.configure(state=tk.NORMAL)
@@ -1780,7 +1951,7 @@ class PipelineGUI:
                 messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                 return
             self.remote_runner = runner
-            self._prepare_progress_tab(self._input_files_for_progress(run_request))
+            self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"))
             self._show_progress_tab()
             self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
             return
@@ -1791,7 +1962,7 @@ class PipelineGUI:
         run_request["resume"] = resume
         run_request["restart"] = restart
 
-        self._prepare_progress_tab(self._input_files_for_progress(run_request))
+        self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"))
         self._show_progress_tab()
 
         self.running = True
@@ -1849,7 +2020,7 @@ class PipelineGUI:
         self._log("You can close the GUI. The local worker process will keep running.")
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
-        self._schedule_job_poll()
+        self._schedule_job_poll(delay_ms=0)
 
     def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None) -> None:
         runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
@@ -1870,7 +2041,7 @@ class PipelineGUI:
         self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
-        self._schedule_job_poll()
+        self._schedule_job_poll(delay_ms=0)
 
     def _build_run_request(self) -> dict | None:
         mode = self.state.input_mode.get()
@@ -1942,11 +2113,12 @@ class PipelineGUI:
         self.notebook.tab(self.progress_tab, state="normal")
         self.notebook.select(self.progress_tab)
 
-    def _prepare_progress_tab(self, files: list[str]) -> None:
+    def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None) -> None:
         self.image_runs.clear()
         self.image_rows.clear()
         self.current_image_key = ""
         self.active_image_key = ""
+        self.progress_selected_tools = dict(selected_tools or self.state.get_selected_tools())
         self.state.current_total_images = len(files)
         self.state.current_success_images = 0
         self.state.current_failed_images = 0
@@ -1958,10 +2130,98 @@ class PipelineGUI:
         self.detail_chart.reset()
         self.gpu_chart.reset()
         self.state.detail_title.set("Select an input image")
+        self._reset_step_summary()
         for idx, path in enumerate(files, start=1):
             self._create_image_run(path, idx, len(files))
         if files:
             self._select_image(files[0])
+
+    def _make_step_state(self, stage: str) -> dict:
+        tool = self.progress_selected_tools.get(stage, "")
+        return {
+            "stage": stage,
+            "tool": tool,
+            "status": "Skipped" if not tool else "Pending",
+            "duration_sec": None,
+            "elapsed_sec": None,
+            "peak_ram_bytes": None,
+            "peak_cpu_pct": None,
+            "peak_gpu_pct": None,
+            "error": "",
+        }
+
+    def _reset_step_summary(self) -> None:
+        for stage, widgets in getattr(self, "step_summary_rows", {}).items():
+            status = "Skipped" if not self.progress_selected_tools.get(stage) else "Pending"
+            self._apply_step_row_widgets(widgets, stage, {"tool": self.progress_selected_tools.get(stage, ""), "status": status})
+
+    def _step_status_color(self, status: str) -> str:
+        return {
+            "Done": "#16a34a",
+            "Completed": "#16a34a",
+            "Success": "#16a34a",
+            "Running": "#2563eb",
+            "Failed": "#dc2626",
+            "Paused": "#f59e0b",
+            "Skipped": "#64748b",
+            "Pending": "#64748b",
+        }.get(status, "#64748b")
+
+    def _step_icon(self, status: str) -> tk.PhotoImage | None:
+        icon_name = {
+            "Done": "success",
+            "Completed": "success",
+            "Success": "success",
+            "Running": "running",
+            "Failed": "failed",
+            "Paused": "pause",
+            "Skipped": "pending",
+            "Pending": "pending",
+        }.get(status, "pending")
+        if status == "Running" and self._spinner_frames:
+            return self._spinner_frames[self._spinner_idx]
+        return self._make_icon(icon_name)
+
+    def _apply_step_row_widgets(self, widgets: dict, stage: str, step: dict) -> None:
+        status = str(step.get("status") or "Pending")
+        tool = str(step.get("tool") or self.progress_selected_tools.get(stage, ""))
+        duration = step.get("duration_sec")
+        if duration is None:
+            duration = step.get("elapsed_sec")
+        icon = self._step_icon(status)
+        widgets["icon"].configure(image=icon if icon is not None else "")
+        widgets["tool"].configure(text=tool_display_name(tool) if tool else "")
+        widgets["status"].configure(text=status, foreground=self._step_status_color(status))
+        widgets["duration"].configure(text=format_duration(duration))
+        widgets["ram"].configure(text=format_bytes(step.get("peak_ram_bytes")))
+        widgets["cpu"].configure(text=format_percent(step.get("peak_cpu_pct")))
+        widgets["gpu"].configure(text=format_percent(step.get("peak_gpu_pct")))
+
+    def _render_step_summary(self, run: dict) -> None:
+        steps = run.get("steps", {}) if run else {}
+        for stage, widgets in getattr(self, "step_summary_rows", {}).items():
+            step = steps.get(stage) or self._make_step_state(stage)
+            self._apply_step_row_widgets(widgets, stage, step)
+
+    def _update_run_step(self, input_file: str, stage: str, **updates) -> None:
+        if stage not in STAGE_ORDER:
+            return
+        if input_file not in self.image_runs:
+            self._create_image_run(input_file, len(self.image_runs) + 1, max(self.state.current_total_images, len(self.image_runs) + 1))
+        run = self.image_runs[input_file]
+        step = run.setdefault("steps", {}).setdefault(stage, self._make_step_state(stage))
+        if updates.get("tool"):
+            step["tool"] = updates["tool"]
+        for key, value in updates.items():
+            if key == "tool" or value is None or value == "":
+                continue
+            if key in {"peak_ram_bytes", "peak_cpu_pct", "peak_gpu_pct"}:
+                current = step.get(key)
+                step[key] = max(float(current or 0), float(value)) if key != "peak_ram_bytes" else max(int(current or 0), int(value))
+            else:
+                step[key] = value
+        if self.current_image_key == input_file:
+            self._render_step_summary(run)
 
     def _create_image_run(self, input_file: str, idx: int, total: int) -> None:
         if input_file in self.image_runs:
@@ -1981,6 +2241,7 @@ class PipelineGUI:
             "container": "n/a",
             "stage": "Queued",
             "stage_detail": "Waiting to start",
+            "steps": {stage: self._make_step_state(stage) for stage in STAGE_ORDER},
         }
         
         container = ttk.Frame(self.image_list_frame)
@@ -1993,8 +2254,8 @@ class PipelineGUI:
         top.pack(fill=tk.X, padx=4, pady=(4, 2))
         
         icon_img = self._get_status_icon("Pending")
-        icon_label = ttk.Label(top, image=icon_img) if icon_img else ttk.Label(top, text="..")
-        icon_label.pack(side=tk.LEFT, padx=(0, 4))
+        icon_label = ttk.Label(top, image=icon_img, width=3) if icon_img else ttk.Label(top, text="..", width=3)
+        icon_label.pack(side=tk.LEFT, padx=(0, 8))
         
         center = ttk.Frame(top)
         center.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
@@ -2074,6 +2335,7 @@ class PipelineGUI:
             self.detail_chart.add(cpu, ram, container)
         for gpu in run["gpu"]:
             self.gpu_chart.add(gpu, f"{gpu:.1f}%")
+        self._render_step_summary(run)
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, "\n".join(run["logs"][-2000:]))
@@ -2192,13 +2454,13 @@ class PipelineGUI:
     def _remote_log_event(self, line: str) -> None:
         self.root.after(0, lambda l=line: self._handle_remote_log_event(l))
 
-    def _schedule_job_poll(self) -> None:
+    def _schedule_job_poll(self, delay_ms: int = 1500) -> None:
         if self.job_poll_after_id:
             try:
                 self.root.after_cancel(self.job_poll_after_id)
             except Exception:
                 pass
-        self.job_poll_after_id = self.root.after(1500, self._poll_active_job)
+        self.job_poll_after_id = self.root.after(delay_ms, self._poll_active_job)
 
     def _poll_active_job(self) -> None:
         if not self.active_job:
@@ -2207,7 +2469,8 @@ class PipelineGUI:
         try:
             target = self.active_job.get("target")
             if target == "Server":
-                done = self._poll_remote_background_job()
+                self._start_remote_poll_worker()
+                return
             else:
                 done = self._poll_local_background_job()
         except Exception as exc:
@@ -2219,6 +2482,60 @@ class PipelineGUI:
             self.job_poll_after_id = None
             self._set_idle_state()
             return
+        self._schedule_job_poll()
+
+    def _start_remote_poll_worker(self) -> None:
+        if self.remote_poll_in_flight:
+            return
+        if not self.remote_runner:
+            self._set_idle_state()
+            return
+        self.remote_poll_in_flight = True
+        runner = self.remote_runner
+        offset = self.job_log_offset
+
+        def worker() -> None:
+            data = ""
+            new_offset = offset
+            status: dict = {"state": "running"}
+            error: Exception | None = None
+            try:
+                data, new_offset = runner.read_remote_log_since(offset)
+                status = runner.remote_status()
+            except Exception as exc:
+                error = exc
+            self.root.after(0, lambda: self._finish_remote_poll(data, new_offset, status, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_remote_poll(self, data: str, new_offset: int, status: dict, error: Exception | None) -> None:
+        self.remote_poll_in_flight = False
+        if not self.active_job or self.active_job.get("target") != "Server":
+            self.job_poll_after_id = None
+            return
+        if error is not None:
+            self._log(f"BACKGROUND POLL ERROR: {type(error).__name__}: {error}")
+            self._schedule_job_poll()
+            return
+        self.job_log_offset = new_offset
+        self._handle_background_log_chunk(data)
+        state = str(status.get("state", "running"))
+        if state in {"completed", "failed"}:
+            self._log(f"Remote background job finished with exit code {status.get('exit_code')}")
+            if status.get("error"):
+                self._log(f"Remote background job error: {status.get('error')}")
+            if state == "failed":
+                for key, run in self.image_runs.items():
+                    if run.get("status") == "Pending":
+                        self._update_image_run(key, status="Failed", stage_text="Remote job failed before this image started")
+            self._log("Use Download Outputs to copy remote outputs to the local output folder.")
+            self._update_registry_for_active_job(state, status.get("exit_code"))
+            self.active_job["done"] = True
+            self.job_poll_after_id = None
+            self._set_idle_state()
+            return
+        self.state.status_text.set("Running in background")
+        self.state.remote_status.set(f"Remote: {state}")
         self._schedule_job_poll()
 
     def _poll_local_background_job(self) -> bool:
@@ -2315,6 +2632,14 @@ class PipelineGUI:
                 stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
                 stage_text = f"{stage_name} - {status.capitalize()}"
                 image_pct = None if stage == "batch" else pct
+                if stage in STAGE_ORDER:
+                    step_status = {
+                        "running": "Running",
+                        "success": "Done",
+                        "failed": "Failed",
+                        "paused": "Paused",
+                    }.get(status, status.capitalize())
+                    self._update_run_step(target_key, stage, status=step_status)
                 self._update_image_run(
                     target_key,
                     status=label,
@@ -2336,6 +2661,21 @@ class PipelineGUI:
             self._update_batch_summary()
         elif kind == "image_preflight":
             self._log(f"Remote image preflight {event.get('status')}: {tool_display_name(str(event.get('tool', '')))}")
+        elif kind == "step_result":
+            key = self._match_progress_input_key(event)
+            stage = str(event.get("stage", ""))
+            success = bool(event.get("success"))
+            status = "Done" if success else "Failed"
+            self._update_run_step(
+                key,
+                stage,
+                tool=str(event.get("tool", "")),
+                status=status,
+                duration_sec=float(event.get("duration_sec", 0.0) or 0.0),
+                peak_ram_bytes=event.get("peak_ram_bytes"),
+                peak_cpu_pct=event.get("peak_cpu_pct"),
+                error=str(event.get("error", "")),
+            )
         elif kind == "metrics":
             cpu_pct = event.get("cpu_pct")
             ram_bytes = event.get("ram_bytes")
@@ -2531,7 +2871,7 @@ class PipelineGUI:
             return
         runner.config.resume = resume
         self.remote_runner = runner
-        self._prepare_progress_tab(self._input_files_for_progress())
+        self._prepare_progress_tab(self._input_files_for_progress(), self.state.get_selected_tools())
         self._show_progress_tab()
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
@@ -2540,7 +2880,7 @@ class PipelineGUI:
         self._log(f"Remote background job started: {remote_dir}")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
-        self._schedule_job_poll()
+        self._schedule_job_poll(delay_ms=0)
 
     def _remote_download_outputs(self) -> None:
         def task():
@@ -2625,6 +2965,17 @@ class PipelineGUI:
             should_stop=self.stop_requested.is_set,
         )
         ok = bool(results) and all(step.success for step in results)
+        for step in results:
+            self._update_run_step(
+                input_file,
+                step.stage,
+                tool=step.tool,
+                status="Done" if step.success else "Failed",
+                duration_sec=step.duration_sec,
+                peak_ram_bytes=step.peak_ram_bytes,
+                peak_cpu_pct=step.peak_cpu_pct,
+                error=step.error,
+            )
         self._log(f"Single file finished: {subject_id} | status={'OK' if ok else 'FAILED'}")
         self.state.current_running_images = 0
         if ok:
@@ -2709,6 +3060,14 @@ class PipelineGUI:
             }.get(status, status.capitalize())
             stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
             stage_text = f"{stage_name} - {status.capitalize()}"
+            if stage in STAGE_ORDER:
+                step_status = {
+                    "running": "Running",
+                    "success": "Done",
+                    "failed": "Failed",
+                    "paused": "Paused",
+                }.get(status, status.capitalize())
+                self._update_run_step(target_key, stage, status=step_status)
             self._update_image_run(
                 target_key,
                 status=label,
@@ -2741,6 +3100,17 @@ class PipelineGUI:
     def _on_image_done(self, result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
         self._log(f"Done image {idx}/{total}: {result.subject_id} | {status}")
+        for step in result.steps:
+            self._update_run_step(
+                result.input_file,
+                step.stage,
+                tool=step.tool,
+                status="Done" if step.success else "Failed",
+                duration_sec=step.duration_sec,
+                peak_ram_bytes=step.peak_ram_bytes,
+                peak_cpu_pct=step.peak_cpu_pct,
+                error=step.error,
+            )
         self.state.current_running_images = 0
         if result.success:
             self.state.current_success_images += 1
@@ -2764,6 +3134,17 @@ class PipelineGUI:
             run["cpu"] = run["cpu"][-180:]
             run["ram"] = run["ram"][-180:]
             run["gpu"] = run["gpu"][-180:]
+            if stage in STAGE_ORDER:
+                self._update_run_step(
+                    target_key,
+                    stage,
+                    tool=tool,
+                    status="Running",
+                    elapsed_sec=elapsed,
+                    peak_ram_bytes=ram_bytes,
+                    peak_cpu_pct=cpu_pct,
+                    peak_gpu_pct=gpu_pct,
+                )
         self.metrics_queue.put((target_key, cpu_pct, ram_bytes, gpu_pct, container_name))
 
     def _request_stop(self) -> None:
