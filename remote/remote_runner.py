@@ -292,6 +292,27 @@ class RemoteRunner:
             except Exception:
                 return {}
 
+    def read_remote_job_config(self) -> dict:
+        if not self.remote_job_dir:
+            return {}
+        config_path = posixpath.join(self.remote_job_dir, "job_config.json")
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            try:
+                with ssh.sftp.open(config_path, "r") as f:
+                    data = f.read().decode(errors="replace")
+                parsed = json.loads(data)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+
+    def write_remote_job_config(self, config: dict) -> None:
+        if not self.remote_job_dir:
+            raise RuntimeError("No remote job is attached")
+        config_path = posixpath.join(self.remote_job_dir, "job_config.json")
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            with ssh.sftp.open(config_path, "w") as f:
+                f.write(json.dumps(config, indent=2))
+
     def _write_job_metadata(self, ssh: RemoteSSHClient) -> None:
         remote_path = posixpath.join(self.remote_job_dir, "job_metadata.json")
         metadata = {

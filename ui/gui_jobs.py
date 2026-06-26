@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from pipeline.jobs import load_job_registry, read_json, upsert_job_registry
+from pipeline.jobs import load_job_registry, read_json, upsert_job_registry, write_json
 from pipeline_runner import (
+    PROJECT_ROOT,
     STAGE_ORDER,
     _derive_subject_id,
     _discover_mri_files,
@@ -104,7 +107,14 @@ class JobsMixin:
                     merged[key] = dict(job)
         return list(merged.values())
 
+    def _is_background_monitor_active(self) -> bool:
+        return bool(self.active_job and not self.active_job.get("done"))
+
+    def _can_start_new_pipeline(self) -> bool:
+        return not self.running or self._is_background_monitor_active()
+
     def _stop_current_job_monitor(self) -> None:
+        was_monitoring = self._is_background_monitor_active()
         if self.job_poll_after_id:
             try:
                 self.root.after_cancel(self.job_poll_after_id)
@@ -114,6 +124,8 @@ class JobsMixin:
         self.remote_poll_in_flight = False
         self.active_job = None
         self.job_log_offset = 0
+        if was_monitoring:
+            self.running = False
 
     def _attach_manual_job_dialog(self) -> None:
         if self.state.run_target.get() == "Server":
@@ -269,6 +281,7 @@ class JobsMixin:
             self.progress.start(10)
         self.state.status_text.set("Running in background")
         self._log(title)
+        self._validate_configuration()
 
     def _registry_entry_for_local_job(self, job_dir: Path, req: dict, pid: int | None = None, state: str = "running") -> dict:
         files = self._input_files_for_progress(req)
@@ -387,9 +400,14 @@ class JobsMixin:
         )
 
     def _running_remote_jobs(self) -> list[dict] | None:
+        jobs = self._remote_jobs_for_current_server()
+        return None if jobs is None else [job for job in jobs if job.get("state") == "running"]
+
+    def _remote_jobs_for_current_server(self) -> list[dict] | None:
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
-            return None
+            registry_jobs = [entry for entry in self._known_jobs() if entry.get("target") == "Server"]
+            return registry_jobs or None
         workspace = self.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
         runner = RemoteRunner(
             RemoteRunConfig(
@@ -401,7 +419,7 @@ class JobsMixin:
             on_log=self._remote_log_event,
         )
         try:
-            remote_jobs = [job for job in runner.list_background_jobs() if job.get("state") == "running"]
+            remote_jobs = runner.list_background_jobs()
         except Exception as exc:
             messagebox.showerror("Remote check failed", f"Could not check remote background jobs:\n\n{type(exc).__name__}: {exc}")
             return None
@@ -435,6 +453,63 @@ class JobsMixin:
         if self.state.run_target.get() == "Server":
             return self._running_remote_jobs()
         return self._running_local_jobs()
+
+    def _resumable_jobs_for_current_target(self) -> list[dict] | None:
+        if self.state.run_target.get() == "Server":
+            jobs = self._remote_jobs_for_current_server()
+            if jobs is None:
+                return None
+            return [job for job in jobs if job.get("target") == "Server" and job.get("state") != "running" and job.get("remote_job_dir")]
+        return [
+            job for job in self._known_jobs()
+            if job.get("target") == "Local" and job.get("state") != "running" and job.get("job_dir")
+        ]
+
+    def _resume_job_dialog(self, jobs: list[dict]) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Resume Background Job")
+        dialog.geometry("900x420")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="Select a previous job to resume in the same job/output directory.").pack(anchor=tk.W, padx=12, pady=(12, 6))
+        columns = ("target", "state", "job", "output")
+        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12)
+        for col, text, width in (
+            ("target", "Target", 80),
+            ("state", "State", 90),
+            ("job", "Job", 360),
+            ("output", "Output", 300),
+        ):
+            tree.heading(col, text=text)
+            tree.column(col, width=width, anchor=tk.W)
+        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        item_to_job: dict[str, dict] = {}
+        for idx, job in enumerate(jobs):
+            job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
+            item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
+            item_to_job[item] = job
+            if idx == 0:
+                tree.selection_set(item)
+
+        def selected_job() -> dict | None:
+            selection = tree.selection()
+            return item_to_job.get(selection[0]) if selection else None
+
+        def resume_selected() -> None:
+            job = selected_job()
+            if not job:
+                return
+            dialog.destroy()
+            self._resume_registry_job(job)
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=12, pady=(4, 12))
+        ttk.Button(buttons, text="Resume Selected", style="Accent.TButton", command=resume_selected).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="View / Attach", command=lambda: (dialog.destroy(), self._attach_registry_job(selected_job())) if selected_job() else None).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
+        tree.bind("<Double-1>", lambda _event: resume_selected())
 
     def _pause_background_job(self, job: dict) -> bool:
         target = job.get("target")
@@ -471,30 +546,148 @@ class JobsMixin:
         if not candidates:
             return True
         job = candidates[0]
-        label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "background job")
-        more = f"\n\nAlso found {len(candidates) - 1} other running job(s) for this target." if len(candidates) > 1 else ""
-        target = self.state.run_target.get()
-        answer = messagebox.askyesnocancel(
-            "Background pipeline running",
-            f"A {target} pipeline is already running in the background:\n\n{label}{more}\n\nYes = Continue / monitor the old pipeline\nNo = Pause the old pipeline and start the new current run\nCancel = Do nothing",
-        )
-        if answer is True:
+        choice = self._choose_start_with_existing_jobs(candidates)
+        if choice == "attach":
             self._attach_registry_job(job)
             return False
-        if answer is False:
-            return all(self._pause_background_job(candidate) for candidate in candidates)
+        if choice == "pause":
+            paused = all(self._pause_background_job(candidate) for candidate in candidates)
+            if paused:
+                self._stop_current_job_monitor()
+            return paused
+        if choice == "parallel":
+            self._stop_current_job_monitor()
+            return True
         return False
+
+    def _choose_start_with_existing_jobs(self, candidates: list[dict]) -> str:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Background Pipeline Running")
+        dialog.geometry("760x280")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        target = self.state.run_target.get()
+        first = candidates[0].get("remote_job_dir") or candidates[0].get("job_dir") or candidates[0].get("job_id", "background job")
+        more = f"\nAlso found {len(candidates) - 1} other running job(s) for this target." if len(candidates) > 1 else ""
+        ttk.Label(
+            dialog,
+            text=f"A {target} pipeline is already running in the background:\n\n{first}{more}\n\nWhat do you want to do?",
+            justify=tk.LEFT,
+            wraplength=720,
+        ).pack(anchor=tk.W, padx=14, pady=(14, 10))
+
+        result = tk.StringVar(value="cancel")
+
+        def choose(value: str) -> None:
+            result.set(value)
+            dialog.destroy()
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=14, pady=(6, 14))
+        ttk.Button(buttons, text="Attach Old Job", command=lambda: choose("attach")).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Pause Old and Start New", command=lambda: choose("pause")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Start New Alongside", style="Accent.TButton", command=lambda: choose("parallel")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.RIGHT)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        self.root.wait_window(dialog)
+        return result.get()
 
     def _resume_pipeline(self) -> None:
         if self.running:
             return
         candidates = self._running_jobs_for_current_target()
-        if candidates is None:
-            return
         if candidates:
             self._attach_registry_job(candidates[0])
             return
+        resumable = self._resumable_jobs_for_current_target()
+        if resumable is None:
+            return
+        if len(resumable) == 1:
+            self._resume_registry_job(resumable[0])
+            return
+        if resumable:
+            self._resume_job_dialog(resumable)
+            return
         self._start_pipeline(resume=True, restart=False)
+
+    def _resume_registry_job(self, job: dict) -> None:
+        if job.get("target") == "Server":
+            self._resume_remote_registry_job(job)
+        else:
+            self._resume_local_registry_job(job)
+
+    def _resume_local_registry_job(self, job: dict) -> None:
+        job_dir = Path(str(job.get("job_dir", "")))
+        config_path = job_dir / "job_config.json"
+        config = read_json(config_path, {})
+        if not config:
+            messagebox.showerror("Resume failed", f"Cannot read local job config:\n{config_path}")
+            return
+        config["resume"] = True
+        config["restart"] = False
+        write_json(config_path, config)
+        for name in ("stop_requested", "exit_code.txt"):
+            try:
+                (job_dir / name).unlink()
+            except FileNotFoundError:
+                pass
+
+        cmd = [sys.executable, "-m", "pipeline.job_worker", "--job-config", str(config_path)]
+        kwargs = {
+            "cwd": str(PROJECT_ROOT),
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(cmd, **kwargs)
+        write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd, "resume": True})
+        write_json(job_dir / "job_status.json", {"state": "running", "pid": proc.pid, "job_dir": str(job_dir), "output_dir": config.get("output_dir", ""), "updated_at": time.time()})
+
+        entry = dict(job)
+        entry.update({"state": "running", "pid": proc.pid, "updated_at": time.time(), "run_request": config})
+        upsert_job_registry(entry)
+        self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
+        self.job_log_offset = 0
+        self._prepare_progress_tab(self._input_files_for_progress(config), config.get("selected_tools") or self.state.get_selected_tools())
+        self._show_progress_tab()
+        self._load_local_progress_state(job_dir, config)
+        self._enter_background_monitor_state("Resuming local background job...")
+        self._log(f"Local background job resumed: {job_dir}")
+        self._schedule_job_poll(delay_ms=0)
+
+    def _resume_remote_registry_job(self, job: dict) -> None:
+        runner = self._remote_runner_from_job_entry(job)
+        if runner is None:
+            return
+        config = runner.read_remote_job_config()
+        if not config:
+            messagebox.showerror("Resume failed", f"Cannot read remote job config:\n{runner.remote_job_dir}/job_config.json")
+            return
+        config["resume"] = True
+        config["restart"] = False
+        runner.write_remote_job_config(config)
+        runner.config.resume = True
+        runner.config.restart = False
+        self.remote_runner = runner
+        self.state.run_target.set("Server")
+        self._on_run_target_changed()
+        self._prepare_progress_tab(list(job.get("input_files") or []) or self._input_files_for_progress(config), config.get("selected_tools") or self.state.get_selected_tools())
+        self._show_progress_tab()
+        self._enter_background_monitor_state("Resuming remote background job...")
+        remote_dir = runner.start_remote_detached()
+        entry = dict(job)
+        entry.update({"state": "running", "remote_job_dir": remote_dir, "updated_at": time.time(), "run_request": config})
+        upsert_job_registry(entry)
+        self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
+        self.job_log_offset = 0
+        self._validate_configuration()
+        self._log(f"Remote background job resumed: {remote_dir}")
+        self._schedule_job_poll(delay_ms=0)
 
     def _build_ssh_config(self) -> SSHConfig | None:
         host = self.state.remote_host.get().strip()

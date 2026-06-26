@@ -590,6 +590,7 @@ class ProgressMixin:
     def _set_idle_state(self) -> None:
         if hasattr(self, "progress"):
             self.progress.stop()
+        self.running = False
         if hasattr(self, "run_button"):
             self.run_button.configure(state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
         if hasattr(self, "resume_button"):
@@ -598,7 +599,6 @@ class ProgressMixin:
             self.restart_button.configure(state=tk.NORMAL)
         if hasattr(self, "stop_button"):
             self.stop_button.configure(state=tk.DISABLED)
-        self.running = False
         self.state.status_text.set("Ready")
         self._log("Pipeline finished.")
         self._log("=" * 80)

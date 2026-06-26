@@ -47,22 +47,19 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "FreeSurfer Fixed (7 steps)": "FreeSurfer 7",
     }
     OPTIONAL_STAGES = {
-        "template_registration",
-        "white_matter_segmentation",
         "surface_reconstruction",
         "surface_registration",
-        "stats_extraction",
     }
     FREESURFER_7_TOOLS = {
         "reorientation": "mri_convert_fs7",
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
-        "template_registration": "",
+        "template_registration": "synthmorph_fs8",
         "bias_correction": "ants_n4",
-        "white_matter_segmentation": "",
+        "white_matter_segmentation": "mri_binarize",
         "surface_reconstruction": "",
         "surface_registration": "",
-        "stats_extraction": "",
+        "stats_extraction": "freesurfer_stats_fs7",
     }
     FREESURFER_8_TOOLS = {
         "reorientation": "mri_convert_fs8",
@@ -70,10 +67,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "segmentation": "synthseg_freesurfer_fs8",
         "template_registration": "synthmorph_fs8",
         "bias_correction": "ants_n4",
-        "white_matter_segmentation": "",
+        "white_matter_segmentation": "mri_binarize_fs8",
         "surface_reconstruction": "",
         "surface_registration": "",
-        "stats_extraction": "",
+        "stats_extraction": "freesurfer_stats_fs8",
     }
     MODE_TOOLSETS = {
         "FreeSurfer 7": FREESURFER_7_TOOLS,
@@ -83,6 +80,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _normalize_pipeline_mode(self, mode: str) -> str:
         normalized = self.PIPELINE_MODE_ALIASES.get(mode, mode)
         return normalized if normalized in self.PIPELINE_MODES else "Custom Tools"
+
+    def _apply_custom_tool_defaults(self) -> None:
+        for stage in STAGE_ORDER:
+            if stage not in self.state.tool_vars or self.state.tool_vars[stage].get().strip():
+                continue
+            tools = enabled_tools_for_stage(stage)
+            if tools:
+                self.state.tool_vars[stage].set(tool_display_name(tools[0]))
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -415,10 +420,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
             if mode == "FreeSurfer 8":
-                self.state.pipeline_note.set("Fixed FreeSurfer 8 stack: FS8 convert, SynthStrip, SynthSeg, and SynthMorph; optional downstream stages are skipped.")
+                self.state.pipeline_note.set("Fixed FreeSurfer 8 stack: FS8 convert, SynthStrip, SynthSeg, SynthMorph, WM mask, and stats. Surface steps 7-8 are skipped.")
             else:
-                self.state.pipeline_note.set("Fixed FreeSurfer 7 stack: FS7 convert, SynthStrip, and SynthSeg; optional downstream stages are skipped.")
+                self.state.pipeline_note.set("Fixed FreeSurfer 7 stack: FS7 convert, SynthStrip, SynthSeg, WM mask, and stats; registration uses SynthMorph FS8. Surface steps 7-8 are skipped.")
         else:
+            self._apply_custom_tool_defaults()
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
@@ -720,10 +726,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 errors.append("Remote workspace is required.")
 
         ok = not errors
+        can_start = self._can_start_new_pipeline()
         if hasattr(self, "run_button"):
-            self.run_button.configure(state=tk.NORMAL if ok and not self.running else tk.DISABLED)
+            self.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(state=tk.NORMAL if ok and not self.running else tk.DISABLED)
+            self.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
         self.state.config_status.set("Configuration complete. Ready to run." if ok else errors[0])
         return ok
 

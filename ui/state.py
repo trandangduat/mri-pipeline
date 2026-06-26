@@ -56,12 +56,12 @@ class AppState:
             "reorientation": "mri_convert_fs7",
             "brain_extraction": "synthstrip_fs7",
             "segmentation": "synthseg_freesurfer_fs7",
-            "template_registration": "",
+            "template_registration": "synthmorph_fs8",
             "bias_correction": "ants_n4",
-            "white_matter_segmentation": "",
+            "white_matter_segmentation": "mri_binarize",
             "surface_reconstruction": "",
             "surface_registration": "",
-            "stats_extraction": "",
+            "stats_extraction": "freesurfer_stats_fs7",
         }
         for stage in STAGE_ORDER:
             tools = enabled_tools_for_stage(stage)

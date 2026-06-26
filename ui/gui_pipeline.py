@@ -110,7 +110,7 @@ class PipelineMixin:
         return state["ok"]
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
-        if self.running:
+        if not self._can_start_new_pipeline():
             return
 
         if not self._validate_configuration():
@@ -204,6 +204,7 @@ class PipelineMixin:
         self._log("You can close the GUI. The local worker process will keep running.")
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
     def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None) -> None:
@@ -225,6 +226,7 @@ class PipelineMixin:
         self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
     def _build_run_request(self) -> dict | None:
@@ -470,6 +472,7 @@ class PipelineMixin:
         self._log(f"Remote background job started: {remote_dir}")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
     def _remote_download_outputs(self) -> None:

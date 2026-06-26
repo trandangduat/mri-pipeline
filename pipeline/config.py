@@ -272,17 +272,26 @@ TOOL_DEFS: dict[str, dict] = {
         "command_builder": lambda ctx: f"mri_binarize --i {ctx.input_path} --wm --o /work/06_wm_mask.nii.gz",
         "output_files": ["06_wm_mask.nii.gz"],
     },
+    "freesurfer_stats_fs7": {
+        "display_name": "FreeSurfer Stats FS7",
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "command_builder": lambda ctx: "test -s /output/stats/subcortical_volume.tsv && test -s /output/stats/cortical_volume.tsv",
+        "output_files": [
+            "subcortical_volume.tsv",
+            "cortical_volume.tsv",
+        ],
+    },
     "freesurfer_stats_fs8": {
         "display_name": "FreeSurfer Stats FS8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "stats_extraction",
         "needs_license": True,
+        "command_builder": lambda ctx: "test -s /output/stats/subcortical_volume.tsv && test -s /output/stats/cortical_volume.tsv",
         "output_files": [
             "subcortical_volume.tsv",
-            "lh_aparc_volume.tsv",
-            "rh_aparc_volume.tsv",
-            "lh_aparc.DKTatlas_volume.tsv",
-            "rh_aparc.DKTatlas_volume.tsv",
+            "cortical_volume.tsv",
         ],
     },
 }
@@ -301,6 +310,8 @@ TOOL_DISPLAY_ALIASES = {
     "MRI Binarize": "mri_binarize",
     "Mri Binarize FS8": "mri_binarize_fs8",
     "MRI Binarize FS8": "mri_binarize_fs8",
+    "FreeSurfer Stats FS7": "freesurfer_stats_fs7",
+    "FreeSurfer Stats FS8": "freesurfer_stats_fs8",
 }
 
 
@@ -375,12 +386,12 @@ class PipelineConfig:
         "reorientation": "mri_convert_fs7",
         "brain_extraction": "synthstrip_fs7",
         "segmentation": "synthseg_freesurfer_fs7",
-        "template_registration": "",
+        "template_registration": "synthmorph_fs8",
         "bias_correction": "ants_n4",
-        "white_matter_segmentation": "",
+        "white_matter_segmentation": "mri_binarize",
         "surface_reconstruction": "",
         "surface_registration": "",
-        "stats_extraction": "",
+        "stats_extraction": "freesurfer_stats_fs7",
     })
     export_config: ExportConfig = field(default_factory=ExportConfig)
     stats_vector_config: StatsVectorConfig = field(default_factory=StatsVectorConfig)
