@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "type": "mri-pipeline-workspace",
+  "input_source": "Local",
+  "input_mode": "dir",
+  "input_path": "/home/magicianfrog/mri-pipeline/data",
+  "selected_files": [
+    "/home/magicianfrog/mri-pipeline/data/ADNI_022_S_4805_MR_MT1__GradWarp__N3m_Br_20130503104115665_S185844_I370017.nii",
+    "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20070926120915361_S19555_I75336/001.mgz"
+  ],
+  "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "export_outputs": {
+    "enabled": false,
+    "folder": "exports",
+    "default_format": ".nii.gz",
+    "names": {
+      "reorientation.primary": "01_reoriented",
+      "brain_extraction.primary": "02_brain",
+      "brain_extraction.mask": "02_brain_mask",
+      "segmentation.primary": "03_segmentation",
+      "template_registration.primary": "04_registered",
+      "template_registration.deformation": "04_deformation_field",
+      "bias_correction.primary": "05_standardized",
+      "white_matter_segmentation.primary": "06_white_matter_mask"
+    },
+    "formats": {
+      "reorientation.primary": ".nii.gz",
+      "brain_extraction.primary": ".nii.gz",
+      "brain_extraction.mask": ".nii.gz",
+      "segmentation.primary": ".nii.gz",
+      "template_registration.primary": ".nii.gz",
+      "template_registration.deformation": ".nii.gz",
+      "bias_correction.primary": ".nii.gz",
+      "white_matter_segmentation.primary": ".nii.gz"
+    }
+  },
+  "stats_vectors": {
+    "enabled_stats": {
+      "cortical_thickness": false,
+      "cortical_volume": false,
+      "subcortical_volume": false
+    },
+    "atlases": {
+      "cortical_thickness": [],
+      "cortical_volume": [],
+      "subcortical_volume": []
+    }
+  },
+  "device": "cpu",
+  "threads": 4,
+  "non_recursive": false,
+  "run_target": "Server",
+  "remote": {
+    "host": "104.214.184.21",
+    "port": 22,
+    "username": "mriuser",
+    "key_path": "",
+    "workspace": "~/mri-remote-jobs",
+    "python": "python3"
+  },
+  "name": "mriuser"
+}

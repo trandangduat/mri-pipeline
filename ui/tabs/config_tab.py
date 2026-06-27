@@ -160,8 +160,14 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     ttk.Radiobutton(mode_row, text="Multiple files", variable=gui.state.input_mode, value="files", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
     ttk.Radiobutton(mode_row, text="Batch folder", variable=gui.state.input_mode, value="dir", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
 
+    source_row = ttk.Frame(frame)
+    source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 10))
+    ttk.Label(source_row, text="Input location").pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Radiobutton(source_row, text="Local computer", variable=gui.state.input_source, value="Local", command=gui._refresh_input_label).pack(side=tk.LEFT)
+    ttk.Radiobutton(source_row, text="Server", variable=gui.state.input_source, value="Server", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
+
     container = ttk.Frame(frame)
-    container.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=3)
+    container.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=3)
     ttk.Label(container, text="Input MRI").pack(anchor=tk.W, pady=(0, 2))
     
     input_frame = ttk.Frame(container)
@@ -176,12 +182,12 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=gui._browse_input).pack(side=tk.RIGHT)
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=10)
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
 
-    _path_row(frame, "Output directory", gui.state.output_dir, 3, lambda: gui._browse_directory(gui.state.output_dir))
+    _path_row(frame, "Output directory", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
 
     export_frame = ttk.Frame(frame)
-    export_frame.grid(row=4, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
+    export_frame.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
     def sync_export_options(*_args) -> None:

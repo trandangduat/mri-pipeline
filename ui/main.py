@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import queue
+import stat
 import sys
 import threading
 import tkinter as tk
@@ -29,6 +31,7 @@ from pipeline_runner import (
     tool_key_from_display,
 )
 from remote.remote_runner import RemoteRunner
+from remote.ssh_client import RemoteSSHClient
 from ui.gui_jobs import JobsMixin
 from ui.gui_pipeline import PipelineMixin
 from ui.gui_progress import ProgressMixin
@@ -139,12 +142,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.tools_check_vars: dict[str, tk.BooleanVar] = {}
         self.tools_status_icon_labels: dict[str, ttk.Label] = {}
         self.tools_download_button: ttk.Button | None = None
+        self.tools_delete_button: ttk.Button | None = None
         self.tools_row_widgets: dict[str, dict] = {}
         self.python_env_status = tk.StringVar(value="Not checked")
         self.python_env_hint = tk.StringVar(value=sys.executable or "")
         self.python_env_status_icon_label: ttk.Label | None = None
         self.python_env_status_label: ttk.Label | None = None
         self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
+        self.tool_image_sizes: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
         self.tool_status_labels: dict[str, ttk.Label] = {}
         self.progress_log_body: ttk.Frame | None = None
         self.progress_log_toggle_text: tk.StringVar | None = None
@@ -193,7 +198,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
             for tool_key, label in self.tools_status_icon_labels.items():
                 status = self._tool_status(tool_key)
-                if status in {"Downloading", "Checking"}:
+                if status in {"Downloading", "Checking", "Deleting"}:
                     try:
                         label.configure(image=frame)
                     except Exception:
@@ -373,6 +378,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._validate_configuration()
 
     def _browse_input(self) -> None:
+        if self.state.input_source.get() == "Server":
+            self._browse_remote_input()
+            return
         mode = self.state.input_mode.get()
         if mode == "file":
             path = filedialog.askopenfilename(title="Select MRI file", filetypes=self._mri_filetypes())
@@ -389,6 +397,153 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if path:
                 self.state.selected_files = []
                 self.state.input_path.set(path)
+        self._refresh_input_label()
+
+    def _browse_remote_input(self) -> None:
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return
+        mode = self.state.input_mode.get()
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Browse server input")
+        dialog.geometry("760x520")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        current_path = tk.StringVar(value=self.state.input_path.get().strip() or "~")
+        status_text = tk.StringVar(value="Connecting...")
+        selected: dict[str, list[str] | str] = {"paths": []}
+        entries: list[dict] = []
+        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+
+        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+        top.pack(fill=tk.X)
+        ttk.Label(top, text="Server path").pack(anchor=tk.W)
+        path_row = ttk.Frame(top)
+        path_row.pack(fill=tk.X, pady=(2, 6))
+        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
+        body.pack(fill=tk.BOTH, expand=True)
+        selectmode = tk.EXTENDED if mode == "files" else tk.BROWSE
+        listing = tk.Listbox(body, selectmode=selectmode, height=18, activestyle="dotbox")
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+        listing.configure(yscrollcommand=scroll.set)
+        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        bottom.pack(fill=tk.X)
+        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def normalize_remote_path(path: str) -> str:
+            path = path.strip() or "~"
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                try:
+                    path = ssh.expand_path(path)
+                except Exception:
+                    pass
+            return posixpath.normpath(path) if path.startswith("/") else path
+
+        def is_mri_name(name: str) -> bool:
+            lower = name.lower()
+            return lower.endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"))
+
+        def load_dir(path: str) -> None:
+            nonlocal entries
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return
+            try:
+                path = normalize_remote_path(path)
+                attrs = ssh.sftp.listdir_attr(path)
+                dirs = []
+                files = []
+                for item in attrs:
+                    if item.filename.startswith("."):
+                        continue
+                    row = {"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": stat.S_ISDIR(item.st_mode)}
+                    if row["is_dir"]:
+                        dirs.append(row)
+                    elif mode != "dir" and is_mri_name(item.filename):
+                        files.append(row)
+                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower()), *sorted(files, key=lambda x: x["name"].lower())]
+                listing.delete(0, tk.END)
+                for row in entries:
+                    prefix = "[D] " if row["is_dir"] else "    "
+                    listing.insert(tk.END, prefix + row["name"])
+                current_path.set(path)
+                status_text.set("Select a folder." if mode == "dir" else "Double-click folders to browse; select MRI file(s).")
+            except Exception as exc:
+                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
+
+        def connect_and_load() -> None:
+            try:
+                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+                ssh.connect()
+                ssh_holder["ssh"] = ssh
+                load_dir(current_path.get())
+            except Exception as exc:
+                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+
+        def open_selected(_event=None) -> None:
+            selection = listing.curselection()
+            if not selection:
+                return
+            row = entries[selection[0]]
+            if row["is_dir"]:
+                load_dir(str(row["path"]))
+
+        def choose() -> None:
+            path = normalize_remote_path(current_path.get())
+            selection = listing.curselection()
+            chosen: list[str] = []
+            if mode == "dir":
+                if selection and entries[selection[0]]["is_dir"]:
+                    path = str(entries[selection[0]]["path"])
+                selected["paths"] = [path]
+            else:
+                for idx in selection:
+                    row = entries[idx]
+                    if not row["is_dir"]:
+                        chosen.append(str(row["path"]))
+                if not chosen and mode == "file":
+                    chosen = [path]
+                selected["paths"] = chosen
+            dialog.destroy()
+
+        def close() -> None:
+            dialog.destroy()
+
+        def on_destroy(_event=None) -> None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                ssh.close()
+                ssh_holder["ssh"] = None
+
+        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT)
+        listing.bind("<Double-Button-1>", open_selected)
+        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        dialog.bind("<Destroy>", on_destroy, add="+")
+        self.root.after(50, connect_and_load)
+        self.root.wait_window(dialog)
+
+        paths = list(selected.get("paths") or [])
+        if not paths:
+            return
+        if mode == "file":
+            self.state.selected_files = [paths[0]]
+            self.state.input_path.set(paths[0])
+        elif mode == "files":
+            self.state.selected_files = paths
+            self.state.input_path.set("; ".join(paths))
+        else:
+            self.state.selected_files = []
+            self.state.input_path.set(paths[0])
         self._refresh_input_label()
 
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
@@ -435,65 +590,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._apply_pipeline_mode()
         return self.state.get_selected_tools()
 
-    def _collect_config(self) -> dict:
-        return {
-            "version": 1,
-            "run_target": self.state.run_target.get(),
-            "pipeline_mode": self.state.pipeline_mode.get(),
-            "input_mode": self.state.input_mode.get(),
-            "input_path": self.state.input_path.get(),
-            "selected_files": self.state.selected_files,
-            "output_dir": self.state.output_dir.get(),
-            "license_dir": self.state.license_dir.get(),
-            "device": self.state.device.get(),
-            "threads": int(self.state.threads.get()),
-            "non_recursive": self.state.non_recursive.get(),
-            "tools": self.state.get_selected_tools(),
-            "remote": {
-                "host": self.state.remote_host.get(),
-                "port": int(self.state.remote_port.get()),
-                "username": self.state.remote_username.get(),
-                "key_path": self.state.remote_key_path.get(),
-                "workspace": self.state.remote_workspace.get(),
-                "python": self.state.remote_python.get(),
-            },
-        }
-
-    def _apply_config(self, config: dict) -> None:
-        self.state.input_mode.set(config.get("input_mode", "file"))
-        self.state.run_target.set(config.get("run_target", "Local"))
-        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
-        self.state.input_path.set(config.get("input_path", ""))
-        self.state.selected_files = list(config.get("selected_files", []))
-        self.state.output_dir.set(config.get("output_dir", str(PROJECT_ROOT / "outputs")))
-        self.state.license_dir.set(config.get("license_dir", str(PROJECT_ROOT / "license")))
-        self.state.device.set(config.get("device", "cpu"))
-        self.state.threads.set(int(config.get("threads", 4)))
-        self.state.non_recursive.set(bool(config.get("non_recursive", False)))
-
-        tools = config.get("tools", {})
-        for stage, value in tools.items():
-            if stage in self.state.tool_vars:
-                tool_key = tool_key_from_display(value)
-                self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
-
-        self._apply_pipeline_mode()
-
-        remote = config.get("remote", {})
-        self.state.remote_host.set(remote.get("host", ""))
-        self.state.remote_port.set(int(remote.get("port", 22)))
-        self.state.remote_username.set(remote.get("username", ""))
-        self.state.remote_password.set("")
-        self.state.remote_key_path.set(remote.get("key_path", ""))
-        self.state.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
-        self.state.remote_python.set(remote.get("python", "python3"))
-
-        self._on_run_target_changed()
-        self._refresh_input_label()
-        self._log(f"Loaded config: {config.get('name', 'unnamed')}")
-
     def _save_workspace(self) -> None:
-        config_dir = PROJECT_ROOT / "configs"
+        config_dir = PROJECT_ROOT / "configs" / "workspaces"
         config_dir.mkdir(parents=True, exist_ok=True)
         path = filedialog.asksaveasfilename(
             title="Save workspace",
@@ -514,7 +612,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             messagebox.showerror("Save workspace failed", str(exc))
 
     def _load_workspace(self) -> None:
-        config_dir = PROJECT_ROOT / "configs"
+        config_dir = PROJECT_ROOT / "configs" / "workspaces"
         path = filedialog.askopenfilename(
             title="Load workspace",
             initialdir=str(config_dir),
@@ -625,6 +723,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _setup_validation_traces(self) -> None:
         variables = [
+            self.state.input_source,
             self.state.input_mode,
             self.state.input_path,
             self.state.output_dir,
@@ -662,23 +761,28 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
+        input_source = self.state.input_source.get()
         mode = self.state.input_mode.get()
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
             errors.append("Choose an input MRI file or folder.")
-        elif mode == "file":
+        elif input_source == "Server" and self.state.run_target.get() != "Server":
+            errors.append("Server input requires Run on = Server.")
+        elif input_source == "Local" and mode == "file":
             path = self.state.selected_files[0] if self.state.selected_files else raw_input
             if not Path(path).is_file():
                 errors.append("Input file does not exist.")
-        elif mode == "files":
+        elif input_source == "Local" and mode == "files":
             files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
             if not files:
                 errors.append("Choose at least one input file.")
             elif any(not Path(p).is_file() for p in files):
                 errors.append("One or more selected input files do not exist.")
-        else:
+        elif input_source == "Local":
             if not Path(raw_input).is_dir():
                 errors.append("Input folder does not exist.")
+        elif mode == "files" and not (self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]):
+            errors.append("Choose at least one server input file.")
 
         if not self.state.output_dir.get().strip():
             errors.append("Choose an output directory.")
@@ -706,6 +810,21 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]
         if disabled_tools:
             errors.append(f"Disabled tools selected: {', '.join(tool_display_name(tool) for tool in disabled_tools)}")
+
+        target = self.state.run_target.get()
+        image_statuses = self.tool_image_statuses.setdefault(target, {})
+        required_images: list[str] = []
+        for tool in selected_tools.values():
+            image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
+            if tool and is_tool_enabled(tool) and image and image not in required_images:
+                required_images.append(image)
+        if required_images:
+            unknown = [image for image in required_images if image_statuses.get(image, "Unknown") == "Unknown"]
+            not_installed = [image for image in required_images if image_statuses.get(image, "Unknown") not in {"Installed", "Unknown"}]
+            if unknown:
+                errors.append("Check Docker images before running.")
+            elif not_installed:
+                errors.append("Install selected Docker images before running.")
 
         needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
         if needs_license and not Path(self.state.license_dir.get().strip()).exists():

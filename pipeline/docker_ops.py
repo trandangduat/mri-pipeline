@@ -22,6 +22,46 @@ def image_exists(image: str) -> bool:
         return False
 
 
+def image_size_bytes(image: str) -> int | None:
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "inspect", image, "--format", "{{.Size}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return None
+        return int(proc.stdout.strip())
+    except Exception:
+        return None
+
+
+def format_image_size(size: int | None) -> str:
+    if size is None or size < 0:
+        return "-"
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size)
+    unit = units[0]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            break
+        value /= 1024
+    if unit == "B":
+        return f"{int(value)} {unit}"
+    return f"{value:.1f} {unit}"
+
+
+def remove_image(image: str) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(["docker", "image", "rm", image], capture_output=True, text=True, timeout=300)
+        if proc.returncode == 0:
+            return True, ""
+        return False, (proc.stderr or proc.stdout).strip()
+    except Exception as exc:
+        return False, str(exc)
+
+
 def build_image(image: str, context_dir: str, on_progress: ProgressCallback | None = None, on_build_log: BuildLogCallback | None = None) -> bool:
     ctx = PROJECT_ROOT / context_dir
     if not ctx.exists():

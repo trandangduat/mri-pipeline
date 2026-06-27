@@ -18,6 +18,7 @@ def normalize_pipeline_mode(mode: str) -> str:
 class AppState:
     def __init__(self):
         # Input & Output
+        self.input_source = tk.StringVar(value="Local")
         self.input_mode = tk.StringVar(value="file")
         self.input_path = tk.StringVar()
         self.selected_files: list[str] = []
@@ -130,6 +131,7 @@ class AppState:
         workspace = {
             "version": 1,
             "type": "mri-pipeline-workspace",
+            "input_source": self.input_source.get(),
             "input_mode": self.input_mode.get(),
             "input_path": self.input_path.get(),
             "selected_files": self.selected_files,
@@ -154,6 +156,7 @@ class AppState:
 
     def apply_workspace(self, workspace: dict) -> None:
         self.input_mode.set(workspace.get("input_mode", "file"))
+        self.input_source.set(workspace.get("input_source", "Local"))
         self.input_path.set(workspace.get("input_path", ""))
         self.selected_files = list(workspace.get("selected_files", []))
         self.output_dir.set(workspace.get("output_dir", str(PROJECT_ROOT / "outputs")))
@@ -185,68 +188,3 @@ class AppState:
             self.remote_key_path.set(remote.get("key_path", ""))
             self.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
             self.remote_python.set(remote.get("python", "python3"))
-
-    def collect_config(self) -> dict:
-        return {
-            "version": 1,
-            "run_target": self.run_target.get(),
-            "pipeline_mode": self.pipeline_mode.get(),
-            "input_mode": self.input_mode.get(),
-            "input_path": self.input_path.get(),
-            "selected_files": self.selected_files,
-            "output_dir": self.output_dir.get(),
-            "license_dir": self.license_dir.get(),
-            "export_outputs": self.get_export_config(),
-            "stats_vectors": self.get_stats_vector_config(),
-            "device": self.device.get(),
-            "threads": int(self.threads.get()),
-            "non_recursive": self.non_recursive.get(),
-            "tools": self.get_selected_tools(),
-            "remote": {
-                "host": self.remote_host.get(),
-                "port": int(self.remote_port.get()),
-                "username": self.remote_username.get(),
-                "key_path": self.remote_key_path.get(),
-                "workspace": self.remote_workspace.get(),
-                "python": self.remote_python.get(),
-            },
-        }
-
-    def apply_config(self, config: dict) -> None:
-        self.input_mode.set(config.get("input_mode", "file"))
-        self.run_target.set(config.get("run_target", "Local"))
-        self.pipeline_mode.set(normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
-        self.input_path.set(config.get("input_path", ""))
-        self.selected_files = list(config.get("selected_files", []))
-        self.output_dir.set(config.get("output_dir", str(PROJECT_ROOT / "outputs")))
-        self.license_dir.set(config.get("license_dir", str(PROJECT_ROOT / "license")))
-        export = config.get("export_outputs", {})
-        self.export_outputs_enabled.set(bool(export.get("enabled", False)))
-        old_formats = export.get("formats") if isinstance(export.get("formats"), dict) else {}
-        default_format = export.get("default_format") or next(iter(old_formats.values()), ".nii.gz")
-        self.export_default_format.set(default_format if default_format in (".nii.gz", ".mgz") else ".nii.gz")
-        for item_id, value in export.get("names", {}).items():
-            if item_id in self.export_name_vars:
-                self.export_name_vars[item_id].set(value)
-        for item_id, value in export.get("formats", {}).items():
-            if item_id in self.export_format_vars:
-                self.export_format_vars[item_id].set(value if value in (".nii.gz", ".mgz") else ".nii.gz")
-        self.apply_stats_vector_config(config.get("stats_vectors", {}))
-        self.device.set(config.get("device", "cpu"))
-        self.threads.set(int(config.get("threads", 4)))
-        self.non_recursive.set(bool(config.get("non_recursive", False)))
-
-        tools = config.get("tools", {})
-        for stage, value in tools.items():
-            if stage in self.tool_vars:
-                tool_key = tool_key_from_display(value)
-                self.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
-
-        remote = config.get("remote", {})
-        self.remote_host.set(remote.get("host", ""))
-        self.remote_port.set(int(remote.get("port", 22)))
-        self.remote_username.set(remote.get("username", ""))
-        self.remote_password.set("")
-        self.remote_key_path.set(remote.get("key_path", ""))
-        self.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
-        self.remote_python.set(remote.get("python", "python3"))

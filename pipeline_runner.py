@@ -14,7 +14,7 @@ import sys
 
 from pipeline.cli import DEFAULT_BATCH_INPUT_DIR, main
 from pipeline.config import *
-from pipeline.docker_ops import build_image, ensure_image, image_exists
+from pipeline.docker_ops import build_image, ensure_image, format_image_size, image_exists, image_size_bytes, remove_image
 from pipeline.runner import run_batch_pipeline, run_pipeline
 from pipeline.utils import *
 from pipeline.utils import (

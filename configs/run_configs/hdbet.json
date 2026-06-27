@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "type": "mri-pipeline-run-config",
+  "pipeline_mode": "Custom Tools",
+  "tools": {
+    "reorientation": "mri_convert_fs7",
+    "brain_extraction": "hdbet",
+    "segmentation": "synthseg_freesurfer_fs7",
+    "template_registration": "",
+    "bias_correction": "ants_n4",
+    "white_matter_segmentation": "mri_binarize",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": ""
+  },
+  "stats_vectors": {
+    "enabled_stats": {
+      "cortical_thickness": false,
+      "cortical_volume": false,
+      "subcortical_volume": false
+    },
+    "atlases": {
+      "cortical_thickness": [],
+      "cortical_volume": [],
+      "subcortical_volume": []
+    }
+  },
+  "name": "hdbet"
+}

@@ -46,6 +46,8 @@ class ProgressMixin:
             return [req["input_file"]]
         if req["mode"] == "files":
             return list(req["input_files"])
+        if req.get("input_source") == "Server":
+            return [req["input_dir"]]
         return _discover_mri_files(req["input_dir"], recursive=req.get("recursive", True))
 
     def _show_progress_tab(self) -> None:

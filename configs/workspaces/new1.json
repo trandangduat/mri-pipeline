@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "type": "mri-pipeline-workspace",
+  "input_source": "Local",
+  "input_mode": "file",
+  "input_path": "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20090708092208124_S65164_I148227/001.mgz",
+  "selected_files": [
+    "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20090708092208124_S65164_I148227/001.mgz"
+  ],
+  "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "export_outputs": {
+    "enabled": false,
+    "folder": "exports",
+    "default_format": ".nii.gz",
+    "names": {
+      "reorientation.primary": "01_reoriented",
+      "brain_extraction.primary": "02_brain",
+      "brain_extraction.mask": "02_brain_mask",
+      "segmentation.primary": "03_segmentation",
+      "template_registration.primary": "04_registered",
+      "template_registration.deformation": "04_deformation_field",
+      "bias_correction.primary": "05_bias_corrected",
+      "white_matter_segmentation.primary": "06_white_matter_mask"
+    },
+    "formats": {
+      "reorientation.primary": ".nii.gz",
+      "brain_extraction.primary": ".nii.gz",
+      "brain_extraction.mask": ".nii.gz",
+      "segmentation.primary": ".nii.gz",
+      "template_registration.primary": ".nii.gz",
+      "template_registration.deformation": ".nii.gz",
+      "bias_correction.primary": ".nii.gz",
+      "white_matter_segmentation.primary": ".nii.gz"
+    }
+  },
+  "device": "cpu",
+  "threads": 4,
+  "non_recursive": false,
+  "run_target": "Server",
+  "remote": {
+    "host": "103.74.122.196",
+    "port": 19622,
+    "username": "catcd1",
+    "key_path": "",
+    "workspace": "~/mri-remote-jobs",
+    "python": "python3"
+  },
+  "name": "new1"
+}

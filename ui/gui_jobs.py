@@ -308,6 +308,8 @@ class JobsMixin:
             files = [cfg.input_file]
         elif cfg.input_mode == "files":
             files = list(cfg.input_files)
+        elif cfg.input_source == "Server" and cfg.input_dir:
+            files = [cfg.input_dir]
         elif cfg.input_dir:
             try:
                 files = _discover_mri_files(cfg.input_dir, recursive=cfg.recursive)
@@ -717,6 +719,7 @@ class JobsMixin:
             ssh=ssh_config,
             remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
             remote_python=self.state.remote_python.get().strip() or "python3",
+            input_source=req.get("input_source", "Local"),
             input_mode=req["mode"],
             input_file=req.get("input_file", ""),
             input_files=req.get("input_files", []),

@@ -22,6 +22,7 @@ class RemoteRunConfig:
     ssh: SSHConfig
     remote_workspace: str = "~/mri-remote-jobs"
     remote_python: str = "python3"
+    input_source: str = "Local"
     input_mode: str = "file"
     input_file: str = ""
     input_files: list[str] = field(default_factory=list)
@@ -221,6 +222,33 @@ class RemoteRunner:
                 self.on_log(("Installed: " if code == 0 else "Missing: ") + image)
         return statuses
 
+    def check_image_details(self, images: list[str]) -> dict[str, dict[str, int | bool | None]]:
+        details: dict[str, dict[str, int | bool | None]] = {}
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            for image in dict.fromkeys(images):
+                code, text = ssh.read_text(f"docker image inspect --format '{{{{.Size}}}}' {shlex.quote(image)} 2>/dev/null")
+                installed = code == 0
+                size: int | None = None
+                if installed:
+                    try:
+                        size = int(text.strip().splitlines()[-1])
+                    except (IndexError, ValueError):
+                        size = None
+                details[image] = {"installed": installed, "size": size}
+                self.on_log(("Installed: " if installed else "Missing: ") + image)
+        return details
+
+    def remove_images(self, images: list[str]) -> dict[str, tuple[bool, str]]:
+        results: dict[str, tuple[bool, str]] = {}
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            for image in dict.fromkeys(images):
+                self.on_log(f"Deleting: {image}")
+                code, text = ssh.read_text(f"docker image rm {shlex.quote(image)} 2>&1")
+                ok = code == 0
+                results[image] = (ok, text.strip())
+                self.on_log(("Deleted: " if ok else "Failed: ") + image)
+        return results
+
     def ensure_tool_images(self, tool_keys: list[str]) -> bool:
         tool_keys = [tool for tool in dict.fromkeys(tool_keys) if tool and is_tool_enabled(tool)]
         if not tool_keys:
@@ -321,6 +349,7 @@ class RemoteRunner:
             "remote_output_dir": self.remote_output_dir,
             "remote_code_dir": self._remote_code_dir(ssh),
             "created_at": time.time(),
+            "input_source": self.config.input_source,
             "input_mode": self.config.input_mode,
             "output_dir": self.config.output_dir,
             "download_subdir": self.config.download_subdir,
@@ -331,6 +360,31 @@ class RemoteRunner:
     def _remote_input_request(self) -> dict:
         remote_input = posixpath.join(self.remote_job_dir, "input")
         subject_id_map: dict[str, str] = {}
+        if self.config.input_source == "Server":
+            if self.config.input_mode == "file" and self.config.input_file:
+                subject_id_map[self.config.input_file] = _derive_subject_id(self.config.input_file)
+                return {
+                    "mode": "file",
+                    "input_file": self.config.input_file,
+                    "subject_id": subject_id_map[self.config.input_file],
+                    "subject_id_map": subject_id_map,
+                }
+            if self.config.input_mode == "files" and self.config.input_files:
+                ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
+                for path in self.config.input_files:
+                    subject_id_map[path] = ids.get(path, _derive_subject_id(path))
+                return {
+                    "mode": "files",
+                    "input_files": list(self.config.input_files),
+                    "input_dir": self.config.input_dir,
+                    "subject_id_map": subject_id_map,
+                }
+            return {
+                "mode": "dir",
+                "input_dir": self.config.input_dir,
+                "recursive": self.config.recursive,
+                "subject_id_map": subject_id_map,
+            }
         if self.config.input_mode == "file" and self.config.input_file:
             input_name = Path(self.config.input_file).name
             remote_file = posixpath.join(remote_input, input_name)
@@ -412,7 +466,9 @@ class RemoteRunner:
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
         remote_input = posixpath.join(self.remote_job_dir, "input")
         mapping: dict[str, str] = {}
-        if self.config.input_mode == "file" and self.config.input_file:
+        if self.config.input_source == "Server":
+            mapping = self._remote_input_request().get("subject_id_map", {})
+        elif self.config.input_mode == "file" and self.config.input_file:
             src = Path(self.config.input_file)
             mapping[posixpath.join(remote_input, src.name)] = _derive_subject_id(str(src))
         elif self.config.input_mode == "files" and self.config.input_files:
@@ -661,6 +717,9 @@ class RemoteRunner:
             ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
 
     def _upload_inputs(self, ssh: RemoteSSHClient) -> None:
+        if self.config.input_source == "Server":
+            self.on_log("Using MRI input paths already on the server; skipping input upload.")
+            return
         remote_input = posixpath.join(self.remote_job_dir, "input")
         if self.config.input_mode == "file":
             if not self.config.input_file:
@@ -704,10 +763,13 @@ class RemoteRunner:
 
         cmd = [python_cmd or self.config.remote_python, "pipeline_runner.py", "--json-events"]
         if self.config.input_mode == "file":
-            input_name = Path(self.config.input_file).name
-            cmd += ["--input-file", posixpath.join(remote_input, input_name)]
+            if self.config.input_source == "Server":
+                cmd += ["--input-file", self.config.input_file]
+            else:
+                input_name = Path(self.config.input_file).name
+                cmd += ["--input-file", posixpath.join(remote_input, input_name)]
         else:
-            cmd += ["--input-dir", remote_input]
+            cmd += ["--input-dir", self.config.input_dir if self.config.input_source == "Server" else remote_input]
 
         cmd += ["--output-dir", remote_output]
         cmd += ["--license-dir", remote_license]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import shutil
 import subprocess
 import sys
@@ -44,7 +45,7 @@ class PipelineMixin:
         ttk.Label(header, text="Copying files to remote server", font=("Inter", 12, "bold")).pack(anchor=tk.W)
         ttk.Label(
             header,
-            text="Shared pipeline code is reused from the remote workspace when available. This job only copies run configuration, MRI input files, and license files.",
+            text="Shared pipeline code is reused from the remote workspace when available. This job copies run configuration, license files, and local MRI inputs when needed.",
             wraplength=720,
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -231,9 +232,13 @@ class PipelineMixin:
 
     def _build_run_request(self) -> dict | None:
         mode = self.state.input_mode.get()
+        input_source = self.state.input_source.get()
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
             messagebox.showerror("Missing input", "Chưa chọn file hoặc folder MRI.")
+            return None
+        if input_source == "Server" and self.state.run_target.get() != "Server":
+            messagebox.showerror("Invalid input", "Server input requires Run on = Server.")
             return None
 
         selected_tools = self.state.get_selected_tools()
@@ -252,7 +257,24 @@ class PipelineMixin:
             "selected_tools": selected_tools,
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),
+            "input_source": input_source,
         }
+
+        if input_source == "Server":
+            if mode == "file":
+                path = self.state.selected_files[0] if self.state.selected_files else raw_input
+                base["input_file"] = path
+            elif mode == "files":
+                files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
+                if not files:
+                    messagebox.showerror("Invalid input", "Danh sách file server không hợp lệ.")
+                    return None
+                base["input_files"] = files
+                base["input_dir"] = self._common_remote_input_root(files)
+            else:
+                base["input_dir"] = raw_input
+                base["recursive"] = not self.state.non_recursive.get()
+            return base
 
         if mode == "file":
             path = self.state.selected_files[0] if self.state.selected_files else raw_input
@@ -281,6 +303,13 @@ class PipelineMixin:
                 base["recursive"] = not self.state.non_recursive.get()
 
         return base
+
+    def _common_remote_input_root(self, files: list[str]) -> str:
+        parents = [posixpath.dirname(path.rstrip("/")) or "/" for path in files]
+        try:
+            return posixpath.commonpath(parents)
+        except ValueError:
+            return parents[0] if parents else "/"
 
     def _run_remote_task(self, title: str, task, clear_log: bool = False, enable_pause: bool = False) -> None:
         if self.running:
