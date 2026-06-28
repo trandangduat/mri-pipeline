@@ -272,6 +272,92 @@ TOOL_DEFS: dict[str, dict] = {
         "command_builder": lambda ctx: f"mri_binarize --i {ctx.input_path} --wm --o /work/06_wm_mask.nii.gz",
         "output_files": ["06_wm_mask.nii.gz"],
     },
+    "recon_all_fs7": {
+        "display_name": "Recon-All FS7",
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "surface_reconstruction",
+        "needs_license": True,
+        "command_builder": lambda ctx: (
+            "set -e; "
+            "export SUBJECTS_DIR=/output/freesurfer; "
+            "mkdir -p \"$SUBJECTS_DIR\" /output/stats; "
+            "input=/work/mri/01_reoriented.nii.gz; "
+            "if [ ! -s \"$input\" ]; then input=/work/mri/05_standardized.nii.gz; fi; "
+            f"if [ ! -s \"$input\" ]; then input={ctx.input_path}; fi; "
+            f"if [ -d \"$SUBJECTS_DIR/{ctx.subject_id}\" ] && [ ! -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\" ]; then rm -rf \"$SUBJECTS_DIR/{ctx.subject_id}\"; fi; "
+            f"recon-all -sd \"$SUBJECTS_DIR\" -s {ctx.subject_id} -i \"$input\" -all -parallel -openmp {ctx.threads}; "
+            f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/ 2>/dev/null || true"
+        ),
+        "output_files": [],
+        "output_globs": [
+            "freesurfer/*/surf/lh.thickness",
+            "freesurfer/*/surf/rh.thickness",
+            "freesurfer/*/stats/lh.aparc.stats",
+            "freesurfer/*/stats/rh.aparc.stats",
+        ],
+    },
+    "recon_all_fs8": {
+        "display_name": "Recon-All FS8",
+        "image": "mkdayyyy/mri-fs8-all:latest",
+        "stage": "surface_reconstruction",
+        "needs_license": True,
+        "command_builder": lambda ctx: (
+            "set -e; "
+            "export SUBJECTS_DIR=/output/freesurfer; "
+            "mkdir -p \"$SUBJECTS_DIR\" /output/stats; "
+            "input=/work/mri/01_reoriented.nii.gz; "
+            "if [ ! -s \"$input\" ]; then input=/work/mri/05_standardized.nii.gz; fi; "
+            f"if [ ! -s \"$input\" ]; then input={ctx.input_path}; fi; "
+            f"if [ -d \"$SUBJECTS_DIR/{ctx.subject_id}\" ] && [ ! -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\" ]; then rm -rf \"$SUBJECTS_DIR/{ctx.subject_id}\"; fi; "
+            f"recon-all -sd \"$SUBJECTS_DIR\" -s {ctx.subject_id} -i \"$input\" -all -parallel -openmp {ctx.threads}; "
+            f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/ 2>/dev/null || true"
+        ),
+        "output_files": [],
+        "output_globs": [
+            "freesurfer/*/surf/lh.thickness",
+            "freesurfer/*/surf/rh.thickness",
+            "freesurfer/*/stats/lh.aparc.stats",
+            "freesurfer/*/stats/rh.aparc.stats",
+        ],
+    },
+    "surface_stats_fs7": {
+        "display_name": "Surface Stats FS7",
+        "image": "mkdayyyy/mri-fs7-all:latest",
+        "stage": "surface_registration",
+        "needs_license": True,
+        "command_builder": lambda ctx: (
+            "set -e; "
+            "export SUBJECTS_DIR=/output/freesurfer; "
+            "mkdir -p /output/stats; "
+            "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
+            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\"; "
+            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/rh.thickness\"; "
+            f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/; "
+            f"for atlas in YBA_696parcels 200Parcels_Kong2022_17Networks schaefer200_7network; do for hemi in lh rh; do annot=\"$SUBJECTS_DIR/{ctx.subject_id}/label/$hemi.$atlas.annot\"; fsavg=\"$SUBJECTS_DIR/fsaverage/label/$hemi.$atlas.annot\"; if [ ! -s \"$annot\" ] && [ -s \"$fsavg\" ]; then mri_surf2surf --srcsubject fsaverage --trgsubject {ctx.subject_id} --hemi \"$hemi\" --sval-annot \"$fsavg\" --tval \"$annot\" >/tmp/mri_surf2surf.log 2>&1 || true; fi; if [ -s \"$annot\" ]; then mris_anatomical_stats -a \"$annot\" -f \"/output/stats/$hemi.$atlas.stats\" {ctx.subject_id} \"$hemi\" >/tmp/mris_anatomical_stats.log 2>&1 || true; fi; done; done; "
+            "test -s /output/stats/lh.aparc.stats; "
+            "test -s /output/stats/rh.aparc.stats"
+        ),
+        "output_files": ["lh.aparc.stats", "rh.aparc.stats"],
+    },
+    "surface_stats_fs8": {
+        "display_name": "Surface Stats FS8",
+        "image": "mkdayyyy/mri-fs8-all:latest",
+        "stage": "surface_registration",
+        "needs_license": True,
+        "command_builder": lambda ctx: (
+            "set -e; "
+            "export SUBJECTS_DIR=/output/freesurfer; "
+            "mkdir -p /output/stats; "
+            "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
+            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\"; "
+            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/rh.thickness\"; "
+            f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/; "
+            f"for atlas in YBA_696parcels 200Parcels_Kong2022_17Networks schaefer200_7network; do for hemi in lh rh; do annot=\"$SUBJECTS_DIR/{ctx.subject_id}/label/$hemi.$atlas.annot\"; fsavg=\"$SUBJECTS_DIR/fsaverage/label/$hemi.$atlas.annot\"; if [ ! -s \"$annot\" ] && [ -s \"$fsavg\" ]; then mri_surf2surf --srcsubject fsaverage --trgsubject {ctx.subject_id} --hemi \"$hemi\" --sval-annot \"$fsavg\" --tval \"$annot\" >/tmp/mri_surf2surf.log 2>&1 || true; fi; if [ -s \"$annot\" ]; then mris_anatomical_stats -a \"$annot\" -f \"/output/stats/$hemi.$atlas.stats\" {ctx.subject_id} \"$hemi\" >/tmp/mris_anatomical_stats.log 2>&1 || true; fi; done; done; "
+            "test -s /output/stats/lh.aparc.stats; "
+            "test -s /output/stats/rh.aparc.stats"
+        ),
+        "output_files": ["lh.aparc.stats", "rh.aparc.stats"],
+    },
     "freesurfer_stats_fs7": {
         "display_name": "FreeSurfer Stats FS7",
         "image": "mkdayyyy/mri-fs7-all:latest",

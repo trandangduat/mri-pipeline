@@ -241,7 +241,7 @@ class PipelineMixin:
             messagebox.showerror("Invalid input", "Server input requires Run on = Server.")
             return None
 
-        selected_tools = self.state.get_selected_tools()
+        selected_tools = self._selected_tools() if hasattr(self, "_selected_tools") else self.state.get_selected_tools()
         is_batch = mode == "dir"
         output_dir = self.state.output_dir.get().strip()
         batch_output_name = f"batch_{time.strftime('%Y%m%d_%H%M%S')}" if is_batch else ""

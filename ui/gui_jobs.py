@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,7 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from pipeline.jobs import load_job_registry, read_json, upsert_job_registry, write_json
+from pipeline.jobs import load_job_registry, read_json, save_job_registry, upsert_job_registry, write_json
 from pipeline_runner import (
     PROJECT_ROOT,
     STAGE_ORDER,
@@ -27,6 +28,8 @@ class JobsMixin:
     def _attach_job_dialog(self) -> None:
         jobs = self._known_jobs()
         if self.state.run_target.get() == "Server" and self.state.remote_host.get().strip() and self.state.remote_username.get().strip():
+            if not self._ensure_remote_auth_for_job_action("Attach job"):
+                return
             live_jobs = self._running_remote_jobs()
             if live_jobs is None:
                 return
@@ -73,6 +76,26 @@ class JobsMixin:
                 return None
             return item_to_job.get(selection[0])
 
+        def delete_selected() -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            item = selection[0]
+            job = item_to_job.get(item)
+            if not job:
+                return
+            label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job")
+            if not messagebox.askyesno("Delete job", f"Delete this job and its folders?\n\n{label}"):
+                return
+            if self._delete_registry_job(job):
+                tree.delete(item)
+                item_to_job.pop(item, None)
+                remaining = tree.get_children()
+                if remaining:
+                    tree.selection_set(remaining[0])
+                else:
+                    dialog.destroy()
+
         def attach_selected() -> None:
             job = selected_job()
             if not job:
@@ -89,12 +112,131 @@ class JobsMixin:
 
         ttk.Button(buttons, text="View / Attach", style="Accent.TButton", command=attach_selected).pack(side=tk.LEFT)
         ttk.Button(buttons, text="Download Outputs", command=download_selected).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Delete Selected", command=delete_selected).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Manual Attach", command=lambda: (dialog.destroy(), self._attach_manual_job_dialog())).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
         tree.bind("<Double-1>", lambda _event: attach_selected())
 
     def _job_identity(self, job: dict) -> str:
         return str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or id(job))
+
+    def _remote_key_file_exists(self, key_path: str) -> bool:
+        if not key_path.strip():
+            return False
+        try:
+            return Path(key_path).expanduser().is_file()
+        except OSError:
+            return False
+
+    def _ensure_remote_auth_for_job_action(self, action: str) -> bool:
+        password = self.state.remote_password.get()
+        key_path = self.state.remote_key_path.get().strip()
+        if password:
+            if key_path and not self._remote_key_file_exists(key_path):
+                self.state.remote_key_path.set("")
+            return True
+        if self._remote_key_file_exists(key_path):
+            return True
+
+        if key_path:
+            self.state.remote_key_path.set("")
+        if getattr(self, "notebook", None) is not None and getattr(self, "config_tab", None) is not None:
+            self.notebook.select(self.config_tab)
+        messagebox.showwarning(
+            "Missing SSH authentication",
+            f"Chưa có mật khẩu hoặc file SSH key hợp lệ để {action}.\n\nVui lòng quay lại Pipeline configuration, bổ sung Password hoặc SSH Key rồi thử lại.",
+        )
+        return False
+
+    def _remove_job_registry_entry(self, job: dict) -> None:
+        identity = self._job_identity(job)
+        save_job_registry([entry for entry in load_job_registry() if self._job_identity(entry) != identity])
+
+    def _delete_path_if_exists(self, path: Path) -> None:
+        if not path.exists():
+            return
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+    def _local_job_config_for_delete(self, job: dict) -> dict:
+        job_dir = Path(str(job.get("job_dir", ""))) if job.get("job_dir") else None
+        config = read_json(job_dir / "job_config.json", {}) if job_dir else {}
+        return config or dict(job.get("run_request") or {})
+
+    def _input_files_from_job_config(self, config: dict, job: dict) -> list[str]:
+        mode = config.get("mode")
+        if mode == "file" and config.get("input_file"):
+            return [str(config.get("input_file"))]
+        if mode == "files":
+            return [str(path) for path in config.get("input_files", [])]
+        if config.get("input_source") != "Server" and config.get("input_dir"):
+            try:
+                return _discover_mri_files(str(config.get("input_dir")), recursive=config.get("recursive", True))
+            except Exception:
+                pass
+        return [str(path) for path in job.get("input_files", [])]
+
+    def _delete_local_output_folders_for_job(self, job: dict, config: dict) -> None:
+        effective_output = config.get("effective_output_dir") or job.get("effective_output_dir") or config.get("output_dir") or job.get("output_dir")
+        if not effective_output:
+            return
+        output_dir = Path(str(effective_output))
+        if config.get("is_batch") and output_dir.name.startswith("batch_"):
+            self._delete_path_if_exists(output_dir)
+            return
+
+        files = self._input_files_from_job_config(config, job)
+        subject_id_map = config.get("subject_id_map") if isinstance(config.get("subject_id_map"), dict) else {}
+        if not subject_id_map and files:
+            subject_id_map = build_subject_id_map(files, str(config.get("input_dir", "")))
+
+        subject_ids: list[str] = []
+        if config.get("subject_id"):
+            subject_ids.append(str(config.get("subject_id")))
+        for input_file in files:
+            subject_id = subject_id_map.get(input_file) or _derive_subject_id(input_file, str(config.get("input_dir", "")))
+            if subject_id and subject_id not in subject_ids:
+                subject_ids.append(subject_id)
+        for subject_id in subject_ids:
+            self._delete_path_if_exists(output_dir / subject_id)
+
+    def _delete_local_job_folders(self, job: dict) -> None:
+        config = self._local_job_config_for_delete(job)
+        self._delete_local_output_folders_for_job(job, config)
+        raw_job_dir = str(job.get("job_dir") or config.get("job_dir") or "").strip()
+        if raw_job_dir:
+            self._delete_path_if_exists(Path(raw_job_dir))
+
+    def _delete_registry_job(self, job: dict) -> bool:
+        if str(job.get("state", "")).lower() == "running":
+            if not messagebox.askyesno("Delete running job", "This job appears to be running. Request stop and delete its folders anyway?"):
+                return False
+            self._pause_background_job(job)
+
+        active_identity = self._job_identity(self.active_job.get("registry_entry") or self.active_job) if self.active_job else ""
+        if active_identity and active_identity == self._job_identity(job):
+            self._stop_current_job_monitor()
+
+        try:
+            if job.get("target") == "Server":
+                runner = self._remote_runner_from_job_entry(job, read_metadata=False)
+                if runner is None:
+                    return False
+                runner.clean_remote()
+                download_subdir = str(job.get("download_subdir") or "").strip()
+                output_dir = str(job.get("output_dir") or "").strip()
+                if download_subdir and output_dir:
+                    self._delete_path_if_exists(Path(output_dir) / download_subdir)
+            else:
+                self._delete_local_job_folders(job)
+            self._remove_job_registry_entry(job)
+            self._log(f"Deleted job: {self._job_identity(job)}")
+            return True
+        except Exception as exc:
+            messagebox.showerror("Delete job failed", f"Could not delete selected job:\n\n{type(exc).__name__}: {exc}")
+            return False
 
     def _merge_job_lists(self, *job_lists: list[dict]) -> list[dict]:
         merged: dict[str, dict] = {}
@@ -129,6 +271,8 @@ class JobsMixin:
 
     def _attach_manual_job_dialog(self) -> None:
         if self.state.run_target.get() == "Server":
+            if not self._ensure_remote_auth_for_job_action("Attach job"):
+                return
             remote_dir = simpledialog.askstring("Attach remote job", "Remote job directory:", parent=self.root)
             if remote_dir:
                 self._attach_registry_job({"target": "Server", "remote_job_dir": remote_dir.strip(), "state": "unknown"})
@@ -177,6 +321,8 @@ class JobsMixin:
             self.state.remote_key_path.set(remote.get("key_path", self.state.remote_key_path.get()))
             self.state.remote_workspace.set(remote.get("workspace", self.state.remote_workspace.get()))
             self.state.remote_python.set(remote.get("python", self.state.remote_python.get()))
+        if not self._ensure_remote_auth_for_job_action("server job action"):
+            return None
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return None
@@ -406,6 +552,8 @@ class JobsMixin:
         return None if jobs is None else [job for job in jobs if job.get("state") == "running"]
 
     def _remote_jobs_for_current_server(self) -> list[dict] | None:
+        if not self._ensure_remote_auth_for_job_action("Resume or Attach job"):
+            return None
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             registry_jobs = [entry for entry in self._known_jobs() if entry.get("target") == "Server"]

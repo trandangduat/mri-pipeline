@@ -44,10 +44,13 @@ from ui.tabs.tools_tab import build_tools_tab
 
 
 class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
-    PIPELINE_MODES = ("FreeSurfer 7", "FreeSurfer 8", "Custom Tools")
+    PIPELINE_MODES = ("Custom", "FS7", "FS8", "Volume", "Volume & Cortical Thickness")
     PIPELINE_MODE_ALIASES = {
-        "FreeSurfer Fixed": "FreeSurfer 7",
-        "FreeSurfer Fixed (7 steps)": "FreeSurfer 7",
+        "Custom Tools": "Custom",
+        "FreeSurfer 7": "FS7",
+        "FreeSurfer 8": "FS8",
+        "FreeSurfer Fixed": "FS7",
+        "FreeSurfer Fixed (7 steps)": "FS7",
     }
     OPTIONAL_STAGES = {
         "surface_reconstruction",
@@ -64,6 +67,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "surface_registration": "",
         "stats_extraction": "freesurfer_stats_fs7",
     }
+    FREESURFER_7_SURFACE_TOOLS = {
+        **FREESURFER_7_TOOLS,
+        "surface_reconstruction": "recon_all_fs7",
+        "surface_registration": "surface_stats_fs7",
+    }
     FREESURFER_8_TOOLS = {
         "reorientation": "mri_convert_fs8",
         "brain_extraction": "synthstrip_fs8",
@@ -75,17 +83,27 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "surface_registration": "",
         "stats_extraction": "freesurfer_stats_fs8",
     }
+    FREESURFER_8_SURFACE_TOOLS = {
+        **FREESURFER_8_TOOLS,
+        "surface_reconstruction": "recon_all_fs8",
+        "surface_registration": "surface_stats_fs8",
+    }
     MODE_TOOLSETS = {
-        "FreeSurfer 7": FREESURFER_7_TOOLS,
-        "FreeSurfer 8": FREESURFER_8_TOOLS,
+        "FS7": FREESURFER_7_TOOLS,
+        "FS8": FREESURFER_8_TOOLS,
+        "Volume": FREESURFER_7_TOOLS,
+        "Volume & Cortical Thickness": FREESURFER_7_SURFACE_TOOLS,
     }
 
     def _normalize_pipeline_mode(self, mode: str) -> str:
         normalized = self.PIPELINE_MODE_ALIASES.get(mode, mode)
-        return normalized if normalized in self.PIPELINE_MODES else "Custom Tools"
+        normalized = self.PIPELINE_MODE_ALIASES.get(normalized, normalized)
+        return normalized if normalized in self.PIPELINE_MODES else "Custom"
 
     def _apply_custom_tool_defaults(self) -> None:
         for stage in STAGE_ORDER:
+            if stage in self.OPTIONAL_STAGES:
+                continue
             if stage not in self.state.tool_vars or self.state.tool_vars[stage].get().strip():
                 continue
             tools = enabled_tools_for_stage(stage)
@@ -121,6 +139,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.actions_frame: ttk.Frame | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
+        self.stat_vector_checkbuttons: dict[str, ttk.Checkbutton] = {}
+        self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
         self.step_tree: ttk.Treeview | None = None
         self.stage_items: dict[str, str] = {}
         self.notebook: ttk.Notebook | None = None
@@ -150,7 +170,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.python_env_status_label: ttk.Label | None = None
         self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
         self.tool_image_sizes: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
+        self.tool_image_installed_sizes: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
+        self.tools_hub_size_loading = False
         self.tool_status_labels: dict[str, ttk.Label] = {}
+        self._last_input_source = self.state.input_source.get()
+        self._input_source_paths: dict[str, str] = {"Local": "", "Server": "~"}
+        self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
         self.progress_log_body: ttk.Frame | None = None
         self.progress_log_toggle_text: tk.StringVar | None = None
         self.progress_log_visible = False
@@ -377,6 +402,20 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._update_config_tool_status_labels()
         self._validate_configuration()
 
+    def _on_input_source_changed(self) -> None:
+        old_source = getattr(self, "_last_input_source", "Local")
+        new_source = self.state.input_source.get()
+        if old_source != new_source:
+            self._input_source_paths[old_source] = self.state.input_path.get().strip()
+            self._input_source_selected_files[old_source] = list(self.state.selected_files)
+            next_path = self._input_source_paths.get(new_source, "")
+            if new_source == "Server" and not next_path:
+                next_path = "~"
+            self.state.input_path.set(next_path)
+            self.state.selected_files = list(self._input_source_selected_files.get(new_source, [])) if next_path else []
+            self._last_input_source = new_source
+        self._refresh_input_label()
+
     def _browse_input(self) -> None:
         if self.state.input_source.get() == "Server":
             self._browse_remote_input()
@@ -397,6 +436,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if path:
                 self.state.selected_files = []
                 self.state.input_path.set(path)
+        self._input_source_paths[self.state.input_source.get()] = self.state.input_path.get().strip()
+        self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
 
     def _browse_remote_input(self) -> None:
@@ -544,6 +585,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         else:
             self.state.selected_files = []
             self.state.input_path.set(paths[0])
+        self._input_source_paths[self.state.input_source.get()] = self.state.input_path.get().strip()
+        self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
 
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
@@ -562,11 +605,41 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if path:
             self.state.remote_key_path.set(path)
 
-    def _apply_pipeline_mode(self) -> None:
+    def _apply_stats_preset_for_mode(self, mode: str) -> None:
+        if mode == "Volume":
+            enabled = {"cortical_volume", "subcortical_volume"}
+        elif mode == "Volume & Cortical Thickness":
+            enabled = set(STAT_VECTOR_DEFS)
+        else:
+            return
+
+        for stat, var in self.state.stat_vector_enabled_vars.items():
+            var.set(stat in enabled)
+        if mode == "Volume & Cortical Thickness" and not self.state.selected_atlases_for_stat("cortical_thickness"):
+            first_atlas = next(iter(self.state.stat_atlas_vars.get("cortical_thickness", {})), "")
+            if first_atlas:
+                self.state.set_stat_atlas_choice("cortical_thickness", first_atlas)
+
+    def _update_stats_vector_controls(self, mode: str) -> None:
+        locked = set()
+        if mode == "Volume":
+            locked = set(STAT_VECTOR_DEFS)
+        elif mode == "Volume & Cortical Thickness":
+            locked = set(STAT_VECTOR_DEFS)
+
+        for stat, check in getattr(self, "stat_vector_checkbuttons", {}).items():
+            check.configure(state=tk.DISABLED if stat in locked else tk.NORMAL)
+        for stat, combo in getattr(self, "stat_atlas_combos", {}).items():
+            var = self.state.stat_vector_enabled_vars.get(stat)
+            combo.configure(state="readonly" if var is not None and var.get() else tk.DISABLED)
+
+    def _apply_pipeline_mode(self, apply_stats_preset: bool = True) -> None:
         mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
         if mode != self.state.pipeline_mode.get():
             self.state.pipeline_mode.set(mode)
             return
+        if apply_stats_preset:
+            self._apply_stats_preset_for_mode(mode)
         fixed_tools = self.MODE_TOOLSETS.get(mode)
         if fixed_tools is not None:
             for stage, tool in fixed_tools.items():
@@ -574,20 +647,25 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     self.state.tool_vars[stage].set(tool_display_name(tool) if tool else "")
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
-            if mode == "FreeSurfer 8":
+            if mode == "FS8":
                 self.state.pipeline_note.set("Fixed FreeSurfer 8 stack: FS8 convert, SynthStrip, SynthSeg, SynthMorph, WM mask, and stats. Surface steps 7-8 are skipped.")
-            else:
+            elif mode == "FS7":
                 self.state.pipeline_note.set("Fixed FreeSurfer 7 stack: FS7 convert, SynthStrip, SynthSeg, WM mask, and stats; registration uses SynthMorph FS8. Surface steps 7-8 are skipped.")
+            elif mode == "Volume":
+                self.state.pipeline_note.set("Volume preset: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+            else:
+                self.state.pipeline_note.set("Volume & Cortical Thickness preset: all stats vectors are selected and all 9 pipeline steps are enabled.")
         else:
             self._apply_custom_tool_defaults()
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
+        self._update_stats_vector_controls(mode)
         self._update_config_tool_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
-        if self._normalize_pipeline_mode(self.state.pipeline_mode.get()) != "Custom Tools":
-            self._apply_pipeline_mode()
+        if self._normalize_pipeline_mode(self.state.pipeline_mode.get()) != "Custom":
+            self._apply_pipeline_mode(apply_stats_preset=False)
         return self.state.get_selected_tools()
 
     def _save_workspace(self) -> None:
@@ -625,6 +703,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             with open(path, "r", encoding="utf-8") as f:
                 workspace = json.load(f)
             self.state.apply_workspace(workspace)
+            self._last_input_source = self.state.input_source.get()
+            self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
+            self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
             self._refresh_input_label()
             self._validate_configuration()
             self._log(f"Loaded workspace: {path}")
@@ -647,7 +728,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         }
 
     def _apply_run_config(self, config: dict) -> None:
-        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom Tools")))
+        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom")))
 
         tools = config.get("tools", {})
         for stage, value in tools.items():
@@ -658,7 +739,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
 
         self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
-        self._apply_pipeline_mode()
+        self._apply_pipeline_mode(apply_stats_preset=False)
         self._update_config_tool_status_labels()
         self._validate_configuration()
 
@@ -756,7 +837,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         for var in [*self.state.export_name_vars.values(), *self.state.export_format_vars.values()]:
             var.trace_add("write", lambda *_args: self._validate_configuration())
 
-        for var in [*self.state.stat_vector_enabled_vars.values(), *(atlas for atlas_vars in self.state.stat_atlas_vars.values() for atlas in atlas_vars.values())]:
+        for var in [*self.state.stat_vector_enabled_vars.values(), *self.state.stat_atlas_choice_vars.values()]:
             var.trace_add("write", lambda *_args: self._validate_configuration())
 
     def _validate_configuration(self) -> bool:
@@ -781,8 +862,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         elif input_source == "Local":
             if not Path(raw_input).is_dir():
                 errors.append("Input folder does not exist.")
-        elif mode == "files" and not (self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]):
-            errors.append("Choose at least one server input file.")
+        elif input_source == "Server":
+            files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
+            if mode == "file" and raw_input == "~" and not self.state.selected_files:
+                errors.append("Choose a server MRI file.")
+            elif mode == "files" and (not files or files == ["~"]):
+                errors.append("Choose at least one server input file.")
 
         if not self.state.output_dir.get().strip():
             errors.append("Choose an output directory.")
@@ -792,7 +877,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 errors.append("Export file names cannot be empty or contain path separators.")
         for stat, stat_def in STAT_VECTOR_DEFS.items():
             if self.state.stat_vector_enabled_vars.get(stat) and self.state.stat_vector_enabled_vars[stat].get():
-                if stat_def.get("atlases") and not any(var.get() for var in self.state.stat_atlas_vars.get(stat, {}).values()):
+                if stat_def.get("atlases") and not self.state.selected_atlases_for_stat(stat):
                     errors.append(f"Choose at least one atlas for {stat_def['label']}.")
         try:
             if int(self.state.threads.get()) < 1:

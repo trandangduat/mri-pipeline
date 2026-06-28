@@ -662,7 +662,9 @@ class RemoteRunner:
         if not self.remote_job_dir:
             return
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
+            code = ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
+            if code != 0:
+                raise RuntimeError(f"Could not delete remote job folder: {self.remote_job_dir}")
 
     def required_images(self) -> list[str]:
         images: list[str] = []
@@ -798,6 +800,8 @@ class RemoteRunner:
             "bias_correction": "--bias-correction",
             "template_registration": "--template-registration",
             "white_matter_segmentation": "--white-matter-segmentation",
+            "surface_reconstruction": "--surface-reconstruction",
+            "surface_registration": "--surface-registration",
             "stats_extraction": "--stats-extraction",
         }
         for stage, opt in option_map.items():

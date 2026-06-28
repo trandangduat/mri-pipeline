@@ -4,16 +4,20 @@ from pathlib import Path
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
 
 
-PIPELINE_MODES = ("FreeSurfer 7", "FreeSurfer 8", "Custom Tools")
+PIPELINE_MODES = ("Custom", "FS7", "FS8", "Volume", "Volume & Cortical Thickness")
 PIPELINE_MODE_ALIASES = {
-    "FreeSurfer Fixed": "FreeSurfer 7",
-    "FreeSurfer Fixed (7 steps)": "FreeSurfer 7",
+    "Custom Tools": "Custom",
+    "FreeSurfer 7": "FS7",
+    "FreeSurfer 8": "FS8",
+    "FreeSurfer Fixed": "FS7",
+    "FreeSurfer Fixed (7 steps)": "FS7",
 }
 
 
 def normalize_pipeline_mode(mode: str) -> str:
     normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
-    return normalized if normalized in PIPELINE_MODES else "Custom Tools"
+    normalized = PIPELINE_MODE_ALIASES.get(normalized, normalized)
+    return normalized if normalized in PIPELINE_MODES else "Custom"
 
 class AppState:
     def __init__(self):
@@ -37,7 +41,7 @@ class AppState:
         self.threads = tk.IntVar(value=4)
         self.non_recursive = tk.BooleanVar(value=False)
         self.run_target = tk.StringVar(value="Local")
-        self.pipeline_mode = tk.StringVar(value="Custom Tools")
+        self.pipeline_mode = tk.StringVar(value="Custom")
         self.allow_custom_tools = tk.BooleanVar(value=True)
         
         # Remote
@@ -72,12 +76,15 @@ class AppState:
         # Downloadable stats vectors
         self.stat_vector_enabled_vars: dict[str, tk.BooleanVar] = {}
         self.stat_atlas_vars: dict[str, dict[str, tk.BooleanVar]] = {}
+        self.stat_atlas_choice_vars: dict[str, tk.StringVar] = {}
         for stat, stat_def in STAT_VECTOR_DEFS.items():
             self.stat_vector_enabled_vars[stat] = tk.BooleanVar(value=False)
             self.stat_atlas_vars[stat] = {}
             for atlas in stat_def.get("atlases", ()):
                 if atlas in ATLAS_DEFS:
                     self.stat_atlas_vars[stat][atlas] = tk.BooleanVar(value=False)
+            if self.stat_atlas_vars[stat]:
+                self.stat_atlas_choice_vars[stat] = tk.StringVar(value="")
 
         # UI state variables
         self.pipeline_note = tk.StringVar(value="Standard pipeline with editable tools.")
@@ -107,12 +114,37 @@ class AppState:
             "formats": {item_id: self.export_default_format.get() or ".nii.gz" for item_id in self.export_name_vars},
         }
 
+    def _atlas_key_from_choice(self, choice: str) -> str:
+        choice = choice.strip()
+        if choice in ATLAS_DEFS:
+            return choice
+        for atlas, label in ATLAS_DEFS.items():
+            if label == choice:
+                return atlas
+        return ""
+
+    def _atlas_label(self, atlas: str) -> str:
+        return ATLAS_DEFS.get(atlas, atlas)
+
+    def selected_atlases_for_stat(self, stat: str) -> list[str]:
+        choice_var = self.stat_atlas_choice_vars.get(stat)
+        if choice_var is not None:
+            atlas = self._atlas_key_from_choice(choice_var.get())
+            return [atlas] if atlas else []
+        return [atlas for atlas, var in self.stat_atlas_vars.get(stat, {}).items() if var.get()]
+
+    def set_stat_atlas_choice(self, stat: str, atlas: str) -> None:
+        if stat in self.stat_atlas_choice_vars:
+            self.stat_atlas_choice_vars[stat].set(self._atlas_label(atlas) if atlas else "")
+        for atlas_key, var in self.stat_atlas_vars.get(stat, {}).items():
+            var.set(atlas_key == atlas)
+
     def get_stats_vector_config(self) -> dict:
         return {
             "enabled_stats": {stat: var.get() for stat, var in self.stat_vector_enabled_vars.items()},
             "atlases": {
-                stat: [atlas for atlas, var in atlas_vars.items() if var.get()]
-                for stat, atlas_vars in self.stat_atlas_vars.items()
+                stat: self.selected_atlases_for_stat(stat)
+                for stat in self.stat_atlas_vars
             },
         }
 
@@ -124,8 +156,10 @@ class AppState:
             var.set(bool(enabled_stats.get(stat, False)))
         for stat, atlas_vars in self.stat_atlas_vars.items():
             selected = set(atlases.get(stat, []))
+            selected_atlas = next((atlas for atlas in atlas_vars if atlas in selected), "")
+            self.set_stat_atlas_choice(stat, selected_atlas)
             for atlas, var in atlas_vars.items():
-                var.set(atlas in selected)
+                var.set(atlas == selected_atlas)
 
     def collect_workspace(self) -> dict:
         workspace = {

@@ -66,10 +66,10 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     mode_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
     ttk.Button(mode_row, text="Save config", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
     ttk.Button(mode_row, text="Load config", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
-    ttk.Label(mode_row, text="Mode").pack(side=tk.LEFT)
+    ttk.Label(mode_row, text="Preset").pack(side=tk.LEFT)
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
-        values=getattr(gui, "PIPELINE_MODES", ("FreeSurfer 7", "FreeSurfer 8", "Custom Tools")),
+        values=getattr(gui, "PIPELINE_MODES", ("Custom", "FS7", "FS8")),
         state="readonly",
         width=24,
     ).pack(side=tk.LEFT, padx=(8, 12))
@@ -112,30 +112,45 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     stats_frame.grid(row=stats_row, column=0, columnspan=3, sticky=tk.EW, pady=(0, 10))
     stats_frame.columnconfigure(1, weight=1)
 
-    stat_option_frames: dict[str, ttk.Frame] = {}
+    gui.stat_vector_checkbuttons = getattr(gui, "stat_vector_checkbuttons", {})
+    gui.stat_atlas_combos = getattr(gui, "stat_atlas_combos", {})
+    stat_option_widgets: dict[str, ttk.Combobox] = {}
 
     def sync_stats_options(*_args) -> None:
-        for stat, atlas_frame in stat_option_frames.items():
-            if gui.state.stat_vector_enabled_vars[stat].get() and gui.state.stat_atlas_vars.get(stat):
-                atlas_frame.grid()
-            else:
-                atlas_frame.grid_remove()
+        for stat, atlas_combo in stat_option_widgets.items():
+            choice_var = gui.state.stat_atlas_choice_vars.get(stat)
+            if choice_var is not None and not choice_var.get():
+                first_atlas = next(iter(gui.state.stat_atlas_vars[stat]), "")
+                if first_atlas:
+                    gui.state.set_stat_atlas_choice(stat, first_atlas)
+            atlas_combo.configure(state="readonly" if gui.state.stat_vector_enabled_vars[stat].get() else tk.DISABLED)
 
     for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items()):
         row = idx
-        ttk.Checkbutton(
+        check = ttk.Checkbutton(
             stats_frame,
             text=stat_def["label"],
             variable=gui.state.stat_vector_enabled_vars[stat],
             command=sync_stats_options,
-        ).grid(row=row, column=0, sticky=tk.W, padx=8, pady=3)
+        )
+        check.grid(row=row, column=0, sticky=tk.W, padx=8, pady=3)
+        gui.stat_vector_checkbuttons[stat] = check
 
-        atlas_frame = ttk.Frame(stats_frame)
-        atlas_frame.grid(row=row, column=1, sticky=tk.W, padx=8, pady=3)
-        stat_option_frames[stat] = atlas_frame
-        for atlas in stat_def.get("atlases", ()):
-            if atlas in ATLAS_DEFS:
-                ttk.Checkbutton(atlas_frame, text=ATLAS_DEFS[atlas], variable=gui.state.stat_atlas_vars[stat][atlas]).pack(side=tk.LEFT, padx=(0, 10))
+        atlas_values = [ATLAS_DEFS[atlas] for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS]
+        if atlas_values:
+            combo = ttk.Combobox(
+                stats_frame,
+                textvariable=gui.state.stat_atlas_choice_vars[stat],
+                values=atlas_values,
+                state="readonly",
+                width=28,
+            )
+            combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=3)
+            stat_option_widgets[stat] = combo
+            gui.stat_atlas_combos[stat] = combo
+            first_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
+            if first_atlas:
+                gui.state.set_stat_atlas_choice(stat, first_atlas)
         gui.state.stat_vector_enabled_vars[stat].trace_add("write", sync_stats_options)
     sync_stats_options()
 
@@ -163,8 +178,8 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     source_row = ttk.Frame(frame)
     source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 10))
     ttk.Label(source_row, text="Input location").pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Radiobutton(source_row, text="Local computer", variable=gui.state.input_source, value="Local", command=gui._refresh_input_label).pack(side=tk.LEFT)
-    ttk.Radiobutton(source_row, text="Server", variable=gui.state.input_source, value="Server", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
+    ttk.Radiobutton(source_row, text="Local computer", variable=gui.state.input_source, value="Local", command=gui._on_input_source_changed).pack(side=tk.LEFT)
+    ttk.Radiobutton(source_row, text="Server", variable=gui.state.input_source, value="Server", command=gui._on_input_source_changed).pack(side=tk.LEFT, padx=(14, 0))
 
     container = ttk.Frame(frame)
     container.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=3)
