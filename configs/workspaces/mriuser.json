@@ -34,18 +34,6 @@
       "white_matter_segmentation.primary": ".nii.gz"
     }
   },
-  "stats_vectors": {
-    "enabled_stats": {
-      "cortical_thickness": false,
-      "cortical_volume": false,
-      "subcortical_volume": false
-    },
-    "atlases": {
-      "cortical_thickness": [],
-      "cortical_volume": [],
-      "subcortical_volume": []
-    }
-  },
   "device": "cpu",
   "threads": 4,
   "non_recursive": false,

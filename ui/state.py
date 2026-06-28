@@ -137,7 +137,6 @@ class AppState:
             "selected_files": self.selected_files,
             "output_dir": self.output_dir.get(),
             "export_outputs": self.get_export_config(),
-            "stats_vectors": self.get_stats_vector_config(),
             "device": self.device.get(),
             "threads": int(self.threads.get()),
             "non_recursive": self.non_recursive.get(),
@@ -172,7 +171,6 @@ class AppState:
         for item_id, value in export.get("formats", {}).items():
             if item_id in self.export_format_vars:
                 self.export_format_vars[item_id].set(value if value in (".nii.gz", ".mgz") else ".nii.gz")
-        self.apply_stats_vector_config(workspace.get("stats_vectors", {}))
 
         self.device.set(workspace.get("device", "cpu"))
         self.threads.set(int(workspace.get("threads", 4)))
