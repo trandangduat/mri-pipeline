@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import ssl
 import subprocess
 import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
+from urllib.parse import quote
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from pipeline_runner import (
     PROJECT_ROOT,
@@ -52,6 +57,80 @@ class ToolsMixin:
             if image and image not in images:
                 images.append(image)
         return images
+
+    def _docker_hub_tag_url(self, image: str) -> str | None:
+        image = image.split("@", 1)[0]
+        if "/" not in image:
+            namespace = "library"
+            repo_tag = image
+        else:
+            first, rest = image.split("/", 1)
+            if "." in first or ":" in first or first == "localhost":
+                if first not in {"docker.io", "registry-1.docker.io", "index.docker.io"} or "/" not in rest:
+                    return None
+                namespace, repo_tag = rest.split("/", 1)
+            else:
+                namespace = first
+                repo_tag = rest
+        repo, tag = repo_tag.rsplit(":", 1) if ":" in repo_tag else (repo_tag, "latest")
+        if not namespace or not repo or not tag:
+            return None
+        return f"https://hub.docker.com/v2/repositories/{quote(namespace)}/{quote(repo)}/tags/{quote(tag)}"
+
+    def _fetch_docker_hub_image_size(self, image: str) -> str:
+        url = self._docker_hub_tag_url(image)
+        if not url:
+            return "-"
+        try:
+            req = Request(url, headers={"User-Agent": "mri-pipeline-gui/1.0"})
+            try:
+                with urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except URLError as exc:
+                if not isinstance(getattr(exc, "reason", None), ssl.SSLCertVerificationError):
+                    raise
+                context = ssl._create_unverified_context()
+                with urlopen(req, timeout=10, context=context) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            size = data.get("full_size")
+            return format_image_size(int(size)) if size is not None else "-"
+        except Exception:
+            return "-"
+
+    def _set_hub_image_size(self, image: str, size: str) -> None:
+        if not image:
+            return
+        for target in ("Local", "Server"):
+            sizes = self.tool_image_sizes.setdefault(target, {})
+            if sizes.get(image, "-") in {"-", "Loading..."}:
+                sizes[image] = size
+        self._refresh_tools_tree()
+
+    def _preload_docker_hub_image_sizes(self) -> None:
+        if getattr(self, "tools_hub_size_loading", False):
+            return
+        images = self._all_enabled_images()
+        missing = [
+            image for image in images
+            if all(self.tool_image_sizes.setdefault(target, {}).get(image, "-") == "-" for target in ("Local", "Server"))
+        ]
+        if not missing:
+            return
+        self.tools_hub_size_loading = True
+        for image in missing:
+            for target in ("Local", "Server"):
+                self.tool_image_sizes.setdefault(target, {})[image] = "Loading..."
+        self._refresh_tools_tree()
+
+        def worker() -> None:
+            try:
+                for image in missing:
+                    size = self._fetch_docker_hub_image_size(image)
+                    self.root.after(0, lambda i=image, s=size: self._set_hub_image_size(i, s))
+            finally:
+                self.root.after(0, lambda: setattr(self, "tools_hub_size_loading", False))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _tools_for_image(self, image: str) -> list[str]:
         return [
@@ -168,13 +247,16 @@ class ToolsMixin:
             "Error": "#dc2626",
         }.get(status, "#64748b")
 
-    def _image_size_text(self, target: str, image: str) -> str:
+    def _compressed_image_size_text(self, target: str, image: str) -> str:
         return self.tool_image_sizes.setdefault(target, {}).get(image, "-")
 
-    def _set_image_size(self, target: str, image: str, size: str) -> None:
+    def _installed_image_size_text(self, target: str, image: str) -> str:
+        return self.tool_image_installed_sizes.setdefault(target, {}).get(image, "-")
+
+    def _set_installed_image_size(self, target: str, image: str, size: str) -> None:
         if not image:
             return
-        self.tool_image_sizes.setdefault(target, {})[image] = size
+        self.tool_image_installed_sizes.setdefault(target, {})[image] = size
         self._refresh_tools_tree()
 
     def _set_image_status(self, target: str, image: str, status: str) -> None:
@@ -216,7 +298,7 @@ class ToolsMixin:
             widgets = self.tools_row_widgets.get(tool_key)
             if widgets is None:
                 cells = []
-                for col in range(6):
+                for col in range(7):
                     cell = tk.Frame(table, padx=4, pady=2, bg="#fafafa")
                     cell.grid(row=row, column=col, sticky=tk.NSEW, padx=0, pady=1)
                     cells.append(cell)
@@ -232,13 +314,15 @@ class ToolsMixin:
                 tool_label.pack(fill=tk.BOTH, expand=True)
                 image_label = tk.Label(cells[3], anchor=tk.W, bg="#fafafa", fg="#475569")
                 image_label.pack(fill=tk.BOTH, expand=True)
-                size_label = tk.Label(cells[4], anchor=tk.W, bg="#fafafa", fg="#475569")
-                size_label.pack(fill=tk.BOTH, expand=True)
-                status_label = tk.Label(cells[5], text="", anchor=tk.CENTER, bg="#fafafa", fg="#111827")
+                compressed_size_label = tk.Label(cells[4], anchor=tk.W, bg="#fafafa", fg="#475569")
+                compressed_size_label.pack(fill=tk.BOTH, expand=True)
+                installed_size_label = tk.Label(cells[5], anchor=tk.W, bg="#fafafa", fg="#475569")
+                installed_size_label.pack(fill=tk.BOTH, expand=True)
+                status_label = tk.Label(cells[6], text="", anchor=tk.CENTER, bg="#fafafa", fg="#111827")
                 status_label.pack(anchor=tk.W)
                 
                 sep = ttk.Separator(table, orient=tk.HORIZONTAL)
-                sep.grid(row=row+1, column=0, columnspan=6, sticky=tk.EW, pady=(2, 2))
+                sep.grid(row=row+1, column=0, columnspan=7, sticky=tk.EW, pady=(2, 2))
                 
                 widgets = {
                     "cells": cells,
@@ -246,7 +330,8 @@ class ToolsMixin:
                     "stage": stage_label,
                     "tool": tool_label,
                     "image": image_label,
-                    "size": size_label,
+                    "compressed_size": compressed_size_label,
+                    "installed_size": installed_size_label,
                     "status": status_label,
                     "sep": sep,
                 }
@@ -266,7 +351,8 @@ class ToolsMixin:
             widgets["stage"].configure(text=STAGE_LABELS.get(stage, stage), bg=bg)
             widgets["tool"].configure(text=tool_display_name(tool_key), bg=bg)
             widgets["image"].configure(text=image, bg=bg)
-            widgets["size"].configure(text=self._image_size_text(target, image), bg=bg)
+            widgets["compressed_size"].configure(text=self._compressed_image_size_text(target, image), bg=bg)
+            widgets["installed_size"].configure(text=self._installed_image_size_text(target, image), bg=bg)
             icon = self._tool_status_icon_image(status)
             if icon is not None:
                 widgets["status"].configure(image=icon, text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
@@ -514,7 +600,7 @@ class ToolsMixin:
                     status = "Installed" if installed else "Missing"
                     size = format_image_size(image_size_bytes(image)) if installed else "-"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_image_size("Local", i, z))
+                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
                     self.root.after(0, lambda i=image, s=status: self._append_tools_log(f"{s}: {i}"))
                 return
 
@@ -530,7 +616,7 @@ class ToolsMixin:
                     status = "Installed" if installed else "Missing"
                     size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_image_size("Server", i, z))
+                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
                 for image in images:
@@ -558,7 +644,7 @@ class ToolsMixin:
                     status = "Installed" if ok or image_exists(image) else "Error"
                     size = format_image_size(image_size_bytes(image)) if status == "Installed" else "-"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_image_size("Local", i, z))
+                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
                     msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
                     self.root.after(0, lambda m=msg: self._append_tools_log(m))
                 return
@@ -577,7 +663,7 @@ class ToolsMixin:
                     status = "Installed" if installed else ("Missing" if ok else "Error")
                     size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_image_size("Server", i, z))
+                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
                 for tool_key in tool_keys:
@@ -607,7 +693,7 @@ class ToolsMixin:
                     status = "Missing" if ok else "Error"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
                     if ok:
-                        self.root.after(0, lambda i=image: self._set_image_size("Local", i, "-"))
+                        self.root.after(0, lambda i=image: self._set_installed_image_size("Local", i, "-"))
                         self.root.after(0, lambda i=image: self._append_tools_log(f"Deleted: {i}"))
                     else:
                         self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
@@ -624,7 +710,7 @@ class ToolsMixin:
                     status = "Missing" if ok else "Error"
                     self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
                     if ok:
-                        self.root.after(0, lambda i=image: self._set_image_size("Server", i, "-"))
+                        self.root.after(0, lambda i=image: self._set_installed_image_size("Server", i, "-"))
                     elif err:
                         self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
             except Exception as exc:

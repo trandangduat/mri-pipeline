@@ -87,14 +87,16 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     table.columnconfigure(2, weight=1)
     table.columnconfigure(3, weight=3)
     table.columnconfigure(4, minsize=90)
-    table.columnconfigure(5, minsize=140)
+    table.columnconfigure(5, minsize=90)
+    table.columnconfigure(6, minsize=140)
     ttk.Label(table, text="", width=4).grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=(0, 6))
     ttk.Label(table, text="Stage", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(0, 6))
     ttk.Label(table, text="Tool", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(0, 6))
     ttk.Label(table, text="Image", font=("Inter", 9, "bold")).grid(row=0, column=3, sticky=tk.W, padx=8, pady=(0, 6))
-    ttk.Label(table, text="Size", font=("Inter", 9, "bold")).grid(row=0, column=4, sticky=tk.W, padx=8, pady=(0, 6))
-    ttk.Label(table, text="Status", font=("Inter", 9, "bold")).grid(row=0, column=5, sticky=tk.W, padx=8, pady=(0, 6))
-    ttk.Separator(table, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=6, sticky=tk.EW, pady=(0, 4))
+    ttk.Label(table, text="Download size", font=("Inter", 9, "bold")).grid(row=0, column=4, sticky=tk.W, padx=8, pady=(0, 6))
+    ttk.Label(table, text="Installed size", font=("Inter", 9, "bold")).grid(row=0, column=5, sticky=tk.W, padx=8, pady=(0, 6))
+    ttk.Label(table, text="Status", font=("Inter", 9, "bold")).grid(row=0, column=6, sticky=tk.W, padx=8, pady=(0, 6))
+    ttk.Separator(table, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=7, sticky=tk.EW, pady=(0, 4))
     gui.tools_table_frame = table
 
     log_card = ttk.LabelFrame(root, text=" Image log ", padding=12)
@@ -111,4 +113,5 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     gui._refresh_tools_tree()
+    gui._preload_docker_hub_image_sizes()
     gui._set_python_env_status(gui.python_env_status.get())
