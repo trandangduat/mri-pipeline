@@ -39,7 +39,6 @@ from ui.gui_tools import ToolsMixin
 from ui.state import AppState
 from ui.styles import configure_windows_dpi_awareness, setup_styles
 from ui.tabs.config_tab import build_configuration_tab
-from ui.tabs.progress_tab import build_progress_tab
 from ui.tabs.tools_tab import build_tools_tab
 
 
@@ -146,6 +145,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.notebook: ttk.Notebook | None = None
         self.config_tab: ttk.Frame | None = None
         self.progress_tab: ttk.Frame | None = None
+        self.progress_contexts: dict[str, dict] = {}
+        self.progress_context_by_job: dict[str, str] = {}
+        self.active_progress_context_id = ""
         self.toolbar_icons: dict[str, tk.PhotoImage] = {}
         self.image_runs: dict[str, dict] = {}
         self.image_rows: dict[str, dict] = {}
@@ -182,6 +184,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.step_summary_rows: dict[str, dict[str, ttk.Label]] = {}
         self.progress_selected_tools: dict[str, str] = {}
         self.remote_poll_in_flight = False
+        self.job_monitors: dict[str, dict] = {}
 
         self._build_ui()
         self._update_python_env_hint()
@@ -336,14 +339,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         self.config_tab = ttk.Frame(self.notebook)
         self.tools_tab = ttk.Frame(self.notebook)
-        self.progress_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.config_tab, text="Pipeline configuration")
         self.notebook.add(self.tools_tab, text="Tools / Docker Images")
-        self.notebook.add(self.progress_tab, text="Run progress", state="disabled")
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
 
         build_configuration_tab(self.config_tab, self)
         build_tools_tab(self.tools_tab, self)
-        build_progress_tab(self.progress_tab, self)
 
     def _build_status_bar(self, parent: ttk.Frame) -> None:
         bar = ttk.Frame(parent, padding=(10, 5))

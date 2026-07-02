@@ -136,7 +136,7 @@ class PipelineMixin:
                 messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                 return
             self.remote_runner = runner
-            self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"))
+            self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Server: starting")
             self._show_progress_tab()
             self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
             return
@@ -147,7 +147,7 @@ class PipelineMixin:
         run_request["resume"] = resume
         run_request["restart"] = restart
 
-        self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"))
+        self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Local: starting")
         self._show_progress_tab()
 
         self.running = True
@@ -201,10 +201,12 @@ class PipelineMixin:
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
         entry = self._registry_entry_for_local_job(job_dir, run_request, proc.pid)
         upsert_job_registry(entry)
+        self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Local job"), self._progress_job_identity(entry))
         self._log(f"Local background job started: {job_dir}")
         self._log("You can close the GUI. The local worker process will keep running.")
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._register_job_monitor_for_active_context()
         self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
@@ -223,10 +225,12 @@ class PipelineMixin:
         remote_dir = runner.start_remote_detached()
         entry = self._registry_entry_for_remote_job(runner, remote_dir)
         upsert_job_registry(entry)
+        self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
         self._log(f"Remote background job started: {remote_dir}")
         self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._register_job_monitor_for_active_context()
         self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
@@ -492,15 +496,17 @@ class PipelineMixin:
             return
         runner.config.resume = resume
         self.remote_runner = runner
-        self._prepare_progress_tab(self._input_files_for_progress(), self.state.get_selected_tools())
+        self._prepare_progress_tab(self._input_files_for_progress(), self.state.get_selected_tools(), title="Server: starting")
         self._show_progress_tab()
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
         entry = self._registry_entry_for_remote_job(runner, remote_dir)
         upsert_job_registry(entry)
+        self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
         self._log(f"Remote background job started: {remote_dir}")
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._register_job_monitor_for_active_context()
         self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
@@ -599,12 +605,12 @@ class PipelineMixin:
                 error=step.error,
             )
         self._log(f"Single file finished: {subject_id} | status={'OK' if ok else 'FAILED'}")
-        self.state.current_running_images = 0
+        self._set_progress_count("current_running_images", 0)
         if ok:
-            self.state.current_success_images += 1
+            self._set_progress_count("current_success_images", self._get_progress_count("current_success_images") + 1)
             self._update_image_run(input_file, status="Done", percent=100, stage_text="Completed")
         else:
-            self.state.current_failed_images += 1
+            self._set_progress_count("current_failed_images", self._get_progress_count("current_failed_images") + 1)
             self._update_image_run(input_file, status="Failed", stage_text="Failed")
         self._update_batch_summary()
 

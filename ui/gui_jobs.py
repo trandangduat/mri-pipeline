@@ -269,6 +269,39 @@ class JobsMixin:
         if was_monitoring:
             self.running = False
 
+    def _register_job_monitor_for_active_context(self) -> None:
+        context_id = getattr(self, "active_progress_context_id", "")
+        if not context_id or not self.active_job:
+            return
+        self.job_monitors[context_id] = {
+            "context_id": context_id,
+            "active_job": self.active_job,
+            "remote_runner": self.remote_runner if self.active_job.get("target") == "Server" else None,
+            "job_log_offset": int(self.job_log_offset or 0),
+            "after_id": None,
+            "remote_poll_in_flight": False,
+        }
+
+    def _load_job_monitor(self, context_id: str) -> dict | None:
+        monitor = self.job_monitors.get(context_id)
+        if not monitor:
+            return None
+        self._activate_progress_context(context_id)
+        self.active_job = monitor.get("active_job")
+        self.remote_runner = monitor.get("remote_runner")
+        self.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
+        self.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
+        self.job_poll_after_id = monitor.get("after_id")
+        return monitor
+
+    def _save_job_monitor(self, monitor: dict) -> None:
+        monitor["active_job"] = self.active_job
+        monitor["remote_runner"] = self.remote_runner if self.active_job and self.active_job.get("target") == "Server" else monitor.get("remote_runner")
+        monitor["job_log_offset"] = int(self.job_log_offset or 0)
+        monitor["remote_poll_in_flight"] = bool(self.remote_poll_in_flight)
+        if monitor.get("context_id") == getattr(self, "active_progress_context_id", ""):
+            self.job_poll_after_id = monitor.get("after_id")
+
     def _attach_manual_job_dialog(self) -> None:
         if self.state.run_target.get() == "Server":
             if not self._ensure_remote_auth_for_job_action("Attach job"):
@@ -282,7 +315,6 @@ class JobsMixin:
             self._attach_registry_job({"target": "Local", "job_dir": job_dir, "state": "unknown"})
 
     def _attach_registry_job(self, job: dict) -> None:
-        self._stop_current_job_monitor()
         target = job.get("target")
         selected_tools = dict((job.get("run_request") or {}).get("selected_tools") or {})
         config: dict = {}
@@ -304,9 +336,12 @@ class JobsMixin:
             self.state.run_target.set("Local")
             self._on_run_target_changed()
         self.job_log_offset = 0
-        self._prepare_progress_tab(input_files, selected_tools or self.state.get_selected_tools())
+        title = self._progress_title_for_job(job, fallback="Attached job")
+        identity = self._progress_job_identity(job)
+        self._prepare_progress_tab(input_files, selected_tools or self.state.get_selected_tools(), title=title, job_identity=identity)
         self._show_progress_tab()
-        self.state.detail_title.set("Attaching job...")
+        self._set_detail_title("Attaching job...")
+        self._register_job_monitor_for_active_context()
         self._enter_background_monitor_state("Attaching background job...")
         if target != "Server":
             self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
@@ -389,14 +424,15 @@ class JobsMixin:
                 self._update_image_run(input_file, status="Failed", percent=percent, stage_text="Failed")
             elif pipeline_status in {"running", "paused"}:
                 running_count += 1 if pipeline_status == "running" else 0
-                self.active_image_key = input_file if pipeline_status == "running" else self.active_image_key
+                if pipeline_status == "running":
+                    self._set_active_image_key(input_file)
                 self._update_image_run(input_file, status="Running" if pipeline_status == "running" else "Paused", percent=percent, stage_text=pipeline_status.capitalize())
             elif stages:
                 self._update_image_run(input_file, percent=percent)
 
-        self.state.current_success_images = success_count
-        self.state.current_failed_images = failed_count
-        self.state.current_running_images = running_count
+        self._set_progress_count("current_success_images", success_count)
+        self._set_progress_count("current_failed_images", failed_count)
+        self._set_progress_count("current_running_images", running_count)
         self._update_batch_summary()
         if self.current_image_key in self.image_runs:
             self._render_selected_detail()
@@ -803,9 +839,15 @@ class JobsMixin:
         upsert_job_registry(entry)
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
-        self._prepare_progress_tab(self._input_files_for_progress(config), config.get("selected_tools") or self.state.get_selected_tools())
+        self._prepare_progress_tab(
+            self._input_files_for_progress(config),
+            config.get("selected_tools") or self.state.get_selected_tools(),
+            title=self._progress_title_for_job(entry, fallback="Resumed local job"),
+            job_identity=self._progress_job_identity(entry),
+        )
         self._show_progress_tab()
         self._load_local_progress_state(job_dir, config)
+        self._register_job_monitor_for_active_context()
         self._enter_background_monitor_state("Resuming local background job...")
         self._log(f"Local background job resumed: {job_dir}")
         self._schedule_job_poll(delay_ms=0)
@@ -826,15 +868,21 @@ class JobsMixin:
         self.remote_runner = runner
         self.state.run_target.set("Server")
         self._on_run_target_changed()
-        self._prepare_progress_tab(list(job.get("input_files") or []) or self._input_files_for_progress(config), config.get("selected_tools") or self.state.get_selected_tools())
-        self._show_progress_tab()
-        self._enter_background_monitor_state("Resuming remote background job...")
         remote_dir = runner.start_remote_detached()
         entry = dict(job)
         entry.update({"state": "running", "remote_job_dir": remote_dir, "updated_at": time.time(), "run_request": config})
         upsert_job_registry(entry)
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
+        self._prepare_progress_tab(
+            list(job.get("input_files") or []) or self._input_files_for_progress(config),
+            config.get("selected_tools") or self.state.get_selected_tools(),
+            title=self._progress_title_for_job(entry, fallback="Resumed remote job"),
+            job_identity=self._progress_job_identity(entry),
+        )
+        self._show_progress_tab()
+        self._register_job_monitor_for_active_context()
+        self._enter_background_monitor_state("Resuming remote background job...")
         self._validate_configuration()
         self._log(f"Remote background job resumed: {remote_dir}")
         self._schedule_job_poll(delay_ms=0)
@@ -885,22 +933,43 @@ class JobsMixin:
         )
         return RemoteRunner(remote_config, on_log=self._remote_log_event)
 
-    def _schedule_job_poll(self, delay_ms: int = 1500) -> None:
-        if self.job_poll_after_id:
+    def _schedule_job_poll(self, delay_ms: int = 1500, context_id: str | None = None) -> None:
+        context_id = context_id or getattr(self, "active_progress_context_id", "")
+        monitor = self.job_monitors.get(context_id) if context_id else None
+        if monitor is None:
+            if self.job_poll_after_id:
+                try:
+                    self.root.after_cancel(self.job_poll_after_id)
+                except Exception:
+                    pass
+            self.job_poll_after_id = self.root.after(delay_ms, self._poll_active_job)
+            return
+        if monitor.get("after_id"):
             try:
-                self.root.after_cancel(self.job_poll_after_id)
+                self.root.after_cancel(monitor["after_id"])
             except Exception:
                 pass
-        self.job_poll_after_id = self.root.after(delay_ms, self._poll_active_job)
+        monitor["after_id"] = self.root.after(delay_ms, lambda cid=context_id: self._poll_active_job(cid))
+        if context_id == getattr(self, "active_progress_context_id", ""):
+            self.job_poll_after_id = monitor["after_id"]
 
-    def _poll_active_job(self) -> None:
+    def _poll_active_job(self, context_id: str | None = None) -> None:
+        monitor = self._load_job_monitor(context_id) if context_id else None
+        if context_id and monitor is None:
+            return
         if not self.active_job:
-            self.job_poll_after_id = None
+            if monitor is not None:
+                monitor["after_id"] = None
+                self._save_job_monitor(monitor)
+            else:
+                self.job_poll_after_id = None
             return
         try:
             target = self.active_job.get("target")
             if target == "Server":
-                self._start_remote_poll_worker()
+                self._start_remote_poll_worker(context_id)
+                if monitor is not None:
+                    self._save_job_monitor(monitor)
                 return
             else:
                 done = self._poll_local_background_job()
@@ -910,18 +979,28 @@ class JobsMixin:
 
         if done:
             self.active_job["done"] = True
+            if monitor is not None:
+                monitor["after_id"] = None
+                self._save_job_monitor(monitor)
             self.job_poll_after_id = None
             self._set_idle_state()
             return
-        self._schedule_job_poll()
+        if monitor is not None:
+            self._save_job_monitor(monitor)
+        self._schedule_job_poll(context_id=context_id)
 
-    def _start_remote_poll_worker(self) -> None:
-        if self.remote_poll_in_flight:
+    def _start_remote_poll_worker(self, context_id: str | None = None) -> None:
+        monitor = self.job_monitors.get(context_id) if context_id else None
+        if monitor is not None and monitor.get("remote_poll_in_flight"):
+            return
+        if monitor is None and self.remote_poll_in_flight:
             return
         if not self.remote_runner:
             self._set_idle_state()
             return
         self.remote_poll_in_flight = True
+        if monitor is not None:
+            monitor["remote_poll_in_flight"] = True
         runner = self.remote_runner
         offset = self.job_log_offset
 
@@ -935,20 +1014,30 @@ class JobsMixin:
                 status = runner.remote_status()
             except Exception as exc:
                 error = exc
-            self.root.after(0, lambda r=runner: self._finish_remote_poll(r, data, new_offset, status, error))
+            self.root.after(0, lambda r=runner, cid=context_id: self._finish_remote_poll(r, data, new_offset, status, error, cid))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_remote_poll(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None) -> None:
-        if runner is not self.remote_runner:
+    def _finish_remote_poll(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None, context_id: str | None = None) -> None:
+        monitor = self._load_job_monitor(context_id) if context_id else None
+        expected_runner = monitor.get("remote_runner") if monitor is not None else self.remote_runner
+        if runner is not expected_runner:
             return
         self.remote_poll_in_flight = False
+        if monitor is not None:
+            monitor["remote_poll_in_flight"] = False
         if not self.active_job or self.active_job.get("target") != "Server":
-            self.job_poll_after_id = None
+            if monitor is not None:
+                monitor["after_id"] = None
+                self._save_job_monitor(monitor)
+            else:
+                self.job_poll_after_id = None
             return
         if error is not None:
             self._log(f"BACKGROUND POLL ERROR: {type(error).__name__}: {error}")
-            self._schedule_job_poll()
+            if monitor is not None:
+                self._save_job_monitor(monitor)
+            self._schedule_job_poll(context_id=context_id)
             return
         self.job_log_offset = new_offset
         self._handle_background_log_chunk(data)
@@ -964,12 +1053,17 @@ class JobsMixin:
             self._log("Use Download Outputs to copy remote outputs to the local output folder.")
             self._update_registry_for_active_job(state, status.get("exit_code"))
             self.active_job["done"] = True
+            if monitor is not None:
+                monitor["after_id"] = None
+                self._save_job_monitor(monitor)
             self.job_poll_after_id = None
             self._set_idle_state()
             return
         self.state.status_text.set("Running in background")
         self.state.remote_status.set(f"Remote: {state}")
-        self._schedule_job_poll()
+        if monitor is not None:
+            self._save_job_monitor(monitor)
+        self._schedule_job_poll(context_id=context_id)
 
     def _poll_local_background_job(self) -> bool:
         if not self.active_job:
