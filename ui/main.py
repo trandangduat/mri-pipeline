@@ -43,13 +43,15 @@ from ui.tabs.tools_tab import build_tools_tab
 
 
 class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
-    PIPELINE_MODES = ("Custom", "FS7", "FS8", "Volume", "Volume & Cortical Thickness")
+    PIPELINE_MODES = ("Custom", "FreeSurfer7", "FreeSurfer8", "Volume", "Volume & Cortical Thickness")
     PIPELINE_MODE_ALIASES = {
         "Custom Tools": "Custom",
-        "FreeSurfer 7": "FS7",
-        "FreeSurfer 8": "FS8",
-        "FreeSurfer Fixed": "FS7",
-        "FreeSurfer Fixed (7 steps)": "FS7",
+        "FS7": "FreeSurfer7",
+        "FS8": "FreeSurfer8",
+        "FreeSurfer 7": "FreeSurfer7",
+        "FreeSurfer 8": "FreeSurfer8",
+        "FreeSurfer Fixed": "FreeSurfer7",
+        "FreeSurfer Fixed (7 steps)": "FreeSurfer7",
     }
     OPTIONAL_STAGES = {
         "surface_reconstruction",
@@ -88,8 +90,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "surface_registration": "surface_stats_fs8",
     }
     MODE_TOOLSETS = {
-        "FS7": FREESURFER_7_TOOLS,
-        "FS8": FREESURFER_8_TOOLS,
+        "FreeSurfer7": FREESURFER_7_TOOLS,
+        "FreeSurfer8": FREESURFER_8_TOOLS,
         "Volume": FREESURFER_7_TOOLS,
         "Volume & Cortical Thickness": FREESURFER_7_SURFACE_TOOLS,
     }
@@ -648,10 +650,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     self.state.tool_vars[stage].set(tool_display_name(tool) if tool else "")
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
-            if mode == "FS8":
-                self.state.pipeline_note.set("Fixed FreeSurfer 8 stack: FS8 convert, SynthStrip, SynthSeg, SynthMorph, WM mask, and stats. Surface steps 7-8 are skipped.")
-            elif mode == "FS7":
-                self.state.pipeline_note.set("Fixed FreeSurfer 7 stack: FS7 convert, SynthStrip, SynthSeg, WM mask, and stats; registration uses SynthMorph FS8. Surface steps 7-8 are skipped.")
+            if mode == "FreeSurfer8":
+                self.state.pipeline_note.set("Fixed FreeSurfer8 stack: FreeSurfer8 convert, SynthStrip, SynthSeg, SynthMorph, WM mask, and stats. Surface steps 7-8 are skipped.")
+            elif mode == "FreeSurfer7":
+                self.state.pipeline_note.set("Fixed FreeSurfer7 stack: FreeSurfer7 convert, SynthStrip, SynthSeg, WM mask, and stats; registration uses SynthMorph FreeSurfer8. Surface steps 7-8 are skipped.")
             elif mode == "Volume":
                 self.state.pipeline_note.set("Volume preset: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
             else:

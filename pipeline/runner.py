@@ -195,6 +195,12 @@ VECTOR_SPECS = {
         "features": "cortical_volume_feats.txt",
         "value": "volume_mm3",
     },
+    "aparc": {
+        "column": "aparc_cortical_thickness",
+        "features": "aparc_cortical_thickness_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "aparc",
+    },
     "schaefer2018": {
         "column": "schaefer200_7network",
         "features": "schaefer200_7network_feats.txt",

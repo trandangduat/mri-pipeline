@@ -69,7 +69,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     ttk.Label(mode_row, text="Preset").pack(side=tk.LEFT)
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
-        values=getattr(gui, "PIPELINE_MODES", ("Custom", "FS7", "FS8")),
+        values=getattr(gui, "PIPELINE_MODES", ("Custom", "FreeSurfer7", "FreeSurfer8")),
         state="readonly",
         width=24,
     ).pack(side=tk.LEFT, padx=(8, 12))

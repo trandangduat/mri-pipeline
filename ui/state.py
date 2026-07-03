@@ -4,13 +4,15 @@ from pathlib import Path
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
 
 
-PIPELINE_MODES = ("Custom", "FS7", "FS8", "Volume", "Volume & Cortical Thickness")
+PIPELINE_MODES = ("Custom", "FreeSurfer7", "FreeSurfer8", "Volume", "Volume & Cortical Thickness")
 PIPELINE_MODE_ALIASES = {
     "Custom Tools": "Custom",
-    "FreeSurfer 7": "FS7",
-    "FreeSurfer 8": "FS8",
-    "FreeSurfer Fixed": "FS7",
-    "FreeSurfer Fixed (7 steps)": "FS7",
+    "FS7": "FreeSurfer7",
+    "FS8": "FreeSurfer8",
+    "FreeSurfer 7": "FreeSurfer7",
+    "FreeSurfer 8": "FreeSurfer8",
+    "FreeSurfer Fixed": "FreeSurfer7",
+    "FreeSurfer Fixed (7 steps)": "FreeSurfer7",
 }
 
 

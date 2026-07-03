@@ -61,7 +61,7 @@ STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_thickness": {
         "label": "Cortical thickness",
         "value_column": "thickness_mm",
-        "atlases": ("yale", "kong", "schaefer2018"),
+        "atlases": ("aparc", "yale", "kong", "schaefer2018"),
     },
     "cortical_volume": {
         "label": "Cortical volume",
@@ -77,6 +77,7 @@ STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
 
 
 ATLAS_DEFS: dict[str, str] = {
+    "aparc": "FreeSurfer aparc",
     "yale": "Yale",
     "kong": "Kong",
     "schaefer2018": "Schaefer 2018",
@@ -113,7 +114,7 @@ class StatsVectorConfig:
 
 TOOL_DEFS: dict[str, dict] = {
     "mri_convert_fs8": {
-        "display_name": "MRI Convert FS8",
+        "display_name": "MRI Convert FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -121,7 +122,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_reoriented.nii.gz"],
     },
     "mri_convert_fs7": {
-        "display_name": "MRI Convert FS7",
+        "display_name": "MRI Convert FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "reorientation",
         "needs_license": True,
@@ -137,7 +138,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["01_nibabel_reoriented.nii.gz"],
     },
     "synthstrip_fs8": {
-        "display_name": "SynthStrip FS8",
+        "display_name": "SynthStrip FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
@@ -150,7 +151,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"],
     },
     "synthstrip_fs7": {
-        "display_name": "SynthStrip FS7",
+        "display_name": "SynthStrip FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "brain_extraction",
         "needs_license": True,
@@ -181,7 +182,7 @@ TOOL_DEFS: dict[str, dict] = {
         "extra_mounts": {"hdbet_weights": "/root/.cache/torch/hub/checkpoints"},
     },
     "synthseg_freesurfer_fs8": {
-        "display_name": "SynthSeg FS8",
+        "display_name": "SynthSeg FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -195,7 +196,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
     },
     "synthseg_freesurfer_fs7": {
-        "display_name": "SynthSeg FS7",
+        "display_name": "SynthSeg FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "segmentation",
         "needs_license": True,
@@ -233,7 +234,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["05_standardized.nii.gz"],
     },
     "synthmorph_fs8": {
-        "display_name": "SynthMorph FS8",
+        "display_name": "SynthMorph FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "template_registration",
         "needs_license": True,
@@ -257,7 +258,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "mri_binarize": {
-        "display_name": "MRI Binarize FS7",
+        "display_name": "MRI Binarize FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "white_matter_segmentation",
         "needs_license": True,
@@ -265,7 +266,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["06_wm_mask.nii.gz"],
     },
     "mri_binarize_fs8": {
-        "display_name": "MRI Binarize FS8",
+        "display_name": "MRI Binarize FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "white_matter_segmentation",
         "needs_license": True,
@@ -273,7 +274,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["06_wm_mask.nii.gz"],
     },
     "recon_all_fs7": {
-        "display_name": "Recon-All FS7",
+        "display_name": "Recon-All FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "surface_reconstruction",
         "needs_license": True,
@@ -297,7 +298,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "recon_all_fs8": {
-        "display_name": "Recon-All FS8",
+        "display_name": "Recon-All FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "surface_reconstruction",
         "needs_license": True,
@@ -321,7 +322,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "surface_stats_fs7": {
-        "display_name": "Surface Stats FS7",
+        "display_name": "Surface Stats FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "surface_registration",
         "needs_license": True,
@@ -340,7 +341,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["lh.aparc.stats", "rh.aparc.stats"],
     },
     "surface_stats_fs8": {
-        "display_name": "Surface Stats FS8",
+        "display_name": "Surface Stats FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "surface_registration",
         "needs_license": True,
@@ -359,7 +360,7 @@ TOOL_DEFS: dict[str, dict] = {
         "output_files": ["lh.aparc.stats", "rh.aparc.stats"],
     },
     "freesurfer_stats_fs7": {
-        "display_name": "FreeSurfer Stats FS7",
+        "display_name": "FreeSurfer Stats FreeSurfer7",
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "stats_extraction",
         "needs_license": True,
@@ -370,7 +371,7 @@ TOOL_DEFS: dict[str, dict] = {
         ],
     },
     "freesurfer_stats_fs8": {
-        "display_name": "FreeSurfer Stats FS8",
+        "display_name": "FreeSurfer Stats FreeSurfer8",
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "stats_extraction",
         "needs_license": True,
