@@ -61,23 +61,25 @@ STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_thickness": {
         "label": "Cortical thickness",
         "value_column": "thickness_mm",
-        "atlases": ("aparc", "yale", "kong", "schaefer2018"),
+        "atlases": ("aparc", "aparc_a2009s", "yale", "kong", "schaefer2018"),
     },
     "cortical_volume": {
         "label": "Cortical volume",
         "value_column": "volume_mm3",
-        "atlases": (),
+        "atlases": ("freesurfer_aseg",),
     },
     "subcortical_volume": {
         "label": "Subcortical volume",
         "value_column": "volume_mm3",
-        "atlases": (),
+        "atlases": ("freesurfer_aseg",),
     },
 }
 
 
 ATLAS_DEFS: dict[str, str] = {
-    "aparc": "FreeSurfer aparc",
+    "aparc": "Desikan-Killiany (aparc)",
+    "aparc_a2009s": "Destrieux (aparc.a2009s)",
+    "freesurfer_aseg": "FreeSurfer Aseg Atlas",
     "yale": "Yale",
     "kong": "Kong",
     "schaefer2018": "Schaefer 2018",

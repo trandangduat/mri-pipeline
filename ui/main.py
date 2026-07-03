@@ -618,10 +618,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         for stat, var in self.state.stat_vector_enabled_vars.items():
             var.set(stat in enabled)
-        if mode == "Volume & Cortical Thickness" and not self.state.selected_atlases_for_stat("cortical_thickness"):
-            first_atlas = next(iter(self.state.stat_atlas_vars.get("cortical_thickness", {})), "")
-            if first_atlas:
-                self.state.set_stat_atlas_choice("cortical_thickness", first_atlas)
+        for stat in enabled:
+            if not self.state.selected_atlases_for_stat(stat):
+                first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
+                if first_atlas:
+                    self.state.set_stat_atlas_choice(stat, first_atlas)
 
     def _update_stats_vector_controls(self, mode: str) -> None:
         locked = set()
