@@ -236,7 +236,9 @@ class PipelineMixin:
 
     def _build_run_request(self) -> dict | None:
         mode = self.state.input_mode.get()
-        input_source = self.state.input_source.get()
+        input_source = "Server" if self.state.run_target.get() == "Server" else "Local"
+        if self.state.input_source.get() != input_source:
+            self.state.input_source.set(input_source)
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
             messagebox.showerror("Missing input", "Chưa chọn file hoặc folder MRI.")
@@ -262,7 +264,7 @@ class PipelineMixin:
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),
             "input_source": input_source,
-            "remote_input_dir": self.state.remote_input_dir.get().strip(),
+            "remote_input_dir": "",
         }
 
         if self.state.run_target.get() != "Server" and input_source != "Local":
@@ -281,8 +283,13 @@ class PipelineMixin:
                 base["input_files"] = files
                 base["input_dir"] = self._common_remote_input_root(files)
             else:
-                base["input_dir"] = raw_input
-                base["recursive"] = not self.state.non_recursive.get()
+                if self.state.selected_files:
+                    base["mode"] = "files"
+                    base["input_files"] = list(self.state.selected_files)
+                    base["input_dir"] = self._common_remote_input_root(self.state.selected_files)
+                else:
+                    base["input_dir"] = raw_input
+                    base["recursive"] = not self.state.non_recursive.get()
             return base
 
         if mode == "file":
@@ -377,9 +384,14 @@ class PipelineMixin:
                 self.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
                 runner.test_ssh()
+                try:
+                    max_threads = self._read_remote_thread_max(ssh_config)
+                except Exception:
+                    max_threads = None
                 def set_success():
                     self.state.remote_status.set("SSH Connection Successful")
                     self._set_remote_status_icon("success")
+                    self._set_thread_max(max_threads)
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#16a34a") # green
                 self.root.after(0, set_success)
@@ -388,6 +400,7 @@ class PipelineMixin:
                 def set_failed(m=err_msg):
                     self.state.remote_status.set(m)
                     self._set_remote_status_icon("failed")
+                    self._set_thread_max(None)
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#dc2626") # red
                 self.root.after(0, set_failed)

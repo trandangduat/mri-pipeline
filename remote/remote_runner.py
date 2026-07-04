@@ -307,7 +307,10 @@ class RemoteRunner:
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
             self._ensure_shared_code(ssh)
-            self.on_log("Uploading MRI input files...")
+            if self.config.input_source == "Server":
+                self.on_log("Using MRI input paths already on the server.")
+            else:
+                self.on_log("Uploading MRI input files...")
             self._upload_inputs(ssh)
             self.on_log("Uploading license files...")
             self._upload_license(ssh)

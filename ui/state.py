@@ -183,7 +183,7 @@ class AppState:
         workspace = {
             "version": 1,
             "type": "mri-pipeline-workspace",
-            "input_source": self.input_source.get(),
+            "input_source": "Server" if self.run_target.get() == "Server" else "Local",
             "input_mode": self.input_mode.get(),
             "input_path": self.input_path.get(),
             "selected_files": self.selected_files,
@@ -204,7 +204,6 @@ class AppState:
                 "username": self.remote_username.get(),
                 "key_path": self.remote_key_path.get(),
                 "workspace": self.remote_workspace.get(),
-                "input_upload_dir": self.remote_input_dir.get(),
                 "python": self.remote_python.get(),
             }
         return workspace
@@ -241,8 +240,7 @@ class AppState:
                 self.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
         if "stats_vectors" in workspace:
             self.apply_stats_vector_config(workspace.get("stats_vectors", {}))
-        if self.run_target.get() != "Server":
-            self.input_source.set("Local")
+        self.input_source.set("Server" if self.run_target.get() == "Server" else "Local")
 
         remote = workspace.get("remote", {})
         if self.run_target.get() == "Server":
@@ -252,5 +250,4 @@ class AppState:
             self.remote_password.set("")
             self.remote_key_path.set(remote.get("key_path", ""))
             self.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
-            self.remote_input_dir.set(remote.get("input_upload_dir", remote.get("input_dir", "")))
             self.remote_python.set(remote.get("python", "python3"))

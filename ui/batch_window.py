@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import os
 import glob
+import posixpath
+import stat
 
 def find_mri_files(directory: str, recursive: bool = True) -> list[str]:
     exts = ['.mgz', '.nii', '.nii.gz']
@@ -35,9 +37,26 @@ class BatchConfigWindow(tk.Toplevel):
         self.grab_set()
         
         self.files_data = [] # List of dict: {"path": str, "size": str, "selected": bool}
+        self.server_mode = self.gui.state.run_target.get() == "Server"
+        self.ssh = None
         
         self.recursive_var = tk.BooleanVar(value=not self.gui.state.non_recursive.get())
         
+        if self.server_mode:
+            try:
+                from remote.ssh_client import RemoteSSHClient
+                ssh_config = self.gui._build_ssh_config()
+                if ssh_config is None:
+                    self.destroy()
+                    return
+                self.ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+                self.ssh.connect()
+            except Exception as exc:
+                messagebox.showerror("Server batch failed", f"Could not connect to server:\n\n{type(exc).__name__}: {exc}", parent=self)
+                self.destroy()
+                return
+
+        self.protocol("WM_DELETE_WINDOW", self._close)
         self._build_ui()
         self._scan_folder()
         
@@ -86,6 +105,9 @@ class BatchConfigWindow(tk.Toplevel):
         
     def _scan_folder(self):
         directory = self.gui.state.input_path.get().strip()
+        if self.server_mode:
+            self._scan_server_folder(directory)
+            return
         if not os.path.isdir(directory):
             self.files_data = []
             self._refresh_tree()
@@ -114,6 +136,47 @@ class BatchConfigWindow(tk.Toplevel):
             })
             
         self._refresh_tree()
+
+    def _is_mri_name(self, name: str) -> bool:
+        return name.lower().endswith(('.mgz', '.nii', '.nii.gz', '.mgh', '.dcm'))
+
+    def _scan_server_folder(self, directory: str):
+        if self.ssh is None or not directory:
+            self.files_data = []
+            self._refresh_tree()
+            return
+        try:
+            root = self.ssh.expand_path(directory)
+            files = self._find_server_mri_files(root, self.recursive_var.get())
+        except Exception as exc:
+            messagebox.showerror("Server scan failed", f"Could not scan server folder:\n\n{type(exc).__name__}: {exc}", parent=self)
+            self.files_data = []
+            self._refresh_tree()
+            return
+
+        old_selected = {f["path"] for f in self.files_data if f["selected"]}
+        if not self.files_data and self.gui.state.selected_files:
+            old_selected.update(self.gui.state.selected_files)
+        self.files_data = []
+        for path, size in files:
+            selected = (path in old_selected) or (not old_selected and not self.gui.state.selected_files)
+            self.files_data.append({"path": path, "size": format_size(size), "selected": selected})
+        self._refresh_tree()
+
+    def _find_server_mri_files(self, directory: str, recursive: bool) -> list[tuple[str, int]]:
+        assert self.ssh is not None
+        results: list[tuple[str, int]] = []
+        attrs = self.ssh.sftp.listdir_attr(directory)
+        for item in attrs:
+            if item.filename.startswith("."):
+                continue
+            path = posixpath.join(directory, item.filename)
+            is_dir = stat.S_ISDIR(item.st_mode)
+            if is_dir and recursive:
+                results.extend(self._find_server_mri_files(path, recursive))
+            elif not is_dir and self._is_mri_name(item.filename):
+                results.append((path, int(item.st_size or 0)))
+        return sorted(results, key=lambda item: item[0].lower())
         
     def _refresh_tree(self):
         for item in self.tree.get_children():
@@ -158,4 +221,10 @@ class BatchConfigWindow(tk.Toplevel):
         self.gui.state.selected_files = selected_paths
         self.gui.state.non_recursive.set(not self.recursive_var.get())
         self.gui._refresh_input_label()
+        self._close()
+
+    def _close(self):
+        if self.ssh is not None:
+            self.ssh.close()
+            self.ssh = None
         self.destroy()

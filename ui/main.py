@@ -157,6 +157,13 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         # Initialize State
         self.state = AppState()
+        self.local_max_threads = max(1, os.cpu_count() or 1)
+        self.max_threads: int | None = self.local_max_threads
+        self.thread_max_text = tk.StringVar(value=f"/ {self.local_max_threads} max")
+        self.thread_spinbox: ttk.Spinbox | None = None
+        self._thread_max_request_id = 0
+        if int(self.state.threads.get()) > self.local_max_threads:
+            self.state.threads.set(self.local_max_threads)
         
         # Apply Styles
 
@@ -176,10 +183,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_toggle_button: ttk.Button | None = None
         self.remote_status_icon_label: ttk.Label | None = None
         self.actions_frame: ttk.Frame | None = None
-        self.input_source_frame: ttk.Frame | None = None
-        self.remote_input_dest_frame: ttk.Frame | None = None
+        self.input_location_label_var = tk.StringVar(value="Input location")
+        self.input_browse_button: ttk.Button | None = None
+        self.upload_input_row: ttk.Frame | None = None
+        self.upload_input_button: ttk.Button | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
+        self.pipeline_tools_body: ttk.Frame | None = None
+        self.pipeline_tools_visible = tk.BooleanVar(value=False)
+        self.pipeline_tools_toggle_text = tk.StringVar(value="▶ View tools")
         self.stat_vector_checkbuttons: dict[str, ttk.Checkbutton] = {}
         self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
         self.step_tree: ttk.Treeview | None = None
@@ -267,6 +279,17 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         
         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
             for tool_key, label in self.tools_status_icon_labels.items():
+                status = self._tool_status(tool_key)
+                if status in {"Downloading", "Checking", "Deleting"}:
+                    try:
+                        label.configure(image=frame)
+                    except Exception:
+                        pass
+
+        if hasattr(self, "tool_status_labels") and hasattr(self, "tool_image_statuses"):
+            for stage, label in self.tool_status_labels.items():
+                tool_var = self.state.tool_vars.get(stage)
+                tool_key = tool_key_from_display(tool_var.get()) if tool_var is not None else ""
                 status = self._tool_status(tool_key)
                 if status in {"Downloading", "Checking", "Deleting"}:
                     try:
@@ -413,6 +436,94 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 pass
             self._set_widget_tree_state(child, state)
 
+    def _validate_thread_input(self, proposed: str) -> bool:
+        if proposed == "":
+            return True
+        try:
+            value = int(proposed)
+        except ValueError:
+            return False
+        if value < 1:
+            return False
+        return self.max_threads is None or value <= self.max_threads
+
+    def _clamp_threads(self) -> None:
+        if self.max_threads is None:
+            return
+        try:
+            value = int(self.state.threads.get())
+        except (tk.TclError, ValueError):
+            return
+        clamped = min(max(value, 1), self.max_threads)
+        if clamped != value:
+            self.state.threads.set(clamped)
+
+    def _set_pipeline_tools_visible(self, visible: bool) -> None:
+        body = getattr(self, "pipeline_tools_body", None)
+        if body is None:
+            return
+        self.pipeline_tools_visible.set(visible)
+        if visible:
+            body.grid()
+            self.pipeline_tools_toggle_text.set("▼ Hide tools")
+        else:
+            body.grid_remove()
+            self.pipeline_tools_toggle_text.set("▶ View tools")
+
+    def _toggle_pipeline_tools(self) -> None:
+        self._set_pipeline_tools_visible(not self.pipeline_tools_visible.get())
+
+    def _set_thread_max(self, max_threads: int | None) -> None:
+        self.max_threads = max_threads if max_threads and max_threads > 0 else None
+        max_value = self.max_threads if self.max_threads is not None else 9999
+        self.thread_max_text.set(f"/ {self.max_threads} max" if self.max_threads is not None else "/ _ max")
+        spinbox = getattr(self, "thread_spinbox", None)
+        if spinbox is not None:
+            spinbox.configure(to=max_value)
+        self._clamp_threads()
+        self._validate_configuration()
+
+    def _read_remote_thread_max(self, ssh_config) -> int | None:
+        command = "getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || python3 -c 'import os; print(os.cpu_count() or 1)'"
+        with RemoteSSHClient(ssh_config, lambda _line: None) as ssh:
+            code, text = ssh.read_text(command)
+        if code != 0:
+            return None
+        for token in text.replace("\n", " ").split():
+            try:
+                value = int(token)
+            except ValueError:
+                continue
+            if value > 0:
+                return value
+        return None
+
+    def _refresh_thread_max_for_target(self) -> None:
+        if self.state.run_target.get() != "Server":
+            self._thread_max_request_id += 1
+            self._set_thread_max(self.local_max_threads)
+            return
+
+        self._thread_max_request_id += 1
+        request_id = self._thread_max_request_id
+        self._set_thread_max(None)
+        host = self.state.remote_host.get().strip()
+        username = self.state.remote_username.get().strip()
+        if not host or not username:
+            return
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return
+
+        def worker() -> None:
+            try:
+                max_threads = self._read_remote_thread_max(ssh_config)
+            except Exception:
+                max_threads = None
+            self.root.after(0, lambda: self._set_thread_max(max_threads) if request_id == self._thread_max_request_id else None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _remote_venv_display_path(self) -> str:
         workspace = (self.state.remote_workspace.get().strip() or "~/mri-remote-jobs").rstrip("/")
         return f"{workspace}/.venv"
@@ -427,9 +538,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.remote_body is None:
             return
         enabled = self.state.run_target.get() == "Server"
-        if not enabled and self.state.input_source.get() != "Local":
-            self.state.input_source.set("Local")
-            self._on_input_source_changed()
+        desired_source = "Server" if enabled else "Local"
+        if self.state.input_source.get() != desired_source:
+            self._switch_input_source(desired_source)
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
         self.state.remote_visible.set(enabled)
         if self.remote_frame is not None:
@@ -443,15 +554,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
         self._update_python_env_hint()
+        self._refresh_thread_max_for_target()
         self._set_python_env_status("Not checked")
         self._sync_input_source_controls()
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._validate_configuration()
 
-    def _on_input_source_changed(self) -> None:
+    def _switch_input_source(self, new_source: str) -> None:
         old_source = getattr(self, "_last_input_source", "Local")
-        new_source = self.state.input_source.get()
         if old_source != new_source:
             self._input_source_paths[old_source] = self.state.input_path.get().strip()
             self._input_source_selected_files[old_source] = list(self.state.selected_files)
@@ -460,27 +571,362 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 next_path = "~"
             self.state.input_path.set(next_path)
             self.state.selected_files = list(self._input_source_selected_files.get(new_source, [])) if next_path else []
+            self.state.input_source.set(new_source)
             self._last_input_source = new_source
         self._sync_input_source_controls()
         self._refresh_input_label()
 
     def _sync_input_source_controls(self) -> None:
         server_run = self.state.run_target.get() == "Server"
-        if self.input_source_frame is not None:
+        self.input_location_label_var.set("Server Input Location" if server_run else "Input location")
+        if self.input_browse_button is not None:
+            self.input_browse_button.configure(text="Browse Server" if server_run else "Browse")
+        if self.upload_input_row is not None:
             if server_run:
-                self.input_source_frame.grid()
+                self.upload_input_row.grid()
             else:
-                self.input_source_frame.grid_remove()
-        if self.remote_input_dest_frame is not None:
-            if server_run and self.state.input_source.get() == "Local":
-                self.remote_input_dest_frame.grid()
+                self.upload_input_row.grid_remove()
+
+    def _ask_upload_overwrite(self, remote_path: str) -> str:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Overwrite server file?")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        result = {"value": "cancel"}
+
+        body = ttk.Frame(dialog, padding=14)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, text="File already exists on server:", font=("Inter", 10, "bold")).pack(anchor=tk.W)
+        ttk.Label(body, text=remote_path, wraplength=560, foreground="#475569").pack(anchor=tk.W, pady=(4, 12))
+        buttons = ttk.Frame(body)
+        buttons.pack(fill=tk.X)
+
+        def choose(value: str) -> None:
+            result["value"] = value
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Yes", style="Accent.TButton", command=lambda: choose("yes")).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(buttons, text="No", command=lambda: choose("no")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text="Yes to all", command=lambda: choose("yes_all")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text="No to all", command=lambda: choose("no_all")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(buttons, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.RIGHT)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        self.root.wait_window(dialog)
+        return result["value"]
+
+    def _upload_input_to_server_placeholder(self) -> None:
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Upload input to server")
+        dialog.geometry("1080x650")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+        local_entries: list[dict] = []
+        server_entries: list[dict] = []
+        upload_running = {"value": False}
+
+        def initial_local_dir() -> str:
+            raw = self.state.input_path.get().strip()
+            if raw and ";" not in raw:
+                path = Path(raw).expanduser()
+                if path.is_file():
+                    return str(path.parent)
+                if path.is_dir():
+                    return str(path)
+            return str(PROJECT_ROOT)
+
+        def initial_server_dir() -> str:
+            raw = self.state.input_path.get().strip()
+            if self.state.input_source.get() == "Server" and raw:
+                first = raw.split(";", 1)[0].strip()
+                if first and not first.endswith("/") and "." in posixpath.basename(first):
+                    return posixpath.dirname(first) or "~"
+                return first
+            return self.state.remote_workspace.get().strip() or "~"
+
+        local_path = tk.StringVar(value=initial_local_dir())
+        server_path = tk.StringVar(value=initial_server_dir())
+        status_text = tk.StringVar(value="Connecting to server...")
+        progress_text = tk.StringVar(value="0 / 0")
+
+        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+        top.pack(fill=tk.X)
+        start_button = ttk.Button(top, text="Start upload", style="Accent.TButton", state=tk.DISABLED)
+        start_button.pack(side=tk.LEFT)
+        ttk.Label(top, textvariable=progress_text, width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+        progress = ttk.Progressbar(top, mode="determinate", maximum=1, value=0)
+        progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        ttk.Label(dialog, textvariable=status_text, foreground="#64748b").pack(anchor=tk.W, padx=12, pady=(0, 8))
+
+        panes = ttk.PanedWindow(dialog, orient=tk.HORIZONTAL)
+        panes.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        local_frame = ttk.Frame(panes, padding=8)
+        server_frame = ttk.Frame(panes, padding=8)
+        panes.add(local_frame, weight=1)
+        panes.add(server_frame, weight=1)
+
+        def build_browser(parent: ttk.Frame, title: str, variable: tk.StringVar, go_cmd, up_cmd, selectmode=tk.BROWSE):
+            ttk.Label(parent, text=title, font=("Inter", 10, "bold")).pack(anchor=tk.W, pady=(0, 6))
+            row = ttk.Frame(parent)
+            row.pack(fill=tk.X, pady=(0, 8))
+            ttk.Entry(row, textvariable=variable).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+            ttk.Button(row, text="Go", command=go_cmd).pack(side=tk.LEFT, padx=(0, 6))
+            ttk.Button(row, text="Up", command=up_cmd).pack(side=tk.LEFT)
+            list_frame = ttk.Frame(parent)
+            list_frame.pack(fill=tk.BOTH, expand=True)
+            listing = tk.Listbox(list_frame, selectmode=selectmode, activestyle="dotbox")
+            scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=listing.yview)
+            listing.configure(yscrollcommand=scroll.set)
+            listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            return listing
+
+        def is_mri_name(name: str) -> bool:
+            return name.lower().endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"))
+
+        def refresh_local(path_text: str | None = None) -> None:
+            nonlocal local_entries
+            path = Path(path_text or local_path.get().strip() or ".").expanduser()
+            try:
+                path = path.resolve()
+                dirs = []
+                files = []
+                for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+                    if child.name.startswith("."):
+                        continue
+                    entry = {"name": child.name, "path": str(child), "is_dir": child.is_dir()}
+                    if child.is_dir():
+                        dirs.append(entry)
+                    elif child.is_file():
+                        files.append(entry)
+                local_entries = [{"name": "..", "path": str(path.parent), "is_dir": True}, *dirs, *files]
+                local_list.delete(0, tk.END)
+                for entry in local_entries:
+                    prefix = "[D] " if entry["is_dir"] else "    "
+                    local_list.insert(tk.END, prefix + entry["name"])
+                local_path.set(str(path))
+                status_text.set("Select local files to upload.")
+            except Exception as exc:
+                status_text.set(f"Local browse failed: {type(exc).__name__}: {exc}")
+
+        def normalize_server_path(path_text: str) -> str:
+            ssh = ssh_holder.get("ssh")
+            path = path_text.strip() or "~"
+            if ssh is not None:
+                try:
+                    path = ssh.expand_path(path)
+                except Exception:
+                    pass
+            return posixpath.normpath(path) if path.startswith("/") else path
+
+        def refresh_server(path_text: str | None = None) -> None:
+            nonlocal server_entries
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return
+            try:
+                path = normalize_server_path(path_text or server_path.get())
+                attrs = ssh.sftp.listdir_attr(path)
+                dirs = []
+                files = []
+                for item in attrs:
+                    if item.filename.startswith("."):
+                        continue
+                    entry = {"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": stat.S_ISDIR(item.st_mode)}
+                    if entry["is_dir"]:
+                        dirs.append(entry)
+                    else:
+                        files.append(entry)
+                server_entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower()), *sorted(files, key=lambda x: x["name"].lower())]
+                server_list.delete(0, tk.END)
+                for entry in server_entries:
+                    prefix = "[D] " if entry["is_dir"] else "    "
+                    server_list.insert(tk.END, prefix + entry["name"])
+                server_path.set(path)
+                status_text.set("Choose the server destination folder.")
+            except Exception as exc:
+                status_text.set(f"Server browse failed: {type(exc).__name__}: {exc}")
+
+        local_list = build_browser(
+            local_frame,
+            "Local folder",
+            local_path,
+            lambda: refresh_local(local_path.get()),
+            lambda: refresh_local(str(Path(local_path.get()).expanduser().parent)),
+            selectmode=tk.EXTENDED,
+        )
+        server_list = build_browser(
+            server_frame,
+            "Server folder",
+            server_path,
+            lambda: refresh_server(server_path.get()),
+            lambda: refresh_server(posixpath.dirname(normalize_server_path(server_path.get()).rstrip("/")) or "/"),
+        )
+
+        def open_local(_event=None) -> None:
+            selection = local_list.curselection()
+            if selection and local_entries[selection[0]]["is_dir"]:
+                refresh_local(local_entries[selection[0]]["path"])
+
+        def open_server(_event=None) -> None:
+            selection = server_list.curselection()
+            if selection and server_entries[selection[0]]["is_dir"]:
+                refresh_server(server_entries[selection[0]]["path"])
+
+        def selected_local_files() -> list[Path]:
+            files: list[Path] = []
+            for idx in local_list.curselection():
+                entry = local_entries[idx]
+                if not entry["is_dir"]:
+                    files.append(Path(entry["path"]))
+            return files
+
+        def preflight_upload(files: list[Path], dest_dir: str) -> tuple[list[tuple[Path, str]], int] | None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return None
+            ssh.mkdir_p(dest_dir)
+            upload_items: list[tuple[Path, str]] = []
+            skipped = 0
+            overwrite_all: bool | None = None
+            for src in files:
+                remote_file = posixpath.join(dest_dir, src.name)
+                exists = False
+                try:
+                    ssh.sftp.stat(remote_file)
+                    exists = True
+                except OSError:
+                    exists = False
+                if exists:
+                    if overwrite_all is True:
+                        upload_items.append((src, remote_file))
+                        continue
+                    if overwrite_all is False:
+                        skipped += 1
+                        continue
+                    choice = self._ask_upload_overwrite(remote_file)
+                    if choice == "cancel":
+                        return None
+                    if choice == "yes_all":
+                        overwrite_all = True
+                        upload_items.append((src, remote_file))
+                    elif choice == "no_all":
+                        overwrite_all = False
+                        skipped += 1
+                    elif choice == "yes":
+                        upload_items.append((src, remote_file))
+                    else:
+                        skipped += 1
+                        continue
+                else:
+                    upload_items.append((src, remote_file))
+            return upload_items, skipped
+
+        def apply_uploaded_inputs(remote_files: list[str]) -> None:
+            if not remote_files:
+                return
+            self.state.input_source.set("Server")
+            self.state.selected_files = remote_files
+            if len(remote_files) == 1:
+                self.state.input_mode.set("file")
+                self.state.input_path.set(remote_files[0])
             else:
-                self.remote_input_dest_frame.grid_remove()
+                self.state.input_mode.set("files")
+                self.state.input_path.set("; ".join(remote_files))
+            self._input_source_paths["Server"] = self.state.input_path.get().strip()
+            self._input_source_selected_files["Server"] = list(remote_files)
+            self._last_input_source = "Server"
+            self._sync_input_source_controls()
+            self._refresh_input_label()
+            self._validate_configuration()
+
+        def start_upload() -> None:
+            if upload_running["value"]:
+                return
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                messagebox.showerror("Server not connected", "SSH server is not connected yet.", parent=dialog)
+                return
+            files = selected_local_files()
+            if not files:
+                messagebox.showwarning("No files selected", "Select one or more local files to upload.", parent=dialog)
+                return
+            dest_dir = normalize_server_path(server_path.get())
+            preflight = preflight_upload(files, dest_dir)
+            if preflight is None:
+                status_text.set("Upload cancelled.")
+                return
+            upload_items, skipped = preflight
+            if not upload_items:
+                status_text.set("No files uploaded.")
+                return
+            upload_running["value"] = True
+            start_button.configure(state=tk.DISABLED)
+            progress.configure(maximum=len(files), value=skipped)
+            progress_text.set(f"{skipped} / {len(files)}")
+
+            def worker() -> None:
+                uploaded: list[str] = []
+                processed = skipped
+                try:
+                    for src, remote_file in upload_items:
+                        processed += 1
+                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading {p}/{len(files)}: {name}"), progress.configure(value=p), progress_text.set(f"{p} / {len(files)}")))
+                        ssh.sftp.put(str(src), remote_file)
+                        uploaded.append(remote_file)
+                    self.root.after(0, lambda: (status_text.set(f"Upload complete: {len(uploaded)} file(s)."), apply_uploaded_inputs(uploaded), refresh_server(dest_dir)))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: status_text.set(f"Upload failed: {type(e).__name__}: {e}"))
+                finally:
+                    def finish() -> None:
+                        upload_running["value"] = False
+                        if ssh_holder.get("ssh") is not None:
+                            start_button.configure(state=tk.NORMAL)
+                    self.root.after(0, finish)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def connect_server() -> None:
+            try:
+                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+                ssh.connect()
+                ssh_holder["ssh"] = ssh
+                refresh_server(server_path.get())
+                start_button.configure(state=tk.NORMAL)
+            except Exception as exc:
+                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+
+        def close() -> None:
+            if upload_running["value"]:
+                if not messagebox.askyesno("Upload running", "Close while upload is running?", parent=dialog):
+                    return
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                ssh.close()
+                ssh_holder["ssh"] = None
+            dialog.destroy()
+
+        local_list.bind("<Double-Button-1>", open_local)
+        server_list.bind("<Double-Button-1>", open_server)
+        start_button.configure(command=start_upload)
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        refresh_local(local_path.get())
+        self.root.after(50, connect_server)
 
     def _browse_input(self) -> None:
-        if self.state.input_source.get() == "Server":
+        if self.state.run_target.get() == "Server":
+            if self.state.input_source.get() != "Server":
+                self._switch_input_source("Server")
             self._browse_remote_input()
             return
+        if self.state.input_source.get() != "Local":
+            self._switch_input_source("Local")
         mode = self.state.input_mode.get()
         if mode == "file":
             path = filedialog.askopenfilename(title="Select MRI file", filetypes=self._mri_filetypes())
@@ -807,7 +1253,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             var = self.state.stat_vector_enabled_vars.get(stat)
             combo.configure(state="readonly" if var is not None and var.get() else tk.DISABLED)
 
-    def _apply_pipeline_mode(self, apply_stats_preset: bool = True) -> None:
+    def _apply_pipeline_mode(self, apply_stats_preset: bool = True, show_custom_tools: bool = True) -> None:
         mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
         if mode != self.state.pipeline_mode.get():
             self.state.pipeline_mode.set(mode)
@@ -836,6 +1282,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
+            self._set_pipeline_tools_visible(show_custom_tools)
+        if preset is not None:
+            self._set_pipeline_tools_visible(False)
         self._update_stats_vector_controls(mode)
         self._update_config_tool_status_labels()
 
@@ -996,7 +1445,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.remote_username,
             self.state.remote_key_path,
             self.state.remote_workspace,
-            self.state.remote_input_dir,
             self.state.remote_python,
             self.state.pipeline_mode,
             self.state.export_outputs_enabled,
@@ -1007,6 +1455,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
         self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
+        self.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
 
         self.state.input_path.trace_add("write", self._refresh_input_label)
 
@@ -1021,7 +1470,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
-        input_source = self.state.input_source.get()
+        input_source = "Server" if self.state.run_target.get() == "Server" else "Local"
         mode = self.state.input_mode.get()
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
@@ -1061,8 +1510,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 if stat_def.get("atlases") and not self.state.selected_atlases_for_stat(stat):
                     errors.append(f"Choose at least one atlas for {stat_def['label']}.")
         try:
-            if int(self.state.threads.get()) < 1:
+            threads = int(self.state.threads.get())
+            if threads < 1:
                 errors.append("Threads must be at least 1.")
+            elif self.max_threads is not None and threads > self.max_threads:
+                errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
         except (tk.TclError, ValueError):
             errors.append("Threads must be a valid integer.")
 

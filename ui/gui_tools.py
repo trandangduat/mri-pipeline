@@ -757,7 +757,15 @@ class ToolsMixin:
         for stage, label in self.tool_status_labels.items():
             tool_key = tool_key_from_display(self.state.tool_vars.get(stage).get()) if stage in self.state.tool_vars else ""
             status = self._tool_status(tool_key, target)
-            label.configure(text=self._status_label_text(status), foreground=self._status_color(status))
+            if status == "Skipped":
+                label.configure(image="", text="", compound=tk.LEFT, foreground=self._status_color(status))
+                continue
+            icon = self._tool_status_icon_image(status)
+            text = self._status_label_text(status)
+            if icon is not None:
+                label.configure(image=icon, text=f"  {text}", compound=tk.LEFT, foreground=self._status_color(status))
+            else:
+                label.configure(image="", text=text, compound=tk.LEFT, foreground=self._status_color(status))
 
     def _ensure_local_images_with_dialog(self) -> bool:
         dialog, log, progress, state = build_image_dialog(self.root, "Docker image preflight")
