@@ -355,6 +355,7 @@ class JobsMixin:
             self.state.remote_username.set(remote.get("username", self.state.remote_username.get()))
             self.state.remote_key_path.set(remote.get("key_path", self.state.remote_key_path.get()))
             self.state.remote_workspace.set(remote.get("workspace", self.state.remote_workspace.get()))
+            self.state.remote_input_dir.set(job.get("remote_input_dir", self.state.remote_input_dir.get()))
             self.state.remote_python.set(remote.get("python", self.state.remote_python.get()))
         if not self._ensure_remote_auth_for_job_action("server job action"):
             return None
@@ -366,6 +367,7 @@ class JobsMixin:
                 ssh=ssh_config,
                 remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
                 remote_python=self.state.remote_python.get().strip() or "python3",
+                remote_input_dir=str(job.get("remote_input_dir") or self.state.remote_input_dir.get().strip()),
                 output_dir=str(job.get("output_dir") or self.state.output_dir.get().strip()),
                 download_subdir=str(job.get("download_subdir") or ""),
             ),
@@ -508,6 +510,7 @@ class JobsMixin:
             "output_dir": cfg.output_dir,
             "download_subdir": cfg.download_subdir,
             "input_files": files,
+            "remote_input_dir": runner.remote_input_dir or cfg.remote_input_dir,
             "remote": {
                 "host": cfg.ssh.host,
                 "port": int(cfg.ssh.port),
@@ -920,6 +923,7 @@ class JobsMixin:
             input_file=req.get("input_file", ""),
             input_files=req.get("input_files", []),
             input_dir=req.get("input_dir", ""),
+            remote_input_dir=req.get("remote_input_dir", ""),
             output_dir=req["output_dir"],
             license_dir=req["license_dir"],
             device=req["device"],

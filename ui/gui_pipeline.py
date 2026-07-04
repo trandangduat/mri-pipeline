@@ -262,7 +262,12 @@ class PipelineMixin:
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),
             "input_source": input_source,
+            "remote_input_dir": self.state.remote_input_dir.get().strip(),
         }
+
+        if self.state.run_target.get() != "Server" and input_source != "Local":
+            messagebox.showerror("Invalid input", "Local runs can only use local input data.")
+            return None
 
         if input_source == "Server":
             if mode == "file":

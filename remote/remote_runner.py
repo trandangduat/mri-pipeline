@@ -27,6 +27,7 @@ class RemoteRunConfig:
     input_file: str = ""
     input_files: list[str] = field(default_factory=list)
     input_dir: str = ""
+    remote_input_dir: str = ""
     output_dir: str = ""
     license_dir: str = ""
     device: str = "cpu"
@@ -47,6 +48,7 @@ class RemoteRunner:
         self.job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
         self.remote_job_dir = ""
         self.remote_output_dir = ""
+        self.remote_input_dir = ""
 
     def remote_venv_display_path(self) -> str:
         return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
@@ -59,6 +61,14 @@ class RemoteRunner:
         else:
             workspace = (self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/")
         return posixpath.join(workspace, "code")
+
+    def _remote_input_dir(self, ssh: RemoteSSHClient | None = None) -> str:
+        if self.remote_input_dir:
+            return self.remote_input_dir
+        configured = self.config.remote_input_dir.strip().rstrip("/")
+        if configured:
+            return ssh.expand_path(configured) if ssh is not None else configured
+        return posixpath.join(self.remote_job_dir, "input")
 
     def _local_code_signature(self) -> str:
         hasher = hashlib.sha256()
@@ -284,9 +294,12 @@ class RemoteRunner:
             workspace = ssh.expand_path(self.config.remote_workspace)
             self.remote_job_dir = posixpath.join(workspace, self.job_id)
             self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
+            self.remote_input_dir = self._remote_input_dir(ssh)
             ssh.mkdir_p(workspace)
             for sub in ("input", "license", "outputs"):
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
+            if self.remote_input_dir != posixpath.join(self.remote_job_dir, "input"):
+                ssh.mkdir_p(self.remote_input_dir)
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
             self.on_log("Preparing run configuration...")
@@ -347,6 +360,7 @@ class RemoteRunner:
             "job_id": self.job_id,
             "remote_job_dir": self.remote_job_dir,
             "remote_output_dir": self.remote_output_dir,
+            "remote_input_dir": self._remote_input_dir(),
             "remote_code_dir": self._remote_code_dir(ssh),
             "created_at": time.time(),
             "input_source": self.config.input_source,
@@ -358,7 +372,7 @@ class RemoteRunner:
             f.write(json.dumps(metadata, indent=2))
 
     def _remote_input_request(self) -> dict:
-        remote_input = posixpath.join(self.remote_job_dir, "input")
+        remote_input = self._remote_input_dir()
         subject_id_map: dict[str, str] = {}
         if self.config.input_source == "Server":
             if self.config.input_mode == "file" and self.config.input_file:
@@ -464,7 +478,7 @@ class RemoteRunner:
             f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
 
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
-        remote_input = posixpath.join(self.remote_job_dir, "input")
+        remote_input = self._remote_input_dir()
         mapping: dict[str, str] = {}
         if self.config.input_source == "Server":
             mapping = self._remote_input_request().get("subject_id_map", {})
@@ -722,7 +736,9 @@ class RemoteRunner:
         if self.config.input_source == "Server":
             self.on_log("Using MRI input paths already on the server; skipping input upload.")
             return
-        remote_input = posixpath.join(self.remote_job_dir, "input")
+        remote_input = self._remote_input_dir(ssh)
+        self.remote_input_dir = remote_input
+        self.on_log(f"Remote input destination: {remote_input}")
         if self.config.input_mode == "file":
             if not self.config.input_file:
                 return
@@ -759,7 +775,7 @@ class RemoteRunner:
 
     def _remote_command(self, python_cmd: str | None = None, remote_code: str | None = None) -> str:
         remote_code = remote_code or self._remote_code_dir()
-        remote_input = posixpath.join(self.remote_job_dir, "input")
+        remote_input = self._remote_input_dir()
         remote_output = posixpath.join(self.remote_job_dir, "outputs")
         remote_license = posixpath.join(self.remote_job_dir, "license")
 

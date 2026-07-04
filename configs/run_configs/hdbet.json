@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "type": "mri-pipeline-run-config",
-  "pipeline_mode": "Custom Tools",
+  "type": "mri-pipeline-preset",
+  "pipeline_mode": "Custom",
   "tools": {
     "reorientation": "mri_convert_fs7",
     "brain_extraction": "hdbet",
@@ -20,7 +20,9 @@
       "subcortical_volume": false
     },
     "atlases": {
-      "cortical_thickness": [],
+      "cortical_thickness": [
+        "aparc"
+      ],
       "cortical_volume": [],
       "subcortical_volume": []
     }

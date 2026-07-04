@@ -43,15 +43,30 @@ from ui.tabs.tools_tab import build_tools_tab
 
 
 class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
-    PIPELINE_MODES = ("Custom", "FreeSurfer7", "FreeSurfer8", "Volume", "Volume & Cortical Thickness")
+    PIPELINE_MODES = (
+        "FreeSurfer 8 + Volume",
+        "FreeSurfer 8 + Cortical Thickness",
+        "FreeSurfer 8 + Volume + Cortical Thickness",
+        "FreeSurfer 7 + Volume",
+        "FreeSurfer 7 + Cortical Thickness",
+        "FreeSurfer 7 + Volume + Cortical Thickness",
+        "FastSurfer + Volume",
+        "FastSurfer + Cortical Thickness",
+        "FastSurfer + Volume + Cortical Thickness",
+        "Custom",
+    )
     PIPELINE_MODE_ALIASES = {
         "Custom Tools": "Custom",
-        "FS7": "FreeSurfer7",
-        "FS8": "FreeSurfer8",
-        "FreeSurfer 7": "FreeSurfer7",
-        "FreeSurfer 8": "FreeSurfer8",
-        "FreeSurfer Fixed": "FreeSurfer7",
-        "FreeSurfer Fixed (7 steps)": "FreeSurfer7",
+        "FS7": "FreeSurfer 7 + Volume",
+        "FS8": "FreeSurfer 8 + Volume",
+        "FreeSurfer7": "FreeSurfer 7 + Volume",
+        "FreeSurfer8": "FreeSurfer 8 + Volume",
+        "FreeSurfer 7": "FreeSurfer 7 + Volume",
+        "FreeSurfer 8": "FreeSurfer 8 + Volume",
+        "FreeSurfer Fixed": "FreeSurfer 7 + Volume",
+        "FreeSurfer Fixed (7 steps)": "FreeSurfer 7 + Volume",
+        "Volume": "FreeSurfer 7 + Volume",
+        "Volume & Cortical Thickness": "FreeSurfer 7 + Volume + Cortical Thickness",
     }
     OPTIONAL_STAGES = {
         "surface_reconstruction",
@@ -89,11 +104,34 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "surface_reconstruction": "recon_all_fs8",
         "surface_registration": "surface_stats_fs8",
     }
-    MODE_TOOLSETS = {
-        "FreeSurfer7": FREESURFER_7_TOOLS,
-        "FreeSurfer8": FREESURFER_8_TOOLS,
-        "Volume": FREESURFER_7_TOOLS,
-        "Volume & Cortical Thickness": FREESURFER_7_SURFACE_TOOLS,
+    FASTSURFER_TOOLS = {
+        "reorientation": "mri_convert_fs7",
+        "brain_extraction": "synthstrip_fs7",
+        "segmentation": "fastsurfervinn",
+        "template_registration": "synthmorph_fs8",
+        "bias_correction": "ants_n4",
+        "white_matter_segmentation": "mri_binarize",
+        "surface_reconstruction": "",
+        "surface_registration": "",
+        "stats_extraction": "freesurfer_stats_fs7",
+    }
+    FASTSURFER_SURFACE_TOOLS = {
+        **FASTSURFER_TOOLS,
+        "surface_reconstruction": "recon_all_fs7",
+        "surface_registration": "surface_stats_fs7",
+    }
+    VOLUME_STATS = {"cortical_volume", "subcortical_volume"}
+    THICKNESS_STATS = {"cortical_thickness"}
+    PRESET_CONFIGS = {
+        "FreeSurfer 8 + Volume": {"tools": FREESURFER_8_TOOLS, "stats": VOLUME_STATS},
+        "FreeSurfer 8 + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": THICKNESS_STATS},
+        "FreeSurfer 8 + Volume + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
+        "FreeSurfer 7 + Volume": {"tools": FREESURFER_7_TOOLS, "stats": VOLUME_STATS},
+        "FreeSurfer 7 + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": THICKNESS_STATS},
+        "FreeSurfer 7 + Volume + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
+        "FastSurfer + Volume": {"tools": FASTSURFER_TOOLS, "stats": VOLUME_STATS},
+        "FastSurfer + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": THICKNESS_STATS},
+        "FastSurfer + Volume + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
     }
 
     def _normalize_pipeline_mode(self, mode: str) -> str:
@@ -138,6 +176,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_toggle_button: ttk.Button | None = None
         self.remote_status_icon_label: ttk.Label | None = None
         self.actions_frame: ttk.Frame | None = None
+        self.input_source_frame: ttk.Frame | None = None
+        self.remote_input_dest_frame: ttk.Frame | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
         self.stat_vector_checkbuttons: dict[str, ttk.Checkbutton] = {}
@@ -387,6 +427,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.remote_body is None:
             return
         enabled = self.state.run_target.get() == "Server"
+        if not enabled and self.state.input_source.get() != "Local":
+            self.state.input_source.set("Local")
+            self._on_input_source_changed()
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
         self.state.remote_visible.set(enabled)
         if self.remote_frame is not None:
@@ -401,6 +444,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
         self._update_python_env_hint()
         self._set_python_env_status("Not checked")
+        self._sync_input_source_controls()
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._validate_configuration()
@@ -417,7 +461,21 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.input_path.set(next_path)
             self.state.selected_files = list(self._input_source_selected_files.get(new_source, [])) if next_path else []
             self._last_input_source = new_source
+        self._sync_input_source_controls()
         self._refresh_input_label()
+
+    def _sync_input_source_controls(self) -> None:
+        server_run = self.state.run_target.get() == "Server"
+        if self.input_source_frame is not None:
+            if server_run:
+                self.input_source_frame.grid()
+            else:
+                self.input_source_frame.grid_remove()
+        if self.remote_input_dest_frame is not None:
+            if server_run and self.state.input_source.get() == "Local":
+                self.remote_input_dest_frame.grid()
+            else:
+                self.remote_input_dest_frame.grid_remove()
 
     def _browse_input(self) -> None:
         if self.state.input_source.get() == "Server":
@@ -592,6 +650,122 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
 
+    def _browse_remote_directory(self, variable: tk.StringVar) -> None:
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Browse server directory")
+        dialog.geometry("720x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        current_path = tk.StringVar(value=variable.get().strip() or self.state.remote_workspace.get().strip() or "~")
+        status_text = tk.StringVar(value="Connecting...")
+        selected = {"path": ""}
+        entries: list[dict] = []
+        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+
+        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+        top.pack(fill=tk.X)
+        ttk.Label(top, text="Server directory").pack(anchor=tk.W)
+        path_row = ttk.Frame(top)
+        path_row.pack(fill=tk.X, pady=(2, 6))
+        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
+        body.pack(fill=tk.BOTH, expand=True)
+        listing = tk.Listbox(body, selectmode=tk.BROWSE, height=18, activestyle="dotbox")
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+        listing.configure(yscrollcommand=scroll.set)
+        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        bottom.pack(fill=tk.X)
+        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def normalize_remote_path(path: str) -> str:
+            path = path.strip() or "~"
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                try:
+                    path = ssh.expand_path(path)
+                except Exception:
+                    pass
+            return posixpath.normpath(path) if path.startswith("/") else path
+
+        def load_dir(path: str) -> None:
+            nonlocal entries
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return
+            try:
+                path = normalize_remote_path(path)
+                attrs = ssh.sftp.listdir_attr(path)
+                dirs = []
+                for item in attrs:
+                    if item.filename.startswith(".") or not stat.S_ISDIR(item.st_mode):
+                        continue
+                    dirs.append({"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": True})
+                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower())]
+                listing.delete(0, tk.END)
+                for row in entries:
+                    listing.insert(tk.END, "[D] " + row["name"])
+                current_path.set(path)
+                status_text.set("Select current folder or double-click a folder to browse.")
+            except FileNotFoundError:
+                current_path.set(normalize_remote_path(path))
+                status_text.set("Directory does not exist yet; Select will use this path and create it during upload.")
+                listing.delete(0, tk.END)
+                entries = []
+            except Exception as exc:
+                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
+
+        def connect_and_load() -> None:
+            try:
+                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+                ssh.connect()
+                ssh_holder["ssh"] = ssh
+                load_dir(current_path.get())
+            except Exception as exc:
+                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+
+        def open_selected(_event=None) -> None:
+            selection = listing.curselection()
+            if selection:
+                load_dir(str(entries[selection[0]]["path"]))
+
+        def choose() -> None:
+            selection = listing.curselection()
+            if selection and entries:
+                selected["path"] = str(entries[selection[0]]["path"])
+            else:
+                selected["path"] = normalize_remote_path(current_path.get())
+            dialog.destroy()
+
+        def close() -> None:
+            dialog.destroy()
+
+        def on_destroy(_event=None) -> None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                ssh.close()
+                ssh_holder["ssh"] = None
+
+        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT)
+        listing.bind("<Double-Button-1>", open_selected)
+        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        dialog.bind("<Destroy>", on_destroy, add="+")
+        self.root.after(50, connect_and_load)
+        self.root.wait_window(dialog)
+
+        if selected["path"]:
+            variable.set(selected["path"])
+
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
         return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm"), ("All files", "*.*"))
 
@@ -609,12 +783,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.remote_key_path.set(path)
 
     def _apply_stats_preset_for_mode(self, mode: str) -> None:
-        if mode == "Volume":
-            enabled = {"cortical_volume", "subcortical_volume"}
-        elif mode == "Volume & Cortical Thickness":
-            enabled = set(STAT_VECTOR_DEFS)
-        else:
+        preset = self.PRESET_CONFIGS.get(mode)
+        if preset is None:
             return
+        enabled = set(preset["stats"])
 
         for stat, var in self.state.stat_vector_enabled_vars.items():
             var.set(stat in enabled)
@@ -626,9 +798,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _update_stats_vector_controls(self, mode: str) -> None:
         locked = set()
-        if mode == "Volume":
-            locked = set(STAT_VECTOR_DEFS)
-        elif mode == "Volume & Cortical Thickness":
+        if mode in self.PRESET_CONFIGS:
             locked = set(STAT_VECTOR_DEFS)
 
         for stat, check in getattr(self, "stat_vector_checkbuttons", {}).items():
@@ -644,21 +814,23 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             return
         if apply_stats_preset:
             self._apply_stats_preset_for_mode(mode)
-        fixed_tools = self.MODE_TOOLSETS.get(mode)
-        if fixed_tools is not None:
+        preset = self.PRESET_CONFIGS.get(mode)
+        if preset is not None:
+            fixed_tools = preset["tools"]
             for stage, tool in fixed_tools.items():
                 if stage in self.state.tool_vars:
                     self.state.tool_vars[stage].set(tool_display_name(tool) if tool else "")
             for combo in self.tool_combos.values():
                 combo.configure(state="disabled")
-            if mode == "FreeSurfer8":
-                self.state.pipeline_note.set("Fixed FreeSurfer8 stack: FreeSurfer8 convert, SynthStrip, SynthSeg, SynthMorph, WM mask, and stats. Surface steps 7-8 are skipped.")
-            elif mode == "FreeSurfer7":
-                self.state.pipeline_note.set("Fixed FreeSurfer7 stack: FreeSurfer7 convert, SynthStrip, SynthSeg, WM mask, and stats; registration uses SynthMorph FreeSurfer8. Surface steps 7-8 are skipped.")
-            elif mode == "Volume":
-                self.state.pipeline_note.set("Volume preset: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+            stats = set(preset["stats"])
+            if stats == self.VOLUME_STATS:
+                self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+            elif stats == self.THICKNESS_STATS:
+                suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
+                self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
             else:
-                self.state.pipeline_note.set("Volume & Cortical Thickness preset: all stats vectors are selected and all 9 pipeline steps are enabled.")
+                suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
+                self.state.pipeline_note.set(f"{mode}: volume vectors and cortical thickness are selected. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
         else:
             self._apply_custom_tool_defaults()
             for combo in self.tool_combos.values():
@@ -707,6 +879,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             with open(path, "r", encoding="utf-8") as f:
                 workspace = json.load(f)
             self.state.apply_workspace(workspace)
+            self._apply_pipeline_mode(apply_stats_preset="stats_vectors" not in workspace)
+            self._on_run_target_changed()
             self._last_input_source = self.state.input_source.get()
             self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
             self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
@@ -725,7 +899,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _collect_run_config(self) -> dict:
         return {
             "version": 1,
-            "type": "mri-pipeline-run-config",
+            "type": "mri-pipeline-preset",
             "pipeline_mode": self.state.pipeline_mode.get(),
             "tools": self.state.get_selected_tools(),
             "stats_vectors": self.state.get_stats_vector_config(),
@@ -751,10 +925,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         config_dir = PROJECT_ROOT / "configs" / "run_configs"
         config_dir.mkdir(parents=True, exist_ok=True)
         path = filedialog.asksaveasfilename(
-            title="Save run config",
+            title="Save preset",
             initialdir=str(config_dir),
             defaultextension=".json",
-            filetypes=(("Run Config JSON", "*.json"), ("All files", "*.*")),
+            filetypes=(("Preset JSON", "*.json"), ("All files", "*.*")),
         )
         if not path:
             return
@@ -763,29 +937,29 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            self._log(f"Saved run config: {path}")
+            self._log(f"Saved preset: {path}")
         except Exception as exc:
-            messagebox.showerror("Save run config failed", str(exc))
+            messagebox.showerror("Save preset failed", str(exc))
 
     def _load_run_config(self) -> None:
         config_dir = PROJECT_ROOT / "configs" / "run_configs"
         path = filedialog.askopenfilename(
-            title="Load run config",
+            title="Load preset",
             initialdir=str(config_dir),
-            filetypes=(("Run Config JSON", "*.json"), ("All files", "*.*")),
+            filetypes=(("Preset JSON", "*.json"), ("All files", "*.*")),
         )
         if not path:
             return
         try:
             with open(path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            if config.get("type") not in (None, "mri-pipeline-run-config"):
-                messagebox.showerror("Invalid run config", "Selected file is not an MRI pipeline run config.")
+            if config.get("type") not in (None, "mri-pipeline-run-config", "mri-pipeline-preset"):
+                messagebox.showerror("Invalid preset", "Selected file is not an MRI pipeline preset.")
                 return
             self._apply_run_config(config)
-            self._log(f"Loaded run config: {path}")
+            self._log(f"Loaded preset: {path}")
         except Exception as exc:
-            messagebox.showerror("Load run config failed", str(exc))
+            messagebox.showerror("Load preset failed", str(exc))
 
 
     def _refresh_input_label(self, *_args) -> None:
@@ -822,6 +996,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.remote_username,
             self.state.remote_key_path,
             self.state.remote_workspace,
+            self.state.remote_input_dir,
             self.state.remote_python,
             self.state.pipeline_mode,
             self.state.export_outputs_enabled,
@@ -851,6 +1026,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
             errors.append("Choose an input MRI file or folder.")
+        elif self.state.run_target.get() != "Server" and input_source != "Local":
+            errors.append("Local runs can only use local input data.")
         elif input_source == "Server" and self.state.run_target.get() != "Server":
             errors.append("Server input requires Run on = Server.")
         elif input_source == "Local" and mode == "file":

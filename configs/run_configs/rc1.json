@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "type": "mri-pipeline-run-config",
-  "pipeline_mode": "FreeSurfer Fixed",
+  "type": "mri-pipeline-preset",
+  "pipeline_mode": "FreeSurfer 7 + Cortical Thickness",
   "tools": {
     "reorientation": "mri_convert_fs7",
     "brain_extraction": "synthstrip_fs7",
     "segmentation": "synthseg_freesurfer_fs7",
-    "template_registration": "",
+    "template_registration": "synthmorph_fs8",
     "bias_correction": "ants_n4",
-    "white_matter_segmentation": "",
-    "surface_reconstruction": "",
-    "surface_registration": "",
-    "stats_extraction": ""
+    "white_matter_segmentation": "mri_binarize",
+    "surface_reconstruction": "recon_all_fs7",
+    "surface_registration": "surface_stats_fs7",
+    "stats_extraction": "freesurfer_stats_fs7"
   },
   "stats_vectors": {
     "enabled_stats": {

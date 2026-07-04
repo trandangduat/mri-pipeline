@@ -4,15 +4,30 @@ from pathlib import Path
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
 
 
-PIPELINE_MODES = ("Custom", "FreeSurfer7", "FreeSurfer8", "Volume", "Volume & Cortical Thickness")
+PIPELINE_MODES = (
+    "FreeSurfer 8 + Volume",
+    "FreeSurfer 8 + Cortical Thickness",
+    "FreeSurfer 8 + Volume + Cortical Thickness",
+    "FreeSurfer 7 + Volume",
+    "FreeSurfer 7 + Cortical Thickness",
+    "FreeSurfer 7 + Volume + Cortical Thickness",
+    "FastSurfer + Volume",
+    "FastSurfer + Cortical Thickness",
+    "FastSurfer + Volume + Cortical Thickness",
+    "Custom",
+)
 PIPELINE_MODE_ALIASES = {
     "Custom Tools": "Custom",
-    "FS7": "FreeSurfer7",
-    "FS8": "FreeSurfer8",
-    "FreeSurfer 7": "FreeSurfer7",
-    "FreeSurfer 8": "FreeSurfer8",
-    "FreeSurfer Fixed": "FreeSurfer7",
-    "FreeSurfer Fixed (7 steps)": "FreeSurfer7",
+    "FS7": "FreeSurfer 7 + Volume",
+    "FS8": "FreeSurfer 8 + Volume",
+    "FreeSurfer7": "FreeSurfer 7 + Volume",
+    "FreeSurfer8": "FreeSurfer 8 + Volume",
+    "FreeSurfer 7": "FreeSurfer 7 + Volume",
+    "FreeSurfer 8": "FreeSurfer 8 + Volume",
+    "FreeSurfer Fixed": "FreeSurfer 7 + Volume",
+    "FreeSurfer Fixed (7 steps)": "FreeSurfer 7 + Volume",
+    "Volume": "FreeSurfer 7 + Volume",
+    "Volume & Cortical Thickness": "FreeSurfer 7 + Volume + Cortical Thickness",
 }
 
 
@@ -53,6 +68,7 @@ class AppState:
         self.remote_password = tk.StringVar()
         self.remote_key_path = tk.StringVar()
         self.remote_workspace = tk.StringVar(value="~/mri-remote-jobs")
+        self.remote_input_dir = tk.StringVar(value="")
         self.remote_python = tk.StringVar(value="python3")
         self.remote_status = tk.StringVar(value="Remote: idle")
         self.remote_visible = tk.BooleanVar(value=False)
@@ -177,6 +193,9 @@ class AppState:
             "threads": int(self.threads.get()),
             "non_recursive": self.non_recursive.get(),
             "run_target": self.run_target.get(),
+            "pipeline_mode": self.pipeline_mode.get(),
+            "tools": self.get_selected_tools(),
+            "stats_vectors": self.get_stats_vector_config(),
         }
         if self.run_target.get() == "Server":
             workspace["remote"] = {
@@ -185,6 +204,7 @@ class AppState:
                 "username": self.remote_username.get(),
                 "key_path": self.remote_key_path.get(),
                 "workspace": self.remote_workspace.get(),
+                "input_upload_dir": self.remote_input_dir.get(),
                 "python": self.remote_python.get(),
             }
         return workspace
@@ -212,6 +232,17 @@ class AppState:
         self.threads.set(int(workspace.get("threads", 4)))
         self.non_recursive.set(bool(workspace.get("non_recursive", False)))
         self.run_target.set(workspace.get("run_target", "Local"))
+        self.pipeline_mode.set(normalize_pipeline_mode(workspace.get("pipeline_mode", self.pipeline_mode.get())))
+        for stage, value in workspace.get("tools", {}).items():
+            if stage in self.tool_vars:
+                tool_key = tool_key_from_display(value)
+                if not tool_key and value in TOOL_DEFS:
+                    tool_key = value
+                self.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
+        if "stats_vectors" in workspace:
+            self.apply_stats_vector_config(workspace.get("stats_vectors", {}))
+        if self.run_target.get() != "Server":
+            self.input_source.set("Local")
 
         remote = workspace.get("remote", {})
         if self.run_target.get() == "Server":
@@ -221,4 +252,5 @@ class AppState:
             self.remote_password.set("")
             self.remote_key_path.set(remote.get("key_path", ""))
             self.remote_workspace.set(remote.get("workspace", "~/mri-remote-jobs"))
+            self.remote_input_dir.set(remote.get("input_upload_dir", remote.get("input_dir", "")))
             self.remote_python.set(remote.get("python", "python3"))

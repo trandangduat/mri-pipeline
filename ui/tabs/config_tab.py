@@ -64,14 +64,14 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     mode_row = ttk.Frame(frame)
     mode_row.grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
-    ttk.Button(mode_row, text="Save config", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
-    ttk.Button(mode_row, text="Load config", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
+    ttk.Button(mode_row, text="Save preset", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
+    ttk.Button(mode_row, text="Load preset", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
     ttk.Label(mode_row, text="Preset").pack(side=tk.LEFT)
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
-        values=getattr(gui, "PIPELINE_MODES", ("Custom", "FreeSurfer7", "FreeSurfer8")),
+        values=getattr(gui, "PIPELINE_MODES", ("Custom",)),
         state="readonly",
-        width=24,
+        width=42,
     ).pack(side=tk.LEFT, padx=(8, 12))
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
@@ -177,9 +177,10 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     source_row = ttk.Frame(frame)
     source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 10))
-    ttk.Label(source_row, text="Input location").pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Radiobutton(source_row, text="Local computer", variable=gui.state.input_source, value="Local", command=gui._on_input_source_changed).pack(side=tk.LEFT)
-    ttk.Radiobutton(source_row, text="Server", variable=gui.state.input_source, value="Server", command=gui._on_input_source_changed).pack(side=tk.LEFT, padx=(14, 0))
+    gui.input_source_frame = source_row
+    ttk.Label(source_row, text="Input directory").pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Radiobutton(source_row, text="Upload local data to server", variable=gui.state.input_source, value="Local", command=gui._on_input_source_changed).pack(side=tk.LEFT)
+    ttk.Radiobutton(source_row, text="Use data already on server", variable=gui.state.input_source, value="Server", command=gui._on_input_source_changed).pack(side=tk.LEFT, padx=(14, 0))
 
     container = ttk.Frame(frame)
     container.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=3)
@@ -197,12 +198,22 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=gui._browse_input).pack(side=tk.RIGHT)
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
+    upload_row = ttk.Frame(frame)
+    upload_row.grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=(6, 3))
+    gui.remote_input_dest_frame = upload_row
+    ttk.Label(upload_row, text="Server upload destination").pack(anchor=tk.W, pady=(0, 2))
+    upload_input = ttk.Frame(upload_row)
+    upload_input.pack(fill=tk.X, expand=True)
+    ttk.Entry(upload_input, textvariable=gui.state.remote_input_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+    ttk.Button(upload_input, text="Browse Server", style="Accent.TButton", command=lambda: gui._browse_remote_directory(gui.state.remote_input_dir)).pack(side=tk.RIGHT)
+    ttk.Label(upload_row, text="Leave empty to use this job's private remote input folder.", foreground="#64748b").pack(anchor=tk.W, pady=(2, 0))
 
-    _path_row(frame, "Output directory", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=4, column=0, columnspan=5, sticky=tk.EW, pady=10)
+
+    _path_row(frame, "Output directory", gui.state.output_dir, 5, lambda: gui._browse_directory(gui.state.output_dir))
 
     export_frame = ttk.Frame(frame)
-    export_frame.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
+    export_frame.grid(row=6, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
     def sync_export_options(*_args) -> None:
