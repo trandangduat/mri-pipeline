@@ -27,16 +27,21 @@ from remote.ssh_client import SSHConfig
 class JobsMixin:
     def _attach_job_dialog(self) -> None:
         jobs = self._known_jobs()
+        load_remote_jobs = False
+        ssh_config = None
+        workspace = self.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
+        remote_python = self.state.remote_python.get().strip() or "python3"
+        output_dir = self.state.output_dir.get().strip()
         if self.state.run_target.get() == "Server" and self.state.remote_host.get().strip() and self.state.remote_username.get().strip():
             if not self._ensure_remote_auth_for_job_action("Attach job"):
                 return
-            live_jobs = self._running_remote_jobs()
-            if live_jobs is None:
+            ssh_config = self._build_ssh_config()
+            if ssh_config is None:
                 return
-            jobs = self._merge_job_lists(jobs, live_jobs)
+            load_remote_jobs = True
         elif self.state.run_target.get() == "Local":
             jobs = self._merge_job_lists(jobs, self._running_local_jobs())
-        if not jobs:
+        if not jobs and not load_remote_jobs:
             self._attach_manual_job_dialog()
             return
 
@@ -59,13 +64,24 @@ class JobsMixin:
         tree.column("output", width=300, anchor=tk.W)
         tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
 
+        status_text = tk.StringVar(value="Loading remote jobs..." if load_remote_jobs else "")
+        ttk.Label(dialog, textvariable=status_text, foreground="#64748b").pack(anchor=tk.W, padx=12, pady=(0, 4))
+
         item_to_job: dict[str, dict] = {}
-        for idx, job in enumerate(jobs):
-            job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
-            item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
-            item_to_job[item] = job
-            if idx == 0:
-                tree.selection_set(item)
+        deleted_job_ids: set[str] = set()
+
+        def render_jobs() -> None:
+            item_to_job.clear()
+            for item in tree.get_children():
+                tree.delete(item)
+            for idx, job in enumerate(jobs):
+                job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
+                item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
+                item_to_job[item] = job
+                if idx == 0:
+                    tree.selection_set(item)
+
+        render_jobs()
 
         buttons = ttk.Frame(dialog)
         buttons.pack(fill=tk.X, padx=12, pady=(4, 12))
@@ -77,6 +93,7 @@ class JobsMixin:
             return item_to_job.get(selection[0])
 
         def delete_selected() -> None:
+            nonlocal jobs
             selection = tree.selection()
             if not selection:
                 return
@@ -88,6 +105,9 @@ class JobsMixin:
             if not messagebox.askyesno("Delete job", f"Delete this job and its folders?\n\n{label}"):
                 return
             if self._delete_registry_job(job):
+                identity = self._job_identity(job)
+                deleted_job_ids.add(identity)
+                jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
                 tree.delete(item)
                 item_to_job.pop(item, None)
                 remaining = tree.get_children()
@@ -116,6 +136,64 @@ class JobsMixin:
         ttk.Button(buttons, text="Manual Attach", command=lambda: (dialog.destroy(), self._attach_manual_job_dialog())).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
         tree.bind("<Double-1>", lambda _event: attach_selected())
+
+        if load_remote_jobs and ssh_config is not None:
+            def worker() -> None:
+                remote_jobs: list[dict] = []
+                error: Exception | None = None
+                try:
+                    runner = RemoteRunner(
+                        RemoteRunConfig(
+                            ssh=ssh_config,
+                            remote_workspace=workspace,
+                            remote_python=remote_python,
+                            output_dir=output_dir,
+                        ),
+                        on_log=lambda _line: None,
+                    )
+                    listed_jobs = [job for job in runner.list_background_jobs() if job.get("state") == "running"]
+                    registry_by_dir = {
+                        str(entry.get("remote_job_dir")): entry
+                        for entry in list(jobs)
+                        if entry.get("target") == "Server"
+                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+                    }
+                    for remote_job in listed_jobs:
+                        remote_dir = str(remote_job.get("remote_job_dir", ""))
+                        entry = dict(registry_by_dir.get(remote_dir, {}))
+                        entry.update(remote_job)
+                        entry["target"] = "Server"
+                        entry["remote_job_dir"] = remote_dir
+                        entry.setdefault("output_dir", output_dir)
+                        entry["remote"] = {
+                            "host": ssh_config.host,
+                            "port": int(ssh_config.port),
+                            "username": ssh_config.username,
+                            "key_path": ssh_config.key_path,
+                            "workspace": workspace,
+                            "python": remote_python,
+                        }
+                        remote_jobs.append(entry)
+                except Exception as exc:
+                    error = exc
+
+                def finish() -> None:
+                    nonlocal jobs, load_remote_jobs
+                    if not dialog.winfo_exists():
+                        return
+                    load_remote_jobs = False
+                    if error is not None:
+                        status_text.set(f"Remote job scan failed: {type(error).__name__}: {error}")
+                        render_jobs()
+                        return
+                    filtered_remote_jobs = [job for job in remote_jobs if self._job_identity(job) not in deleted_job_ids]
+                    jobs = self._merge_job_lists(jobs, filtered_remote_jobs)
+                    status_text.set(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "No running remote jobs found on this server.")
+                    render_jobs()
+
+                self.root.after(0, finish)
+
+            threading.Thread(target=worker, daemon=True).start()
 
     def _job_identity(self, job: dict) -> str:
         return str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or id(job))

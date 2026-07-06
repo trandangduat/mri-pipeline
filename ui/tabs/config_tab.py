@@ -108,10 +108,10 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         ).pack(side=tk.LEFT)
 
         combo = ttk.Combobox(gui.pipeline_tools_body, textvariable=var, values=tool_labels, state="readonly", width=28)
-        combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=5)
+        combo.grid(row=row, column=1, sticky=tk.EW, padx=(6, 0), pady=5)
         gui.tool_combos[stage] = combo
-        status = ttk.Label(gui.pipeline_tools_body, text="Not checked", width=11, anchor=tk.W, foreground="#64748b")
-        status.grid(row=row, column=2, sticky=tk.W, padx=(6, 0), pady=5)
+        status = ttk.Label(gui.pipeline_tools_body, text="Not checked", width=10, anchor=tk.W, foreground="#64748b")
+        status.grid(row=row, column=2, sticky=tk.W, padx=(2, 0), pady=5)
         gui.tool_status_labels[stage] = status
 
     frame.columnconfigure(0, weight=1)

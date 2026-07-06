@@ -189,7 +189,7 @@ class ToolsMixin:
     def _tool_check_text(self, tool_key: str) -> str:
         return "[x]" if tool_key in self.tools_checked_tools else "[ ]"
 
-    def _tool_status_icon_image(self, status: str) -> tk.PhotoImage | None:
+    def _tool_status_icon_image(self, status: str, small: bool = False) -> tk.PhotoImage | None:
         icon_name = {
             "Installed": "success",
             "Missing": "failed",
@@ -203,14 +203,26 @@ class ToolsMixin:
         }.get(status, "pending")
         if not icon_name:
             return None
-        key = f"tool_status_{icon_name}"
+        key = f"tool_status_{icon_name}_{'small' if small else 'normal'}"
         if key in self.toolbar_icons:
             return self.toolbar_icons[key]
         icon_path = Path(__file__).parent / "icons" / f"{icon_name}.png"
         if not icon_path.exists():
             return None
         try:
+            if small:
+                try:
+                    from PIL import Image, ImageTk
+
+                    img = Image.open(icon_path).convert("RGBA").resize((14, 14), resample=Image.BICUBIC)
+                    photo = ImageTk.PhotoImage(img)
+                    self.toolbar_icons[key] = photo
+                    return photo
+                except Exception:
+                    pass
             img = tk.PhotoImage(file=str(icon_path))
+            if small:
+                img = img.subsample(2, 2)
             self.toolbar_icons[key] = img
             return img
         except Exception:
@@ -760,10 +772,10 @@ class ToolsMixin:
             if status == "Skipped":
                 label.configure(image="", text="", compound=tk.LEFT, foreground=self._status_color(status))
                 continue
-            icon = self._tool_status_icon_image(status)
+            icon = self._tool_status_icon_image(status, small=True)
             text = self._status_label_text(status)
             if icon is not None:
-                label.configure(image=icon, text=f"  {text}", compound=tk.LEFT, foreground=self._status_color(status))
+                label.configure(image=icon, text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
             else:
                 label.configure(image="", text=text, compound=tk.LEFT, foreground=self._status_color(status))
 

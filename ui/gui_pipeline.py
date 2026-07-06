@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import posixpath
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -29,6 +30,7 @@ from pipeline_runner import (
     run_pipeline,
 )
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
+from remote.ssh_client import RemoteSSHClient
 from ui.formatters import truncate_middle
 
 
@@ -290,6 +292,8 @@ class PipelineMixin:
                 else:
                     base["input_dir"] = raw_input
                     base["recursive"] = not self.state.non_recursive.get()
+            if not self._validate_remote_input_request(base):
+                return None
             return base
 
         if mode == "file":
@@ -319,6 +323,50 @@ class PipelineMixin:
                 base["recursive"] = not self.state.non_recursive.get()
 
         return base
+
+    def _validate_remote_input_request(self, req: dict) -> bool:
+        paths: list[tuple[str, str]] = []
+        mode = req.get("mode")
+        if mode == "file":
+            paths = [(str(req.get("input_file", "")).strip(), "file")]
+        elif mode == "files":
+            paths = [(str(path).strip(), "file") for path in req.get("input_files", [])]
+        else:
+            paths = [(str(req.get("input_dir", "")).strip(), "dir")]
+
+        missing_selection = [path for path, _kind in paths if not path or path == "~"]
+        if missing_selection:
+            messagebox.showerror(
+                "Missing server input",
+                "Chọn data MRI trên server hoặc upload input lên server trước khi Run.",
+            )
+            return False
+
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return False
+        try:
+            with RemoteSSHClient(ssh_config, lambda _line: None) as ssh:
+                for path, kind in paths:
+                    remote_path = ssh.expand_path(path)
+                    attrs = ssh.sftp.stat(remote_path)
+                    is_dir = stat.S_ISDIR(attrs.st_mode)
+                    if kind == "file" and is_dir:
+                        messagebox.showerror("Invalid server input", f"Server input phải là file MRI, nhưng đây là folder:\n{path}")
+                        return False
+                    if kind == "dir" and not is_dir:
+                        messagebox.showerror("Invalid server input", f"Server input phải là folder, nhưng đây là file:\n{path}")
+                        return False
+        except FileNotFoundError:
+            messagebox.showerror("Invalid server input", "Không tìm thấy input trên server. Hãy Browse Server hoặc upload input trước khi Run.")
+            return False
+        except OSError as exc:
+            messagebox.showerror("Invalid server input", f"Không thể kiểm tra input trên server:\n\n{type(exc).__name__}: {exc}")
+            return False
+        except Exception as exc:
+            messagebox.showerror("Server input check failed", f"Không thể kết nối/kiểm tra server input:\n\n{type(exc).__name__}: {exc}")
+            return False
+        return True
 
     def _common_remote_input_root(self, files: list[str]) -> str:
         parents = [posixpath.dirname(path.rstrip("/")) or "/" for path in files]

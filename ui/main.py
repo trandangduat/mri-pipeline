@@ -1495,9 +1495,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         elif input_source == "Server":
             files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
             if mode == "file" and raw_input == "~" and not self.state.selected_files:
-                errors.append("Choose a server MRI file.")
+                errors.append("Choose a server MRI file or upload input to server first.")
             elif mode == "files" and (not files or files == ["~"]):
-                errors.append("Choose at least one server input file.")
+                errors.append("Choose server MRI files or upload input to server first.")
+            elif mode == "dir" and raw_input == "~" and not self.state.selected_files:
+                errors.append("Choose a server MRI folder or upload input to server first.")
 
         if not self.state.output_dir.get().strip():
             errors.append("Choose an output directory.")
