@@ -421,12 +421,15 @@ class PipelineMixin:
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return
+        thread_signature = self._current_remote_thread_signature()
 
         def task():
             try:
                 def set_testing():
                     self.state.remote_status.set("Testing SSH connection...")
                     self._set_remote_status_icon("running")
+                    self._remote_thread_max_signature = None
+                    self._set_thread_max(None, pending=True)
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="")
                 self.root.after(0, set_testing)
@@ -437,8 +440,11 @@ class PipelineMixin:
                 except Exception:
                     max_threads = None
                 def set_success():
+                    if thread_signature != self._current_remote_thread_signature():
+                        return
                     self.state.remote_status.set("SSH Connection Successful")
                     self._set_remote_status_icon("success")
+                    self._remote_thread_max_signature = thread_signature if max_threads else None
                     self._set_thread_max(max_threads)
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#16a34a") # green
@@ -448,6 +454,7 @@ class PipelineMixin:
                 def set_failed(m=err_msg):
                     self.state.remote_status.set(m)
                     self._set_remote_status_icon("failed")
+                    self._remote_thread_max_signature = None
                     self._set_thread_max(None)
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#dc2626") # red

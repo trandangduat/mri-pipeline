@@ -162,6 +162,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.thread_max_text = tk.StringVar(value=f"/ {self.local_max_threads} max")
         self.thread_spinbox: ttk.Spinbox | None = None
         self._thread_max_request_id = 0
+        self._remote_thread_max_signature: tuple[str, int, str, str] | None = None
         if int(self.state.threads.get()) > self.local_max_threads:
             self.state.threads.set(self.local_max_threads)
         
@@ -438,6 +439,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._set_widget_tree_state(child, state)
 
     def _validate_thread_input(self, proposed: str) -> bool:
+        if self.state.run_target.get() == "Server" and not self._server_thread_max_known():
+            return proposed == ""
         if proposed == "":
             return True
         try:
@@ -474,14 +477,53 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _toggle_pipeline_tools(self) -> None:
         self._set_pipeline_tools_visible(not self.pipeline_tools_visible.get())
 
-    def _set_thread_max(self, max_threads: int | None) -> None:
+    def _set_thread_max(self, max_threads: int | None, pending: bool = False) -> None:
         self.max_threads = max_threads if max_threads and max_threads > 0 else None
         max_value = self.max_threads if self.max_threads is not None else 9999
-        self.thread_max_text.set(f"/ {self.max_threads} max" if self.max_threads is not None else "/ _ max")
+        if self.max_threads is not None:
+            self.thread_max_text.set(f"/ {self.max_threads} max")
+        elif self.state.run_target.get() == "Server":
+            self.thread_max_text.set("/ checking max" if pending else "Test SSH to edit threads")
+        else:
+            self.thread_max_text.set("/ _ max")
         spinbox = getattr(self, "thread_spinbox", None)
         if spinbox is not None:
-            spinbox.configure(to=max_value)
+            spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self._server_thread_max_known() else tk.DISABLED
+            spinbox.configure(to=max_value, state=spinbox_state)
         self._clamp_threads()
+        self._validate_configuration()
+
+    def _current_remote_thread_signature(self) -> tuple[str, int, str, str] | None:
+        host = self.state.remote_host.get().strip()
+        username = self.state.remote_username.get().strip()
+        if not host or not username:
+            return None
+        try:
+            port = int(self.state.remote_port.get())
+        except (tk.TclError, ValueError):
+            return None
+        return (host, port, username, self.state.remote_key_path.get().strip())
+
+    def _server_thread_max_known(self) -> bool:
+        if self.max_threads is None:
+            return False
+        return self._remote_thread_max_signature == self._current_remote_thread_signature()
+
+    def _invalidate_remote_thread_max(self) -> None:
+        if self.state.run_target.get() != "Server":
+            return
+        self._thread_max_request_id += 1
+        self._remote_thread_max_signature = None
+        self._set_thread_max(None)
+        self._reset_remote_tool_image_state()
+
+    def _reset_remote_tool_image_state(self) -> None:
+        self.tool_image_statuses["Server"] = {}
+        self.tool_image_installed_sizes["Server"] = {}
+        self.tools_checked_tools.clear()
+        self._refresh_tools_tree()
+        self._update_config_tool_status_labels()
+        self._update_tools_download_button()
         self._validate_configuration()
 
     def _read_remote_thread_max(self, ssh_config) -> int | None:
@@ -502,28 +544,13 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _refresh_thread_max_for_target(self) -> None:
         if self.state.run_target.get() != "Server":
             self._thread_max_request_id += 1
+            self._remote_thread_max_signature = None
             self._set_thread_max(self.local_max_threads)
             return
 
         self._thread_max_request_id += 1
-        request_id = self._thread_max_request_id
+        self._remote_thread_max_signature = None
         self._set_thread_max(None)
-        host = self.state.remote_host.get().strip()
-        username = self.state.remote_username.get().strip()
-        if not host or not username:
-            return
-        ssh_config = self._build_ssh_config()
-        if ssh_config is None:
-            return
-
-        def worker() -> None:
-            try:
-                max_threads = self._read_remote_thread_max(ssh_config)
-            except Exception:
-                max_threads = None
-            self.root.after(0, lambda: self._set_thread_max(max_threads) if request_id == self._thread_max_request_id else None)
-
-        threading.Thread(target=worker, daemon=True).start()
 
     def _remote_venv_display_path(self) -> str:
         workspace = (self.state.remote_workspace.get().strip() or "~/mri-remote-jobs").rstrip("/")
@@ -1465,6 +1492,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
         self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
         self.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
+        for var in (self.state.remote_host, self.state.remote_port, self.state.remote_username, self.state.remote_key_path):
+            var.trace_add("write", lambda *_args: self._invalidate_remote_thread_max())
 
         self.state.input_path.trace_add("write", self._refresh_input_label)
 
@@ -1524,6 +1553,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             threads = int(self.state.threads.get())
             if threads < 1:
                 errors.append("Threads must be at least 1.")
+            elif self.state.run_target.get() == "Server" and self._current_remote_thread_signature() is not None and not self._server_thread_max_known():
+                errors.append("Test SSH to read the server CPU thread limit.")
             elif self.max_threads is not None and threads > self.max_threads:
                 errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
         except (tk.TclError, ValueError):
