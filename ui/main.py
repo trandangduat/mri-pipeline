@@ -192,6 +192,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.pipeline_tools_body: ttk.Frame | None = None
         self.pipeline_tools_visible = tk.BooleanVar(value=False)
         self.pipeline_tools_toggle_text = tk.StringVar(value="▶ View tools")
+        self._preserve_pipeline_tools_visibility = False
         self.stat_vector_checkbuttons: dict[str, ttk.Checkbutton] = {}
         self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
         self.step_tree: ttk.Treeview | None = None
@@ -1253,7 +1254,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             var = self.state.stat_vector_enabled_vars.get(stat)
             combo.configure(state="readonly" if var is not None and var.get() else tk.DISABLED)
 
-    def _apply_pipeline_mode(self, apply_stats_preset: bool = True, show_custom_tools: bool = True) -> None:
+    def _apply_pipeline_mode(self, apply_stats_preset: bool = True, show_custom_tools: bool = True, update_tools_visibility: bool = True) -> None:
+        if getattr(self, "_preserve_pipeline_tools_visibility", False):
+            update_tools_visibility = False
         mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
         if mode != self.state.pipeline_mode.get():
             self.state.pipeline_mode.set(mode)
@@ -1282,8 +1285,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
-            self._set_pipeline_tools_visible(show_custom_tools)
-        if preset is not None:
+            if update_tools_visibility:
+                self._set_pipeline_tools_visible(show_custom_tools)
+        if preset is not None and update_tools_visibility:
             self._set_pipeline_tools_visible(False)
         self._update_stats_vector_controls(mode)
         self._update_config_tool_status_labels()
@@ -1324,11 +1328,13 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if not path:
             return
 
+        tools_visible = self.pipeline_tools_visible.get()
+        self._preserve_pipeline_tools_visibility = True
         try:
             with open(path, "r", encoding="utf-8") as f:
                 workspace = json.load(f)
             self.state.apply_workspace(workspace)
-            self._apply_pipeline_mode(apply_stats_preset="stats_vectors" not in workspace)
+            self._apply_pipeline_mode(apply_stats_preset="stats_vectors" not in workspace, update_tools_visibility=False)
             self._on_run_target_changed()
             self._last_input_source = self.state.input_source.get()
             self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
@@ -1338,6 +1344,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._log(f"Loaded workspace: {path}")
         except Exception as exc:
             messagebox.showerror("Load workspace failed", str(exc))
+        finally:
+            self._preserve_pipeline_tools_visibility = False
+            self._set_pipeline_tools_visible(tools_visible)
 
     def _save_config(self) -> None:
         self._save_workspace()

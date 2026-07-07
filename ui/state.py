@@ -98,11 +98,12 @@ class AppState:
         for stat, stat_def in STAT_VECTOR_DEFS.items():
             self.stat_vector_enabled_vars[stat] = tk.BooleanVar(value=False)
             self.stat_atlas_vars[stat] = {}
+            default_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
             for atlas in stat_def.get("atlases", ()):
                 if atlas in ATLAS_DEFS:
-                    self.stat_atlas_vars[stat][atlas] = tk.BooleanVar(value=False)
+                    self.stat_atlas_vars[stat][atlas] = tk.BooleanVar(value=atlas == default_atlas)
             if self.stat_atlas_vars[stat]:
-                self.stat_atlas_choice_vars[stat] = tk.StringVar(value="")
+                self.stat_atlas_choice_vars[stat] = tk.StringVar(value=self._atlas_label(default_atlas))
 
         # UI state variables
         self.pipeline_note = tk.StringVar(value="Standard pipeline with editable tools.")
@@ -157,6 +158,9 @@ class AppState:
         for atlas_key, var in self.stat_atlas_vars.get(stat, {}).items():
             var.set(atlas_key == atlas)
 
+    def default_atlas_for_stat(self, stat: str) -> str:
+        return next(iter(self.stat_atlas_vars.get(stat, {})), "")
+
     def get_stats_vector_config(self) -> dict:
         return {
             "enabled_stats": {stat: var.get() for stat, var in self.stat_vector_enabled_vars.items()},
@@ -175,6 +179,8 @@ class AppState:
         for stat, atlas_vars in self.stat_atlas_vars.items():
             selected = set(atlases.get(stat, []))
             selected_atlas = next((atlas for atlas in atlas_vars if atlas in selected), "")
+            if not selected_atlas:
+                selected_atlas = self.default_atlas_for_stat(stat)
             self.set_stat_atlas_choice(stat, selected_atlas)
             for atlas, var in atlas_vars.items():
                 var.set(atlas == selected_atlas)
