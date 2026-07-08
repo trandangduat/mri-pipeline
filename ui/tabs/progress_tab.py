@@ -22,19 +22,10 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
         header = ttk.Frame(parent, padding=(8, 8, 8, 0))
         header.pack(fill=tk.X)
         ttk.Label(header, textvariable=context["tab_title"], font=("Inter", 10, "bold")).pack(side=tk.LEFT)
-        tk.Button(
+        ttk.Button(
             header,
             text="Close tab",
             command=lambda: gui._close_progress_tab(context["id"]),
-            bg="#dc2626",
-            fg="#ffffff",
-            activebackground="#b91c1c",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            borderwidth=0,
-            padx=10,
-            pady=4,
-            cursor="hand2",
         ).pack(side=tk.RIGHT)
 
     panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)

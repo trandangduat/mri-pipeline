@@ -395,14 +395,112 @@ class JobsMixin:
         if job_dir:
             self._attach_registry_job({"target": "Local", "job_dir": job_dir, "state": "unknown"})
 
+    def _set_attach_buttons_busy(self, busy: bool) -> None:
+        if busy:
+            states: list[tuple[tk.Widget, str]] = []
+
+            def disable_buttons(widget: tk.Widget) -> None:
+                for child in widget.winfo_children():
+                    if isinstance(child, (tk.Button, ttk.Button)):
+                        try:
+                            states.append((child, str(child.cget("state"))))
+                            child.configure(state=tk.DISABLED)
+                        except tk.TclError:
+                            pass
+                    disable_buttons(child)
+
+            disable_buttons(self.root)
+            self._attach_busy_button_states = states
+            return
+
+        for widget, state in getattr(self, "_attach_busy_button_states", []):
+            try:
+                if widget.winfo_exists():
+                    widget.configure(state=state)
+            except tk.TclError:
+                pass
+        self._attach_busy_button_states = []
+
+    def _sync_attach_toolbar_state(self) -> None:
+        if self._is_background_monitor_active():
+            if hasattr(self, "run_button"):
+                self.run_button.configure(state=tk.DISABLED)
+            if hasattr(self, "resume_button"):
+                self.resume_button.configure(state=tk.DISABLED)
+            if hasattr(self, "restart_button"):
+                self.restart_button.configure(state=tk.DISABLED)
+            if hasattr(self, "stop_button"):
+                self.stop_button.configure(state=tk.NORMAL)
+        else:
+            self._validate_configuration()
+
+    def _finish_attach_loading(self) -> None:
+        progress = getattr(self, "_attach_loading_progress", None)
+        dialog = getattr(self, "_attach_loading_dialog", None)
+        try:
+            if progress is not None:
+                progress.stop()
+            if dialog is not None and dialog.winfo_exists():
+                dialog.grab_release()
+                dialog.destroy()
+        except tk.TclError:
+            pass
+        self._attach_loading_progress = None
+        self._attach_loading_dialog = None
+        self._attach_loading_active = False
+        self._set_attach_buttons_busy(False)
+        self._sync_attach_toolbar_state()
+
+    def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Progressbar]:
+        label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "selected job"
+        dialog = tk.Toplevel(self.root)
+        dialog.withdraw()
+        dialog.title("Loading job")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        body = ttk.Frame(dialog, padding=18)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(body, text="Loading job...", font=("Inter", 11, "bold")).pack(anchor=tk.W)
+        ttk.Label(body, text=str(label), foreground="#64748b", wraplength=460).pack(anchor=tk.W, pady=(4, 12))
+        progress = ttk.Progressbar(body, mode="indeterminate", length=360)
+        progress.pack(fill=tk.X)
+        progress.start(12)
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dialog.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - dialog.winfo_height()) // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.deiconify()
+        dialog.lift(self.root)
+        dialog.wait_visibility()
+        dialog.grab_set()
+        dialog.focus_set()
+        return dialog, progress
+
     def _attach_registry_job(self, job: dict) -> None:
+        attached = False
+        self._set_attach_buttons_busy(True)
+        try:
+            dialog, progress = self._show_attach_loading(job)
+            self._attach_loading_dialog = dialog
+            self._attach_loading_progress = progress
+            self._attach_loading_active = True
+            self.root.update()
+            attached = self._attach_registry_job_loaded(job)
+        finally:
+            if not attached:
+                self._finish_attach_loading()
+
+    def _attach_registry_job_loaded(self, job: dict) -> bool:
         target = job.get("target")
         selected_tools = dict((job.get("run_request") or {}).get("selected_tools") or {})
         config: dict = {}
         if target == "Server":
             runner = self._remote_runner_from_job_entry(job, read_metadata=False)
             if runner is None:
-                return
+                return False
             self.remote_runner = runner
             self.state.run_target.set("Server")
             self._on_run_target_changed()
@@ -421,12 +519,12 @@ class JobsMixin:
         identity = self._progress_job_identity(job)
         self._prepare_progress_tab(input_files, selected_tools or self.state.get_selected_tools(), title=title, job_identity=identity)
         self._show_progress_tab()
-        self._set_detail_title("Attaching job...")
         self._register_job_monitor_for_active_context()
         self._enter_background_monitor_state("Attaching background job...")
         if target != "Server":
             self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
         self._schedule_job_poll(delay_ms=0)
+        return True
 
     def _remote_runner_from_job_entry(self, job: dict, read_metadata: bool = True) -> RemoteRunner | None:
         remote = dict(job.get("remote") or {})
@@ -1079,6 +1177,8 @@ class JobsMixin:
                 self._save_job_monitor(monitor)
             else:
                 self.job_poll_after_id = None
+            if getattr(self, "_attach_loading_active", False):
+                self._finish_attach_loading()
             return
         try:
             target = self.active_job.get("target")
@@ -1100,10 +1200,14 @@ class JobsMixin:
                 self._save_job_monitor(monitor)
             self.job_poll_after_id = None
             self._set_idle_state()
+            if getattr(self, "_attach_loading_active", False):
+                self._finish_attach_loading()
             return
         if monitor is not None:
             self._save_job_monitor(monitor)
         self._schedule_job_poll(context_id=context_id)
+        if getattr(self, "_attach_loading_active", False):
+            self._finish_attach_loading()
 
     def _start_remote_poll_worker(self, context_id: str | None = None) -> None:
         monitor = self.job_monitors.get(context_id) if context_id else None
@@ -1113,6 +1217,8 @@ class JobsMixin:
             return
         if not self.remote_runner:
             self._set_idle_state()
+            if getattr(self, "_attach_loading_active", False):
+                self._finish_attach_loading()
             return
         self.remote_poll_in_flight = True
         if monitor is not None:
@@ -1139,6 +1245,7 @@ class JobsMixin:
         expected_runner = monitor.get("remote_runner") if monitor is not None else self.remote_runner
         if runner is not expected_runner:
             return
+        finish_attach_loading = bool(getattr(self, "_attach_loading_active", False))
         self.remote_poll_in_flight = False
         if monitor is not None:
             monitor["remote_poll_in_flight"] = False
@@ -1148,12 +1255,16 @@ class JobsMixin:
                 self._save_job_monitor(monitor)
             else:
                 self.job_poll_after_id = None
+            if finish_attach_loading:
+                self._finish_attach_loading()
             return
         if error is not None:
             self._log(f"BACKGROUND POLL ERROR: {type(error).__name__}: {error}")
             if monitor is not None:
                 self._save_job_monitor(monitor)
             self._schedule_job_poll(context_id=context_id)
+            if finish_attach_loading:
+                self._finish_attach_loading()
             return
         self.job_log_offset = new_offset
         self._handle_background_log_chunk(data)
@@ -1174,12 +1285,16 @@ class JobsMixin:
                 self._save_job_monitor(monitor)
             self.job_poll_after_id = None
             self._set_idle_state()
+            if finish_attach_loading:
+                self._finish_attach_loading()
             return
         self.state.status_text.set("Running in background")
         self.state.remote_status.set(f"Remote: {state}")
         if monitor is not None:
             self._save_job_monitor(monitor)
         self._schedule_job_poll(context_id=context_id)
+        if finish_attach_loading:
+            self._finish_attach_loading()
 
     def _poll_local_background_job(self) -> bool:
         if not self.active_job:
