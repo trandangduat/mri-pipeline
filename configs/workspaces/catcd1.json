@@ -2,12 +2,21 @@
   "version": 1,
   "type": "mri-pipeline-workspace",
   "input_source": "Local",
-  "input_mode": "file",
-  "input_path": "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20070926120915361_S19555_I75336/001.mgz",
+  "input_mode": "dir",
+  "input_path": "/home/trandangduat/mri-pipeline/data",
   "selected_files": [
-    "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20070926120915361_S19555_I75336/001.mgz"
+    "/home/trandangduat/mri-pipeline/data/ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120039197_S11911_I118687/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081002102545116_S19407_I118989/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20100601174845136_S83342_I176231/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_011_S_0241_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20090511112048342_S65418_I143462/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_013_S_0240_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20070426090948082_S12308_I51151/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_013_S_0240_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20070731164949931_S22107_I63374/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_013_S_0240_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20070828103755280_S29656_I70648/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_013_S_0240_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20071115085037331_S41918_I82125/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_013_S_0240_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20080513171009052_S49343_I105285/001.mgz",
+    "/home/trandangduat/mri-pipeline/data/ADNI_021_S_0231_MR_MPR__GradWarp__N3__Scaled_Br_20061217132926455_S18786_I33465/001.mgz"
   ],
-  "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "output_dir": "/home/trandangduat/mri-pipeline/outputs",
   "export_outputs": {
     "enabled": false,
     "folder": "exports",
@@ -34,7 +43,7 @@
     }
   },
   "device": "cpu",
-  "threads": 4,
+  "threads": 16,
   "non_recursive": false,
   "run_target": "Server",
   "pipeline_mode": "Custom",
@@ -67,7 +76,7 @@
     "host": "103.74.122.196",
     "port": 19622,
     "username": "catcd1",
-    "key_path": "",
+    "key_path": "/mnt/c/Users/ADMIN/.ssh/duat",
     "workspace": "~/mri-remote-jobs",
     "input_upload_dir": "",
     "python": "python3"

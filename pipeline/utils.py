@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 import shutil
+import socket
 import statistics
 import csv
 from datetime import datetime
@@ -11,6 +13,88 @@ from pathlib import Path
 from uuid import uuid4
 
 from .config import PipelineConfig, StepResult, BatchImageResult, STAGE_LABELS, tool_display_name
+
+
+def _read_cpuinfo() -> dict[str, str | int | None]:
+    info: dict[str, str | int | None] = {
+        "cpu_vendor": None,
+        "cpu_model": None,
+        "physical_cores": None,
+    }
+    path = Path("/proc/cpuinfo")
+    if not path.exists():
+        return info
+    try:
+        blocks = path.read_text(encoding="utf-8", errors="replace").strip().split("\n\n")
+    except OSError:
+        return info
+
+    physical_core_ids: set[tuple[str, str]] = set()
+    physical_ids: set[str] = set()
+    core_count_values: set[int] = set()
+    for block in blocks:
+        fields: dict[str, str] = {}
+        for line in block.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
+        if not fields:
+            continue
+        info["cpu_vendor"] = info["cpu_vendor"] or fields.get("vendor_id") or fields.get("CPU implementer")
+        info["cpu_model"] = info["cpu_model"] or fields.get("model name") or fields.get("Hardware") or fields.get("Processor")
+        physical_id = fields.get("physical id")
+        core_id = fields.get("core id")
+        if physical_id is not None:
+            physical_ids.add(physical_id)
+        if physical_id is not None and core_id is not None:
+            physical_core_ids.add((physical_id, core_id))
+        if fields.get("cpu cores"):
+            try:
+                core_count_values.add(int(fields["cpu cores"]))
+            except ValueError:
+                pass
+
+    if physical_core_ids:
+        info["physical_cores"] = len(physical_core_ids)
+    elif physical_ids and core_count_values:
+        info["physical_cores"] = len(physical_ids) * max(core_count_values)
+    elif core_count_values:
+        info["physical_cores"] = max(core_count_values)
+    return info
+
+
+def _total_ram_bytes() -> int | None:
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return int(pages * page_size)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _host_info() -> dict:
+    cpuinfo = _read_cpuinfo()
+    return {
+        "hostname": socket.gethostname(),
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "python_version": platform.python_version(),
+        "cpu_vendor": cpuinfo.get("cpu_vendor"),
+        "cpu_model": cpuinfo.get("cpu_model") or platform.processor() or None,
+        "logical_cores": os.cpu_count(),
+        "physical_cores": cpuinfo.get("physical_cores"),
+        "total_ram_bytes": _total_ram_bytes(),
+    }
+
+
+def _safe_batch_config(config: dict | None) -> dict:
+    data = dict(config or {})
+    for key in ("remote",):
+        data.pop(key, None)
+    return data
 
 
 def _file_stem(filename: str) -> str:
@@ -308,6 +392,8 @@ def _describe_subject_files(subject_dir: str, limit: int = 80) -> str:
 
 def _step_metrics_row(config: PipelineConfig, subject_dir: str, result: StepResult) -> dict:
     peak_ram_mb = (result.peak_ram_bytes / (1024 * 1024)) if result.peak_ram_bytes is not None else None
+    avg_ram_mb = (result.avg_ram_bytes / (1024 * 1024)) if result.avg_ram_bytes is not None else None
+    p95_ram_mb = (result.p95_ram_bytes / (1024 * 1024)) if result.p95_ram_bytes is not None else None
     return {
         "subject_id": config.subject_id,
         "input_file": os.path.abspath(config.input_file),
@@ -316,13 +402,21 @@ def _step_metrics_row(config: PipelineConfig, subject_dir: str, result: StepResu
         "stage_label": STAGE_LABELS.get(result.stage, result.stage),
         "tool": result.tool,
         "tool_label": tool_display_name(result.tool) or result.tool,
+        "threads": config.threads,
+        "device": config.device,
         "status": "OK" if result.success else "FAILED",
         "success": result.success,
         "run_sec": round(result.duration_sec, 3),
         "build_pull_sec": round(result.build_duration_sec, 3),
         "peak_ram_bytes": result.peak_ram_bytes,
         "peak_ram_mb": round(peak_ram_mb, 3) if peak_ram_mb is not None else None,
+        "avg_ram_bytes": result.avg_ram_bytes,
+        "avg_ram_mb": round(avg_ram_mb, 3) if avg_ram_mb is not None else None,
+        "p95_ram_bytes": result.p95_ram_bytes,
+        "p95_ram_mb": round(p95_ram_mb, 3) if p95_ram_mb is not None else None,
         "peak_cpu_pct": round(result.peak_cpu_pct, 3) if result.peak_cpu_pct is not None else None,
+        "avg_cpu_pct": round(result.avg_cpu_pct, 3) if result.avg_cpu_pct is not None else None,
+        "p95_cpu_pct": round(result.p95_cpu_pct, 3) if result.p95_cpu_pct is not None else None,
         "error": result.error,
     }
 
@@ -344,13 +438,27 @@ BENCHMARK_STEP_FIELDS = [
     "stage_label",
     "tool",
     "tool_label",
+    "threads",
+    "device",
+    "hostname",
+    "cpu_vendor",
+    "cpu_model",
+    "logical_cores",
+    "physical_cores",
+    "total_ram_bytes",
     "status",
     "success",
     "run_sec",
     "build_pull_sec",
     "peak_ram_bytes",
     "peak_ram_mb",
+    "avg_ram_bytes",
+    "avg_ram_mb",
+    "p95_ram_bytes",
+    "p95_ram_mb",
     "peak_cpu_pct",
+    "avg_cpu_pct",
+    "p95_cpu_pct",
     "error",
 ]
 
@@ -372,10 +480,12 @@ def _write_pipeline_metrics_log(logs_dir: str, config: PipelineConfig, subject_d
         f.write(f"Total wall time: {ended_at - started_at:.1f}s\n")
         f.write(f"Total run time: {total_run:.1f}s\n")
         f.write(f"Total build/pull time: {total_build:.1f}s\n\n")
-        f.write("Stage\tTool\tStatus\tRun(s)\tBuild/Pull(s)\tPeak RAM\tPeak CPU\tError\n")
+        f.write("Stage\tTool\tStatus\tRun(s)\tBuild/Pull(s)\tPeak RAM\tMean RAM\tP95 RAM\tPeak CPU\tMean CPU\tP95 CPU\tError\n")
         for r in results:
             peak_cpu = f"{r.peak_cpu_pct:.0f}%" if r.peak_cpu_pct is not None else "n/a"
-            f.write(f"{r.stage}\t{r.tool}\t{'OK' if r.success else 'FAILED'}\t{r.duration_sec:.1f}\t{r.build_duration_sec:.1f}\t{_format_bytes(r.peak_ram_bytes)}\t{peak_cpu}\t{r.error}\n")
+            avg_cpu = f"{r.avg_cpu_pct:.1f}%" if r.avg_cpu_pct is not None else "n/a"
+            p95_cpu = f"{r.p95_cpu_pct:.1f}%" if r.p95_cpu_pct is not None else "n/a"
+            f.write(f"{r.stage}\t{r.tool}\t{'OK' if r.success else 'FAILED'}\t{r.duration_sec:.1f}\t{r.build_duration_sec:.1f}\t{_format_bytes(r.peak_ram_bytes)}\t{_format_bytes(r.avg_ram_bytes)}\t{_format_bytes(r.p95_ram_bytes)}\t{peak_cpu}\t{avg_cpu}\t{p95_cpu}\t{r.error}\n")
     metrics_json = Path(logs_dir) / "pipeline_metrics.json"
     with open(metrics_json, "w", encoding="utf-8") as f:
         json.dump(
@@ -433,6 +543,14 @@ BENCHMARK_SUMMARY_FIELDS = [
     "stage_label",
     "tool",
     "tool_label",
+    "threads",
+    "device",
+    "hostname",
+    "cpu_vendor",
+    "cpu_model",
+    "logical_cores",
+    "physical_cores",
+    "total_ram_bytes",
     "images",
     "success",
     "failed",
@@ -444,14 +562,34 @@ BENCHMARK_SUMMARY_FIELDS = [
     "avg_build_pull_sec",
     "avg_peak_ram_mb",
     "max_peak_ram_mb",
+    "avg_mean_ram_mb",
+    "avg_p95_ram_mb",
+    "max_p95_ram_mb",
     "avg_peak_cpu_pct",
     "max_peak_cpu_pct",
+    "avg_mean_cpu_pct",
+    "avg_p95_cpu_pct",
+    "max_p95_cpu_pct",
     "errors",
 ]
 
 
-def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchImageResult]) -> str:
+def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchImageResult], batch_config: dict | None = None) -> str:
     benchmark_dir = Path(output_dir) / "benchmark"
+    safe_config = _safe_batch_config(batch_config)
+    host_info = _host_info()
+    threads = safe_config.get("threads")
+    device = safe_config.get("device")
+    context = {
+        "threads": threads,
+        "device": device,
+        "hostname": host_info.get("hostname"),
+        "cpu_vendor": host_info.get("cpu_vendor"),
+        "cpu_model": host_info.get("cpu_model"),
+        "logical_cores": host_info.get("logical_cores"),
+        "physical_cores": host_info.get("physical_cores"),
+        "total_ram_bytes": host_info.get("total_ram_bytes"),
+    }
     rows: list[dict] = []
     for image_result in batch_results:
         if image_result.steps:
@@ -459,10 +597,15 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
                 input_file=image_result.input_file,
                 output_dir=str(Path(image_result.subject_dir).parent),
                 subject_id=image_result.subject_id,
+                device=str(device or "cpu"),
+                threads=int(threads or 4),
             )
-            rows.extend(_step_metrics_row(config, image_result.subject_dir, step) for step in image_result.steps)
+            for step in image_result.steps:
+                row = _step_metrics_row(config, image_result.subject_dir, step)
+                row.update(context)
+                rows.append(row)
         else:
-            rows.append({
+            row = {
                 "subject_id": image_result.subject_id,
                 "input_file": os.path.abspath(image_result.input_file),
                 "subject_dir": image_result.subject_dir,
@@ -470,15 +613,25 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
                 "stage_label": "Pipeline",
                 "tool": "pipeline",
                 "tool_label": "Pipeline",
+                "threads": threads,
+                "device": device,
                 "status": "FAILED" if not image_result.success else "OK",
                 "success": image_result.success,
                 "run_sec": round(image_result.duration_sec, 3),
                 "build_pull_sec": 0.0,
                 "peak_ram_bytes": None,
                 "peak_ram_mb": None,
+                "avg_ram_bytes": None,
+                "avg_ram_mb": None,
+                "p95_ram_bytes": None,
+                "p95_ram_mb": None,
                 "peak_cpu_pct": None,
+                "avg_cpu_pct": None,
+                "p95_cpu_pct": None,
                 "error": image_result.error,
-            })
+            }
+            row.update(context)
+            rows.append(row)
 
     groups: dict[tuple[str, str], list[dict]] = {}
     for row in rows:
@@ -491,7 +644,11 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
         run_values = _number_values(group, "run_sec")
         build_values = _number_values(group, "build_pull_sec")
         ram_values = _number_values(group, "peak_ram_mb")
+        avg_ram_values = _number_values(group, "avg_ram_mb")
+        p95_ram_values = _number_values(group, "p95_ram_mb")
         cpu_values = _number_values(group, "peak_cpu_pct")
+        avg_cpu_values = _number_values(group, "avg_cpu_pct")
+        p95_cpu_values = _number_values(group, "p95_cpu_pct")
         errors = sorted({str(row.get("error", "")) for row in group if row.get("error")})
         first = group[0]
         summary.append({
@@ -499,6 +656,14 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
             "stage_label": first.get("stage_label", stage),
             "tool": tool,
             "tool_label": first.get("tool_label", tool),
+            "threads": first.get("threads"),
+            "device": first.get("device"),
+            "hostname": first.get("hostname"),
+            "cpu_vendor": first.get("cpu_vendor"),
+            "cpu_model": first.get("cpu_model"),
+            "logical_cores": first.get("logical_cores"),
+            "physical_cores": first.get("physical_cores"),
+            "total_ram_bytes": first.get("total_ram_bytes"),
             "images": total,
             "success": successes,
             "failed": total - successes,
@@ -510,12 +675,22 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
             "avg_build_pull_sec": _avg(build_values),
             "avg_peak_ram_mb": _avg(ram_values),
             "max_peak_ram_mb": _max(ram_values),
+            "avg_mean_ram_mb": _avg(avg_ram_values),
+            "avg_p95_ram_mb": _avg(p95_ram_values),
+            "max_p95_ram_mb": _max(p95_ram_values),
             "avg_peak_cpu_pct": _avg(cpu_values),
             "max_peak_cpu_pct": _max(cpu_values),
+            "avg_mean_cpu_pct": _avg(avg_cpu_values),
+            "avg_p95_cpu_pct": _avg(p95_cpu_values),
+            "max_p95_cpu_pct": _max(p95_cpu_values),
             "errors": " | ".join(errors[:5]),
         })
 
     benchmark_dir.mkdir(parents=True, exist_ok=True)
+    with open(benchmark_dir / "batch_config.json", "w", encoding="utf-8") as f:
+        json.dump(safe_config, f, indent=2, ensure_ascii=False)
+    with open(benchmark_dir / "host_info.json", "w", encoding="utf-8") as f:
+        json.dump(host_info, f, indent=2, ensure_ascii=False)
     _write_rows_tsv(benchmark_dir / "benchmark_steps.tsv", rows, BENCHMARK_STEP_FIELDS)
     _write_rows_tsv(benchmark_dir / "benchmark_summary.tsv", summary, BENCHMARK_SUMMARY_FIELDS)
     with open(benchmark_dir / "benchmark_steps.json", "w", encoding="utf-8") as f:

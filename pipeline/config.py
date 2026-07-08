@@ -494,7 +494,11 @@ class StepResult:
     duration_sec: float
     build_duration_sec: float = 0.0
     peak_ram_bytes: int | None = None
+    avg_ram_bytes: int | None = None
+    p95_ram_bytes: int | None = None
     peak_cpu_pct: float | None = None
+    avg_cpu_pct: float | None = None
+    p95_cpu_pct: float | None = None
     log_text: str = ""
     output_files: list[str] = field(default_factory=list)
     error: str = ""

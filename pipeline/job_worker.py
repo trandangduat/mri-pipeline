@@ -112,7 +112,11 @@ def _run_job(job_dir: Path, req: dict) -> int:
                 duration_sec=step.duration_sec,
                 build_duration_sec=step.build_duration_sec,
                 peak_ram_bytes=step.peak_ram_bytes,
+                avg_ram_bytes=step.avg_ram_bytes,
+                p95_ram_bytes=step.p95_ram_bytes,
                 peak_cpu_pct=step.peak_cpu_pct,
+                avg_cpu_pct=step.avg_cpu_pct,
+                p95_cpu_pct=step.p95_cpu_pct,
                 error=step.error,
             )
         _emit_event(
@@ -188,6 +192,7 @@ def _run_job(job_dir: Path, req: dict) -> int:
         on_image_done=image_done_cb,
         on_metrics=metrics_cb,
         should_stop=should_stop,
+        batch_config=req,
     )
     failed = [result for result in results if not result.success]
     return 1 if failed else 0

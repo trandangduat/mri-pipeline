@@ -22,17 +22,6 @@ python pipeline_runner.py --input-dir <path> --device cpu --threads 4 --resume
 
 `--resume` skips completed stages via `pipeline_state.json`. Other flags: `--non-recursive`, `--json-events`, `--ensure-images-only`, `--stop-file <path>`. Each stage also has a tool-override flag (e.g. `--segmentation`, `--brain-extraction`).
 
-## Output structure
-
-```
-outputs/<subject_id>/
-  mri/     — NIfTI/MGZ volumes
-  stats/   — TSV/CSV statistics
-  logs/    — tool logs + pipeline_metrics.log + pipeline_state.json
-```
-
-Subject ID defaults to filename stem. For generic ADNI names (`001.mgz`, `002.mgz`, etc.) it uses the parent folder path to avoid collisions.
-
 ## GUI 
 - **Theme & Typography**: Uses `sv-ttk` (SunValley theme) with the `Inter` font globally enforced for a modern look.
 - **Icons**: Uses 20x20 PNG icons sourced from Icons8 ("iOS Filled" style) (stored in `ui/icons/`). Loaded dynamically via `tk.PhotoImage` in the toolbar.

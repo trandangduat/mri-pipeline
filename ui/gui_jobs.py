@@ -51,9 +51,9 @@ class JobsMixin:
         dialog.transient(self.root)
         dialog.grab_set()
 
-        ttk.Label(dialog, text="Select a background job to view progress/logs or download completed remote outputs.").pack(anchor=tk.W, padx=12, pady=(12, 6))
+        ttk.Label(dialog, text="Select one or more background jobs to download outputs. View / Attach still opens the first selected job.").pack(anchor=tk.W, padx=12, pady=(12, 6))
         columns = ("target", "state", "job", "output")
-        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12)
+        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12, selectmode="extended")
         tree.heading("target", text="Target")
         tree.heading("state", text="State")
         tree.heading("job", text="Job")
@@ -92,6 +92,9 @@ class JobsMixin:
                 return None
             return item_to_job.get(selection[0])
 
+        def selected_jobs() -> list[dict]:
+            return [item_to_job[item] for item in tree.selection() if item in item_to_job]
+
         def delete_selected() -> None:
             nonlocal jobs
             selection = tree.selection()
@@ -124,14 +127,14 @@ class JobsMixin:
             self._attach_registry_job(job)
 
         def download_selected() -> None:
-            job = selected_job()
-            if not job:
+            jobs = selected_jobs()
+            if not jobs:
                 return
             dialog.destroy()
-            self._download_registry_job(job)
+            self._download_registry_jobs(jobs)
 
         ttk.Button(buttons, text="View / Attach", style="Accent.TButton", command=attach_selected).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Download Outputs", command=download_selected).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(buttons, text="Download Selected Outputs", command=download_selected).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Delete Selected", command=delete_selected).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Manual Attach", command=lambda: (dialog.destroy(), self._attach_manual_job_dialog())).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
@@ -518,15 +521,56 @@ class JobsMixin:
             self._render_selected_detail()
 
     def _download_registry_job(self, job: dict) -> None:
-        if job.get("target") == "Server":
-            runner = self._remote_runner_from_job_entry(job)
+        self._download_registry_jobs([job])
+
+    def _download_registry_jobs(self, jobs: list[dict]) -> None:
+        if not jobs:
+            return
+        if len(jobs) == 1:
+            job = jobs[0]
+            if job.get("target") == "Server":
+                runner = self._remote_runner_from_job_entry(job)
+                if runner is None:
+                    return
+                self.remote_runner = runner
+                self._remote_download_outputs()
+                return
+            output_dir = job.get("effective_output_dir") or job.get("output_dir")
+            self._log(f"Local outputs are already available in: {output_dir}")
+            return
+
+        local_jobs = [job for job in jobs if job.get("target") != "Server"]
+        for job in local_jobs:
+            output_dir = job.get("effective_output_dir") or job.get("output_dir")
+            self._log(f"Local outputs are already available in: {output_dir}")
+
+        remote_jobs = [job for job in jobs if job.get("target") == "Server"]
+        if not remote_jobs:
+            return
+        if self.running:
+            self._append_log("Remote task ignored: another task is already running.")
+            return
+
+        runners: list[tuple[dict, RemoteRunner]] = []
+        for job in remote_jobs:
+            runner = self._remote_runner_from_job_entry(job, read_metadata=False)
             if runner is None:
                 return
-            self.remote_runner = runner
-            self._remote_download_outputs()
-            return
-        output_dir = job.get("effective_output_dir") or job.get("output_dir")
-        self._log(f"Local outputs are already available in: {output_dir}")
+            runners.append((job, runner))
+
+        def task() -> None:
+            total = len(runners)
+            for idx, (job, runner) in enumerate(runners, start=1):
+                label = job.get("remote_job_dir") or job.get("job_id") or f"job {idx}"
+                self._log(f"Downloading outputs ({idx}/{total}): {label}")
+                if not runner.config.download_subdir:
+                    metadata = runner.read_remote_metadata()
+                    if metadata.get("download_subdir"):
+                        runner.config.download_subdir = str(metadata.get("download_subdir"))
+                local_path = runner.download_outputs(job.get("output_dir") or self.state.output_dir.get())
+                self._log(f"Downloaded outputs to: {local_path}")
+
+        self._run_remote_task(f"Download Outputs ({len(runners)} jobs)", task)
 
     def _enter_background_monitor_state(self, title: str) -> None:
         self.running = True

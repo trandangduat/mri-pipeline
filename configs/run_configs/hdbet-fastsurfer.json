@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "type": "mri-pipeline-run-config",
+  "pipeline_mode": "Custom",
+  "tools": {
+    "reorientation": "nibabel",
+    "brain_extraction": "hdbet",
+    "segmentation": "fastsurfervinn",
+    "template_registration": "synthmorph_fs8",
+    "bias_correction": "ants_n4",
+    "white_matter_segmentation": "mri_binarize",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": "freesurfer_stats_fs7"
+  },
+  "stats_vectors": {
+    "enabled_stats": {
+      "cortical_thickness": false,
+      "cortical_volume": true,
+      "subcortical_volume": true
+    },
+    "atlases": {
+      "cortical_thickness": [
+        "yale"
+      ],
+      "cortical_volume": [],
+      "subcortical_volume": []
+    }
+  },
+  "name": "hdbet-fastsurfer"
+}

@@ -105,7 +105,7 @@ def _copy_or_convert_export(src: Path, dst: Path, subject_dir: str) -> tuple[boo
     subject_path = Path(subject_dir).resolve()
     src_rel = src.resolve().relative_to(subject_path).as_posix()
     dst_rel = dst.resolve().relative_to(subject_path).as_posix()
-    code, output, _peak_ram, _peak_cpu = _run_docker(
+    code, output, _metrics = _run_docker(
         image=TOOL_DEFS["mri_convert_fs7"]["image"],
         args=[],
         mounts=[(str(subject_path), "/subject")],
@@ -652,7 +652,7 @@ def run_pipeline(
             if on_metrics:
                 on_metrics(_stage, _tool, cpu_pct, ram_bytes, elapsed, _cn)
 
-        code, output, peak_ram, peak_cpu = _run_docker(
+        code, output, metrics = _run_docker(
             image=tool["image"],
             args=args,
             mounts=mounts,
@@ -662,6 +662,8 @@ def run_pipeline(
             entrypoint=tool.get("entrypoint"),
             on_metrics=_metrics_relay if on_metrics else None,
         )
+        peak_ram = metrics.peak_ram_bytes
+        peak_cpu = metrics.peak_cpu_pct
         duration = time.time() - t0
         _repair_host_permissions(subject_dir, tool["image"])
         _organize_output(subject_dir, preserve_dirs={_safe_export_stem(config.export_config.folder, "exports")})
@@ -721,7 +723,11 @@ def run_pipeline(
             f"Duration: {duration:.1f}s",
             f"Build: {build_time:.1f}s",
             f"Peak RAM: {_format_bytes(peak_ram)}",
+            f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes)}",
+            f"P95 RAM: {_format_bytes(metrics.p95_ram_bytes)}",
             f"Peak CPU: {peak_cpu:.0f}%" if peak_cpu is not None else "Peak CPU: n/a",
+            f"Mean CPU: {metrics.avg_cpu_pct:.1f}%" if metrics.avg_cpu_pct is not None else "Mean CPU: n/a",
+            f"P95 CPU: {metrics.p95_cpu_pct:.1f}%" if metrics.p95_cpu_pct is not None else "P95 CPU: n/a",
             f"Exit code: {code}",
         ]
         if exported_outputs:
@@ -732,7 +738,7 @@ def run_pipeline(
             step_log_lines.append(f"\n--- Output ---\n{output[-3000:]}")
         _append_step_log(logs_dir, tool_key, step_log_lines)
 
-        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=build_time, peak_ram_bytes=peak_ram, peak_cpu_pct=peak_cpu, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error))
+        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=build_time, peak_ram_bytes=peak_ram, avg_ram_bytes=metrics.avg_ram_bytes, p95_ram_bytes=metrics.p95_ram_bytes, peak_cpu_pct=peak_cpu, avg_cpu_pct=metrics.avg_cpu_pct, p95_cpu_pct=metrics.p95_cpu_pct, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error))
 
         if success:
             msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
@@ -802,6 +808,7 @@ def run_batch_pipeline(
     on_image_start: Callable[[str, int, int], None] | None = None,
     on_metrics: MetricsCallback | None = None,
     should_stop: Callable[[], bool] | None = None,
+    batch_config: dict | None = None,
 ) -> list[BatchImageResult]:
     if input_files is None:
         input_files = _discover_mri_files(input_dir, recursive=recursive)
@@ -810,6 +817,19 @@ def run_batch_pipeline(
     total = len(input_files)
     dup_basenames = _duplicate_basenames(input_files)
     dataset_root = str(Path(input_dir).expanduser().resolve())
+    benchmark_config = dict(batch_config or {})
+    benchmark_config.setdefault("version", 1)
+    benchmark_config.setdefault("input_dir", input_dir)
+    benchmark_config.setdefault("output_dir", output_dir)
+    benchmark_config.setdefault("effective_output_dir", output_dir)
+    benchmark_config.setdefault("license_dir", license_dir)
+    benchmark_config.setdefault("device", device)
+    benchmark_config.setdefault("threads", threads)
+    benchmark_config.setdefault("selected_tools", selected_tools or PipelineConfig("", "", "").selected_tools)
+    benchmark_config.setdefault("export_config", (export_config or ExportConfig()).to_dict())
+    benchmark_config.setdefault("stats_vector_config", (stats_vector_config or StatsVectorConfig()).to_dict())
+    benchmark_config.setdefault("recursive", recursive)
+    benchmark_config.setdefault("input_file_count", total)
 
     for idx, input_file in enumerate(input_files, start=1):
         if should_stop and should_stop():
@@ -854,5 +874,5 @@ def run_batch_pipeline(
         if on_image_done:
             on_image_done(image_result, idx, total)
     if batch_results:
-        _write_batch_benchmark_reports(output_dir, batch_results)
+        _write_batch_benchmark_reports(output_dir, batch_results, benchmark_config)
     return batch_results
