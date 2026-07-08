@@ -97,9 +97,14 @@ def _safe_batch_config(config: dict | None) -> dict:
     return data
 
 
+VOLUME_FILE_EXTENSIONS = (".nii.gz", ".nii", ".mgz", ".mgh")
+DICOM_FILE_EXTENSIONS = (".dcm", ".dicom", ".ima")
+MRI_FILE_EXTENSIONS = (*VOLUME_FILE_EXTENSIONS, *DICOM_FILE_EXTENSIONS)
+
+
 def _file_stem(filename: str) -> str:
     name = filename
-    for ext in (".nii.gz", ".nii", ".mgz", ".mgh", ".dcm"):
+    for ext in MRI_FILE_EXTENSIONS:
         if name.lower().endswith(ext):
             return name[: -len(ext)]
     return Path(filename).stem
@@ -180,16 +185,77 @@ def build_subject_id_map(files: list[str], dataset_root: str) -> dict[str, str]:
     return out
 
 
+def _has_dicom_magic(path: Path) -> bool:
+    try:
+        with path.open("rb") as f:
+            header = f.read(132)
+        return len(header) >= 132 and header[128:132] == b"DICM"
+    except OSError:
+        return False
+
+
+def _is_dicom_file(path: Path) -> bool:
+    lower = path.name.lower()
+    if lower.endswith(DICOM_FILE_EXTENSIONS):
+        return True
+    return path.suffix == "" and _has_dicom_magic(path)
+
+
 def _is_supported_mri_file(path: Path) -> bool:
-    return path.name.lower().endswith((".nii.gz", ".nii", ".mgz", ".mgh", ".dcm"))
+    return path.name.lower().endswith(VOLUME_FILE_EXTENSIONS) or _is_dicom_file(path)
+
+
+def _is_dicom_series_dir(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    try:
+        return any(child.is_file() and _is_dicom_file(child) for child in path.iterdir())
+    except OSError:
+        return False
+
+
+def _is_supported_mri_input(path: str | Path) -> bool:
+    p = Path(path).expanduser()
+    if p.is_file():
+        return _is_supported_mri_file(p)
+    return _is_dicom_series_dir(p)
 
 
 def _discover_mri_files(input_dir: str, recursive: bool = True) -> list[str]:
     root = Path(input_dir).expanduser()
     if not root.exists() or not root.is_dir():
         return []
-    iterator = root.rglob("*") if recursive else root.glob("*")
-    return [str(p) for p in sorted(iterator) if p.is_file() and _is_supported_mri_file(p)]
+    results: list[str] = []
+
+    def scan_dir(directory: Path) -> None:
+        if _is_dicom_series_dir(directory):
+            results.append(str(directory))
+            return
+        try:
+            children = sorted(directory.iterdir(), key=lambda p: p.as_posix().lower())
+        except OSError:
+            return
+        for child in children:
+            if child.is_file() and _is_supported_mri_file(child):
+                results.append(str(child))
+            elif recursive and child.is_dir():
+                scan_dir(child)
+
+    if recursive:
+        scan_dir(root)
+    else:
+        if _is_dicom_series_dir(root):
+            return [str(root)]
+        try:
+            children = sorted(root.iterdir(), key=lambda p: p.as_posix().lower())
+        except OSError:
+            return []
+        for child in children:
+            if child.is_file() and _is_supported_mri_file(child):
+                results.append(str(child))
+            elif child.is_dir() and _is_dicom_series_dir(child):
+                results.append(str(child))
+    return results
 
 
 def _safe_container_name(*parts: str) -> str:

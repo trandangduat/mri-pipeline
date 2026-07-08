@@ -6,5 +6,6 @@ from .utils import (
     _discover_mri_files,
     _duplicate_basenames,
     _file_stem,
+    _is_supported_mri_input,
     build_subject_id_map,
 )

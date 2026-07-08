@@ -17,6 +17,7 @@ from pipeline.jobs import create_local_job_dir, upsert_job_registry, write_json
 from pipeline_runner import (
     PROJECT_ROOT,
     STAGE_ORDER,
+    _is_supported_mri_input,
 )
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
@@ -286,15 +287,15 @@ class PipelineMixin:
 
         if mode == "file":
             path = self.state.selected_files[0] if self.state.selected_files else raw_input
-            if not Path(path).is_file():
-                messagebox.showerror("Invalid input", f"Không tồn tại file: {path}")
+            if not _is_supported_mri_input(path):
+                messagebox.showerror("Invalid input", f"Không tồn tại file MRI hoặc folder DICOM: {path}")
                 return None
             base["input_file"] = path
         elif mode == "files":
             files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
-            missing = [p for p in files if not Path(p).is_file()]
+            missing = [p for p in files if not _is_supported_mri_input(p)]
             if not files or missing:
-                messagebox.showerror("Invalid input", "Danh sách file không hợp lệ.")
+                messagebox.showerror("Invalid input", "Danh sách file MRI/folder DICOM không hợp lệ.")
                 return None
             base["input_files"] = files
             base["input_dir"] = self._common_input_root(files)

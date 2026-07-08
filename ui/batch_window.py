@@ -4,20 +4,12 @@ import os
 import glob
 import posixpath
 import stat
+from pathlib import Path
+
+from pipeline_runner import _discover_mri_files
 
 def find_mri_files(directory: str, recursive: bool = True) -> list[str]:
-    exts = ['.mgz', '.nii', '.nii.gz']
-    results = []
-    if recursive:
-        for root, _, files in os.walk(directory):
-            for f in files:
-                if any(f.endswith(ext) for ext in exts):
-                    results.append(os.path.join(root, f))
-    else:
-        for f in os.listdir(directory):
-            if any(f.endswith(ext) for ext in exts):
-                results.append(os.path.join(directory, f))
-    return sorted(results)
+    return _discover_mri_files(directory, recursive=recursive)
 
 def format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
@@ -67,7 +59,7 @@ class BatchConfigWindow(tk.Toplevel):
         # Checkbox
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Checkbutton(top_frame, text="Scan recursively for .mgz/.nii/.nii.gz", 
+        ttk.Checkbutton(top_frame, text="Scan recursively for MRI/DICOM inputs",
                         variable=self.recursive_var, command=self._scan_folder).pack(side=tk.LEFT)
                         
         # Buttons
@@ -124,7 +116,11 @@ class BatchConfigWindow(tk.Toplevel):
         for f in files:
             size_str = "Unknown"
             try:
-                size_str = format_size(os.path.getsize(f))
+                path = Path(f)
+                if path.is_dir():
+                    size_str = format_size(sum(child.stat().st_size for child in path.iterdir() if child.is_file()))
+                else:
+                    size_str = format_size(os.path.getsize(f))
             except Exception:
                 pass
                 
@@ -138,7 +134,23 @@ class BatchConfigWindow(tk.Toplevel):
         self._refresh_tree()
 
     def _is_mri_name(self, name: str) -> bool:
-        return name.lower().endswith(('.mgz', '.nii', '.nii.gz', '.mgh', '.dcm'))
+        return name.lower().endswith(('.mgz', '.nii', '.nii.gz', '.mgh', '.dcm', '.dicom', '.ima'))
+
+    def _server_dir_contains_dicom(self, directory: str) -> tuple[bool, int]:
+        assert self.ssh is not None
+        total_size = 0
+        try:
+            for item in self.ssh.sftp.listdir_attr(directory):
+                if item.filename.startswith("."):
+                    continue
+                if not stat.S_ISDIR(item.st_mode) and self._is_dicom_name(item.filename):
+                    total_size += int(item.st_size or 0)
+            return total_size > 0, total_size
+        except OSError:
+            return False, 0
+
+    def _is_dicom_name(self, name: str) -> bool:
+        return name.lower().endswith(('.dcm', '.dicom', '.ima'))
 
     def _scan_server_folder(self, directory: str):
         if self.ssh is None or not directory:
@@ -166,6 +178,9 @@ class BatchConfigWindow(tk.Toplevel):
     def _find_server_mri_files(self, directory: str, recursive: bool) -> list[tuple[str, int]]:
         assert self.ssh is not None
         results: list[tuple[str, int]] = []
+        has_dicom, dicom_size = self._server_dir_contains_dicom(directory)
+        if has_dicom:
+            return [(directory, dicom_size)]
         attrs = self.ssh.sftp.listdir_attr(directory)
         for item in attrs:
             if item.filename.startswith("."):
@@ -174,6 +189,10 @@ class BatchConfigWindow(tk.Toplevel):
             is_dir = stat.S_ISDIR(item.st_mode)
             if is_dir and recursive:
                 results.extend(self._find_server_mri_files(path, recursive))
+            elif is_dir:
+                has_child_dicom, child_size = self._server_dir_contains_dicom(path)
+                if has_child_dicom:
+                    results.append((path, child_size))
             elif not is_dir and self._is_mri_name(item.filename):
                 results.append((path, int(item.st_size or 0)))
         return sorted(results, key=lambda item: item[0].lower())

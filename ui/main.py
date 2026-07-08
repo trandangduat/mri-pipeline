@@ -27,6 +27,7 @@ from pipeline_runner import (
     STAT_VECTOR_DEFS,
     enabled_tools_for_stage,
     is_tool_enabled,
+    _is_supported_mri_input,
     tool_display_name,
     tool_key_from_display,
 )
@@ -719,7 +720,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             return listing
 
         def is_mri_name(name: str) -> bool:
-            return name.lower().endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"))
+            return name.lower().endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"))
 
         def refresh_local(path_text: str | None = None) -> None:
             nonlocal local_entries
@@ -742,7 +743,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     prefix = "[D] " if entry["is_dir"] else "    "
                     local_list.insert(tk.END, prefix + entry["name"])
                 local_path.set(str(path))
-                status_text.set("Select local files to upload.")
+                status_text.set("Select local files or DICOM folders to upload.")
             except Exception as exc:
                 status_text.set(f"Local browse failed: {type(exc).__name__}: {exc}")
 
@@ -810,15 +811,37 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if selection and server_entries[selection[0]]["is_dir"]:
                 refresh_server(server_entries[selection[0]]["path"])
 
-        def selected_local_files() -> list[Path]:
-            files: list[Path] = []
+        def selected_local_inputs() -> list[Path]:
+            inputs: list[Path] = []
             for idx in local_list.curselection():
                 entry = local_entries[idx]
-                if not entry["is_dir"]:
-                    files.append(Path(entry["path"]))
-            return files
+                if entry["name"] == "..":
+                    continue
+                inputs.append(Path(entry["path"]))
+            return inputs
 
-        def preflight_upload(files: list[Path], dest_dir: str) -> tuple[list[tuple[Path, str]], int] | None:
+        def upload_file_pairs(inputs: list[Path], dest_dir: str) -> tuple[list[tuple[Path, str]], list[str]]:
+            pairs: list[tuple[Path, str]] = []
+            remote_roots: list[str] = []
+            for src in inputs:
+                if src.is_dir():
+                    remote_root = posixpath.join(dest_dir, src.name)
+                    remote_roots.append(remote_root)
+                    for root, dirs, files in os.walk(src):
+                        dirs[:] = [name for name in dirs if not name.startswith(".")]
+                        for name in sorted(files):
+                            if name.startswith("."):
+                                continue
+                            local_file = Path(root) / name
+                            rel = local_file.relative_to(src).as_posix()
+                            pairs.append((local_file, posixpath.join(remote_root, rel)))
+                else:
+                    remote_file = posixpath.join(dest_dir, src.name)
+                    remote_roots.append(remote_file)
+                    pairs.append((src, remote_file))
+            return pairs, remote_roots
+
+        def preflight_upload(pairs: list[tuple[Path, str]], dest_dir: str) -> tuple[list[tuple[Path, str]], int] | None:
             ssh = ssh_holder.get("ssh")
             if ssh is None:
                 return None
@@ -826,8 +849,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             upload_items: list[tuple[Path, str]] = []
             skipped = 0
             overwrite_all: bool | None = None
-            for src in files:
-                remote_file = posixpath.join(dest_dir, src.name)
+            for src, remote_file in pairs:
+                ssh.mkdir_p(posixpath.dirname(remote_file))
                 exists = False
                 try:
                     ssh.sftp.stat(remote_file)
@@ -859,19 +882,24 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     upload_items.append((src, remote_file))
             return upload_items, skipped
 
-        def apply_uploaded_inputs(remote_files: list[str]) -> None:
-            if not remote_files:
+        def apply_uploaded_inputs(remote_paths: list[str], uploaded_dirs: bool) -> None:
+            if not remote_paths:
                 return
             self.state.input_source.set("Server")
-            self.state.selected_files = remote_files
-            if len(remote_files) == 1:
+            if uploaded_dirs:
+                self.state.input_mode.set("dir")
+                self.state.selected_files = []
+                self.state.input_path.set(remote_paths[0] if len(remote_paths) == 1 else normalize_server_path(server_path.get()))
+            elif len(remote_paths) == 1:
                 self.state.input_mode.set("file")
-                self.state.input_path.set(remote_files[0])
+                self.state.selected_files = remote_paths
+                self.state.input_path.set(remote_paths[0])
             else:
                 self.state.input_mode.set("files")
-                self.state.input_path.set("; ".join(remote_files))
+                self.state.selected_files = remote_paths
+                self.state.input_path.set("; ".join(remote_paths))
             self._input_source_paths["Server"] = self.state.input_path.get().strip()
-            self._input_source_selected_files["Server"] = list(remote_files)
+            self._input_source_selected_files["Server"] = list(self.state.selected_files)
             self._last_input_source = "Server"
             self._sync_input_source_controls()
             self._refresh_input_label()
@@ -884,12 +912,17 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if ssh is None:
                 messagebox.showerror("Server not connected", "SSH server is not connected yet.", parent=dialog)
                 return
-            files = selected_local_files()
-            if not files:
-                messagebox.showwarning("No files selected", "Select one or more local files to upload.", parent=dialog)
+            inputs = selected_local_inputs()
+            if not inputs:
+                messagebox.showwarning("No files selected", "Select one or more local files or DICOM folders to upload.", parent=dialog)
                 return
             dest_dir = normalize_server_path(server_path.get())
-            preflight = preflight_upload(files, dest_dir)
+            pairs, remote_paths = upload_file_pairs(inputs, dest_dir)
+            uploaded_dirs = any(path.is_dir() for path in inputs)
+            if not pairs:
+                status_text.set("No files found to upload.")
+                return
+            preflight = preflight_upload(pairs, dest_dir)
             if preflight is None:
                 status_text.set("Upload cancelled.")
                 return
@@ -899,8 +932,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 return
             upload_running["value"] = True
             start_button.configure(state=tk.DISABLED)
-            progress.configure(maximum=len(files), value=skipped)
-            progress_text.set(f"{skipped} / {len(files)}")
+            progress.configure(maximum=len(pairs), value=skipped)
+            progress_text.set(f"{skipped} / {len(pairs)}")
 
             def worker() -> None:
                 uploaded: list[str] = []
@@ -908,10 +941,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 try:
                     for src, remote_file in upload_items:
                         processed += 1
-                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading {p}/{len(files)}: {name}"), progress.configure(value=p), progress_text.set(f"{p} / {len(files)}")))
+                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading {p}/{len(pairs)}: {name}"), progress.configure(value=p), progress_text.set(f"{p} / {len(pairs)}")))
                         ssh.sftp.put(str(src), remote_file)
                         uploaded.append(remote_file)
-                    self.root.after(0, lambda: (status_text.set(f"Upload complete: {len(uploaded)} file(s)."), apply_uploaded_inputs(uploaded), refresh_server(dest_dir)))
+                    self.root.after(0, lambda: (status_text.set(f"Upload complete: {len(uploaded)} file(s)."), apply_uploaded_inputs(remote_paths, uploaded_dirs), refresh_server(dest_dir)))
                 except Exception as exc:
                     self.root.after(0, lambda e=exc: status_text.set(f"Upload failed: {type(e).__name__}: {e}"))
                 finally:
@@ -1027,7 +1060,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         def is_mri_name(name: str) -> bool:
             lower = name.lower()
-            return lower.endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"))
+            return lower.endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"))
 
         def load_dir(path: str) -> None:
             nonlocal entries
@@ -1128,7 +1161,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._refresh_input_label()
 
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
-        return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm"), ("All files", "*.*"))
+        return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm *.dicom *.ima"), ("All files", "*.*"))
 
     def _browse_directory(self, variable: tk.StringVar) -> None:
         path = filedialog.askdirectory(title="Select directory")
@@ -1406,14 +1439,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             errors.append("Server input requires Run on = Server.")
         elif input_source == "Local" and mode == "file":
             path = self.state.selected_files[0] if self.state.selected_files else raw_input
-            if not Path(path).is_file():
-                errors.append("Input file does not exist.")
+            if not _is_supported_mri_input(path):
+                errors.append("Input file or DICOM folder does not exist.")
         elif input_source == "Local" and mode == "files":
             files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
             if not files:
                 errors.append("Choose at least one input file.")
-            elif any(not Path(p).is_file() for p in files):
-                errors.append("One or more selected input files do not exist.")
+            elif any(not _is_supported_mri_input(p) for p in files):
+                errors.append("One or more selected input files or DICOM folders do not exist.")
         elif input_source == "Local":
             if not Path(raw_input).is_dir():
                 errors.append("Input folder does not exist.")

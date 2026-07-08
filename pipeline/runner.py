@@ -611,8 +611,9 @@ def run_pipeline(
             break
 
         if input_for_next_step is None:
-            host_input_dir = os.path.dirname(os.path.abspath(config.input_file))
-            input_path = f"/input/{os.path.basename(config.input_file)}"
+            input_abs = Path(config.input_file).expanduser().resolve()
+            host_input_dir = str(input_abs.parent)
+            input_path = f"/input/{input_abs.name}"
             mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
         else:
             rel = os.path.relpath(input_for_next_step, subject_dir)

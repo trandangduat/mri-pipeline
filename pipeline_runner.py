@@ -23,6 +23,7 @@ from pipeline.utils import (
     _duplicate_basenames,
     _file_stem,
     _format_bytes,
+    _is_supported_mri_input,
     _load_pipeline_state,
     _pipeline_state_path,
     _write_pipeline_state,
