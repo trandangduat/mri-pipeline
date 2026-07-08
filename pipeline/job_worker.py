@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .config import BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .jobs import read_json, write_json
-from .runner import run_batch_pipeline, run_pipeline
+from .runner import _write_stats_vector_reports, run_batch_pipeline, run_pipeline
 from .utils import _derive_subject_id, _discover_mri_files, build_subject_id_map
 
 
@@ -138,6 +138,8 @@ def _run_job(job_dir: Path, req: dict) -> int:
         input_file = req["input_file"]
         subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
         subject_id = req.get("subject_id") or subject_id_map.get(input_file) or _derive_subject_id(input_file)
+        dataset_root = str(Path(input_file).expanduser().resolve().parent)
+        _write_stats_vector_reports(output_dir, [input_file], [], {input_file: subject_id}, dataset_root, stats_vector_config, running_input_file=input_file)
         image_start_cb(input_file, 1, 1)
         config = PipelineConfig(
             input_file=input_file,
@@ -153,7 +155,9 @@ def _run_job(job_dir: Path, req: dict) -> int:
         )
         results = run_pipeline(config, on_progress=progress_cb, on_build_log=build_log_cb, on_metrics=metrics_cb, should_stop=should_stop)
         success = bool(results) and all(step.success for step in results)
-        image_done_cb(BatchImageResult(input_file, subject_id, str(Path(output_dir) / subject_id), success, 0.0, results), 1, 1)
+        image_result = BatchImageResult(input_file, subject_id, str(Path(output_dir) / subject_id), success, 0.0, results)
+        _write_stats_vector_reports(output_dir, [input_file], [image_result], {input_file: subject_id}, dataset_root, stats_vector_config)
+        image_done_cb(image_result, 1, 1)
         return 0 if success else 1
 
     if mode == "files":

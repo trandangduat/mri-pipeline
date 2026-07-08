@@ -49,6 +49,7 @@ from .utils import (
     _write_batch_benchmark_reports,
     _write_pipeline_metrics_log,
     _write_pipeline_state,
+    build_subject_id_map,
 )
 
 
@@ -513,6 +514,135 @@ def _generate_stats_vectors(subject_dir: str, subject_id: str, config: StatsVect
     return generated, warnings
 
 
+def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[str]]:
+    requested: list[str] = []
+    if config.enabled_stats.get("subcortical_volume"):
+        requested.append("subcortical_volume")
+    if config.enabled_stats.get("cortical_volume"):
+        requested.append("cortical_volume")
+    if config.enabled_stats.get("cortical_thickness"):
+        requested.extend(atlas for atlas in config.atlases.get("cortical_thickness", []) if atlas in VECTOR_SPECS)
+
+    out: dict[str, list[str]] = {}
+    for spec_key in requested:
+        spec = VECTOR_SPECS.get(spec_key)
+        if not spec:
+            continue
+        out[str(spec["column"])] = _load_vector_features(str(spec["features"]))
+    return out
+
+
+def _read_subject_vector_cells(subject_dir: str | Path) -> dict[str, str]:
+    path = Path(subject_dir) / "stats" / "vectors" / "stats_vectors.csv"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as f:
+            row = next(csv.DictReader(f), None)
+    except (OSError, StopIteration):
+        return {}
+    if not row:
+        return {}
+    return {key: (value if value not in (None, "") else "NA") for key, value in row.items() if key != "subject"}
+
+
+def _read_subject_feature_values(subject_dir: str | Path, vector_column: str, expected_count: int) -> list[str | float]:
+    values: list[str | float] = ["NA"] * expected_count
+    path = Path(subject_dir) / "stats" / "vectors" / f"{vector_column}_features.tsv"
+    if not path.exists():
+        return values
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                try:
+                    idx = int(row.get("index", "0")) - 1
+                except ValueError:
+                    continue
+                if 0 <= idx < expected_count:
+                    values[idx] = _as_number(row.get("value"))
+    except OSError:
+        return values
+    return values
+
+
+def _result_run_status(result: BatchImageResult | None) -> str:
+    if result is None:
+        return "not_started"
+    state = _load_pipeline_state(str(Path(result.subject_dir) / "logs"))
+    status = str(state.get("status", "")).lower()
+    if status == "success":
+        return "completed"
+    if status in {"failed", "paused", "running"}:
+        return status
+    return "completed" if result.success else "failed"
+
+
+def _write_stats_vector_reports(
+    output_dir: str,
+    input_files: list[str],
+    batch_results: list[BatchImageResult],
+    subject_id_map: dict[str, str] | None,
+    dataset_root: str,
+    stats_vector_config: StatsVectorConfig,
+    running_input_file: str = "",
+) -> None:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    result_by_input = {result.input_file: result for result in batch_results}
+    derived_subject_ids = build_subject_id_map(input_files, dataset_root) if input_files else {}
+    vector_features = _requested_vector_feature_map(stats_vector_config)
+
+    for result in batch_results:
+        for column in _read_subject_vector_cells(result.subject_dir):
+            vector_features.setdefault(column, [])
+
+    vector_columns = list(vector_features.keys())
+    wide_columns = [f"{column}_feat{idx}" for column, features in vector_features.items() for idx in range(1, len(features) + 1)]
+    base_fields = ["mri_name", "file_path", "run_status"]
+    vector_rows: list[dict[str, object]] = []
+    wide_rows: list[dict[str, object]] = []
+
+    for input_file in input_files:
+        result = result_by_input.get(input_file)
+        subject_id = result.subject_id if result else (
+            (subject_id_map or {}).get(input_file)
+            or (subject_id_map or {}).get(str(Path(input_file).resolve()))
+            or derived_subject_ids.get(input_file)
+            or _derive_subject_id(input_file, dataset_root)
+        )
+        subject_dir = result.subject_dir if result else str(output_path / subject_id)
+        status = "running" if input_file == running_input_file else _result_run_status(result)
+        base = {
+            "mri_name": Path(input_file).name,
+            "file_path": input_file,
+            "run_status": status,
+        }
+
+        vector_cells = _read_subject_vector_cells(subject_dir)
+        vector_row = dict(base)
+        wide_row = dict(base)
+        for column in vector_columns:
+            features = vector_features.get(column, [])
+            vector_row[column] = vector_cells.get(column) or "NA"
+            feature_values = _read_subject_feature_values(subject_dir, column, len(features)) if features else []
+            for idx, value in enumerate(feature_values, start=1):
+                wide_row[f"{column}_feat{idx}"] = value
+        for column in wide_columns:
+            wide_row.setdefault(column, "NA")
+        vector_rows.append(vector_row)
+        wide_rows.append(wide_row)
+
+    with open(output_path / "stats_vectors_summary.csv", "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=[*base_fields, *vector_columns], extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(vector_rows)
+
+    with open(output_path / "stats_vectors_wide.csv", "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=[*base_fields, *wide_columns], extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(wide_rows)
+
+
 def run_pipeline(
     config: PipelineConfig,
     on_progress: ProgressCallback | None = None,
@@ -831,6 +961,8 @@ def run_batch_pipeline(
     benchmark_config.setdefault("stats_vector_config", (stats_vector_config or StatsVectorConfig()).to_dict())
     benchmark_config.setdefault("recursive", recursive)
     benchmark_config.setdefault("input_file_count", total)
+    report_stats_config = stats_vector_config or StatsVectorConfig()
+    _write_stats_vector_reports(output_dir, input_files, batch_results, subject_id_map, dataset_root, report_stats_config)
 
     for idx, input_file in enumerate(input_files, start=1):
         if should_stop and should_stop():
@@ -846,6 +978,7 @@ def run_batch_pipeline(
             on_image_start(input_file, idx, total)
         if on_progress:
             on_progress("batch", "running", (idx - 1) / total if total else 0, f"Starting image {idx}/{total}: {input_file}")
+        _write_stats_vector_reports(output_dir, input_files, batch_results, subject_id_map, dataset_root, report_stats_config, running_input_file=input_file)
 
         try:
             config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
@@ -872,6 +1005,7 @@ def run_batch_pipeline(
 
         image_result = BatchImageResult(input_file=input_file, subject_id=subject_id, subject_dir=subject_dir, success=success, duration_sec=time.time() - started_at, steps=steps, error=error)
         batch_results.append(image_result)
+        _write_stats_vector_reports(output_dir, input_files, batch_results, subject_id_map, dataset_root, report_stats_config)
         if on_image_done:
             on_image_done(image_result, idx, total)
     if batch_results:
