@@ -407,16 +407,25 @@ class PipelineMixin:
         threading.Thread(target=worker, daemon=True).start()
 
     def _remote_test_ssh(self) -> None:
+        if self.state.run_target.get() != "Server":
+            return
+        if self._server_connected():
+            return
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return
-        thread_signature = self._current_remote_thread_signature()
+        thread_signature = self._current_remote_connection_signature()
+        if thread_signature is None:
+            return
+        self.remote_connecting = True
+        self._sync_remote_connection_controls()
 
         def task():
             try:
                 def set_testing():
-                    self.state.remote_status.set("Testing SSH connection...")
+                    self.state.remote_status.set("Connecting to server...")
                     self._set_remote_status_icon("running")
+                    self._connected_remote_signature = None
                     self._remote_thread_max_signature = None
                     self._set_thread_max(None, pending=True)
                     if hasattr(self, "remote_status_label"):
@@ -429,22 +438,30 @@ class PipelineMixin:
                 except Exception:
                     max_threads = None
                 def set_success():
-                    if thread_signature != self._current_remote_thread_signature():
+                    self.remote_connecting = False
+                    if thread_signature != self._current_remote_connection_signature():
+                        self._sync_remote_connection_controls()
                         return
-                    self.state.remote_status.set("SSH Connection Successful")
+                    self._connected_remote_signature = thread_signature
+                    self.state.remote_status.set("Remote: connected")
                     self._set_remote_status_icon("success")
                     self._remote_thread_max_signature = thread_signature if max_threads else None
                     self._set_thread_max(max_threads)
+                    self._sync_remote_connection_controls()
+                    self._schedule_remote_health_check()
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#16a34a") # green
                 self.root.after(0, set_success)
             except Exception as exc:
-                err_msg = f"SSH Connection Failed: {exc}"
+                err_msg = f"Remote connection failed: {exc}"
                 def set_failed(m=err_msg):
+                    self.remote_connecting = False
+                    self._connected_remote_signature = None
                     self.state.remote_status.set(m)
                     self._set_remote_status_icon("failed")
                     self._remote_thread_max_signature = None
                     self._set_thread_max(None)
+                    self._sync_remote_connection_controls()
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="#dc2626") # red
                 self.root.after(0, set_failed)

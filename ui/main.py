@@ -32,7 +32,7 @@ from pipeline_runner import (
     tool_key_from_display,
 )
 from remote.remote_runner import RemoteRunner
-from remote.ssh_client import RemoteSSHClient
+from remote.ssh_client import RemoteSSHClient, SSHConfig
 from ui.gui_jobs import JobsMixin
 from ui.gui_pipeline import PipelineMixin
 from ui.gui_progress import ProgressMixin
@@ -163,7 +163,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.thread_max_text = tk.StringVar(value=f"/ {self.local_max_threads} max")
         self.thread_spinbox: ttk.Spinbox | None = None
         self._thread_max_request_id = 0
-        self._remote_thread_max_signature: tuple[str, int, str, str] | None = None
+        self._remote_thread_max_signature: tuple[str, int, str, str, str] | None = None
+        self._connected_remote_signature: tuple[str, int, str, str, str] | None = None
+        self.remote_connecting = False
+        self.remote_health_after_id: str | None = None
+        self.remote_health_in_flight = False
         if int(self.state.threads.get()) > self.local_max_threads:
             self.state.threads.set(self.local_max_threads)
         
@@ -182,6 +186,16 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_body: ttk.Frame | None = None
         self.remote_pack_options: dict | None = None
         self.remote_status_icon_label: ttk.Label | None = None
+        self.run_target_combo: ttk.Combobox | None = None
+        self.remote_host_entry: ttk.Entry | None = None
+        self.remote_port_entry: ttk.Entry | None = None
+        self.remote_username_entry: ttk.Entry | None = None
+        self.remote_password_entry: ttk.Entry | None = None
+        self.remote_key_entry: ttk.Entry | None = None
+        self.remote_key_browse_button: ttk.Button | None = None
+        self.remote_workspace_entry: ttk.Entry | None = None
+        self.remote_connect_button: ttk.Button | None = None
+        self.remote_disconnect_button: ttk.Button | None = None
         self.actions_frame: ttk.Frame | None = None
         self.input_location_label_var = tk.StringVar(value="Input location")
         self.input_browse_button: ttk.Button | None = None
@@ -219,6 +233,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.tools_checked_tools: set[str] = set()
         self.tools_check_vars: dict[str, tk.BooleanVar] = {}
         self.tools_status_icon_labels: dict[str, ttk.Label] = {}
+        self.python_env_check_button: ttk.Button | None = None
+        self.python_env_install_button: ttk.Button | None = None
+        self.tools_refresh_button: ttk.Button | None = None
+        self.tools_select_all_button: ttk.Button | None = None
+        self.tools_unselect_all_button: ttk.Button | None = None
+        self.tools_select_missing_button: ttk.Button | None = None
         self.tools_download_button: ttk.Button | None = None
         self.tools_delete_button: ttk.Button | None = None
         self.tools_row_widgets: dict[str, dict] = {}
@@ -483,7 +503,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.max_threads is not None:
             self.thread_max_text.set(f"/ {self.max_threads} max")
         elif self.state.run_target.get() == "Server":
-            self.thread_max_text.set("/ checking max" if pending else "Test SSH to edit threads")
+            self.thread_max_text.set("/ checking max" if pending else "Connect Server to edit threads")
         else:
             self.thread_max_text.set("/ _ max")
         spinbox = getattr(self, "thread_spinbox", None)
@@ -493,29 +513,48 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._clamp_threads()
         self._validate_configuration()
 
-    def _current_remote_thread_signature(self) -> tuple[str, int, str, str] | None:
+    def _current_remote_thread_signature(self) -> tuple[str, int, str, str, str] | None:
+        return self._current_remote_connection_signature()
+
+    def _current_remote_connection_signature(self) -> tuple[str, int, str, str, str] | None:
         host = self.state.remote_host.get().strip()
         username = self.state.remote_username.get().strip()
+        workspace = self.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
         if not host or not username:
             return None
         try:
             port = int(self.state.remote_port.get())
         except (tk.TclError, ValueError):
             return None
-        return (host, port, username, self.state.remote_key_path.get().strip())
+        return (host, port, username, self.state.remote_key_path.get().strip(), workspace)
+
+    def _server_connected(self) -> bool:
+        return (
+            self.state.run_target.get() == "Server"
+            and self._connected_remote_signature is not None
+            and self._connected_remote_signature == self._current_remote_connection_signature()
+        )
+
+    def _remote_actions_enabled(self) -> bool:
+        return self.state.run_target.get() != "Server" or self._server_connected()
 
     def _server_thread_max_known(self) -> bool:
         if self.max_threads is None:
             return False
-        return self._remote_thread_max_signature == self._current_remote_thread_signature()
+        return self._server_connected() and self._remote_thread_max_signature == self._current_remote_thread_signature()
 
     def _invalidate_remote_thread_max(self) -> None:
         if self.state.run_target.get() != "Server":
             return
+        current_signature = self._current_remote_connection_signature()
+        if self._connected_remote_signature is not None and current_signature == self._connected_remote_signature:
+            return
         self._thread_max_request_id += 1
+        self._connected_remote_signature = None
         self._remote_thread_max_signature = None
         self._set_thread_max(None)
         self._reset_remote_tool_image_state()
+        self._sync_remote_connection_controls()
 
     def _reset_remote_tool_image_state(self) -> None:
         self.tool_image_statuses["Server"] = {}
@@ -525,6 +564,157 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._update_config_tool_status_labels()
         self._update_tools_download_button()
         self._validate_configuration()
+
+    def _disconnect_remote_server(self) -> None:
+        self._cancel_remote_health_check()
+        self.remote_connecting = False
+        self._thread_max_request_id += 1
+        self._connected_remote_signature = None
+        self._remote_thread_max_signature = None
+        self._set_thread_max(None)
+        self._reset_remote_tool_image_state()
+        if self.state.run_target.get() == "Server":
+            self.state.remote_status.set("Remote: disconnected")
+            self._set_remote_status_icon("pending")
+            self._set_python_env_status("Not checked")
+        self._sync_remote_connection_controls()
+        self._validate_configuration()
+
+    def _handle_remote_connection_lost(self, reason: str = "") -> None:
+        if self._connected_remote_signature is None and not self.remote_connecting:
+            return
+        self._cancel_remote_health_check()
+        self.remote_connecting = False
+        self._thread_max_request_id += 1
+        self._connected_remote_signature = None
+        self._remote_thread_max_signature = None
+        self._set_thread_max(None)
+        self._reset_remote_tool_image_state()
+        self.state.remote_status.set("Remote: disconnected unexpectedly")
+        self._set_remote_status_icon("failed")
+        self._set_python_env_status("Not checked")
+        self._sync_remote_connection_controls()
+        self._validate_configuration()
+        detail = f"\n\n{reason}" if reason else ""
+        messagebox.showwarning("Server disconnected", "The server connection was lost. Remote actions are disabled until you connect again." + detail)
+
+    def _cancel_remote_health_check(self) -> None:
+        after_id = self.remote_health_after_id
+        self.remote_health_after_id = None
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except tk.TclError:
+                pass
+
+    def _schedule_remote_health_check(self, delay_ms: int = 15000) -> None:
+        self._cancel_remote_health_check()
+        if not self._server_connected():
+            return
+        self.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
+
+    def _ssh_config_from_current_remote(self) -> SSHConfig | None:
+        host = self.state.remote_host.get().strip()
+        username = self.state.remote_username.get().strip()
+        if not host or not username:
+            return None
+        try:
+            port = int(self.state.remote_port.get())
+        except (tk.TclError, ValueError):
+            return None
+        return SSHConfig(
+            host=host,
+            port=port,
+            username=username,
+            password=self.state.remote_password.get(),
+            key_path=self.state.remote_key_path.get().strip(),
+        )
+
+    def _remote_health_check(self) -> None:
+        self.remote_health_after_id = None
+        if self.remote_health_in_flight or not self._server_connected():
+            return
+        signature = self._connected_remote_signature
+        ssh_config = self._ssh_config_from_current_remote()
+        if signature is None or ssh_config is None:
+            self._handle_remote_connection_lost("Remote server configuration is incomplete.")
+            return
+        self.remote_health_in_flight = True
+
+        def worker() -> None:
+            error = ""
+            try:
+                with RemoteSSHClient(ssh_config, lambda _line: None) as ssh:
+                    code, _text = ssh.read_text("true")
+                if code != 0:
+                    error = f"Health check exited with code {code}."
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+
+            def finish() -> None:
+                self.remote_health_in_flight = False
+                if signature != self._connected_remote_signature:
+                    return
+                if error:
+                    self._handle_remote_connection_lost(error)
+                else:
+                    self._schedule_remote_health_check()
+
+            self.root.after(0, finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _sync_remote_connection_controls(self) -> None:
+        server_mode = self.state.run_target.get() == "Server"
+        connected = self._server_connected()
+        editing_state = tk.NORMAL if server_mode and not connected and not self.remote_connecting else tk.DISABLED
+
+        if self.run_target_combo is not None:
+            self.run_target_combo.configure(state=tk.DISABLED if connected or self.remote_connecting else "readonly")
+        for widget in (
+            self.remote_host_entry,
+            self.remote_port_entry,
+            self.remote_username_entry,
+            self.remote_password_entry,
+            self.remote_key_entry,
+            self.remote_key_browse_button,
+            self.remote_workspace_entry,
+        ):
+            if widget is not None:
+                widget.configure(state=editing_state)
+        if self.remote_connect_button is not None:
+            if self.remote_connecting:
+                self.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
+            else:
+                self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode and not connected else tk.DISABLED)
+        if self.remote_disconnect_button is not None:
+            self.remote_disconnect_button.configure(state=tk.NORMAL if server_mode and connected else tk.DISABLED)
+
+        self._refresh_tools_tree()
+        self._update_config_tool_status_labels()
+        self._sync_remote_action_buttons()
+        self._set_thread_max(self.max_threads)
+
+    def _sync_remote_action_buttons(self) -> None:
+        enabled = self._remote_actions_enabled()
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for button in (
+            self.python_env_check_button,
+            self.python_env_install_button,
+            self.tools_refresh_button,
+            self.tools_select_all_button,
+            self.tools_unselect_all_button,
+            self.tools_select_missing_button,
+        ):
+            if button is not None:
+                button.configure(state=state)
+        self._update_tools_action_buttons()
+
+    def _require_remote_connection(self, action: str) -> bool:
+        if self.state.run_target.get() != "Server" or self._server_connected():
+            return True
+        messagebox.showwarning("Server not connected", f"Connect to the server before {action}.")
+        return False
 
     def _read_remote_thread_max(self, ssh_config) -> int | None:
         command = "getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || python3 -c 'import os; print(os.cpu_count() or 1)'"
@@ -544,11 +734,16 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _refresh_thread_max_for_target(self) -> None:
         if self.state.run_target.get() != "Server":
             self._thread_max_request_id += 1
+            self._cancel_remote_health_check()
+            self._connected_remote_signature = None
             self._remote_thread_max_signature = None
             self._set_thread_max(self.local_max_threads)
             return
 
         self._thread_max_request_id += 1
+        if self._server_connected():
+            self._set_thread_max(self.max_threads)
+            return
         self._remote_thread_max_signature = None
         self._set_thread_max(None)
 
@@ -566,6 +761,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.remote_body is None:
             return
         enabled = self.state.run_target.get() == "Server"
+        if not enabled:
+            self._cancel_remote_health_check()
+            self._connected_remote_signature = None
         desired_source = "Server" if enabled else "Local"
         if self.state.input_source.get() != desired_source:
             self._switch_input_source(desired_source)
@@ -579,11 +777,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             else:
                 self.remote_frame.pack_forget()
         self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
-        self.state.remote_status.set("Remote: configure SSH server" if enabled else "")
+        if enabled:
+            self.state.remote_status.set("Remote: connected" if self._server_connected() else "Remote: disconnected")
+        else:
+            self.state.remote_status.set("")
         self._update_python_env_hint()
         self._refresh_thread_max_for_target()
         self._set_python_env_status("Not checked")
         self._sync_input_source_controls()
+        self._sync_remote_connection_controls()
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._validate_configuration()
@@ -1266,6 +1468,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             messagebox.showerror("Save workspace failed", str(exc))
 
     def _load_workspace(self) -> None:
+        if self._server_connected() or self.remote_connecting:
+            messagebox.showwarning("Server connected", "Disconnect from the current server before loading a workspace.")
+            return
         config_dir = PROJECT_ROOT / "configs" / "workspaces"
         path = filedialog.askopenfilename(
             title="Load workspace",
@@ -1412,7 +1617,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
         self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
         self.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
-        for var in (self.state.remote_host, self.state.remote_port, self.state.remote_username, self.state.remote_key_path):
+        for var in (
+            self.state.remote_host,
+            self.state.remote_port,
+            self.state.remote_username,
+            self.state.remote_password,
+            self.state.remote_key_path,
+            self.state.remote_workspace,
+        ):
             var.trace_add("write", lambda *_args: self._invalidate_remote_thread_max())
 
         self.state.input_path.trace_add("write", self._refresh_input_label)
@@ -1473,8 +1685,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             threads = int(self.state.threads.get())
             if threads < 1:
                 errors.append("Threads must be at least 1.")
-            elif self.state.run_target.get() == "Server" and self._current_remote_thread_signature() is not None and not self._server_thread_max_known():
-                errors.append("Test SSH to read the server CPU thread limit.")
+            elif self.state.run_target.get() == "Server" and self._server_connected() and not self._server_thread_max_known():
+                errors.append("Connect Server could not read the server CPU thread limit.")
             elif self.max_threads is not None and threads > self.max_threads:
                 errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
         except (tk.TclError, ValueError):
@@ -1498,7 +1710,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
             if tool and is_tool_enabled(tool) and image and image not in required_images:
                 required_images.append(image)
-        if required_images:
+        if required_images and (target != "Server" or self._server_connected()):
             unknown = [image for image in required_images if image_statuses.get(image, "Unknown") == "Unknown"]
             not_installed = [image for image in required_images if image_statuses.get(image, "Unknown") not in {"Installed", "Unknown"}]
             if unknown:
@@ -1523,6 +1735,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 errors.append("Remote port must be a valid integer.")
             if not self.state.remote_workspace.get().strip():
                 errors.append("Remote workspace is required.")
+            elif self._current_remote_connection_signature() is not None and not self._server_connected():
+                errors.append("Connect to the server before running.")
 
         ok = not errors
         can_start = self._can_start_new_pipeline()
