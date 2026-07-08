@@ -28,23 +28,9 @@ from pipeline_runner import (
     tool_key_from_display,
 )
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
-from ui.components.dialogs import append_dialog_log, build_image_dialog
 
 
 class ToolsMixin:
-    def _check_images_action(self) -> None:
-        if not self._validate_configuration():
-            messagebox.showerror("Configuration incomplete", self.state.config_status.get())
-            return
-        if self.state.run_target.get() == "Server":
-            runner = self._build_remote_runner()
-            if runner and self._ensure_remote_images_with_dialog(runner):
-                self.remote_runner = runner
-                self._log("Remote image preflight completed successfully.")
-        else:
-            if self._ensure_local_images_with_dialog():
-                self._log("Local image preflight completed successfully.")
-
     def _tool_image(self, tool_key: str) -> str:
         return str(TOOL_DEFS.get(tool_key, {}).get("image", ""))
 
@@ -778,66 +764,3 @@ class ToolsMixin:
                 label.configure(image=icon, text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
             else:
                 label.configure(image="", text=text, compound=tk.LEFT, foreground=self._status_color(status))
-
-    def _ensure_local_images_with_dialog(self) -> bool:
-        dialog, log, progress, state = build_image_dialog(self.root, "Docker image preflight")
-        required_tools = [tool for tool in dict.fromkeys(self.state.get_selected_tools().values()) if tool and is_tool_enabled(tool)]
-
-        def worker() -> None:
-            ok = True
-            try:
-                for tool_key in required_tools:
-                    tool = TOOL_DEFS.get(tool_key, {})
-                    image = tool.get("image", tool_key)
-                    self.root.after(0, lambda i=image: append_dialog_log(log, f"Checking {i}"))
-                    result, err, _build_time = ensure_image(
-                        tool_key,
-                        on_progress=None,
-                        on_build_log=lambda line: self.root.after(0, lambda l=line: append_dialog_log(log, l)),
-                    )
-                    if not result:
-                        ok = False
-                        self.root.after(0, lambda e=err: append_dialog_log(log, f"ERROR: {e}"))
-                        break
-                    if not image_exists(image):
-                        ok = False
-                        self.root.after(0, lambda i=image: append_dialog_log(log, f"ERROR: image still missing after ensure: {i}"))
-                        break
-                    self.root.after(0, lambda i=image: append_dialog_log(log, f"OK image: {i}"))
-            finally:
-                state["ok"] = ok
-                state["done"] = True
-                self.root.after(0, progress.stop)
-                self.root.after(0, dialog.destroy if ok else lambda: None)
-
-        threading.Thread(target=worker, daemon=True).start()
-        self.root.wait_window(dialog)
-        return state["ok"]
-
-    def _ensure_remote_images_with_dialog(self, runner: RemoteRunner) -> bool:
-        dialog, log, progress, state = build_image_dialog(self.root, "Remote Docker image preflight")
-
-        def worker() -> None:
-            ok = True
-            try:
-                def on_line(line: str) -> None:
-                    self.root.after(0, lambda l=line: append_dialog_log(log, l))
-
-                runner.on_log = on_line
-                if not runner.remote_job_dir:
-                    runner.upload_job()
-                ok = runner.ensure_images()
-            except Exception as exc:
-                ok = False
-                err_msg = f"REMOTE IMAGE ERROR: {type(exc).__name__}: {exc}"
-                self.root.after(0, lambda m=err_msg: append_dialog_log(log, m))
-            finally:
-                runner.on_log = self._remote_log_event
-                state["ok"] = ok
-                state["done"] = True
-                self.root.after(0, progress.stop)
-                self.root.after(0, dialog.destroy if ok else lambda: None)
-
-        threading.Thread(target=worker, daemon=True).start()
-        self.root.wait_window(dialog)
-        return state["ok"]

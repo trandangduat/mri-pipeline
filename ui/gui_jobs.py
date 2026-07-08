@@ -436,7 +436,6 @@ class JobsMixin:
             self.state.remote_username.set(remote.get("username", self.state.remote_username.get()))
             self.state.remote_key_path.set(remote.get("key_path", self.state.remote_key_path.get()))
             self.state.remote_workspace.set(remote.get("workspace", self.state.remote_workspace.get()))
-            self.state.remote_input_dir.set(job.get("remote_input_dir", self.state.remote_input_dir.get()))
             self.state.remote_python.set(remote.get("python", self.state.remote_python.get()))
         if not self._ensure_remote_auth_for_job_action("server job action"):
             return None
@@ -448,7 +447,6 @@ class JobsMixin:
                 ssh=ssh_config,
                 remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
                 remote_python=self.state.remote_python.get().strip() or "python3",
-                remote_input_dir=str(job.get("remote_input_dir") or self.state.remote_input_dir.get().strip()),
                 output_dir=str(job.get("output_dir") or self.state.output_dir.get().strip()),
                 download_subdir=str(job.get("download_subdir") or ""),
             ),
@@ -614,13 +612,8 @@ class JobsMixin:
             files = [cfg.input_file]
         elif cfg.input_mode == "files":
             files = list(cfg.input_files)
-        elif cfg.input_source == "Server" and cfg.input_dir:
-            files = [cfg.input_dir]
         elif cfg.input_dir:
-            try:
-                files = _discover_mri_files(cfg.input_dir, recursive=cfg.recursive)
-            except Exception:
-                files = []
+            files = [cfg.input_dir]
         now = time.time()
         return {
             "job_id": Path(remote_dir).name,
@@ -632,7 +625,6 @@ class JobsMixin:
             "output_dir": cfg.output_dir,
             "download_subdir": cfg.download_subdir,
             "input_files": files,
-            "remote_input_dir": runner.remote_input_dir or cfg.remote_input_dir,
             "remote": {
                 "host": cfg.ssh.host,
                 "port": int(cfg.ssh.port),
@@ -1040,12 +1032,10 @@ class JobsMixin:
             ssh=ssh_config,
             remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
             remote_python=self.state.remote_python.get().strip() or "python3",
-            input_source=req.get("input_source", "Local"),
             input_mode=req["mode"],
             input_file=req.get("input_file", ""),
             input_files=req.get("input_files", []),
             input_dir=req.get("input_dir", ""),
-            remote_input_dir=req.get("remote_input_dir", ""),
             output_dir=req["output_dir"],
             license_dir=req["license_dir"],
             device=req["device"],
@@ -1214,26 +1204,4 @@ class JobsMixin:
             self._update_registry_for_active_job("completed" if str(code) == "0" else "failed", code)
             return True
         self.state.status_text.set("Running in background")
-        return False
-
-    def _poll_remote_background_job(self) -> bool:
-        if not self.remote_runner:
-            return True
-        data, self.job_log_offset = self.remote_runner.read_remote_log_since(self.job_log_offset)
-        self._handle_background_log_chunk(data)
-        status = self.remote_runner.remote_status()
-        state = str(status.get("state", "running"))
-        if state in {"completed", "failed"}:
-            self._log(f"Remote background job finished with exit code {status.get('exit_code')}")
-            if status.get("error"):
-                self._log(f"Remote background job error: {status.get('error')}")
-            if state == "failed":
-                for key, run in self.image_runs.items():
-                    if run.get("status") == "Pending":
-                        self._update_image_run(key, status="Failed", stage_text="Remote job failed before this image started")
-            self._log("Use Download Outputs to copy remote outputs to the local output folder.")
-            self._update_registry_for_active_job(state, status.get("exit_code"))
-            return True
-        self.state.status_text.set("Running in background")
-        self.state.remote_status.set(f"Remote: {state}")
         return False

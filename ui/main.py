@@ -170,7 +170,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.metrics_queue: queue.Queue[tuple[float | None, int | None, float | None, str]] = queue.Queue()
-        self.worker: threading.Thread | None = None
         self.running = False
         self.stop_requested = threading.Event()
         
@@ -181,7 +180,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_frame: ttk.Frame | None = None
         self.remote_body: ttk.Frame | None = None
         self.remote_pack_options: dict | None = None
-        self.remote_toggle_button: ttk.Button | None = None
         self.remote_status_icon_label: ttk.Label | None = None
         self.actions_frame: ttk.Frame | None = None
         self.input_location_label_var = tk.StringVar(value="Input location")
@@ -570,7 +568,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.state.input_source.get() != desired_source:
             self._switch_input_source(desired_source)
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
-        self.state.remote_visible.set(enabled)
         if self.remote_frame is not None:
             if enabled:
                 try:
@@ -1123,122 +1120,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._input_source_paths[self.state.input_source.get()] = self.state.input_path.get().strip()
         self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
-
-    def _browse_remote_directory(self, variable: tk.StringVar) -> None:
-        ssh_config = self._build_ssh_config()
-        if ssh_config is None:
-            return
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Browse server directory")
-        dialog.geometry("720x500")
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        current_path = tk.StringVar(value=variable.get().strip() or self.state.remote_workspace.get().strip() or "~")
-        status_text = tk.StringVar(value="Connecting...")
-        selected = {"path": ""}
-        entries: list[dict] = []
-        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
-
-        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
-        top.pack(fill=tk.X)
-        ttk.Label(top, text="Server directory").pack(anchor=tk.W)
-        path_row = ttk.Frame(top)
-        path_row.pack(fill=tk.X, pady=(2, 6))
-        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-
-        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
-        body.pack(fill=tk.BOTH, expand=True)
-        listing = tk.Listbox(body, selectmode=tk.BROWSE, height=18, activestyle="dotbox")
-        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
-        listing.configure(yscrollcommand=scroll.set)
-        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
-        bottom.pack(fill=tk.X)
-        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        def normalize_remote_path(path: str) -> str:
-            path = path.strip() or "~"
-            ssh = ssh_holder.get("ssh")
-            if ssh is not None:
-                try:
-                    path = ssh.expand_path(path)
-                except Exception:
-                    pass
-            return posixpath.normpath(path) if path.startswith("/") else path
-
-        def load_dir(path: str) -> None:
-            nonlocal entries
-            ssh = ssh_holder.get("ssh")
-            if ssh is None:
-                return
-            try:
-                path = normalize_remote_path(path)
-                attrs = ssh.sftp.listdir_attr(path)
-                dirs = []
-                for item in attrs:
-                    if item.filename.startswith(".") or not stat.S_ISDIR(item.st_mode):
-                        continue
-                    dirs.append({"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": True})
-                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower())]
-                listing.delete(0, tk.END)
-                for row in entries:
-                    listing.insert(tk.END, "[D] " + row["name"])
-                current_path.set(path)
-                status_text.set("Select current folder or double-click a folder to browse.")
-            except FileNotFoundError:
-                current_path.set(normalize_remote_path(path))
-                status_text.set("Directory does not exist yet; Select will use this path and create it during upload.")
-                listing.delete(0, tk.END)
-                entries = []
-            except Exception as exc:
-                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
-
-        def connect_and_load() -> None:
-            try:
-                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
-                ssh.connect()
-                ssh_holder["ssh"] = ssh
-                load_dir(current_path.get())
-            except Exception as exc:
-                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
-
-        def open_selected(_event=None) -> None:
-            selection = listing.curselection()
-            if selection:
-                load_dir(str(entries[selection[0]]["path"]))
-
-        def choose() -> None:
-            selection = listing.curselection()
-            if selection and entries:
-                selected["path"] = str(entries[selection[0]]["path"])
-            else:
-                selected["path"] = normalize_remote_path(current_path.get())
-            dialog.destroy()
-
-        def close() -> None:
-            dialog.destroy()
-
-        def on_destroy(_event=None) -> None:
-            ssh = ssh_holder.get("ssh")
-            if ssh is not None:
-                ssh.close()
-                ssh_holder["ssh"] = None
-
-        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT)
-        listing.bind("<Double-Button-1>", open_selected)
-        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
-        dialog.protocol("WM_DELETE_WINDOW", close)
-        dialog.bind("<Destroy>", on_destroy, add="+")
-        self.root.after(50, connect_and_load)
-        self.root.wait_window(dialog)
-
-        if selected["path"]:
-            variable.set(selected["path"])
 
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
         return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm"), ("All files", "*.*"))

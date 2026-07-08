@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import posixpath
-import shutil
 import stat
 import subprocess
 import sys
@@ -18,16 +17,6 @@ from pipeline.jobs import create_local_job_dir, upsert_job_registry, write_json
 from pipeline_runner import (
     PROJECT_ROOT,
     STAGE_ORDER,
-    TOOL_DEFS,
-    ExportConfig,
-    PipelineConfig,
-    StatsVectorConfig,
-    _derive_subject_id,
-    _discover_mri_files,
-    build_subject_id_map,
-    is_tool_enabled,
-    run_batch_pipeline,
-    run_pipeline,
 )
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
@@ -47,7 +36,7 @@ class PipelineMixin:
         ttk.Label(header, text="Copying files to remote server", font=("Inter", 12, "bold")).pack(anchor=tk.W)
         ttk.Label(
             header,
-            text="Shared pipeline code is reused from the remote workspace when available. This job copies run configuration, license files, and local MRI inputs when needed.",
+            text="Shared pipeline code is reused from the remote workspace when available. This job copies run configuration and license files; MRI inputs must already be selected from server paths.",
             wraplength=720,
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -266,7 +255,6 @@ class PipelineMixin:
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),
             "input_source": input_source,
-            "remote_input_dir": "",
         }
 
         if self.state.run_target.get() != "Server" and input_source != "Local":
@@ -462,145 +450,14 @@ class PipelineMixin:
 
         threading.Thread(target=task, daemon=True).start()
 
-    def _remote_check_docker(self) -> None:
-        ssh_config = self._build_ssh_config()
-        if ssh_config is None:
-            return
-
-        def task():
-            runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=self._log)
-            runner.check_docker()
-        self._run_remote_task("Check Docker", task)
-
-    def _remote_check_images(self) -> None:
-        ssh_config = self._build_ssh_config()
-        if ssh_config is None:
-            return
-        selected_tools = self.state.get_selected_tools()
-
-        def task():
-            runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config, selected_tools=selected_tools), on_log=self._log)
-            missing = runner.check_images()
-            if missing:
-                self._log("Missing remote images:")
-                for image in missing:
-                    self._log(f"  - {image}")
-            else:
-                self._log("All required remote images are available.")
-        self._run_remote_task("Check Images", task)
-
-    def _check_environment(self) -> None:
-        if self.state.run_target.get() == "Server":
-            self._remote_check_docker()
-            return
-
-        def task():
-            self._log(">>> docker ps")
-            proc = subprocess.run(["docker", "ps"], capture_output=True, text=True, timeout=30)
-            if proc.stdout.strip():
-                self._log(proc.stdout.strip())
-            if proc.stderr.strip():
-                self._log(proc.stderr.strip())
-            self._log(f"docker ps exit code: {proc.returncode}")
-
-            self._log(">>> checking required local images")
-            for image in self._required_images_for_current_tools():
-                inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True, text=True, timeout=20)
-                self._log(("OK" if inspect.returncode == 0 else "MISSING") + f" image: {image}")
-
-        self._run_local_utility_task("Check Environment", task)
-
-    def _download_outputs_action(self) -> None:
-        if self.state.run_target.get() == "Server":
-            self._remote_download_outputs()
-        else:
-            self._log(f"Local outputs are already in: {self.state.output_dir.get()}")
-
-    def _required_images_for_current_tools(self) -> list[str]:
-        images: list[str] = []
-        for tool_key in self.state.get_selected_tools().values():
-            if not tool_key or not is_tool_enabled(tool_key):
-                continue
-            tool = TOOL_DEFS.get(tool_key)
-            if not tool:
-                continue
-            for key in ("base_image", "image"):
-                image = tool.get(key)
-                if image and image not in images:
-                    images.append(image)
-        return images
-
-    def _run_local_utility_task(self, title: str, task) -> None:
-        if self.running:
-            self._append_log("Task ignored: another task is already running.")
-            return
-        self.running = True
-        if hasattr(self, "progress"):
-            self.progress.start(10)
-        self.state.status_text.set(title)
-        self._append_log("=" * 80)
-        self._append_log(f"Task started: {title}")
-
-        def worker():
-            try:
-                task()
-                self.log_queue.put(f"Task completed: {title}")
-            except Exception as exc:
-                self.log_queue.put(f"TASK ERROR [{title}]: {type(exc).__name__}: {exc}")
-            finally:
-                self.root.after(0, self._set_idle_state)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _remote_upload_job(self) -> None:
-        runner = self._build_remote_runner()
-        if not runner:
-            return
-
-        def task():
-            runner.upload_job()
-            self.remote_runner = runner
-            self._log(f"Uploaded remote job: {runner.remote_job_dir}")
-        self._run_remote_task("Upload Job", task)
-
-    def _remote_run(self, resume: bool = False) -> None:
-        runner = self.remote_runner or self._build_remote_runner(resume=resume)
-        if not runner:
-            return
-        runner.config.resume = resume
-        self.remote_runner = runner
-        self._prepare_progress_tab(self._input_files_for_progress(), self.state.get_selected_tools(), title="Server: starting")
-        self._show_progress_tab()
-        self._enter_background_monitor_state("Starting remote background job...")
-        remote_dir = runner.start_remote_detached()
-        entry = self._registry_entry_for_remote_job(runner, remote_dir)
-        upsert_job_registry(entry)
-        self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
-        self._log(f"Remote background job started: {remote_dir}")
-        self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
-        self.job_log_offset = 0
-        self._register_job_monitor_for_active_context()
-        self._validate_configuration()
-        self._schedule_job_poll(delay_ms=0)
-
     def _remote_download_outputs(self) -> None:
         def task():
             if not self.remote_runner:
-                self._log("No remote job is available. Run or upload a remote job first.")
+                self._log("No remote job is available. Run or attach a remote job first.")
                 return
             local_path = self.remote_runner.download_outputs(self.state.output_dir.get())
             self._log(f"Downloaded outputs to: {local_path}")
         self._run_remote_task("Download Outputs", task)
-
-    def _remote_clean_job(self) -> None:
-        def task():
-            if not self.remote_runner:
-                self._log("No remote job is available to clean.")
-                return
-            self.remote_runner.clean_remote()
-            self._log("Remote job cleaned.")
-            self.remote_runner = None
-        self._run_remote_task("Clean Remote Job", task)
 
     def _common_input_root(self, files: list[str]) -> str:
         parents = [str(Path(f).resolve().parent) for f in files]
@@ -608,132 +465,3 @@ class PipelineMixin:
             return os.path.commonpath(parents)
         except ValueError:
             return str(Path(files[0]).resolve().parent)
-
-    def _run_worker(self, req: dict) -> None:
-        try:
-            if req.get("restart"):
-                self._delete_restart_outputs(req)
-            if req["mode"] == "file":
-                self._run_single(req)
-            elif req["mode"] == "files":
-                self._run_multiple(req)
-            else:
-                self._run_batch(req)
-        except Exception as exc:
-            self._log(f"ERROR: {exc}")
-        finally:
-            self.root.after(0, self._set_idle_state)
-
-    def _delete_restart_outputs(self, req: dict) -> None:
-        output_dir = Path(req.get("effective_output_dir", req["output_dir"])).resolve()
-        subject_ids: list[str] = []
-
-        if req["mode"] == "file":
-            subject_ids = [_derive_subject_id(req["input_file"])]
-        elif req["mode"] == "files":
-            subject_ids = list(build_subject_id_map(req["input_files"], req["input_dir"]).values())
-        else:
-            files = _discover_mri_files(req["input_dir"], recursive=req["recursive"])
-            subject_ids = list(build_subject_id_map(files, req["input_dir"]).values())
-
-        for subject_id in subject_ids:
-            subject_dir = output_dir / subject_id
-            if subject_dir.exists():
-                self._log(f"Restart: removing {subject_dir}")
-                shutil.rmtree(subject_dir)
-
-    def _run_single(self, req: dict) -> None:
-        input_file = req["input_file"]
-        subject_id = _derive_subject_id(input_file)
-        self.root.after(0, lambda: self._on_image_start(input_file, 1, 1))
-        config = PipelineConfig(
-            input_file=input_file,
-            output_dir=req.get("effective_output_dir", req["output_dir"]),
-            subject_id=subject_id,
-            license_dir=req["license_dir"],
-            device=req["device"],
-            threads=req["threads"],
-            resume=req.get("resume", False),
-            export_config=ExportConfig.from_dict(req.get("export_config")),
-            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
-            selected_tools=req["selected_tools"],
-        )
-        results = run_pipeline(
-            config,
-            on_progress=self._on_progress,
-            on_build_log=self._log,
-            on_metrics=self._on_metrics,
-            should_stop=self.stop_requested.is_set,
-        )
-        ok = bool(results) and all(step.success for step in results)
-        for step in results:
-            self._update_run_step(
-                input_file,
-                step.stage,
-                tool=step.tool,
-                status="Done" if step.success else "Failed",
-                duration_sec=step.duration_sec,
-                peak_ram_bytes=step.peak_ram_bytes,
-                peak_cpu_pct=step.peak_cpu_pct,
-                error=step.error,
-            )
-        self._log(f"Single file finished: {subject_id} | status={'OK' if ok else 'FAILED'}")
-        self._set_progress_count("current_running_images", 0)
-        if ok:
-            self._set_progress_count("current_success_images", self._get_progress_count("current_success_images") + 1)
-            self._update_image_run(input_file, status="Done", percent=100, stage_text="Completed")
-        else:
-            self._set_progress_count("current_failed_images", self._get_progress_count("current_failed_images") + 1)
-            self._update_image_run(input_file, status="Failed", stage_text="Failed")
-        self._update_batch_summary()
-
-    def _run_multiple(self, req: dict) -> None:
-        files = req["input_files"]
-        self._log(f"Selected {len(files)} files")
-        if req.get("is_batch"):
-            self._log(f"Batch outputs will be saved to: {req.get('effective_output_dir')}")
-        run_batch_pipeline(
-            input_dir=req["input_dir"],
-            output_dir=req.get("effective_output_dir", req["output_dir"]),
-            license_dir=req["license_dir"],
-            device=req["device"],
-            threads=req["threads"],
-            resume=req.get("resume", False),
-            selected_tools=req["selected_tools"],
-            export_config=ExportConfig.from_dict(req.get("export_config")),
-            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
-            recursive=True,
-            input_files=files,
-            on_progress=self._on_progress,
-            on_build_log=self._log,
-            on_image_start=self._on_image_start,
-            on_image_done=self._on_image_done,
-            on_metrics=self._on_metrics,
-            should_stop=self.stop_requested.is_set,
-        )
-
-    def _run_batch(self, req: dict) -> None:
-        files = _discover_mri_files(req["input_dir"], recursive=req["recursive"])
-        self._log(f"Found {len(files)} MRI files")
-        if not files:
-            return
-        self._log(f"Batch outputs will be saved to: {req.get('effective_output_dir')}")
-        run_batch_pipeline(
-            input_dir=req["input_dir"],
-            output_dir=req.get("effective_output_dir", req["output_dir"]),
-            license_dir=req["license_dir"],
-            device=req["device"],
-            threads=req["threads"],
-            resume=req.get("resume", False),
-            selected_tools=req["selected_tools"],
-            export_config=ExportConfig.from_dict(req.get("export_config")),
-            stats_vector_config=StatsVectorConfig.from_dict(req.get("stats_vector_config")),
-            recursive=req["recursive"],
-            input_files=files,
-            on_progress=self._on_progress,
-            on_build_log=self._log,
-            on_image_start=self._on_image_start,
-            on_image_done=self._on_image_done,
-            on_metrics=self._on_metrics,
-            should_stop=self.stop_requested.is_set,
-        )

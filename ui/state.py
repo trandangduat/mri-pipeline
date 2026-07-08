@@ -68,10 +68,8 @@ class AppState:
         self.remote_password = tk.StringVar()
         self.remote_key_path = tk.StringVar()
         self.remote_workspace = tk.StringVar(value="~/mri-remote-jobs")
-        self.remote_input_dir = tk.StringVar(value="")
         self.remote_python = tk.StringVar(value="python3")
         self.remote_status = tk.StringVar(value="Remote: idle")
-        self.remote_visible = tk.BooleanVar(value=False)
 
         # Pipeline tools
         self.tool_vars: dict[str, tk.StringVar] = {}

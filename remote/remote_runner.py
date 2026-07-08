@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from pipeline_runner import PROJECT_ROOT, TOOL_DEFS, _derive_subject_id, _discover_mri_files, build_subject_id_map, is_tool_enabled
+from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map, is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
 
@@ -22,12 +22,10 @@ class RemoteRunConfig:
     ssh: SSHConfig
     remote_workspace: str = "~/mri-remote-jobs"
     remote_python: str = "python3"
-    input_source: str = "Local"
     input_mode: str = "file"
     input_file: str = ""
     input_files: list[str] = field(default_factory=list)
     input_dir: str = ""
-    remote_input_dir: str = ""
     output_dir: str = ""
     license_dir: str = ""
     device: str = "cpu"
@@ -48,7 +46,6 @@ class RemoteRunner:
         self.job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
         self.remote_job_dir = ""
         self.remote_output_dir = ""
-        self.remote_input_dir = ""
 
     def remote_venv_display_path(self) -> str:
         return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
@@ -61,14 +58,6 @@ class RemoteRunner:
         else:
             workspace = (self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/")
         return posixpath.join(workspace, "code")
-
-    def _remote_input_dir(self, ssh: RemoteSSHClient | None = None) -> str:
-        if self.remote_input_dir:
-            return self.remote_input_dir
-        configured = self.config.remote_input_dir.strip().rstrip("/")
-        if configured:
-            return ssh.expand_path(configured) if ssh is not None else configured
-        return posixpath.join(self.remote_job_dir, "input")
 
     def _local_code_signature(self) -> str:
         hasher = hashlib.sha256()
@@ -90,10 +79,6 @@ class RemoteRunner:
     def test_ssh(self) -> None:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.run("uname -a && whoami && pwd", check=True)
-
-    def check_docker(self) -> None:
-        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            ssh.run("docker ps", check=True)
 
     def check_python_details(self) -> dict[str, str | bool]:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
@@ -191,8 +176,6 @@ class RemoteRunner:
         return bool(details["python_ok"] and details["pip_ok"])
 
     def install_python_requirements(self) -> bool:
-        if not self.remote_job_dir:
-            self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = self._remote_code_dir(ssh)
             self._ensure_shared_code(ssh)
@@ -209,19 +192,6 @@ class RemoteRunner:
             code = ssh.run(cmd, stream=True, check=False)
             self.on_log("Installed: Python packages into remote venv" if code == 0 else "Failed: Python package install in remote venv.")
             return code == 0
-
-    def check_images(self) -> list[str]:
-        required = self.required_images()
-        missing: list[str] = []
-        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            for image in required:
-                code = ssh.run(f"docker image inspect {shlex.quote(image)} >/dev/null 2>&1", stream=False)
-                if code == 0:
-                    self.on_log(f"OK image: {image}")
-                else:
-                    self.on_log(f"MISSING image: {image}")
-                    missing.append(image)
-        return missing
 
     def check_image_statuses(self, images: list[str]) -> dict[str, bool]:
         statuses: dict[str, bool] = {}
@@ -263,8 +233,6 @@ class RemoteRunner:
         tool_keys = [tool for tool in dict.fromkeys(tool_keys) if tool and is_tool_enabled(tool)]
         if not tool_keys:
             return True
-        if not self.remote_job_dir:
-            self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = self._remote_code_dir(ssh)
             self._ensure_shared_code(ssh)
@@ -294,12 +262,9 @@ class RemoteRunner:
             workspace = ssh.expand_path(self.config.remote_workspace)
             self.remote_job_dir = posixpath.join(workspace, self.job_id)
             self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
-            self.remote_input_dir = self._remote_input_dir(ssh)
             ssh.mkdir_p(workspace)
-            for sub in ("input", "license", "outputs"):
+            for sub in ("license", "outputs"):
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
-            if self.remote_input_dir != posixpath.join(self.remote_job_dir, "input"):
-                ssh.mkdir_p(self.remote_input_dir)
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
             self.on_log("Preparing run configuration...")
@@ -307,11 +272,7 @@ class RemoteRunner:
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
             self._ensure_shared_code(ssh)
-            if self.config.input_source == "Server":
-                self.on_log("Using MRI input paths already on the server.")
-            else:
-                self.on_log("Uploading MRI input files...")
-            self._upload_inputs(ssh)
+            self.on_log("Using MRI input paths already on the server.")
             self.on_log("Uploading license files...")
             self._upload_license(ssh)
             self._write_job_config(ssh)
@@ -363,10 +324,9 @@ class RemoteRunner:
             "job_id": self.job_id,
             "remote_job_dir": self.remote_job_dir,
             "remote_output_dir": self.remote_output_dir,
-            "remote_input_dir": self._remote_input_dir(),
             "remote_code_dir": self._remote_code_dir(ssh),
             "created_at": time.time(),
-            "input_source": self.config.input_source,
+            "input_source": "Server",
             "input_mode": self.config.input_mode,
             "output_dir": self.config.output_dir,
             "download_subdir": self.config.download_subdir,
@@ -375,77 +335,28 @@ class RemoteRunner:
             f.write(json.dumps(metadata, indent=2))
 
     def _remote_input_request(self) -> dict:
-        remote_input = self._remote_input_dir()
         subject_id_map: dict[str, str] = {}
-        if self.config.input_source == "Server":
-            if self.config.input_mode == "file" and self.config.input_file:
-                subject_id_map[self.config.input_file] = _derive_subject_id(self.config.input_file)
-                return {
-                    "mode": "file",
-                    "input_file": self.config.input_file,
-                    "subject_id": subject_id_map[self.config.input_file],
-                    "subject_id_map": subject_id_map,
-                }
-            if self.config.input_mode == "files" and self.config.input_files:
-                ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
-                for path in self.config.input_files:
-                    subject_id_map[path] = ids.get(path, _derive_subject_id(path))
-                return {
-                    "mode": "files",
-                    "input_files": list(self.config.input_files),
-                    "input_dir": self.config.input_dir,
-                    "subject_id_map": subject_id_map,
-                }
-            return {
-                "mode": "dir",
-                "input_dir": self.config.input_dir,
-                "recursive": self.config.recursive,
-                "subject_id_map": subject_id_map,
-            }
         if self.config.input_mode == "file" and self.config.input_file:
-            input_name = Path(self.config.input_file).name
-            remote_file = posixpath.join(remote_input, input_name)
-            subject_id_map[remote_file] = _derive_subject_id(self.config.input_file)
+            subject_id_map[self.config.input_file] = _derive_subject_id(self.config.input_file)
             return {
                 "mode": "file",
-                "input_file": remote_file,
-                "subject_id": subject_id_map[remote_file],
+                "input_file": self.config.input_file,
+                "subject_id": subject_id_map[self.config.input_file],
                 "subject_id_map": subject_id_map,
             }
         if self.config.input_mode == "files" and self.config.input_files:
-            remote_files: list[str] = []
             ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
-            for idx, path in enumerate(self.config.input_files, start=1):
-                src = Path(path)
-                remote_name = f"{idx:04d}_{src.name}"
-                remote_file = posixpath.join(remote_input, remote_name)
-                remote_files.append(remote_file)
-                subject_id_map[remote_file] = ids.get(path, _derive_subject_id(path))
+            for path in self.config.input_files:
+                subject_id_map[path] = ids.get(path, _derive_subject_id(path))
             return {
                 "mode": "files",
-                "input_files": remote_files,
-                "input_dir": remote_input,
+                "input_files": list(self.config.input_files),
+                "input_dir": self.config.input_dir,
                 "subject_id_map": subject_id_map,
             }
-
-        if not self.config.input_dir:
-            return {
-                "mode": "dir",
-                "input_dir": remote_input,
-                "recursive": self.config.recursive,
-                "subject_id_map": subject_id_map,
-            }
-
-        files = _discover_mri_files(self.config.input_dir, recursive=self.config.recursive)
-        ids = build_subject_id_map(files, self.config.input_dir)
-        root = Path(self.config.input_dir).resolve() if self.config.input_dir else None
-        for path in files:
-            src = Path(path).resolve()
-            rel = src.relative_to(root).as_posix() if root else src.name
-            subject_id_map[posixpath.join(remote_input, rel)] = ids.get(path, _derive_subject_id(path))
         return {
             "mode": "dir",
-            "input_dir": remote_input,
+            "input_dir": self.config.input_dir,
             "recursive": self.config.recursive,
             "subject_id_map": subject_id_map,
         }
@@ -481,47 +392,10 @@ class RemoteRunner:
             f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
 
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
-        remote_input = self._remote_input_dir()
-        mapping: dict[str, str] = {}
-        if self.config.input_source == "Server":
-            mapping = self._remote_input_request().get("subject_id_map", {})
-        elif self.config.input_mode == "file" and self.config.input_file:
-            src = Path(self.config.input_file)
-            mapping[posixpath.join(remote_input, src.name)] = _derive_subject_id(str(src))
-        elif self.config.input_mode == "files" and self.config.input_files:
-            ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
-            for idx, path in enumerate(self.config.input_files, start=1):
-                src = Path(path)
-                remote_name = f"{idx:04d}_{src.name}"
-                mapping[posixpath.join(remote_input, remote_name)] = ids.get(path, _derive_subject_id(path))
-        elif self.config.input_dir:
-            files = _discover_mri_files(self.config.input_dir, recursive=self.config.recursive)
-            ids = build_subject_id_map(files, self.config.input_dir)
-            root = Path(self.config.input_dir).resolve()
-            for path in files:
-                src = Path(path).resolve()
-                rel = src.relative_to(root).as_posix()
-                mapping[posixpath.join(remote_input, rel)] = ids.get(path, _derive_subject_id(path))
-
+        mapping = self._remote_input_request().get("subject_id_map", {})
         remote_path = posixpath.join(self.remote_job_dir, "subject_ids.json")
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(mapping, indent=2))
-
-    def run_remote(self) -> int:
-        if not self.remote_job_dir:
-            self.upload_job()
-        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = self._remote_code_dir(ssh)
-            self._ensure_shared_code(ssh)
-            venv_python = self.ensure_remote_venv(ssh)
-            ssh.run(f"rm -f {shlex.quote(posixpath.join(self.remote_job_dir, 'stop_requested'))}", stream=False, check=False)
-            ssh.run(
-                f"df -h {shlex.quote(self.remote_job_dir)} {shlex.quote(posixpath.join(self.remote_job_dir, 'outputs'))}",
-                stream=True,
-                check=False,
-            )
-            command = self._remote_command(venv_python, remote_code)
-            return ssh.run(command, stream=True)
 
     def start_remote_detached(self) -> str:
         if not self.remote_job_dir:
@@ -642,21 +516,6 @@ class RemoteRunner:
                 except OSError:
                     return "", offset
 
-    def ensure_images(self) -> bool:
-        if not self.remote_job_dir:
-            self.upload_job()
-        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = self._remote_code_dir(ssh)
-            self._ensure_shared_code(ssh)
-            venv_python = self.ensure_remote_venv(ssh)
-            cmd = [venv_python, "pipeline_runner.py", "--ensure-images-only", "--json-events"]
-            cmd += self._tool_args()
-            quoted = " ".join(shlex.quote(str(part)) for part in cmd)
-            code = ssh.run(f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}", stream=True)
-            if code != 0:
-                self.on_log(f"Remote image preflight failed with exit code {code}")
-            return code == 0
-
     def request_pause(self) -> None:
         if not self.remote_job_dir:
             raise RuntimeError("No remote job is running")
@@ -667,7 +526,7 @@ class RemoteRunner:
 
     def download_outputs(self, local_target_dir: str | Path | None = None) -> Path:
         if not self.remote_job_dir:
-            raise RuntimeError("No remote job has been uploaded/run yet")
+            raise RuntimeError("No remote job has been run or attached yet")
         local_target = Path(local_target_dir or self.config.output_dir or (PROJECT_ROOT / "outputs"))
         if self.config.download_subdir:
             local_target = local_target / self.config.download_subdir
@@ -682,20 +541,6 @@ class RemoteRunner:
             code = ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
             if code != 0:
                 raise RuntimeError(f"Could not delete remote job folder: {self.remote_job_dir}")
-
-    def required_images(self) -> list[str]:
-        images: list[str] = []
-        for tool_key in self.config.selected_tools.values():
-            if not tool_key or not is_tool_enabled(tool_key):
-                continue
-            tool = TOOL_DEFS.get(tool_key)
-            if not tool:
-                continue
-            for key in ("base_image", "image"):
-                image = tool.get(key)
-                if image and image not in images:
-                    images.append(image)
-        return images
 
     def _ensure_shared_code(self, ssh: RemoteSSHClient) -> str:
         remote_code = self._remote_code_dir(ssh)
@@ -735,31 +580,6 @@ class RemoteRunner:
         if info_dir.exists():
             ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
 
-    def _upload_inputs(self, ssh: RemoteSSHClient) -> None:
-        if self.config.input_source == "Server":
-            self.on_log("Using MRI input paths already on the server; skipping input upload.")
-            return
-        remote_input = self._remote_input_dir(ssh)
-        self.remote_input_dir = remote_input
-        self.on_log(f"Remote input destination: {remote_input}")
-        if self.config.input_mode == "file":
-            if not self.config.input_file:
-                return
-            src = Path(self.config.input_file)
-            ssh.upload_file(src, posixpath.join(remote_input, src.name))
-        elif self.config.input_mode == "files":
-            if not self.config.input_files:
-                return
-            for idx, path in enumerate(self.config.input_files, start=1):
-                src = Path(path)
-                remote_name = f"{idx:04d}_{src.name}"
-                ssh.upload_file(src, posixpath.join(remote_input, remote_name))
-        else:
-            if not self.config.input_dir:
-                return
-            self.on_log("Uploading input directory recursively (only MRI files)...")
-            ssh.upload_dir(self.config.input_dir, remote_input, skip_dirs={"__pycache__", "venv", ".venv", ".git", ".idea", ".vscode"}, allowed_extensions={".nii", ".nii.gz", ".mgz", ".mgh", ".dcm"})
-
     def _upload_license(self, ssh: RemoteSSHClient) -> None:
         if not self.config.license_dir:
             return
@@ -775,40 +595,6 @@ class RemoteRunner:
         else:
             self.on_log("Uploading license directory...")
             ssh.upload_dir(local_license, remote_license_dir, skip_dirs={"__pycache__"})
-
-    def _remote_command(self, python_cmd: str | None = None, remote_code: str | None = None) -> str:
-        remote_code = remote_code or self._remote_code_dir()
-        remote_input = self._remote_input_dir()
-        remote_output = posixpath.join(self.remote_job_dir, "outputs")
-        remote_license = posixpath.join(self.remote_job_dir, "license")
-
-        cmd = [python_cmd or self.config.remote_python, "pipeline_runner.py", "--json-events"]
-        if self.config.input_mode == "file":
-            if self.config.input_source == "Server":
-                cmd += ["--input-file", self.config.input_file]
-            else:
-                input_name = Path(self.config.input_file).name
-                cmd += ["--input-file", posixpath.join(remote_input, input_name)]
-        else:
-            cmd += ["--input-dir", self.config.input_dir if self.config.input_source == "Server" else remote_input]
-
-        cmd += ["--output-dir", remote_output]
-        cmd += ["--license-dir", remote_license]
-        cmd += ["--export-config", posixpath.join(self.remote_job_dir, "export_config.json")]
-        cmd += ["--stats-vector-config", posixpath.join(self.remote_job_dir, "stats_vector_config.json")]
-        cmd += ["--subject-id-map", posixpath.join(self.remote_job_dir, "subject_ids.json")]
-        cmd += ["--device", self.config.device]
-        cmd += ["--threads", str(self.config.threads)]
-        if self.config.resume:
-            cmd.append("--resume")
-        if not self.config.recursive:
-            cmd.append("--non-recursive")
-        cmd += ["--stop-file", posixpath.join(self.remote_job_dir, "stop_requested")]
-
-        cmd += self._tool_args()
-
-        quoted = " ".join(shlex.quote(str(part)) for part in cmd)
-        return f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}"
 
     def _tool_args(self) -> list[str]:
         args: list[str] = []
