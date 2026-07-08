@@ -186,6 +186,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.input_browse_button: ttk.Button | None = None
         self.upload_input_row: ttk.Frame | None = None
         self.upload_input_button: ttk.Button | None = None
+        self.output_dir_row: ttk.Frame | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
         self.pipeline_tools_body: ttk.Frame | None = None
@@ -611,6 +612,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self.upload_input_row.grid()
             else:
                 self.upload_input_row.grid_remove()
+        if self.output_dir_row is not None:
+            if server_run:
+                self.output_dir_row.grid_remove()
+            else:
+                self.output_dir_row.grid()
 
     def _ask_upload_overwrite(self, remote_path: str) -> str:
         dialog = tk.Toplevel(self.root)
@@ -1420,7 +1426,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             elif mode == "dir" and raw_input == "~" and not self.state.selected_files:
                 errors.append("Choose a server MRI folder or upload input to server first.")
 
-        if not self.state.output_dir.get().strip():
+        if self.state.run_target.get() != "Server" and not self.state.output_dir.get().strip():
             errors.append("Choose an output directory.")
         if self.state.export_outputs_enabled.get():
             invalid_names = [name.get().strip() for name in self.state.export_name_vars.values() if not name.get().strip() or any(sep in name.get() for sep in ("/", "\\"))]

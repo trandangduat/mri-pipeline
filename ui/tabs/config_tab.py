@@ -216,7 +216,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
 
-    _path_row(frame, "Output directory", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
+    gui.output_dir_row = _path_row(frame, "Output directory", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
 
     export_frame = ttk.Frame(frame)
     export_frame.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
@@ -274,7 +274,7 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
     gui.state.run_target.trace_add("write", lambda *_args: gui._on_run_target_changed())
     frame.columnconfigure(1, weight=1)
 
-def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, browse_cmd) -> None:
+def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, browse_cmd) -> ttk.Frame:
     container = ttk.Frame(parent)
     container.grid(row=row, column=0, columnspan=5, sticky=tk.EW, pady=3)
     ttk.Label(container, text=label).pack(anchor=tk.W, pady=(0, 2))
@@ -282,6 +282,7 @@ def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, b
     input_frame.pack(fill=tk.X, expand=True)
     ttk.Entry(input_frame, textvariable=variable).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=browse_cmd).pack(side=tk.RIGHT)
+    return container
 
 def _build_remote_section(parent: ttk.Frame, gui) -> None:
     gui.remote_pack_options = {"fill": tk.X, "pady": (0, 10)}
