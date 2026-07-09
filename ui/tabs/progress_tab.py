@@ -51,16 +51,31 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
     def _on_mousewheel(event):
         right_scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
+    def _on_scroll_up(_event=None):
+        right_scroll_canvas.yview_scroll(-3, "units")
+
+    def _on_scroll_down(_event=None):
+        right_scroll_canvas.yview_scroll(3, "units")
+
     def _bind_scroll_recursive(widget):
         try:
             widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+        except tk.TclError:
+            pass
+        try:
+            widget.bind("<Button-4>", lambda e: _on_scroll_up(), add="+")
+            widget.bind("<Button-5>", lambda e: _on_scroll_down(), add="+")
         except tk.TclError:
             pass
         for child in widget.winfo_children():
             _bind_scroll_recursive(child)
 
     right_scroll_canvas.bind("<MouseWheel>", _on_mousewheel)
+    right_scroll_canvas.bind("<Button-4>", lambda e: _on_scroll_up())
+    right_scroll_canvas.bind("<Button-5>", lambda e: _on_scroll_down())
     right.bind("<MouseWheel>", _on_mousewheel)
+    right.bind("<Button-4>", lambda e: _on_scroll_up())
+    right.bind("<Button-5>", lambda e: _on_scroll_down())
     for child in right.winfo_children():
         _bind_scroll_recursive(child)
 

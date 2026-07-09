@@ -534,6 +534,19 @@ class JobsMixin:
         title = self._progress_title_for_job(job, fallback="Attached job")
         identity = self._progress_job_identity(job)
         run_req = job.get("run_request") or config
+
+        existing_ctx_id = self.progress_context_by_job.get(identity) if identity else ""
+        existing_ctx = self.progress_contexts.get(existing_ctx_id) if existing_ctx_id else None
+        if existing_ctx is not None:
+            self._activate_progress_context(existing_ctx["id"])
+            self._show_progress_tab()
+            self._register_job_monitor_for_active_context()
+            if target != "Server":
+                self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
+            self._enter_background_monitor_state("Attaching background job...")
+            self._schedule_job_poll(delay_ms=0)
+            return True
+
         self._prepare_progress_tab(
             input_files,
             selected_tools or self.state.get_selected_tools(),
