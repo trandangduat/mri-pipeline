@@ -34,8 +34,10 @@ from .utils import (
     _check_output_workspace,
     _derive_subject_id,
     _describe_subject_files,
+    _dicom_files_in_series,
     _discover_mri_files,
     _duplicate_basenames,
+    _first_dicom_file_in_series,
     _find_existing_outputs,
     _find_output_file,
     _format_bytes,
@@ -742,12 +744,24 @@ def run_pipeline(
 
         if input_for_next_step is None:
             input_abs = Path(config.input_file).expanduser().resolve()
+            dicom_files = _dicom_files_in_series(input_abs)
+            docker_input_abs = _first_dicom_file_in_series(input_abs) or input_abs
             host_input_dir = str(input_abs.parent)
-            input_path = f"/input/{input_abs.name}"
+            input_rel = docker_input_abs.relative_to(input_abs.parent).as_posix()
+            input_path = f"/input/{input_rel}"
+            dicom_list_path = ""
+            if dicom_files:
+                dicom_list_file = Path(logs_dir) / "dicom_input_files.txt"
+                dicom_list_file.write_text(
+                    "\n".join(f"/input/{path.relative_to(input_abs.parent).as_posix()}" for path in dicom_files) + "\n",
+                    encoding="utf-8",
+                )
+                dicom_list_path = "/work/logs/dicom_input_files.txt"
             mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
         else:
             rel = os.path.relpath(input_for_next_step, subject_dir)
             input_path = f"/work/{rel}"
+            dicom_list_path = ""
             mounts = []
 
         mounts.append((subject_dir, "/output"))
@@ -770,7 +784,8 @@ def run_pipeline(
                 input_path=input_path,
                 subject_id=config.subject_id,
                 threads=config.threads,
-                device=config.device
+                device=config.device,
+                dicom_list_path=dicom_list_path,
             )
             actual_cmd = tool["command_builder"](ctx)
             command = [tool.get("shell", "bash"), "-c", actual_cmd]

@@ -111,6 +111,7 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
     gpu_chart.pack(fill=tk.X, pady=(0, 8))
     
     log_card = ttk.LabelFrame(detail, text=" Image log ", padding=12)
+    _target(context, gui, "progress_log_card", log_card)
     log_card.pack(fill=tk.X, pady=(0, 0))
     log_header = ttk.Frame(log_card)
     log_header.pack(fill=tk.X)
@@ -121,12 +122,17 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
     else:
         toggle_command = gui._toggle_progress_log
     ttk.Button(log_header, textvariable=progress_log_toggle_text, command=toggle_command).pack(side=tk.LEFT)
+    if context is not None:
+        copy_command = lambda: (gui._activate_progress_context(context["id"]), gui._copy_progress_log())
+    else:
+        copy_command = gui._copy_progress_log
+    ttk.Button(log_header, text="Copy log", command=copy_command).pack(side=tk.RIGHT)
     progress_log_body = ttk.Frame(log_card)
     _target(context, gui, "progress_log_body", progress_log_body)
     log_text = tk.Text(
         progress_log_body,
         wrap=tk.WORD,
-        height=14,
+        height=22,
         state=tk.DISABLED,
         
         padx=12,

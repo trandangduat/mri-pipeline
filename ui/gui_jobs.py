@@ -110,24 +110,28 @@ class JobsMixin:
             selection = tree.selection()
             if not selection:
                 return
-            item = selection[0]
-            job = item_to_job.get(item)
-            if not job:
+            selected = [(item, item_to_job[item]) for item in selection if item in item_to_job]
+            if not selected:
                 return
-            label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job")
-            if not messagebox.askyesno("Delete job", f"Delete this job and its folders?\n\n{label}"):
+            labels = [job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job") for _item, job in selected]
+            if not messagebox.askyesno("Delete jobs", f"Delete {len(selected)} selected job(s) and their folders?\n\n" + "\n".join(labels)):
                 return
-            if self._delete_registry_job(job):
-                identity = self._job_identity(job)
-                deleted_job_ids.add(identity)
-                jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
-                tree.delete(item)
-                item_to_job.pop(item, None)
-                remaining = tree.get_children()
-                if remaining:
-                    tree.selection_set(remaining[0])
-                else:
-                    dialog.destroy()
+            deleted = 0
+            for item, job in selected:
+                if self._delete_registry_job(job):
+                    identity = self._job_identity(job)
+                    deleted_job_ids.add(identity)
+                    jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
+                    if tree.exists(item):
+                        tree.delete(item)
+                    item_to_job.pop(item, None)
+                    deleted += 1
+            status_text.set(f"Deleted {deleted} job(s).")
+            remaining = tree.get_children()
+            if remaining:
+                tree.selection_set(remaining[0])
+            else:
+                dialog.destroy()
 
         def attach_selected() -> None:
             job = selected_job()
@@ -1251,6 +1255,11 @@ class JobsMixin:
             try:
                 data, new_offset = runner.read_remote_log_since(offset)
                 status = runner.remote_status()
+                if str(status.get("state", "")) in {"completed", "failed"}:
+                    final_data, final_offset = runner.read_remote_log_since(new_offset)
+                    if final_data:
+                        data += final_data
+                        new_offset = final_offset
             except Exception as exc:
                 error = exc
             self.root.after(0, lambda r=runner, cid=context_id: self._finish_remote_poll(r, data, new_offset, status, error, cid))
@@ -1292,8 +1301,16 @@ class JobsMixin:
                 self._log(f"Remote background job error: {status.get('error')}")
             if state == "failed":
                 for key, run in self.image_runs.items():
-                    if run.get("status") == "Pending":
-                        self._update_image_run(key, status="Failed", stage_text="Remote job failed before this image started")
+                    for stage, step in (run.get("steps") or {}).items():
+                        if step.get("status") == "Running":
+                            self._update_run_step(key, stage, status="Failed")
+                    if run.get("status") in {"Pending", "Running"}:
+                        stage_text = "Remote job failed before this image started" if run.get("status") == "Pending" else "Remote job failed"
+                        self._update_image_run(key, status="Failed", stage_text=stage_text)
+                self._set_progress_count("current_running_images", 0)
+                failed_count = sum(1 for run in self.image_runs.values() if run.get("status") == "Failed")
+                self._set_progress_count("current_failed_images", failed_count)
+                self._update_batch_summary()
             self._log("Use Download Outputs to copy remote outputs to the local output folder.")
             self._update_registry_for_active_job(state, status.get("exit_code"))
             self.active_job["done"] = True
