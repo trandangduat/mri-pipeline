@@ -60,7 +60,8 @@ class AppState:
         self.run_target = tk.StringVar(value="Local")
         self.pipeline_mode = tk.StringVar(value="Custom")
         self.allow_custom_tools = tk.BooleanVar(value=True)
-        
+        self.workspace_name = ""
+
         # Remote
         self.remote_host = tk.StringVar()
         self.remote_port = tk.IntVar(value=22)

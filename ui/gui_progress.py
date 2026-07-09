@@ -78,6 +78,9 @@ class ProgressMixin:
             "batch_running_text": tk.StringVar(value="Running: 0"),
             "batch_failed_text": tk.StringVar(value="Failed: 0"),
             "detail_title": tk.StringVar(value="Select an input image"),
+            "job_preset_text": tk.StringVar(value=""),
+            "job_threads_text": tk.StringVar(value=""),
+            "job_device_text": tk.StringVar(value=""),
         }
         build_progress_tab(context["tab"], self, context)
         self.progress_contexts[context_id] = context
@@ -106,6 +109,9 @@ class ProgressMixin:
             "progress_log_toggle_text",
             "progress_log_body",
             "log_text",
+            "job_preset_text",
+            "job_threads_text",
+            "job_device_text",
         ):
             if hasattr(self, name):
                 context[name] = getattr(self, name)
@@ -134,6 +140,9 @@ class ProgressMixin:
             "progress_log_toggle_text",
             "progress_log_body",
             "log_text",
+            "job_preset_text",
+            "job_threads_text",
+            "job_device_text",
         ):
             setattr(self, name, context.get(name))
         self._sync_progress_context_to_state(context)
@@ -321,7 +330,7 @@ class ProgressMixin:
             return
         self.notebook.select(self.progress_tab)
 
-    def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None, title: str = "Run progress", job_identity: str = "") -> None:
+    def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None, title: str = "Run progress", job_identity: str = "", pipeline_mode: str = "", threads: int = 0, device: str = "") -> None:
         self._ensure_progress_context(title, job_identity)
         self.image_runs.clear()
         self.image_rows.clear()
@@ -340,6 +349,12 @@ class ProgressMixin:
         self.gpu_chart.reset()
         self._set_detail_title("Select an input image")
         self._reset_step_summary()
+        if pipeline_mode:
+            self.job_preset_text.set(pipeline_mode)
+        if threads:
+            self.job_threads_text.set(str(threads))
+        if device:
+            self.job_device_text.set(device.upper())
         for idx, path in enumerate(files, start=1):
             self._create_image_run(path, idx, len(files))
         if files:

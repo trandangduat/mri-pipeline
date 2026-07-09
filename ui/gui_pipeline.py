@@ -124,6 +124,16 @@ class PipelineMixin:
             messagebox.showerror("Configuration incomplete", self.state.config_status.get())
             return
 
+        if not self.state.workspace_name:
+            if not messagebox.askyesno(
+                "Workspace not saved",
+                "Workspace chưa được lưu. Bạn cần lưu workspace trước khi chạy pipeline.\n\nBạn muốn lưu workspace ngay?",
+            ):
+                return
+            self._save_workspace()
+            if not self.state.workspace_name:
+                return
+
         if not self._confirm_start_with_existing_jobs():
             return
 
@@ -142,7 +152,14 @@ class PipelineMixin:
                 messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                 return
             self.remote_runner = runner
-            self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Server: starting")
+            self._prepare_progress_tab(
+                self._input_files_for_progress(run_request),
+                run_request.get("selected_tools"),
+                title="Server: starting",
+                pipeline_mode=run_request.get("pipeline_mode", ""),
+                threads=int(run_request.get("threads", 0) or 0),
+                device=run_request.get("device", ""),
+            )
             self._show_progress_tab()
             self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
             return
@@ -153,7 +170,14 @@ class PipelineMixin:
         run_request["resume"] = resume
         run_request["restart"] = restart
 
-        self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Local: starting")
+        self._prepare_progress_tab(
+            self._input_files_for_progress(run_request),
+            run_request.get("selected_tools"),
+            title="Local: starting",
+            pipeline_mode=run_request.get("pipeline_mode", ""),
+            threads=int(run_request.get("threads", 0) or 0),
+            device=run_request.get("device", ""),
+        )
         self._show_progress_tab()
 
         self.running = True
@@ -206,7 +230,9 @@ class PipelineMixin:
         proc = subprocess.Popen(cmd, **kwargs)
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
         entry = self._registry_entry_for_local_job(job_dir, run_request, proc.pid)
-        upsert_job_registry(entry)
+        ws_name = getattr(self.state, "workspace_name", "")
+        entry["workspace_name"] = ws_name
+        upsert_job_registry(entry, ws_name)
         self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Local job"), self._progress_job_identity(entry))
         self._log(f"Local background job started: {job_dir}")
         self._log("You can close the GUI. The local worker process will keep running.")
@@ -230,7 +256,9 @@ class PipelineMixin:
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
         entry = self._registry_entry_for_remote_job(runner, remote_dir)
-        upsert_job_registry(entry)
+        ws_name = getattr(self.state, "workspace_name", "")
+        entry["workspace_name"] = ws_name
+        upsert_job_registry(entry, ws_name)
         self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
         self._log(f"Remote background job started: {remote_dir}")
         self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
@@ -270,6 +298,7 @@ class PipelineMixin:
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),
             "input_source": input_source,
+            "pipeline_mode": self.state.pipeline_mode.get(),
         }
 
         if self.state.run_target.get() != "Server" and input_source != "Local":

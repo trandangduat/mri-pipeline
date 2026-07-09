@@ -1506,7 +1506,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             return
 
         workspace = self.state.collect_workspace()
-        workspace["name"] = Path(path).stem
+        workspace_name = Path(path).stem
+        workspace["name"] = workspace_name
+        self.state.workspace_name = workspace_name
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(workspace, f, indent=2, ensure_ascii=False)
@@ -1532,6 +1534,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 workspace = json.load(f)
+            self.state.workspace_name = Path(path).stem
             self.state.apply_workspace(workspace)
             self._apply_pipeline_mode(apply_stats_preset="stats_vectors" not in workspace, update_tools_visibility=False)
             self._on_run_target_changed()

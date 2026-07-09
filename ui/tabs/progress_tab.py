@@ -32,9 +32,41 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
     panes.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
     left = ttk.Frame(panes, padding=8)
-    right = ttk.Frame(panes, padding=8)
+    right_scroll_canvas = tk.Canvas(panes, highlightthickness=0)
+    right_scrollbar = ttk.Scrollbar(panes, orient=tk.VERTICAL, command=right_scroll_canvas.yview)
+    right = ttk.Frame(right_scroll_canvas, padding=8)
+    right_window_id = right_scroll_canvas.create_window((0, 0), window=right, anchor=tk.NW)
+
+    def _on_right_frame_configure(_event):
+        right_scroll_canvas.configure(scrollregion=right_scroll_canvas.bbox("all"))
+
+    right.bind("<Configure>", _on_right_frame_configure)
+
+    def _on_right_canvas_configure(event):
+        right_scroll_canvas.itemconfig(right_window_id, width=event.width)
+
+    right_scroll_canvas.bind("<Configure>", _on_right_canvas_configure)
+    right_scroll_canvas.configure(yscrollcommand=right_scrollbar.set)
+
+    def _on_mousewheel(event):
+        right_scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _bind_scroll_recursive(widget):
+        try:
+            widget.bind("<MouseWheel>", _on_mousewheel, add="+")
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            _bind_scroll_recursive(child)
+
+    right_scroll_canvas.bind("<MouseWheel>", _on_mousewheel)
+    right.bind("<MouseWheel>", _on_mousewheel)
+    for child in right.winfo_children():
+        _bind_scroll_recursive(child)
+
     panes.add(left, weight=1)
-    panes.add(right, weight=3)
+    panes.add(right_scroll_canvas, weight=3)
+    right_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     summary = create_card(left, "RUN", "Batch summary", "Sequential execution: 1 image at a time", {"fill": tk.X, "pady": (0, 10)})
     ttk.Label(summary, textvariable=_var(context, gui, "batch_total_text")).pack(anchor=tk.W, pady=2)
@@ -62,6 +94,15 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
 
     detail = create_card(right, "DETAIL", "Selected image", "Step status, runtime metrics, and log", {"fill": tk.BOTH, "expand": True})
     ttk.Label(detail, textvariable=_var(context, gui, "detail_title")).pack(anchor=tk.W, pady=(0, 8))
+
+    job_info = ttk.Frame(detail)
+    job_info.pack(fill=tk.X, pady=(0, 8))
+    ttk.Label(job_info, text="Preset:", font=("Inter", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Label(job_info, textvariable=_var(context, gui, "job_preset_text"), foreground="#475569").pack(side=tk.LEFT, padx=(0, 16))
+    ttk.Label(job_info, text="Threads:", font=("Inter", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Label(job_info, textvariable=_var(context, gui, "job_threads_text"), foreground="#475569").pack(side=tk.LEFT, padx=(0, 16))
+    ttk.Label(job_info, text="Device:", font=("Inter", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Label(job_info, textvariable=_var(context, gui, "job_device_text"), foreground="#475569").pack(side=tk.LEFT)
 
     steps = ttk.LabelFrame(detail, text=" Processing steps ", padding=10)
     steps.pack(fill=tk.X, pady=(0, 8))

@@ -245,7 +245,7 @@ class JobsMixin:
 
     def _remove_job_registry_entry(self, job: dict) -> None:
         identity = self._job_identity(job)
-        save_job_registry([entry for entry in load_job_registry() if self._job_identity(entry) != identity])
+        save_job_registry([entry for entry in load_job_registry(self.state.workspace_name) if self._job_identity(entry) != identity], self.state.workspace_name)
 
     def _delete_path_if_exists(self, path: Path) -> None:
         if not path.exists():
@@ -533,12 +533,21 @@ class JobsMixin:
         self.job_log_offset = 0
         title = self._progress_title_for_job(job, fallback="Attached job")
         identity = self._progress_job_identity(job)
-        self._prepare_progress_tab(input_files, selected_tools or self.state.get_selected_tools(), title=title, job_identity=identity)
+        run_req = job.get("run_request") or config
+        self._prepare_progress_tab(
+            input_files,
+            selected_tools or self.state.get_selected_tools(),
+            title=title,
+            job_identity=identity,
+            pipeline_mode=run_req.get("pipeline_mode", ""),
+            threads=int(run_req.get("threads", 0) or 0),
+            device=run_req.get("device", ""),
+        )
         self._show_progress_tab()
         self._register_job_monitor_for_active_context()
-        self._enter_background_monitor_state("Attaching background job...")
         if target != "Server":
             self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
+        self._enter_background_monitor_state("Attaching background job...")
         self._schedule_job_poll(delay_ms=0)
         return True
 
@@ -758,7 +767,9 @@ class JobsMixin:
         if not entry:
             entry = dict(self.active_job)
         entry.update({"state": state, "exit_code": exit_code, "updated_at": time.time()})
-        upsert_job_registry(entry)
+        ws_name = getattr(self.state, "workspace_name", "")
+        entry["workspace_name"] = ws_name
+        upsert_job_registry(entry, ws_name)
         self.active_job["registry_entry"] = entry
 
     def _pid_is_running(self, pid: int | str | None) -> bool:
@@ -797,9 +808,10 @@ class JobsMixin:
         return entry
 
     def _known_jobs(self) -> list[dict]:
-        jobs = [self._refresh_registry_entry_status(entry) for entry in load_job_registry()]
+        ws_name = getattr(self.state, "workspace_name", "")
+        jobs = [self._refresh_registry_entry_status(entry) for entry in load_job_registry(ws_name)]
         for entry in jobs:
-            upsert_job_registry(entry)
+            upsert_job_registry(entry, ws_name)
         return jobs
 
     def _running_local_jobs(self) -> list[dict]:
@@ -1070,7 +1082,9 @@ class JobsMixin:
 
         entry = dict(job)
         entry.update({"state": "running", "pid": proc.pid, "updated_at": time.time(), "run_request": config})
-        upsert_job_registry(entry)
+        ws_name = getattr(self.state, "workspace_name", "")
+        entry["workspace_name"] = ws_name
+        upsert_job_registry(entry, ws_name)
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
         self._prepare_progress_tab(
@@ -1078,6 +1092,9 @@ class JobsMixin:
             config.get("selected_tools") or self.state.get_selected_tools(),
             title=self._progress_title_for_job(entry, fallback="Resumed local job"),
             job_identity=self._progress_job_identity(entry),
+            pipeline_mode=config.get("pipeline_mode", ""),
+            threads=int(config.get("threads", 0) or 0),
+            device=config.get("device", ""),
         )
         self._show_progress_tab()
         self._load_local_progress_state(job_dir, config)
@@ -1105,7 +1122,9 @@ class JobsMixin:
         remote_dir = runner.start_remote_detached()
         entry = dict(job)
         entry.update({"state": "running", "remote_job_dir": remote_dir, "updated_at": time.time(), "run_request": config})
-        upsert_job_registry(entry)
+        ws_name = getattr(self.state, "workspace_name", "")
+        entry["workspace_name"] = ws_name
+        upsert_job_registry(entry, ws_name)
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
         self._prepare_progress_tab(
@@ -1113,6 +1132,9 @@ class JobsMixin:
             config.get("selected_tools") or self.state.get_selected_tools(),
             title=self._progress_title_for_job(entry, fallback="Resumed remote job"),
             job_identity=self._progress_job_identity(entry),
+            pipeline_mode=config.get("pipeline_mode", ""),
+            threads=int(config.get("threads", 0) or 0),
+            device=config.get("device", ""),
         )
         self._show_progress_tab()
         self._register_job_monitor_for_active_context()
