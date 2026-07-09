@@ -308,6 +308,29 @@ def _put_value(values: dict[str, str], key: str, value: str) -> None:
     values[_norm_feature(key)] = value
 
 
+def _copy_value_alias(values: dict[str, str], target: str, *sources: str) -> None:
+    if values.get(target) or values.get(_norm_feature(target)):
+        return
+    for source in sources:
+        value = values.get(source) or values.get(_norm_feature(source))
+        if value:
+            _put_value(values, target, value)
+            return
+
+
+def _sum_value_alias(values: dict[str, str], target: str, *sources: str) -> None:
+    if values.get(target) or values.get(_norm_feature(target)):
+        return
+    total = 0.0
+    for source in sources:
+        value = values.get(source) or values.get(_norm_feature(source))
+        number = _as_number(value)
+        if number == "NA":
+            return
+        total += float(number)
+    _put_value(values, target, str(round(total, 6)))
+
+
 def _read_subcortical_values(stats_dir: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for path in [stats_dir / "aseg.stats", stats_dir / "aparc.DKTatlas+aseg.deep.stats", stats_dir / "aseg+DKT.stats"]:
@@ -325,11 +348,61 @@ def _read_subcortical_values(stats_dir: Path) -> dict[str, str]:
         with open(tsv, "r", encoding="utf-8", newline="") as f:
             for row in csv.DictReader(f, delimiter="\t"):
                 _put_value(values, row.get("structure", ""), row.get("volume_mm3", ""))
+
+    cortical_tsv = stats_dir / "cortical_volume.tsv"
+    if cortical_tsv.exists():
+        with open(cortical_tsv, "r", encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                region = row.get("region", "")
+                hemi = row.get("hemisphere", "")
+                volume = row.get("volume_mm3", "")
+                if region == "cerebellum cortex" and hemi == "lh":
+                    _put_value(values, "Left-Cerebellum-Cortex", volume)
+                elif region == "cerebellum cortex" and hemi == "rh":
+                    _put_value(values, "Right-Cerebellum-Cortex", volume)
+                elif region == "cerebral cortex" and hemi == "lh":
+                    _put_value(values, "lhCortexVol", volume)
+                elif region == "cerebral cortex" and hemi == "rh":
+                    _put_value(values, "rhCortexVol", volume)
+
+    _copy_value_alias(values, "Left-Inf-Lat-Vent", "left inferior lateral ventricle")
+    _copy_value_alias(values, "Right-Inf-Lat-Vent", "right inferior lateral ventricle")
+    _copy_value_alias(values, "Left-VentralDC", "left ventral DC")
+    _copy_value_alias(values, "Right-VentralDC", "right ventral DC")
+    _copy_value_alias(values, "lhCerebralWhiteMatterVol", "left cerebral white matter")
+    _copy_value_alias(values, "rhCerebralWhiteMatterVol", "right cerebral white matter")
+    _copy_value_alias(values, "EstimatedTotalIntraCranialVol", "total intracranial")
+    _sum_value_alias(values, "CortexVol", "lhCortexVol", "rhCortexVol")
+    _sum_value_alias(values, "CerebralWhiteMatterVol", "lhCerebralWhiteMatterVol", "rhCerebralWhiteMatterVol")
     return values
+
+
+def _cortical_feature_key(region: str, hemi: str = "") -> str:
+    raw = (region or "").strip()
+    lower = raw.lower()
+    for prefix, parsed_hemi in (("ctx-lh-", "lh"), ("ctx-rh-", "rh"), ("ctx_lh_", "lh"), ("ctx_rh_", "rh")):
+        if lower.startswith(prefix):
+            return f"{parsed_hemi}_{raw[len(prefix):]}"
+    if hemi in {"lh", "rh"}:
+        return f"{hemi}_{raw}"
+    if lower.startswith("left "):
+        return f"lh_{raw[5:]}"
+    if lower.startswith("right "):
+        return f"rh_{raw[6:]}"
+    return ""
 
 
 def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
     values: dict[str, str] = {}
+    for path in [stats_dir / "aparc.DKTatlas+aseg.deep.stats", stats_dir / "aseg+DKT.stats", stats_dir / "aseg+DKT.VINN.stats"]:
+        _headers, rows = _parse_freesurfer_stats_table(path)
+        for row in rows:
+            name = row.get("StructName", "")
+            volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+            key = _cortical_feature_key(name)
+            if key and volume:
+                _put_value(values, key, volume)
+
     for hemi in ("lh", "rh"):
         for path in [stats_dir / f"{hemi}.aparc.stats", stats_dir / f"{hemi}.aparc.DKTatlas.stats"]:
             _headers, rows = _parse_freesurfer_stats_table(path)
@@ -337,7 +410,7 @@ def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
                 name = row.get("StructName", "")
                 volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
                 if name and volume:
-                    _put_value(values, f"{hemi}_{name}", volume)
+                    _put_value(values, _cortical_feature_key(name, hemi), volume)
 
     tsv = stats_dir / "cortical_volume.tsv"
     if tsv.exists():
@@ -345,8 +418,9 @@ def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
             for row in csv.DictReader(f, delimiter="\t"):
                 hemi = row.get("hemisphere", "")
                 region = row.get("region", "")
-                if hemi and region:
-                    _put_value(values, f"{hemi}_{region}", row.get("volume_mm3", ""))
+                key = _cortical_feature_key(region, hemi)
+                if key:
+                    _put_value(values, key, row.get("volume_mm3", ""))
     return values
 
 
