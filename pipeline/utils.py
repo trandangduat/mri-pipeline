@@ -214,6 +214,20 @@ def _is_dicom_series_dir(path: Path) -> bool:
         return False
 
 
+def _dicom_files_in_series(path: Path) -> list[Path]:
+    if not path.exists() or not path.is_dir():
+        return []
+    try:
+        return [child for child in sorted(path.iterdir(), key=lambda p: p.name.lower()) if child.is_file() and _is_dicom_file(child)]
+    except OSError:
+        return []
+
+
+def _first_dicom_file_in_series(path: Path) -> Path | None:
+    files = _dicom_files_in_series(path)
+    return files[0] if files else None
+
+
 def _is_supported_mri_input(path: str | Path) -> bool:
     p = Path(path).expanduser()
     if p.is_file():

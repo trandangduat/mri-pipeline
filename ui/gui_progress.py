@@ -97,6 +97,7 @@ class ProgressMixin:
             "active_image_key",
             "progress_selected_tools",
             "progress_log_visible",
+            "progress_log_card",
             "step_summary_rows",
             "image_list_canvas",
             "image_list_frame",
@@ -124,6 +125,7 @@ class ProgressMixin:
             "active_image_key",
             "progress_selected_tools",
             "progress_log_visible",
+            "progress_log_card",
             "step_summary_rows",
             "image_list_canvas",
             "image_list_frame",
@@ -272,6 +274,7 @@ class ProgressMixin:
     def _toggle_progress_log(self) -> None:
         body = getattr(self, "progress_log_body", None)
         label = getattr(self, "progress_log_toggle_text", None)
+        card = getattr(self, "progress_log_card", None)
         if body is None:
             return
         self.progress_log_visible = not self.progress_log_visible
@@ -279,13 +282,26 @@ class ProgressMixin:
         if context is not None:
             context["progress_log_visible"] = self.progress_log_visible
         if self.progress_log_visible:
+            if card is not None:
+                card.pack_configure(fill=tk.BOTH, expand=True)
             body.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
             if label is not None:
                 label.set("Hide Image Log")
         else:
             body.pack_forget()
+            if card is not None:
+                card.pack_configure(fill=tk.X, expand=False)
             if label is not None:
                 label.set("Show Image Log")
+
+    def _copy_progress_log(self) -> None:
+        log = getattr(self, "log_text", None)
+        if log is None:
+            return
+        text = log.get("1.0", tk.END).strip()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.state.status_text.set("Image log copied")
 
     def _input_files_for_progress(self, req: dict | None = None) -> list[str]:
         if req is None:

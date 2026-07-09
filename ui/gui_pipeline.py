@@ -25,6 +25,20 @@ from ui.formatters import truncate_middle
 
 
 class PipelineMixin:
+    def _remote_is_dicom_name(self, name: str) -> bool:
+        return name.lower().endswith((".dcm", ".dicom", ".ima"))
+
+    def _remote_dir_contains_dicom(self, ssh: RemoteSSHClient, remote_path: str) -> bool:
+        try:
+            for item in ssh.sftp.listdir_attr(remote_path):
+                if item.filename.startswith("."):
+                    continue
+                if not stat.S_ISDIR(item.st_mode) and self._remote_is_dicom_name(item.filename):
+                    return True
+        except OSError:
+            return False
+        return False
+
     def _upload_remote_job_with_dialog(self, runner: RemoteRunner) -> bool:
         dialog = tk.Toplevel(self.root)
         dialog.title("Copy files to remote server")
@@ -341,8 +355,9 @@ class PipelineMixin:
                     attrs = ssh.sftp.stat(remote_path)
                     is_dir = stat.S_ISDIR(attrs.st_mode)
                     if kind == "file" and is_dir:
-                        messagebox.showerror("Invalid server input", f"Server input phải là file MRI, nhưng đây là folder:\n{path}")
-                        return False
+                        if not self._remote_dir_contains_dicom(ssh, remote_path):
+                            messagebox.showerror("Invalid server input", f"Server input phải là file MRI hoặc folder DICOM, nhưng folder này không chứa DICOM trực tiếp:\n{path}")
+                            return False
                     if kind == "dir" and not is_dir:
                         messagebox.showerror("Invalid server input", f"Server input phải là folder, nhưng đây là file:\n{path}")
                         return False

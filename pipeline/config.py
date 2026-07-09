@@ -14,6 +14,7 @@ class ToolContext:
     subject_id: str
     threads: int
     device: str
+    dicom_list_path: str = ""
 
 
 @dataclass
@@ -120,7 +121,7 @@ TOOL_DEFS: dict[str, dict] = {
         "image": "mkdayyyy/mri-fs8-all:latest",
         "stage": "reorientation",
         "needs_license": True,
-        "command_builder": lambda ctx: f"mri_convert {ctx.input_path} /work/01_reoriented.nii.gz",
+        "command_builder": lambda ctx: f"mri_convert {'-no-dcm2niix -dicomread2 --sdcmlist ' + ctx.dicom_list_path + ' ' if ctx.dicom_list_path else ''}{ctx.input_path} /work/01_reoriented.nii.gz",
         "output_files": ["01_reoriented.nii.gz"],
     },
     "mri_convert_fs7": {
@@ -128,7 +129,7 @@ TOOL_DEFS: dict[str, dict] = {
         "image": "mkdayyyy/mri-fs7-all:latest",
         "stage": "reorientation",
         "needs_license": True,
-        "command_builder": lambda ctx: f"mri_convert {ctx.input_path} /work/01_reoriented.nii.gz",
+        "command_builder": lambda ctx: f"mri_convert {'-no-dcm2niix -dicomread2 --sdcmlist ' + ctx.dicom_list_path + ' ' if ctx.dicom_list_path else ''}{ctx.input_path} /work/01_reoriented.nii.gz",
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {

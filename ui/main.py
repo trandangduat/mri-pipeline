@@ -18,7 +18,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from pipeline_runner import (
     PROJECT_ROOT,
@@ -685,15 +685,17 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         local_path = tk.StringVar(value=initial_local_dir())
         server_path = tk.StringVar(value=initial_server_dir())
         status_text = tk.StringVar(value="Connecting to server...")
-        progress_text = tk.StringVar(value="0 / 0")
+        progress_text = tk.StringVar(value="Ready")
+        progress_percent_text = tk.StringVar(value="0%")
 
         top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
         top.pack(fill=tk.X)
         start_button = ttk.Button(top, text="Start upload", style="Accent.TButton", state=tk.DISABLED)
         start_button.pack(side=tk.LEFT)
-        ttk.Label(top, textvariable=progress_text, width=12, anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
-        progress = ttk.Progressbar(top, mode="determinate", maximum=1, value=0)
-        progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        ttk.Label(top, textvariable=progress_text, anchor=tk.W).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 8))
+        ttk.Label(top, textvariable=progress_percent_text, width=6, anchor=tk.E).pack(side=tk.RIGHT)
+        progress = ttk.Progressbar(dialog, mode="determinate", maximum=1, value=0)
+        progress.pack(fill=tk.X, padx=12, pady=(0, 6))
         ttk.Label(dialog, textvariable=status_text, foreground="#64748b").pack(anchor=tk.W, padx=12, pady=(0, 8))
 
         panes = ttk.PanedWindow(dialog, orient=tk.HORIZONTAL)
@@ -703,13 +705,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         panes.add(local_frame, weight=1)
         panes.add(server_frame, weight=1)
 
-        def build_browser(parent: ttk.Frame, title: str, variable: tk.StringVar, go_cmd, up_cmd, selectmode=tk.BROWSE):
+        def build_browser(parent: ttk.Frame, title: str, variable: tk.StringVar, go_cmd, up_cmd, new_folder_cmd=None, selectmode=tk.BROWSE):
             ttk.Label(parent, text=title, font=("Inter", 10, "bold")).pack(anchor=tk.W, pady=(0, 6))
             row = ttk.Frame(parent)
             row.pack(fill=tk.X, pady=(0, 8))
             ttk.Entry(row, textvariable=variable).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
-            ttk.Button(row, text="Go", command=go_cmd).pack(side=tk.LEFT, padx=(0, 6))
-            ttk.Button(row, text="Up", command=up_cmd).pack(side=tk.LEFT)
+            ttk.Button(row, text="↵", width=3, command=go_cmd).pack(side=tk.LEFT, padx=(0, 6))
+            ttk.Button(row, text="↑", width=3, command=up_cmd).pack(side=tk.LEFT, padx=(0, 6))
+            if new_folder_cmd is not None:
+                ttk.Button(row, text="+ Folder", command=new_folder_cmd).pack(side=tk.LEFT)
             list_frame = ttk.Frame(parent)
             list_frame.pack(fill=tk.BOTH, expand=True)
             listing = tk.Listbox(list_frame, selectmode=selectmode, activestyle="dotbox")
@@ -785,6 +789,27 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             except Exception as exc:
                 status_text.set(f"Server browse failed: {type(exc).__name__}: {exc}")
 
+        def create_server_folder() -> None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                messagebox.showerror("Server not connected", "SSH server is not connected yet.", parent=dialog)
+                return
+            current = normalize_server_path(server_path.get())
+            name = simpledialog.askstring("New server folder", "Folder name:", parent=dialog)
+            if not name:
+                return
+            name = name.strip().strip("/")
+            if not name or "/" in name or name in {".", ".."}:
+                messagebox.showerror("Invalid folder name", "Folder name cannot be empty, '.', '..', or contain '/'.", parent=dialog)
+                return
+            new_path = posixpath.join(current, name)
+            try:
+                ssh.mkdir_p(new_path)
+                refresh_server(new_path)
+                status_text.set(f"Created folder: {new_path}")
+            except Exception as exc:
+                messagebox.showerror("Create folder failed", f"Could not create folder:\n\n{type(exc).__name__}: {exc}", parent=dialog)
+
         local_list = build_browser(
             local_frame,
             "Local folder",
@@ -799,6 +824,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             server_path,
             lambda: refresh_server(server_path.get()),
             lambda: refresh_server(posixpath.dirname(normalize_server_path(server_path.get()).rstrip("/")) or "/"),
+            new_folder_cmd=create_server_folder,
         )
 
         def open_local(_event=None) -> None:
@@ -933,7 +959,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             upload_running["value"] = True
             start_button.configure(state=tk.DISABLED)
             progress.configure(maximum=len(pairs), value=skipped)
-            progress_text.set(f"{skipped} / {len(pairs)}")
+            percent = int((skipped / len(pairs)) * 100) if pairs else 0
+            progress_text.set(f"Uploading {len(upload_items)} file(s), skipped {skipped}")
+            progress_percent_text.set(f"{percent}%")
 
             def worker() -> None:
                 uploaded: list[str] = []
@@ -941,12 +969,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 try:
                     for src, remote_file in upload_items:
                         processed += 1
-                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading {p}/{len(pairs)}: {name}"), progress.configure(value=p), progress_text.set(f"{p} / {len(pairs)}")))
+                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading: {name}"), progress.configure(value=p), progress_text.set(f"{p} of {len(pairs)} files"), progress_percent_text.set(f"{int((p / len(pairs)) * 100)}%")))
                         ssh.sftp.put(str(src), remote_file)
                         uploaded.append(remote_file)
-                    self.root.after(0, lambda: (status_text.set(f"Upload complete: {len(uploaded)} file(s)."), apply_uploaded_inputs(remote_paths, uploaded_dirs), refresh_server(dest_dir)))
+                    self.root.after(0, lambda: (progress.configure(value=len(pairs)), progress_text.set("Upload complete"), progress_percent_text.set("100%"), status_text.set(f"Uploaded {len(uploaded)} file(s)."), apply_uploaded_inputs(remote_paths, uploaded_dirs), refresh_server(dest_dir)))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: status_text.set(f"Upload failed: {type(e).__name__}: {e}"))
+                    self.root.after(0, lambda e=exc: (progress_text.set("Upload failed"), status_text.set(f"Upload failed: {type(e).__name__}: {e}")))
                 finally:
                     def finish() -> None:
                         upload_running["value"] = False
@@ -1062,6 +1090,23 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             lower = name.lower()
             return lower.endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"))
 
+        def is_dicom_name(name: str) -> bool:
+            return name.lower().endswith((".dcm", ".dicom", ".ima"))
+
+        def dir_contains_dicom(path: str) -> bool:
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return False
+            try:
+                for item in ssh.sftp.listdir_attr(path):
+                    if item.filename.startswith("."):
+                        continue
+                    if not stat.S_ISDIR(item.st_mode) and is_dicom_name(item.filename):
+                        return True
+            except OSError:
+                return False
+            return False
+
         def load_dir(path: str) -> None:
             nonlocal entries
             ssh = ssh_holder.get("ssh")
@@ -1086,7 +1131,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     prefix = "[D] " if row["is_dir"] else "    "
                     listing.insert(tk.END, prefix + row["name"])
                 current_path.set(path)
-                status_text.set("Select a folder." if mode == "dir" else "Double-click folders to browse; select MRI file(s).")
+                status_text.set("Select a folder." if mode == "dir" else "Double-click folders to browse; select MRI file(s) or DICOM folder(s).")
             except Exception as exc:
                 status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
 
@@ -1119,6 +1164,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 for idx in selection:
                     row = entries[idx]
                     if not row["is_dir"]:
+                        chosen.append(str(row["path"]))
+                    elif dir_contains_dicom(str(row["path"])):
                         chosen.append(str(row["path"]))
                 if not chosen and mode == "file":
                     chosen = [path]
