@@ -506,8 +506,7 @@ class JobsMixin:
             self.root.update()
             attached = self._attach_registry_job_loaded(job)
         finally:
-            if not attached:
-                self._finish_attach_loading()
+            self._finish_attach_loading()
 
     def _attach_registry_job_loaded(self, job: dict) -> bool:
         target = job.get("target")
