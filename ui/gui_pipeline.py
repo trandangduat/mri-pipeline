@@ -135,6 +135,7 @@ class PipelineMixin:
 
         starter_button = getattr(self, "restart_button" if restart else "resume_button" if resume else "run_button", None)
         self._set_button_busy(starter_button, True, "Starting")
+        started = False
         try:
             if self.state.run_target.get() == "Server":
                 run_request = self._build_run_request()
@@ -161,6 +162,7 @@ class PipelineMixin:
                 )
                 self._show_progress_tab()
                 self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
+                started = True
                 return
 
             run_request = self._build_run_request()
@@ -206,9 +208,11 @@ class PipelineMixin:
                 self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
             self._log("Starting pipeline...")
             self._start_local_background_pipeline(run_request)
+            started = True
         finally:
-            self._set_button_busy(starter_button, False)
-            self._validate_configuration()
+            if not started:
+                self._set_button_busy(starter_button, False)
+                self._validate_configuration()
 
     def _start_local_background_pipeline(self, run_request: dict) -> None:
         job_dir = create_local_job_dir(run_request.get("output_dir") or PROJECT_ROOT / "outputs")
