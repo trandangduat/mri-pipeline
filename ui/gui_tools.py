@@ -174,16 +174,12 @@ class ToolsMixin:
             "Unknown": "?",
         }.get(status, "?")
 
-    def _tool_check_text(self, tool_key: str) -> str:
-        return "[x]" if tool_key in self.tools_checked_tools else "[ ]"
-
     def _tool_status_icon_image(self, status: str, small: bool = False) -> tk.PhotoImage | None:
+        if self._is_busy_status(status):
+            return None
         icon_name = {
             "Installed": "success",
             "Missing": "failed",
-            "Downloading": "running",
-            "Checking": "running",
-            "Deleting": "running",
             "Error": "failed",
             "Disabled": None,
             "Skipped": None,
@@ -234,9 +230,11 @@ class ToolsMixin:
         download_enabled = remote_ready and bool(self._selected_images({"Missing", "Unknown", "Error"}))
         delete_enabled = remote_ready and bool(self._selected_images({"Installed"}))
         if download_button is not None:
-            download_button.configure(state=tk.NORMAL if download_enabled else tk.DISABLED)
+            if not self._is_button_busy(download_button):
+                download_button.configure(state=tk.NORMAL if download_enabled else tk.DISABLED)
         if delete_button is not None:
-            delete_button.configure(state=tk.NORMAL if delete_enabled else tk.DISABLED)
+            if not self._is_button_busy(delete_button):
+                delete_button.configure(state=tk.NORMAL if delete_enabled else tk.DISABLED)
 
     def _status_color(self, status: str) -> str:
         return {
@@ -357,32 +355,14 @@ class ToolsMixin:
             widgets["compressed_size"].configure(text=self._compressed_image_size_text(target, image), bg=bg)
             widgets["installed_size"].configure(text=self._installed_image_size_text(target, image), bg=bg)
             icon = self._tool_status_icon_image(status)
-            if icon is not None:
+            if self._is_busy_status(status):
+                widgets["status"].configure(image=self._spinner_frame() or "", text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
+            elif icon is not None:
                 widgets["status"].configure(image=icon, text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
             else:
                 widgets["status"].configure(image="", text=self._tool_status_icon(status), compound=tk.CENTER, bg=bg, fg=self._status_color(status), font=("Inter", 10, "bold"))
             self.tools_status_icon_labels[tool_key] = widgets["status"]
         self._update_tools_download_button()
-
-    def _on_tools_tree_click(self, event) -> None:
-        tree = getattr(self, "tools_tree", None)
-        if tree is None:
-            return
-        region = tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-        column = tree.identify_column(event.x)
-        if column != "#1":
-            return
-        item = tree.identify_row(event.y)
-        if not item or item not in TOOL_DEFS or not is_tool_enabled(item):
-            return
-        if item in self.tools_checked_tools:
-            self.tools_checked_tools.remove(item)
-        else:
-            self.tools_checked_tools.add(item)
-        self._refresh_tools_tree()
-        return "break"
 
     def _toggle_tools_log(self) -> None:
         body = getattr(self, "tools_log_body", None)
@@ -476,63 +456,70 @@ class ToolsMixin:
         if label is not None:
             label.configure(foreground=color)
         if icon_label is not None:
-            icon = self._make_icon(icon_name)
-            icon_label.configure(image=icon if icon is not None else "")
+            if icon_name == "running":
+                icon_label.configure(image=self._spinner_frame() or "", text="", foreground=color)
+            else:
+                icon = self._make_icon(icon_name)
+                icon_label.configure(image=icon if icon is not None else "", text="")
 
     def _check_python_environment(self) -> None:
         target = self.state.run_target.get()
         if target == "Server" and not self._require_remote_connection("checking the remote environment"):
             return
+        self._set_button_busy(getattr(self, "python_env_check_button", None), True, "Checking")
         self._set_python_env_status("Checking...")
         self._append_tools_log(f"Checking Python: {target}")
 
         def worker() -> None:
-            if target == "Local":
+            try:
+                if target == "Local":
+                    try:
+                        version = subprocess.run([sys.executable, "--version"], capture_output=True, text=True, timeout=30)
+                        pip = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
+                        py_text = (version.stdout or version.stderr).strip() or "Python not found"
+                        pip_text = (pip.stdout or pip.stderr).strip() or "pip not found"
+                        python_ok = version.returncode == 0
+                        pip_ok = pip.returncode == 0
+                        self.root.after(0, lambda t=py_text, ok=python_ok: self._append_tools_log(("Python OK: " if ok else "Python missing: ") + t))
+                        self.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_tools_log(("pip OK: " if ok else "pip missing: ") + t))
+                        if python_ok and pip_ok:
+                            status = "Local: Python OK, pip OK"
+                        elif python_ok:
+                            status = "Local: Python OK, pip missing"
+                        else:
+                            status = "Local: Python missing"
+                        self.root.after(0, lambda s=status: self._set_python_env_status(s))
+                    except Exception as exc:
+                        self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
+                        self.root.after(0, lambda: self._set_python_env_status("Local: Error"))
+                    return
+
+                runner = self._build_image_remote_runner()
+                if runner is None:
+                    self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                    return
                 try:
-                    version = subprocess.run([sys.executable, "--version"], capture_output=True, text=True, timeout=30)
-                    pip = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
-                    py_text = (version.stdout or version.stderr).strip() or "Python not found"
-                    pip_text = (pip.stdout or pip.stderr).strip() or "pip not found"
-                    python_ok = version.returncode == 0
-                    pip_ok = pip.returncode == 0
-                    self.root.after(0, lambda t=py_text, ok=python_ok: self._append_tools_log(("Python OK: " if ok else "Python missing: ") + t))
-                    self.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_tools_log(("pip OK: " if ok else "pip missing: ") + t))
+                    details = runner.check_python_details()
+                    venv_path = str(details.get("venv_path") or "")
+                    base_ok = bool(details.get("base_python_ok"))
+                    venv_exists = bool(details.get("venv_exists"))
+                    python_ok = bool(details.get("venv_python_ok"))
+                    pip_ok = bool(details.get("venv_pip_ok"))
                     if python_ok and pip_ok:
-                        status = "Local: Python OK, pip OK"
-                    elif python_ok:
-                        status = "Local: Python OK, pip missing"
+                        status = "Server: venv ready"
+                    elif not base_ok:
+                        status = "Server: base Python missing"
+                    elif not venv_exists:
+                        status = "Server: venv not created"
                     else:
-                        status = "Local: Python missing"
+                        status = "Server: venv incomplete"
+                    self.root.after(0, lambda p=venv_path: self.python_env_hint.set(p))
                     self.root.after(0, lambda s=status: self._set_python_env_status(s))
                 except Exception as exc:
                     self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
-                    self.root.after(0, lambda: self._set_python_env_status("Local: Error"))
-                return
-
-            runner = self._build_image_remote_runner()
-            if runner is None:
-                self.root.after(0, lambda: self._set_python_env_status("Not configured"))
-                return
-            try:
-                details = runner.check_python_details()
-                venv_path = str(details.get("venv_path") or "")
-                base_ok = bool(details.get("base_python_ok"))
-                venv_exists = bool(details.get("venv_exists"))
-                python_ok = bool(details.get("venv_python_ok"))
-                pip_ok = bool(details.get("venv_pip_ok"))
-                if python_ok and pip_ok:
-                    status = "Server: venv ready"
-                elif not base_ok:
-                    status = "Server: base Python missing"
-                elif not venv_exists:
-                    status = "Server: venv not created"
-                else:
-                    status = "Server: venv incomplete"
-                self.root.after(0, lambda p=venv_path: self.python_env_hint.set(p))
-                self.root.after(0, lambda s=status: self._set_python_env_status(s))
-            except Exception as exc:
-                self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
-                self.root.after(0, lambda: self._set_python_env_status("Server: Error"))
+                    self.root.after(0, lambda: self._set_python_env_status("Server: Error"))
+            finally:
+                self.root.after(0, lambda: self._set_button_busy(getattr(self, "python_env_check_button", None), False))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -544,6 +531,7 @@ class ToolsMixin:
         if not requirements.exists():
             messagebox.showerror("Missing requirements", f"requirements.txt not found: {requirements}")
             return
+        self._set_button_busy(getattr(self, "python_env_install_button", None), True, "Installing")
         self._set_python_env_status("Installing...")
         action = "Installing Python packages from requirements.txt"
         if target == "Server":
@@ -551,42 +539,45 @@ class ToolsMixin:
         self._append_tools_log(f"{action}: {target}")
 
         def worker() -> None:
-            if target == "Local":
+            try:
+                if target == "Local":
+                    try:
+                        pip_check = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
+                        if pip_check.returncode != 0:
+                            self.root.after(0, lambda: self._append_tools_log("pip missing: trying ensurepip..."))
+                            subprocess.run([sys.executable, "-m", "ensurepip", "--user", "--upgrade"], capture_output=True, text=True, timeout=120)
+                        proc = subprocess.run(
+                            [sys.executable, "-m", "pip", "install", "--user", "-r", str(requirements)],
+                            capture_output=True,
+                            text=True,
+                            timeout=900,
+                        )
+                        ok = proc.returncode == 0
+                        msg = "Python packages installed: Local" if ok else "Python packages failed: Local"
+                        self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                        if not ok:
+                            tail = " | ".join((proc.stderr or proc.stdout).strip().splitlines()[-3:])
+                            self.root.after(0, lambda t=tail: self._append_tools_log(f"pip error: {t}"))
+                        self.root.after(0, lambda: self._set_python_env_status("Local: Python packages installed" if ok else "Local: Package install failed"))
+                    except Exception as exc:
+                        self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
+                        self.root.after(0, lambda: self._set_python_env_status("Local: Package install failed"))
+                    return
+
+                runner = self._build_image_remote_runner()
+                if runner is None:
+                    self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                    return
                 try:
-                    pip_check = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
-                    if pip_check.returncode != 0:
-                        self.root.after(0, lambda: self._append_tools_log("pip missing: trying ensurepip..."))
-                        subprocess.run([sys.executable, "-m", "ensurepip", "--user", "--upgrade"], capture_output=True, text=True, timeout=120)
-                    proc = subprocess.run(
-                        [sys.executable, "-m", "pip", "install", "--user", "-r", str(requirements)],
-                        capture_output=True,
-                        text=True,
-                        timeout=900,
-                    )
-                    ok = proc.returncode == 0
-                    msg = "Python packages installed: Local" if ok else "Python packages failed: Local"
+                    ok = runner.install_python_requirements()
+                    msg = "Remote venv packages installed: Server" if ok else "Remote venv package install failed: Server"
                     self.root.after(0, lambda m=msg: self._append_tools_log(m))
-                    if not ok:
-                        tail = " | ".join((proc.stderr or proc.stdout).strip().splitlines()[-3:])
-                        self.root.after(0, lambda t=tail: self._append_tools_log(f"pip error: {t}"))
-                    self.root.after(0, lambda: self._set_python_env_status("Local: Python packages installed" if ok else "Local: Package install failed"))
+                    self.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
                 except Exception as exc:
                     self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
-                    self.root.after(0, lambda: self._set_python_env_status("Local: Package install failed"))
-                return
-
-            runner = self._build_image_remote_runner()
-            if runner is None:
-                self.root.after(0, lambda: self._set_python_env_status("Not configured"))
-                return
-            try:
-                ok = runner.install_python_requirements()
-                msg = "Remote venv packages installed: Server" if ok else "Remote venv package install failed: Server"
-                self.root.after(0, lambda m=msg: self._append_tools_log(m))
-                self.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
-            except Exception as exc:
-                self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
-                self.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
+                    self.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
+            finally:
+                self.root.after(0, lambda: self._set_button_busy(getattr(self, "python_env_install_button", None), False))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -598,40 +589,44 @@ class ToolsMixin:
         if not images:
             self._append_tools_log("No enabled tool images to check.")
             return
+        self._set_button_busy(getattr(self, "tools_refresh_button", None), True, "Refreshing")
         for image in images:
             self.tool_image_statuses.setdefault(target, {})[image] = "Checking"
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
 
         def worker() -> None:
-            if target == "Local":
-                for image in images:
-                    self.root.after(0, lambda i=image: self._append_tools_log(f"Checking: {i}"))
-                    installed = image_exists(image)
-                    status = "Installed" if installed else "Missing"
-                    size = format_image_size(image_size_bytes(image)) if installed else "-"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
-                    self.root.after(0, lambda i=image, s=status: self._append_tools_log(f"{s}: {i}"))
-                return
-
-            runner = self._build_image_remote_runner()
-            if runner is None:
-                for image in images:
-                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
-                return
             try:
-                details = runner.check_image_details(images)
-                for image, data in details.items():
-                    installed = bool(data.get("installed"))
-                    status = "Installed" if installed else "Missing"
-                    size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
-            except Exception as exc:
-                self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
-                for image in images:
-                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+                if target == "Local":
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._append_tools_log(f"Checking: {i}"))
+                        installed = image_exists(image)
+                        status = "Installed" if installed else "Missing"
+                        size = format_image_size(image_size_bytes(image)) if installed else "-"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
+                        self.root.after(0, lambda i=image, s=status: self._append_tools_log(f"{s}: {i}"))
+                    return
+
+                runner = self._build_image_remote_runner()
+                if runner is None:
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
+                    return
+                try:
+                    details = runner.check_image_details(images)
+                    for image, data in details.items():
+                        installed = bool(data.get("installed"))
+                        status = "Installed" if installed else "Missing"
+                        size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+            finally:
+                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_refresh_button", None), False), self._update_tools_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -645,42 +640,46 @@ class ToolsMixin:
         if not tool_keys:
             self._append_tools_log("No enabled tools selected.")
             return
+        self._set_button_busy(getattr(self, "tools_download_button", None), True, "Downloading")
         for tool_key in tool_keys:
             self._set_image_status(target, self._tool_image(tool_key), "Downloading")
 
         def worker() -> None:
-            if target == "Local":
-                for tool_key in tool_keys:
-                    image = self._tool_image(tool_key)
-                    self.root.after(0, lambda i=image: self._append_tools_log(f"Downloading: {i}"))
-                    ok, err, _ = ensure_image(tool_key, on_build_log=None)
-                    status = "Installed" if ok or image_exists(image) else "Error"
-                    size = format_image_size(image_size_bytes(image)) if status == "Installed" else "-"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
-                    msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
-                    self.root.after(0, lambda m=msg: self._append_tools_log(m))
-                return
-
-            runner = self._build_image_remote_runner()
-            if runner is None:
-                for tool_key in tool_keys:
-                    self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Unknown"))
-                return
             try:
-                ok = runner.ensure_tool_images(tool_keys)
-                images = [self._tool_image(tool) for tool in tool_keys]
-                details = runner.check_image_details(images)
-                for image, data in details.items():
-                    installed = bool(data.get("installed"))
-                    status = "Installed" if installed else ("Missing" if ok else "Error")
-                    size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                    self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
-            except Exception as exc:
-                self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
-                for tool_key in tool_keys:
-                    self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
+                if target == "Local":
+                    for tool_key in tool_keys:
+                        image = self._tool_image(tool_key)
+                        self.root.after(0, lambda i=image: self._append_tools_log(f"Downloading: {i}"))
+                        ok, err, _ = ensure_image(tool_key, on_build_log=None)
+                        status = "Installed" if ok or image_exists(image) else "Error"
+                        size = format_image_size(image_size_bytes(image)) if status == "Installed" else "-"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
+                        msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
+                        self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                    return
+
+                runner = self._build_image_remote_runner()
+                if runner is None:
+                    for tool_key in tool_keys:
+                        self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Unknown"))
+                    return
+                try:
+                    ok = runner.ensure_tool_images(tool_keys)
+                    images = [self._tool_image(tool) for tool in tool_keys]
+                    details = runner.check_image_details(images)
+                    for image, data in details.items():
+                        installed = bool(data.get("installed"))
+                        status = "Installed" if installed else ("Missing" if ok else "Error")
+                        size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    for tool_key in tool_keys:
+                        self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
+            finally:
+                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_download_button", None), False), self._update_tools_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -697,41 +696,45 @@ class ToolsMixin:
             return
         if not messagebox.askyesno("Delete Docker images", "Delete these Docker images?\n\n" + "\n".join(images)):
             return
+        self._set_button_busy(getattr(self, "tools_delete_button", None), True, "Deleting")
         for image in images:
             self._set_image_status(target, image, "Deleting")
 
         def worker() -> None:
-            if target == "Local":
-                for image in images:
-                    self.root.after(0, lambda i=image: self._append_tools_log(f"Deleting: {i}"))
-                    ok, err = remove_image(image)
-                    status = "Missing" if ok else "Error"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                    if ok:
-                        self.root.after(0, lambda i=image: self._set_installed_image_size("Local", i, "-"))
-                        self.root.after(0, lambda i=image: self._append_tools_log(f"Deleted: {i}"))
-                    else:
-                        self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
-                return
-
-            runner = self._build_image_remote_runner()
-            if runner is None:
-                for image in images:
-                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
-                return
             try:
-                results = runner.remove_images(images)
-                for image, (ok, err) in results.items():
-                    status = "Missing" if ok else "Error"
-                    self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                    if ok:
-                        self.root.after(0, lambda i=image: self._set_installed_image_size("Server", i, "-"))
-                    elif err:
-                        self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
-            except Exception as exc:
-                self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
-                for image in images:
-                    self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+                if target == "Local":
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._append_tools_log(f"Deleting: {i}"))
+                        ok, err = remove_image(image)
+                        status = "Missing" if ok else "Error"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        if ok:
+                            self.root.after(0, lambda i=image: self._set_installed_image_size("Local", i, "-"))
+                            self.root.after(0, lambda i=image: self._append_tools_log(f"Deleted: {i}"))
+                        else:
+                            self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
+                    return
+
+                runner = self._build_image_remote_runner()
+                if runner is None:
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
+                    return
+                try:
+                    results = runner.remove_images(images)
+                    for image, (ok, err) in results.items():
+                        status = "Missing" if ok else "Error"
+                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        if ok:
+                            self.root.after(0, lambda i=image: self._set_installed_image_size("Server", i, "-"))
+                        elif err:
+                            self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
+                except Exception as exc:
+                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    for image in images:
+                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+            finally:
+                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_delete_button", None), False), self._update_tools_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -773,11 +776,14 @@ class ToolsMixin:
             tool_key = tool_key_from_display(self.state.tool_vars.get(stage).get()) if stage in self.state.tool_vars else ""
             status = self._tool_status(tool_key, target)
             if status == "Skipped":
-                label.configure(image="", text="", compound=tk.LEFT, foreground=self._status_color(status))
+                optional = stage in getattr(self, "OPTIONAL_STAGES", set())
+                label.configure(image="", text="-  Optional" if optional else "", compound=tk.LEFT, foreground=self._status_color(status))
                 continue
             icon = self._tool_status_icon_image(status, small=True)
             text = self._status_label_text(status)
-            if icon is not None:
+            if self._is_busy_status(status):
+                label.configure(image=self._spinner_frame() or "", text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
+            elif icon is not None:
                 label.configure(image=icon, text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
             else:
                 label.configure(image="", text=text, compound=tk.LEFT, foreground=self._status_color(status))

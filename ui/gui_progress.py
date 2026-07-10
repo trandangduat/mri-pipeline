@@ -397,14 +397,13 @@ class ProgressMixin:
             "Done": "success",
             "Completed": "success",
             "Success": "success",
-            "Running": "running",
             "Failed": "failed",
             "Paused": "pause",
             "Skipped": "pending",
             "Pending": "pending",
         }.get(status, "pending")
-        if status == "Running" and self._spinner_frames:
-            return self._spinner_frames[self._spinner_idx]
+        if status == "Running":
+            return None
         return self._make_icon(icon_name)
 
     def _apply_step_row_widgets(self, widgets: dict, stage: str, step: dict) -> None:
@@ -414,7 +413,10 @@ class ProgressMixin:
         if duration is None:
             duration = step.get("elapsed_sec")
         icon = self._step_icon(status)
-        widgets["icon"].configure(image=icon if icon is not None else "")
+        if status == "Running":
+            widgets["icon"].configure(image=self._spinner_frame() or "", text="", foreground=self._step_status_color(status))
+        else:
+            widgets["icon"].configure(image=icon if icon is not None else "", text="")
         widgets["tool"].configure(text=tool_display_name(tool) if tool else "")
         widgets["status"].configure(text=status, foreground=self._step_status_color(status))
         widgets["duration"].configure(text=format_duration(duration))
@@ -591,7 +593,9 @@ class ProgressMixin:
             display_text = run.get("stage", status) if status == "Running" else status
             self.image_rows[input_file]["status"].configure(text=display_text)
             icon_img = self._get_status_icon(status)
-            if icon_img:
+            if status == "Running":
+                self.image_rows[input_file]["icon"].configure(image=self._spinner_frame() or "", text="")
+            elif icon_img:
                 self.image_rows[input_file]["icon"].configure(image=icon_img, text="")
             else:
                 self.image_rows[input_file]["icon"].configure(image="", text="•")
@@ -786,15 +790,6 @@ class ProgressMixin:
                 percent=None if stage == "batch" else pct_value,
                 stage_text=stage_text,
             )
-        if stage in self.stage_items:
-            label = {
-                "running": "Running",
-                "success": "Done",
-                "failed": "Failed",
-                "paused": "Paused",
-            }.get(status, status.capitalize())
-            if hasattr(self, "_set_step_status"):
-                self._set_step_status(stage, label, pct)
         if self.state.run_target.get() == "Server":
             self.state.server_text.set("Server: connected")
         else:

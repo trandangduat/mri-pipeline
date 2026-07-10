@@ -3,6 +3,47 @@ from tkinter import ttk
 from ui.components.cards import create_card
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
 
+PANEL_BG = "#ffffff"
+PANEL_BORDER = "#e5e7eb"
+
+
+def _rounded_rect(canvas: tk.Canvas, x1: int, y1: int, x2: int, y2: int, radius: int, **kwargs) -> None:
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    canvas.create_polygon(points, smooth=True, splinesteps=12, **kwargs)
+
+
+def _rounded_panel(parent: tk.Widget, row: int, pady=0, radius: int = 12, padding: tuple[int, int] = (0, 0)) -> tk.Frame:
+    canvas = tk.Canvas(parent, bg="#fafafa", highlightthickness=0, bd=0)
+    canvas.grid(row=row, column=0, sticky=tk.EW, pady=pady)
+    body = tk.Frame(canvas, bg=PANEL_BG, padx=padding[0], pady=padding[1])
+    window_id = canvas.create_window((1, 1), window=body, anchor=tk.NW)
+
+    def redraw(_event=None) -> None:
+        width = max(canvas.winfo_width(), body.winfo_reqwidth() + 2)
+        height = max(body.winfo_reqheight() + 2, 2)
+        canvas.configure(height=height)
+        canvas.delete("panel")
+        _rounded_rect(canvas, 0, 0, width - 1, height - 1, radius, fill=PANEL_BG, outline=PANEL_BORDER, width=1, tags="panel")
+        canvas.tag_lower("panel")
+        canvas.itemconfigure(window_id, width=max(width - 2, 1), height=max(height - 2, 1))
+
+    canvas.bind("<Configure>", redraw)
+    body.bind("<Configure>", lambda _event: canvas.after_idle(redraw))
+    return body
+
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
     canvas = tk.Canvas(parent, highlightthickness=0)
     scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
@@ -61,69 +102,73 @@ def build_configuration_tab(parent: ttk.Frame, gui) -> None:
 
 def _build_tools_section(parent: ttk.Frame, gui) -> None:
     frame = create_card(parent, "01", "Pipeline Tools", "Nine-step MRI processing pipeline", {"fill": tk.BOTH, "expand": True})
+    frame.columnconfigure(0, weight=1)
 
     mode_row = ttk.Frame(frame)
-    mode_row.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 12))
-    ttk.Button(mode_row, text="Save preset", command=gui._save_run_config).pack(side=tk.RIGHT, padx=(8, 0))
-    ttk.Button(mode_row, text="Load preset", style="Accent.TButton", command=gui._load_run_config).pack(side=tk.RIGHT)
-    ttk.Label(mode_row, text="Preset").pack(side=tk.LEFT)
+    mode_row.grid(row=0, column=0, sticky=tk.EW, pady=(0, 16))
+    mode_row.columnconfigure(1, weight=1)
+    ttk.Label(mode_row, text="Preset").grid(row=0, column=0, sticky=tk.W, padx=(0, 12))
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
         values=getattr(gui, "PIPELINE_MODES", ("Custom",)),
         state="readonly",
-        width=56,
-    ).pack(side=tk.LEFT, padx=(8, 12))
-
-    tools_toggle_row = ttk.Frame(frame)
-    tools_toggle_row.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        width=34,
+    ).grid(row=0, column=1, sticky=tk.EW, padx=(0, 12))
+    ttk.Button(mode_row, text="Load preset", style="Accent.TButton", command=gui._load_run_config).grid(row=0, column=2, sticky=tk.E, padx=(0, 8))
+    ttk.Button(mode_row, text="Save preset", command=gui._save_run_config).grid(row=0, column=3, sticky=tk.E, padx=(0, 8))
     ttk.Button(
-        tools_toggle_row,
+        mode_row,
         textvariable=gui.pipeline_tools_toggle_text,
         command=gui._toggle_pipeline_tools,
-    ).pack(side=tk.LEFT)
+    ).grid(row=0, column=4, sticky=tk.E)
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
     gui.tool_status_labels = getattr(gui, "tool_status_labels", {})
     gui.pipeline_tools_body = ttk.Frame(frame)
-    gui.pipeline_tools_body.grid(row=2, column=0, columnspan=3, sticky=tk.EW)
+    gui.pipeline_tools_body.grid(row=1, column=0, sticky=tk.EW, pady=(0, 14))
     gui.pipeline_tools_body.columnconfigure(0, weight=1)
-    gui.pipeline_tools_body.columnconfigure(1, weight=1)
-    gui.pipeline_tools_body.columnconfigure(2, weight=0)
+
+    tools_table = _rounded_panel(gui.pipeline_tools_body, row=0, radius=12)
+    tools_table.columnconfigure(0, weight=3, minsize=220)
+    tools_table.columnconfigure(1, weight=2, minsize=250)
+    tools_table.columnconfigure(2, weight=0, minsize=135)
+    tools_table.rowconfigure(0, minsize=42)
+
+    tk.Label(tools_table, text="Step", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=0, sticky=tk.EW, padx=(14, 10))
+    tk.Label(tools_table, text="Tool", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=1, sticky=tk.EW, padx=(10, 10))
+    tk.Label(tools_table, text="Status", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=2, sticky=tk.EW, padx=(10, 14))
+    tk.Frame(tools_table, bg=PANEL_BORDER, height=1).grid(row=1, column=0, columnspan=3, sticky=tk.EW)
 
     for idx, stage in enumerate(STAGE_ORDER):
-        row = idx
+        row = 2 + idx * 2
         tools = enabled_tools_for_stage(stage)
         tool_labels = [tool_display_name(tool) for tool in tools]
         var = gui.state.tool_vars[stage]
 
-        step = ttk.Frame(gui.pipeline_tools_body)
-        step.grid(row=row, column=0, sticky=tk.EW, pady=5)
-
-
-        ttk.Label(
-            step,
+        tools_table.rowconfigure(row, minsize=46)
+        tk.Label(
+            tools_table,
             text=f"{idx + 1}. {STAGE_LABELS.get(stage, stage)}",
-            width=32,
+            bg=PANEL_BG,
+            fg="#111827",
+            font=("Inter", 10),
             anchor=tk.W,
-        ).pack(side=tk.LEFT)
+        ).grid(row=row, column=0, sticky=tk.EW, padx=(14, 10))
 
-        combo = ttk.Combobox(gui.pipeline_tools_body, textvariable=var, values=tool_labels, state="readonly", width=28)
-        combo.grid(row=row, column=1, sticky=tk.EW, padx=(6, 0), pady=5)
+        combo = ttk.Combobox(tools_table, textvariable=var, values=tool_labels, state="readonly", width=30)
+        combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 10))
         gui.tool_combos[stage] = combo
-        status = ttk.Label(gui.pipeline_tools_body, text="Not checked", width=10, anchor=tk.W, foreground="#64748b")
-        status.grid(row=row, column=2, sticky=tk.W, padx=(2, 0), pady=5)
+        status = tk.Label(tools_table, text="Not checked", bg=PANEL_BG, fg="#64748b", font=("Inter", 10), anchor=tk.W)
+        status.grid(row=row, column=2, sticky=tk.EW, padx=(10, 14))
         gui.tool_status_labels[stage] = status
+        if idx < len(STAGE_ORDER) - 1:
+            tk.Frame(tools_table, bg=PANEL_BORDER, height=1).grid(row=row + 1, column=0, columnspan=3, sticky=tk.EW)
 
-    frame.columnconfigure(0, weight=1)
-    frame.columnconfigure(1, weight=1)
-    frame.columnconfigure(2, weight=0)
+    stats_row = 2
 
-    stats_row = 3
-
-    stats_frame = ttk.Frame(frame)
-    stats_frame.grid(row=stats_row, column=0, columnspan=3, sticky=tk.EW, pady=(8, 10))
+    stats_frame = _rounded_panel(frame, row=stats_row, pady=(0, 14), radius=12, padding=(12, 10))
     stats_frame.columnconfigure(1, weight=1)
-    ttk.Label(stats_frame, text="Stats vectors").grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+    tk.Label(stats_frame, text="Stats vectors", bg=PANEL_BG, fg="#111827", font=("Inter", 10, "bold"), anchor=tk.W).grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 8))
 
     gui.stat_vector_checkbuttons = getattr(gui, "stat_vector_checkbuttons", {})
     gui.stat_atlas_combos = getattr(gui, "stat_atlas_combos", {})
@@ -146,7 +191,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
             variable=gui.state.stat_vector_enabled_vars[stat],
             command=sync_stats_options,
         )
-        check.grid(row=row, column=0, sticky=tk.W, padx=(8, 10), pady=3)
+        check.grid(row=row, column=0, sticky=tk.W, padx=(6, 18), pady=4)
         gui.stat_vector_checkbuttons[stat] = check
 
         atlas_values = [ATLAS_DEFS[atlas] for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS]
@@ -158,7 +203,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
                 state="readonly",
                 width=28,
             )
-            combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 0), pady=3)
+            combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 6), pady=4)
             stat_option_widgets[stat] = combo
             gui.stat_atlas_combos[stat] = combo
             first_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
@@ -168,7 +213,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     sync_stats_options()
 
     lic_row = ttk.Frame(frame)
-    lic_row.grid(row=stats_row + 1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 5))
+    lic_row.grid(row=stats_row + 1, column=0, sticky=tk.EW, pady=(0, 5))
     ttk.Label(lic_row, text="FreeSurfer license").pack(anchor=tk.W, pady=(0, 2))
     input_frame = ttk.Frame(lic_row)
     input_frame.pack(fill=tk.X, expand=True)

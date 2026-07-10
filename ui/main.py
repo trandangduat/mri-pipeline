@@ -153,8 +153,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("MRI Pipeline GUI")
-        self.root.geometry("1250x950")
-        self.root.minsize(1050, 760)
+        self.root.geometry("1400x950")
+        self.root.minsize(1180, 760)
 
         # Initialize State
         self.state = AppState()
@@ -196,7 +196,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_workspace_entry: ttk.Entry | None = None
         self.remote_connect_button: ttk.Button | None = None
         self.remote_disconnect_button: ttk.Button | None = None
-        self.actions_frame: ttk.Frame | None = None
         self.input_location_label_var = tk.StringVar(value="Input location")
         self.input_browse_button: ttk.Button | None = None
         self.upload_input_row: ttk.Frame | None = None
@@ -210,8 +209,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._preserve_pipeline_tools_visibility = False
         self.stat_vector_checkbuttons: dict[str, ttk.Checkbutton] = {}
         self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
-        self.step_tree: ttk.Treeview | None = None
-        self.stage_items: dict[str, str] = {}
         self.notebook: ttk.Notebook | None = None
         self.config_tab: ttk.Frame | None = None
         self.progress_tab: ttk.Frame | None = None
@@ -223,8 +220,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.image_rows: dict[str, dict] = {}
         self.current_image_key = ""
         self.active_image_key = ""
+        self._spinner_frames = self._load_spinner_frames("running")
+        self._spinner_frames_light = self._load_spinner_frames("running_light")
+        self._spinner_idx = 0
+        self._busy_buttons: dict[ttk.Button, dict[str, str]] = {}
         self.tools_tab: ttk.Frame | None = None
-        self.tools_tree: ttk.Treeview | None = None
         self.tools_table_frame: ttk.Frame | None = None
         self.tools_log_text: tk.Text | None = None
         self.tools_log_body: ttk.Frame | None = None
@@ -267,44 +267,129 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._setup_validation_traces()
         self._validate_configuration()
         self._poll_queues()
+        if self._spinner_frames or self._spinner_frames_light:
+            self.root.after(120, self._animate_spinner)
 
-        self._spinner_frames = []
-        self._spinner_idx = 0
-        self._init_spinner_frames()
-        if self._spinner_frames:
-            self.root.after(100, self._animate_spinner)
-
-    def _init_spinner_frames(self):
+    def _load_spinner_frames(self, icon_name: str, size: int = 16) -> list[tk.PhotoImage]:
+        icon_path = Path(__file__).parent / "icons" / f"{icon_name}.png"
+        if not icon_path.exists():
+            return []
         try:
             from PIL import Image, ImageTk
-            import os
-            icon_path = os.path.join(os.path.dirname(__file__), "icons", "running.png")
-            if os.path.exists(icon_path):
-                img = Image.open(icon_path).convert("RGBA")
-                img_small = img.resize((20, 20), resample=Image.BICUBIC)
-                self._spinner_frames_small = []
-                for i in range(12):
-                    angle = -i * 30
-                    rot = img.rotate(angle, resample=Image.BICUBIC)
-                    self._spinner_frames.append(ImageTk.PhotoImage(rot))
-                    rot_small = img_small.rotate(angle, resample=Image.BICUBIC)
-                    self._spinner_frames_small.append(ImageTk.PhotoImage(rot_small))
+
+            resample = getattr(getattr(Image, "Resampling", Image), "BICUBIC")
+            image = Image.open(icon_path).convert("RGBA").resize((size, size), resample=resample)
+            return [ImageTk.PhotoImage(image.rotate(-angle, resample=resample)) for angle in range(0, 360, 30)]
         except Exception:
-            pass
+            try:
+                return [tk.PhotoImage(file=str(icon_path))]
+            except tk.TclError:
+                return []
+
+    def _spinner_frame(self, light: bool = False) -> tk.PhotoImage | None:
+        frames = self._spinner_frames_light if light and self._spinner_frames_light else self._spinner_frames
+        if not frames:
+            return None
+        return frames[self._spinner_idx % len(frames)]
+
+    def _button_uses_light_spinner(self, button: ttk.Button) -> bool:
+        try:
+            return "Accent" in str(button.cget("style"))
+        except tk.TclError:
+            return False
+
+    def _is_busy_status(self, status: str) -> bool:
+        return status in {"Checking", "Downloading", "Deleting"}
+
+    def _is_button_busy(self, button: ttk.Button | None) -> bool:
+        return button is not None and button in getattr(self, "_busy_buttons", {})
+
+    def _set_button_busy(self, button: ttk.Button | None, busy: bool, text: str | None = None) -> None:
+        if button is None:
+            return
+        busy_buttons = getattr(self, "_busy_buttons", None)
+        if busy_buttons is None:
+            self._busy_buttons = {}
+            busy_buttons = self._busy_buttons
+        try:
+            if busy:
+                if button not in busy_buttons:
+                    busy_buttons[button] = {
+                        "text": str(button.cget("text")),
+                        "image": str(button.cget("image")),
+                        "compound": str(button.cget("compound")),
+                        "state": str(button.cget("state")),
+                        "light_spinner": self._button_uses_light_spinner(button),
+                    }
+                busy_buttons[button]["busy_text"] = text or busy_buttons[button]["text"].strip() or "Working"
+                button.configure(image=self._spinner_frame(bool(busy_buttons[button].get("light_spinner"))) or "", text=f" {busy_buttons[button]['busy_text']}", compound=tk.LEFT, state=tk.DISABLED)
+                return
+            original = busy_buttons.pop(button, None)
+            if original is not None and button.winfo_exists():
+                button.configure(
+                    text=original.get("text", ""),
+                    image=original.get("image", ""),
+                    compound=original.get("compound", tk.NONE),
+                    state=original.get("state", tk.NORMAL),
+                )
+        except tk.TclError:
+            if not busy:
+                busy_buttons.pop(button, None)
+
+    def _animate_busy_buttons(self, frame: str) -> None:
+        for button, state in list(getattr(self, "_busy_buttons", {}).items()):
+            try:
+                if not button.winfo_exists():
+                    self._busy_buttons.pop(button, None)
+                    continue
+                icon = self._spinner_frame(bool(state.get("light_spinner")))
+                button.configure(image=icon if icon is not None else "", text=f" {state.get('busy_text', 'Working')}", compound=tk.LEFT, state=tk.DISABLED)
+            except tk.TclError:
+                self._busy_buttons.pop(button, None)
 
     def _animate_spinner(self):
-        if not self._spinner_frames:
+        frame_count = max(len(self._spinner_frames), len(self._spinner_frames_light))
+        if not frame_count:
             return
-        self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
-        frame = self._spinner_frames[self._spinner_idx]
-        frame_small = self._spinner_frames_small[self._spinner_idx] if hasattr(self, "_spinner_frames_small") else frame
-        
+        self._spinner_idx = (self._spinner_idx + 1) % frame_count
+        frame = self._spinner_frame()
+        self._animate_busy_buttons(frame)
+
+        if getattr(self, "remote_connecting", False) and getattr(self, "remote_status_icon_label", None) is not None:
+            try:
+                self.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
+            except Exception:
+                pass
+
+        py_status = getattr(getattr(self, "python_env_status", None), "get", lambda: "")()
+        if ("checking" in py_status.lower() or "installing" in py_status.lower()) and getattr(self, "python_env_status_icon_label", None) is not None:
+            try:
+                self.python_env_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
+            except Exception:
+                pass
+
+        attach_spinner = getattr(self, "_attach_loading_spinner_label", None)
+        if attach_spinner is not None:
+            try:
+                if attach_spinner.winfo_exists():
+                    attach_spinner.configure(image=frame if frame is not None else "", text="")
+            except Exception:
+                pass
+
+        remote_upload_spinner = getattr(self, "_remote_upload_spinner_label", None)
+        if remote_upload_spinner is not None:
+            try:
+                if remote_upload_spinner.winfo_exists():
+                    remote_upload_spinner.configure(image=frame if frame is not None else "", text="")
+            except Exception:
+                pass
+
         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
             for tool_key, label in self.tools_status_icon_labels.items():
                 status = self._tool_status(tool_key)
-                if status in {"Downloading", "Checking", "Deleting"}:
+                if self._is_busy_status(status):
                     try:
-                        label.configure(image=frame)
+                        label.configure(image=frame if frame is not None else "", text=f"  {status}", compound=tk.LEFT)
                     except Exception:
                         pass
 
@@ -313,19 +398,19 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 tool_var = self.state.tool_vars.get(stage)
                 tool_key = tool_key_from_display(tool_var.get()) if tool_var is not None else ""
                 status = self._tool_status(tool_key)
-                if status in {"Downloading", "Checking", "Deleting"}:
+                if self._is_busy_status(status):
                     try:
-                        label.configure(image=frame)
+                        label.configure(image=frame if frame is not None else "", text=f" {self._status_label_text(status)}", compound=tk.LEFT)
                     except Exception:
                         pass
-                        
+
         if hasattr(self, "image_rows"):
             for key, row in self.image_rows.items():
-                if row.get("status"):
+                run_state = getattr(self, "image_runs", {}).get(key, {})
+                if row.get("status") and run_state.get("status") == "Running":
                     try:
-                        status_text = row["status"].cget("text")
-                        if status_text == "Running" and row.get("icon"):
-                            row["icon"].configure(image=frame_small)
+                        if row.get("icon"):
+                            row["icon"].configure(image=frame if frame is not None else "", text="")
                     except Exception:
                         pass
 
@@ -334,11 +419,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             for stage, step in run.get("steps", {}).items():
                 if step.get("status") == "Running" and stage in self.step_summary_rows:
                     try:
-                        self.step_summary_rows[stage]["icon"].configure(image=frame)
+                        self.step_summary_rows[stage]["icon"].configure(image=frame if frame is not None else "", text="")
                     except Exception:
                         pass
 
-        self.root.after(100, self._animate_spinner)
+        self.root.after(120, self._animate_spinner)
 
     def _build_ui(self) -> None:
         root_frame = ttk.Frame(self.root)
@@ -390,8 +475,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         label = getattr(self, "remote_status_icon_label", None)
         if label is None:
             return
+        if icon_name == "running":
+            label.configure(image=self._spinner_frame() or "", text="", foreground="#2563eb")
+            return
         icon = self._make_icon(icon_name) if icon_name else None
-        label.configure(image=icon if icon is not None else "")
+        label.configure(image=icon if icon is not None else "", text="")
 
     def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command) -> ttk.Button:
         icon = self._make_icon(key)
@@ -489,7 +577,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.pipeline_tools_visible.set(visible)
         if visible:
             body.grid()
-            self.pipeline_tools_toggle_text.set("▼ Hide tools")
+            self.pipeline_tools_toggle_text.set("▲ Hide tools")
         else:
             body.grid_remove()
             self.pipeline_tools_toggle_text.set("▶ View tools")
@@ -1167,7 +1255,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 status_text.set("No files uploaded.")
                 return
             upload_running["value"] = True
-            start_button.configure(state=tk.DISABLED)
+            self._set_button_busy(start_button, True, "Uploading")
             progress.configure(maximum=len(pairs), value=skipped)
             percent = int((skipped / len(pairs)) * 100) if pairs else 0
             progress_text.set(f"Uploading {len(upload_items)} file(s), skipped {skipped}")
@@ -1188,6 +1276,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 finally:
                     def finish() -> None:
                         upload_running["value"] = False
+                        self._set_button_busy(start_button, False)
                         if ssh_holder.get("ssh") is not None:
                             start_button.configure(state=tk.NORMAL)
                     self.root.after(0, finish)
@@ -1837,8 +1926,8 @@ def main() -> None:
         print(f"Probe window is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
 
     root.title("MRI Pipeline GUI - Tkinter")
-    root.geometry("1000x700+80+60")
-    root.minsize(850, 600)
+    root.geometry("1400x900+80+60")
+    root.minsize(1180, 700)
     PipelineGUI(root)
     root.update_idletasks()
     root.deiconify()

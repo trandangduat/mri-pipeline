@@ -451,23 +451,21 @@ class JobsMixin:
             self._validate_configuration()
 
     def _finish_attach_loading(self) -> None:
-        progress = getattr(self, "_attach_loading_progress", None)
         dialog = getattr(self, "_attach_loading_dialog", None)
         try:
-            if progress is not None:
-                progress.stop()
             if dialog is not None and dialog.winfo_exists():
                 dialog.grab_release()
                 dialog.destroy()
         except tk.TclError:
             pass
-        self._attach_loading_progress = None
         self._attach_loading_dialog = None
+        self._attach_loading_spinner_label = None
         self._attach_loading_active = False
+        self._set_button_busy(getattr(self, "attach_button", None), False)
         self._set_attach_buttons_busy(False)
         self._sync_attach_toolbar_state()
 
-    def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Progressbar]:
+    def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Label]:
         label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "selected job"
         dialog = tk.Toplevel(self.root)
         dialog.withdraw()
@@ -478,11 +476,12 @@ class JobsMixin:
 
         body = ttk.Frame(dialog, padding=18)
         body.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(body, text="Loading job...", font=("Inter", 11, "bold")).pack(anchor=tk.W)
+        header = ttk.Frame(body)
+        header.pack(fill=tk.X)
+        spinner = ttk.Label(header, image=self._spinner_frame() or "", width=2)
+        spinner.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(header, text="Loading job...", font=("Inter", 11, "bold")).pack(side=tk.LEFT)
         ttk.Label(body, text=str(label), foreground="#64748b", wraplength=460).pack(anchor=tk.W, pady=(4, 12))
-        progress = ttk.Progressbar(body, mode="indeterminate", length=360)
-        progress.pack(fill=tk.X)
-        progress.start(12)
 
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dialog.winfo_width()) // 2)
@@ -493,15 +492,16 @@ class JobsMixin:
         dialog.wait_visibility()
         dialog.grab_set()
         dialog.focus_set()
-        return dialog, progress
+        return dialog, spinner
 
     def _attach_registry_job(self, job: dict) -> None:
         attached = False
         self._set_attach_buttons_busy(True)
+        self._set_button_busy(getattr(self, "attach_button", None), True, "Loading")
         try:
-            dialog, progress = self._show_attach_loading(job)
+            dialog, spinner = self._show_attach_loading(job)
             self._attach_loading_dialog = dialog
-            self._attach_loading_progress = progress
+            self._attach_loading_spinner_label = spinner
             self._attach_loading_active = True
             self.root.update()
             attached = self._attach_registry_job_loaded(job)
