@@ -43,41 +43,18 @@ def create_local_job_dir(output_dir: str | Path | None = None) -> Path:
     return job_dir
 
 
-def workspace_registry_path(workspace_name: str) -> Path:
-    if workspace_name:
-        return JOBS_ROOT / f"{workspace_name}_jobs.json"
-    return REGISTRY_PATH
-
-
-def load_job_registry(workspace_name: str = "") -> list[dict]:
-    path = workspace_registry_path(workspace_name)
-    data = read_json(path, {"jobs": []})
+def load_job_registry() -> list[dict]:
+    data = read_json(REGISTRY_PATH, {"jobs": []})
     jobs = data.get("jobs", [])
-    if not jobs and workspace_name:
-        data = read_json(REGISTRY_PATH, {"jobs": []})
-        jobs = data.get("jobs", [])
-        if jobs:
-            filtered = [
-                entry for entry in jobs
-                if entry.get("workspace_name") == workspace_name
-                or (not entry.get("workspace_name") and not any(
-                    e.get("workspace_name") == workspace_name
-                    for e in jobs
-                    if e.get("workspace_name")
-                ))
-            ]
-            if filtered:
-                jobs = filtered
     return jobs if isinstance(jobs, list) else []
 
 
-def save_job_registry(jobs: list[dict], workspace_name: str = "") -> None:
-    path = workspace_registry_path(workspace_name)
-    write_json(path, {"version": 1, "jobs": jobs})
+def save_job_registry(jobs: list[dict]) -> None:
+    write_json(REGISTRY_PATH, {"version": 1, "jobs": jobs})
 
 
-def upsert_job_registry(entry: dict, workspace_name: str = "") -> None:
-    jobs = load_job_registry(workspace_name)
+def upsert_job_registry(entry: dict) -> None:
+    jobs = load_job_registry()
     job_id = entry.get("job_id") or entry.get("job_dir") or entry.get("remote_job_dir")
     updated = False
     for idx, existing in enumerate(jobs):
@@ -91,4 +68,4 @@ def upsert_job_registry(entry: dict, workspace_name: str = "") -> None:
     if not updated:
         jobs.append(entry)
     jobs.sort(key=lambda item: float(item.get("updated_at") or item.get("started_at") or 0), reverse=True)
-    save_job_registry(jobs[:100], workspace_name)
+    save_job_registry(jobs[:100])

@@ -693,6 +693,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._sync_remote_action_buttons()
+        self._sync_input_source_controls()
         self._set_thread_max(self.max_threads)
 
     def _sync_remote_action_buttons(self) -> None:
@@ -807,12 +808,19 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _sync_input_source_controls(self) -> None:
         server_run = self.state.run_target.get() == "Server"
+        connected = self._server_connected()
         self.input_location_label_var.set("Server Input Location" if server_run else "Input location")
         if self.input_browse_button is not None:
             self.input_browse_button.configure(text="Browse Server" if server_run else "Browse")
+            if server_run and not connected:
+                self.input_browse_button.configure(state=tk.DISABLED)
+            else:
+                self.input_browse_button.configure(state=tk.NORMAL)
         if self.upload_input_row is not None:
             if server_run:
                 self.upload_input_row.grid()
+                if self.upload_input_button is not None:
+                    self.upload_input_button.configure(state=tk.NORMAL if connected else tk.DISABLED)
             else:
                 self.upload_input_row.grid_remove()
         if self.output_dir_row is not None:
@@ -1582,7 +1590,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._validate_configuration()
 
     def _save_run_config(self) -> None:
-        config_dir = PROJECT_ROOT / "configs" / "run_configs"
+        config_dir = PROJECT_ROOT / "configs" / "preset"
         config_dir.mkdir(parents=True, exist_ok=True)
         path = filedialog.asksaveasfilename(
             title="Save preset",
@@ -1602,7 +1610,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             messagebox.showerror("Save preset failed", str(exc))
 
     def _load_run_config(self) -> None:
-        config_dir = PROJECT_ROOT / "configs" / "run_configs"
+        config_dir = PROJECT_ROOT / "configs" / "preset"
         path = filedialog.askopenfilename(
             title="Load preset",
             initialdir=str(config_dir),

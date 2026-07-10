@@ -19,6 +19,7 @@ from pipeline_runner import (
     STAGE_ORDER,
     _is_supported_mri_input,
 )
+from pipeline.utils import _is_dicom_series_dir
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
 from ui.formatters import truncate_middle
@@ -124,16 +125,6 @@ class PipelineMixin:
             messagebox.showerror("Configuration incomplete", self.state.config_status.get())
             return
 
-        if not self.state.workspace_name:
-            if not messagebox.askyesno(
-                "Workspace not saved",
-                "Workspace chưa được lưu. Bạn cần lưu workspace trước khi chạy pipeline.\n\nBạn muốn lưu workspace ngay?",
-            ):
-                return
-            self._save_workspace()
-            if not self.state.workspace_name:
-                return
-
         if not self._confirm_start_with_existing_jobs():
             return
 
@@ -230,9 +221,7 @@ class PipelineMixin:
         proc = subprocess.Popen(cmd, **kwargs)
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
         entry = self._registry_entry_for_local_job(job_dir, run_request, proc.pid)
-        ws_name = getattr(self.state, "workspace_name", "")
-        entry["workspace_name"] = ws_name
-        upsert_job_registry(entry, ws_name)
+        upsert_job_registry(entry)
         self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Local job"), self._progress_job_identity(entry))
         self._log(f"Local background job started: {job_dir}")
         self._log("You can close the GUI. The local worker process will keep running.")
@@ -256,9 +245,7 @@ class PipelineMixin:
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
         entry = self._registry_entry_for_remote_job(runner, remote_dir)
-        ws_name = getattr(self.state, "workspace_name", "")
-        entry["workspace_name"] = ws_name
-        upsert_job_registry(entry, ws_name)
+        upsert_job_registry(entry)
         self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
         self._log(f"Remote background job started: {remote_dir}")
         self._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
@@ -308,7 +295,15 @@ class PipelineMixin:
         if input_source == "Server":
             if mode == "file":
                 path = self.state.selected_files[0] if self.state.selected_files else raw_input
-                base["input_file"] = path
+                if path.lower().endswith((".dcm", ".dicom", ".ima")):
+                    parent = str(Path(path).parent)
+                    base["mode"] = "dir"
+                    base["is_batch"] = False
+                    base["input_dir"] = parent
+                    base["input_file"] = parent
+                    base["recursive"] = False
+                else:
+                    base["input_file"] = path
             elif mode == "files":
                 files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
                 if not files:
@@ -333,6 +328,16 @@ class PipelineMixin:
             if not _is_supported_mri_input(path):
                 messagebox.showerror("Invalid input", f"Không tồn tại file MRI hoặc folder DICOM: {path}")
                 return None
+            p = Path(path).expanduser()
+            if p.is_file() and p.suffix.lower() in (".dcm", ".dicom", ".ima"):
+                parent = p.parent
+                if _is_dicom_series_dir(parent):
+                    base["mode"] = "dir"
+                    base["is_batch"] = False
+                    base["input_dir"] = str(parent)
+                    base["input_file"] = str(parent)
+                    base["recursive"] = False
+                    return base
             base["input_file"] = path
         elif mode == "files":
             files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]

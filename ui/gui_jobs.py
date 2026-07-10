@@ -45,7 +45,7 @@ class JobsMixin:
             jobs = [
                 entry for entry in known_jobs
                 if entry.get("target") == "Server"
-                and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+                and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
             ]
             load_remote_jobs = True
         elif target == "Local":
@@ -173,7 +173,7 @@ class JobsMixin:
                         str(entry.get("remote_job_dir")): entry
                         for entry in list(jobs)
                         if entry.get("target") == "Server"
-                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
                     }
                     for remote_job in listed_jobs:
                         remote_dir = str(remote_job.get("remote_job_dir", ""))
@@ -245,7 +245,7 @@ class JobsMixin:
 
     def _remove_job_registry_entry(self, job: dict) -> None:
         identity = self._job_identity(job)
-        save_job_registry([entry for entry in load_job_registry(self.state.workspace_name) if self._job_identity(entry) != identity], self.state.workspace_name)
+        save_job_registry([entry for entry in load_job_registry() if self._job_identity(entry) != identity])
 
     def _delete_path_if_exists(self, path: Path) -> None:
         if not path.exists():
@@ -780,9 +780,7 @@ class JobsMixin:
         if not entry:
             entry = dict(self.active_job)
         entry.update({"state": state, "exit_code": exit_code, "updated_at": time.time()})
-        ws_name = getattr(self.state, "workspace_name", "")
-        entry["workspace_name"] = ws_name
-        upsert_job_registry(entry, ws_name)
+        upsert_job_registry(entry)
         self.active_job["registry_entry"] = entry
 
     def _pid_is_running(self, pid: int | str | None) -> bool:
@@ -821,16 +819,15 @@ class JobsMixin:
         return entry
 
     def _known_jobs(self) -> list[dict]:
-        ws_name = getattr(self.state, "workspace_name", "")
-        jobs = [self._refresh_registry_entry_status(entry) for entry in load_job_registry(ws_name)]
+        jobs = [self._refresh_registry_entry_status(entry) for entry in load_job_registry()]
         for entry in jobs:
-            upsert_job_registry(entry, ws_name)
+            upsert_job_registry(entry)
         return jobs
 
     def _running_local_jobs(self) -> list[dict]:
         return [entry for entry in self._known_jobs() if entry.get("target") == "Local" and entry.get("state") == "running"]
 
-    def _same_remote_server(self, entry: dict, host: str, port: int, username: str, workspace: str) -> bool:
+    def _same_remote_server(self, entry: dict, host: str, port: int, username: str) -> bool:
         remote = dict(entry.get("remote") or {})
         if not remote:
             return False
@@ -838,7 +835,6 @@ class JobsMixin:
             str(remote.get("host", "")) == host
             and int(remote.get("port", 22) or 22) == port
             and str(remote.get("username", "")) == username
-            and str(remote.get("workspace", "~/mri-remote-jobs")) == workspace
         )
 
     def _running_remote_jobs(self) -> list[dict] | None:
@@ -873,7 +869,7 @@ class JobsMixin:
             str(entry.get("remote_job_dir")): entry
             for entry in self._known_jobs()
             if entry.get("target") == "Server"
-            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
         }
         jobs: list[dict] = []
         for remote_job in remote_jobs:
@@ -1095,9 +1091,7 @@ class JobsMixin:
 
         entry = dict(job)
         entry.update({"state": "running", "pid": proc.pid, "updated_at": time.time(), "run_request": config})
-        ws_name = getattr(self.state, "workspace_name", "")
-        entry["workspace_name"] = ws_name
-        upsert_job_registry(entry, ws_name)
+        upsert_job_registry(entry)
         self.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
         self._prepare_progress_tab(
@@ -1135,9 +1129,7 @@ class JobsMixin:
         remote_dir = runner.start_remote_detached()
         entry = dict(job)
         entry.update({"state": "running", "remote_job_dir": remote_dir, "updated_at": time.time(), "run_request": config})
-        ws_name = getattr(self.state, "workspace_name", "")
-        entry["workspace_name"] = ws_name
-        upsert_job_registry(entry, ws_name)
+        upsert_job_registry(entry)
         self.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.job_log_offset = 0
         self._prepare_progress_tab(
