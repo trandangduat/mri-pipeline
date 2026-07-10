@@ -880,12 +880,13 @@ class ProgressMixin:
         if hasattr(self, "progress"):
             self.progress.stop()
         self.running = False
+        self._set_button_busy(getattr(self, "run_button", None), False)
         if hasattr(self, "run_button"):
-            self.run_button.configure(text="Run", state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
+            self.run_button.configure(state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
         if hasattr(self, "resume_button"):
-            self.resume_button.configure(text="Resume", state=tk.NORMAL)
+            self.resume_button.configure(state=tk.NORMAL)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(text="Restart", state=tk.NORMAL)
+            self.restart_button.configure(state=tk.NORMAL)
         if hasattr(self, "stop_button"):
             self.stop_button.configure(state=tk.DISABLED)
         self.state.status_text.set("Ready")
