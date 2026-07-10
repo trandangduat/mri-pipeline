@@ -191,7 +191,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": lambda ctx: (
             f"mri_synthseg --i {ctx.input_path} --o /work/03_freesurfer_synthseg_segmentation.nii.gz "
-            f"--vol /work/03_freesurfer_synthseg_volumes.csv --threads {ctx.threads} --crop 160 "
+            f"--vol /work/03_freesurfer_synthseg_volumes.csv --parc --threads {ctx.threads} --crop 160 "
             f"{'--cpu' if ctx.device == 'cpu' else ''} "
             f"&& python3 /app/normalize_volumes.py /work/03_freesurfer_synthseg_volumes.csv "
             f"/output/stats/subcortical_volume.tsv /output/stats/cortical_volume.tsv {ctx.subject_id} FreeSurferSynthSeg"
@@ -205,7 +205,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": lambda ctx: (
             f"mri_synthseg --i {ctx.input_path} --o /work/03_freesurfer_synthseg_segmentation.nii.gz "
-            f"--vol /work/03_freesurfer_synthseg_volumes.csv --threads {ctx.threads} --crop 160 "
+            f"--vol /work/03_freesurfer_synthseg_volumes.csv --parc --threads {ctx.threads} --crop 160 "
             f"{'--cpu' if ctx.device == 'cpu' else ''} "
             f"&& python3 /app/normalize_volumes.py /work/03_freesurfer_synthseg_volumes.csv "
             f"/output/stats/subcortical_volume.tsv /output/stats/cortical_volume.tsv {ctx.subject_id} FreeSurferSynthSeg"
