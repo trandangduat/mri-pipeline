@@ -161,8 +161,8 @@ class PipelineMixin:
                     device=run_request.get("device", ""),
                 )
                 self._show_progress_tab()
-                self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
                 started = True
+                self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
                 return
 
             run_request = self._build_run_request()
@@ -207,8 +207,8 @@ class PipelineMixin:
             elif resume:
                 self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
             self._log("Starting pipeline...")
-            self._start_local_background_pipeline(run_request)
             started = True
+            self._start_local_background_pipeline(run_request)
         finally:
             if not started:
                 self._set_button_busy(starter_button, False)
