@@ -461,8 +461,8 @@ class JobsMixin:
         self._attach_loading_dialog = None
         self._attach_loading_spinner_label = None
         self._attach_loading_active = False
-        self._set_button_busy(getattr(self, "attach_button", None), False)
         self._set_attach_buttons_busy(False)
+        self._set_button_busy(getattr(self, "attach_button", None), False)
         self._sync_attach_toolbar_state()
 
     def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Label]:
