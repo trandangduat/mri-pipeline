@@ -57,7 +57,11 @@ class PipelineMixin:
 
         current_var = tk.StringVar(value="Preparing remote connection...")
         count_var = tk.StringVar(value="Files copied: 0")
-        ttk.Label(dialog, textvariable=current_var, font=("Inter", 10, "bold")).pack(anchor=tk.W, padx=14, pady=(4, 2))
+        current_row = ttk.Frame(dialog)
+        current_row.pack(fill=tk.X, padx=14, pady=(4, 2))
+        self._remote_upload_spinner_label = ttk.Label(current_row, image=self._spinner_frame() or "", width=2)
+        self._remote_upload_spinner_label.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(current_row, textvariable=current_var, font=("Inter", 10, "bold")).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(dialog, textvariable=count_var).pack(anchor=tk.W, padx=14, pady=(0, 8))
 
         progress = ttk.Progressbar(dialog, mode="indeterminate")
@@ -105,6 +109,7 @@ class PipelineMixin:
                 runner.on_log = old_log
                 state["ok"] = ok
                 state["done"] = True
+                self.root.after(0, lambda: setattr(self, "_remote_upload_spinner_label", None))
                 self.root.after(0, progress.stop)
                 if ok:
                     self.root.after(0, lambda: current_var.set("Copy complete. Starting remote job..."))
@@ -127,62 +132,82 @@ class PipelineMixin:
         if not self._confirm_start_with_existing_jobs():
             return
 
-        if self.state.run_target.get() == "Server":
+        starter_button = getattr(self, "restart_button" if restart else "resume_button" if resume else "run_button", None)
+        self._set_button_busy(starter_button, True, "Starting")
+        try:
+            if self.state.run_target.get() == "Server":
+                run_request = self._build_run_request()
+                if run_request is None:
+                    return
+                runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
+                if not runner:
+                    return
+                if restart:
+                    self.remote_runner = None
+                runner.config.resume = resume
+                runner.config.restart = restart
+                if not runner.remote_job_dir and not self._upload_remote_job_with_dialog(runner):
+                    messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
+                    return
+                self.remote_runner = runner
+                self._prepare_progress_tab(
+                    self._input_files_for_progress(run_request),
+                    run_request.get("selected_tools"),
+                    title="Server: starting",
+                    pipeline_mode=run_request.get("pipeline_mode", ""),
+                    threads=int(run_request.get("threads", 0) or 0),
+                    device=run_request.get("device", ""),
+                )
+                self._show_progress_tab()
+                self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
+                return
+
             run_request = self._build_run_request()
             if run_request is None:
                 return
-            runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
-            if not runner:
-                return
-            if restart:
-                self.remote_runner = None
-            runner.config.resume = resume
-            runner.config.restart = restart
-            if not runner.remote_job_dir and not self._upload_remote_job_with_dialog(runner):
-                messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
-                return
-            self.remote_runner = runner
-            self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Server: starting")
+            run_request["resume"] = resume
+            run_request["restart"] = restart
+
+            self._prepare_progress_tab(
+                self._input_files_for_progress(run_request),
+                run_request.get("selected_tools"),
+                title="Local: starting",
+                pipeline_mode=run_request.get("pipeline_mode", ""),
+                threads=int(run_request.get("threads", 0) or 0),
+                device=run_request.get("device", ""),
+            )
             self._show_progress_tab()
-            self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
-            return
 
-        run_request = self._build_run_request()
-        if run_request is None:
-            return
-        run_request["resume"] = resume
-        run_request["restart"] = restart
-
-        self._prepare_progress_tab(self._input_files_for_progress(run_request), run_request.get("selected_tools"), title="Local: starting")
-        self._show_progress_tab()
-
-        self.running = True
-        self.stop_requested.clear()
-        self.run_button.configure(state=tk.DISABLED)
-        if hasattr(self, "resume_button"):
-            self.resume_button.configure(state=tk.DISABLED)
-        if hasattr(self, "restart_button"):
-            self.restart_button.configure(state=tk.DISABLED)
-        if hasattr(self, "stop_button"):
-            self.stop_button.configure(state=tk.NORMAL)
-        if hasattr(self, "progress"):
-            self.progress.start(10)
-        self.detail_chart.reset()
-        self.gpu_chart.reset()
-        self.state.overall_progress_var.set(0)
-        self.state.overall_progress_text.set("0%")
-        self.state.status_text.set("Running")
-        for stage in STAGE_ORDER:
-            if hasattr(self, "_set_step_status"):
-                self._set_step_status(stage, "Ready", 0)
-        self._clear_log()
-        self._log("=" * 80)
-        if restart:
-            self._log("Restart mode: existing subject outputs will be removed before running.")
-        elif resume:
-            self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
-        self._log("Starting pipeline...")
-        self._start_local_background_pipeline(run_request)
+            self.running = True
+            self.stop_requested.clear()
+            self.run_button.configure(state=tk.DISABLED)
+            if hasattr(self, "resume_button"):
+                self.resume_button.configure(state=tk.DISABLED)
+            if hasattr(self, "restart_button"):
+                self.restart_button.configure(state=tk.DISABLED)
+            if hasattr(self, "stop_button"):
+                self.stop_button.configure(state=tk.NORMAL)
+            if hasattr(self, "progress"):
+                self.progress.start(10)
+            self.detail_chart.reset()
+            self.gpu_chart.reset()
+            self.state.overall_progress_var.set(0)
+            self.state.overall_progress_text.set("0%")
+            self.state.status_text.set("Running")
+            for stage in STAGE_ORDER:
+                if hasattr(self, "_set_step_status"):
+                    self._set_step_status(stage, "Ready", 0)
+            self._clear_log()
+            self._log("=" * 80)
+            if restart:
+                self._log("Restart mode: existing subject outputs will be removed before running.")
+            elif resume:
+                self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
+            self._log("Starting pipeline...")
+            self._start_local_background_pipeline(run_request)
+        finally:
+            self._set_button_busy(starter_button, False)
+            self._validate_configuration()
 
     def _start_local_background_pipeline(self, run_request: dict) -> None:
         job_dir = create_local_job_dir(run_request.get("output_dir") or PROJECT_ROOT / "outputs")

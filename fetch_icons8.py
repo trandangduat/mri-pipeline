@@ -9,7 +9,8 @@ icons = {
     'restart': ('restart', '3b82f6'),
     'resume': ('play', '10b981'),
     'run': ('play', '10b981'),
-    'running': ('spinner', '3b82f6'),
+    'running': ('loading', '3b82f6'),
+    'running_light': ('loading', 'ffffff'),
     'save': ('save', '1e293b'),
     'success': ('ok', '10b981'),
 }

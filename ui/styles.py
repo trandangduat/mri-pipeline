@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
 import sv_ttk
-import darkdetect
 
 
 def configure_windows_dpi_awareness() -> None:
@@ -63,9 +62,6 @@ def setup_styles(root) -> None:
 
     # In đậm tiêu đề pane (LabelFrame) và tăng kích cỡ lên 2 cỡ
     style.configure("TLabelframe.Label", font=("Inter", title_size, "bold"))
-    
-    # Define custom ttk styles here for Card and Accent buttons
-    style.configure("Card.TFrame", relief="solid", borderwidth=1)
     
     # Selected list item background
     style.configure("Selected.TFrame", background="#e2e8f0")
