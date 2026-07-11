@@ -162,7 +162,7 @@ class PipelineMixin:
                     device=run_request.get("device", ""),
                 )
                 self._show_progress_tab()
-                self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
+                self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
                 started = True
                 if starter_button is not None:
                     self._set_button_busy(starter_button, False)
@@ -253,7 +253,7 @@ class PipelineMixin:
         self._validate_configuration()
         self._schedule_job_poll(delay_ms=0)
 
-    def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None) -> None:
+    def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None, run_request: dict | None = None) -> None:
         runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
         if not runner:
             return
@@ -266,7 +266,7 @@ class PipelineMixin:
         self.remote_runner = runner
         self._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
-        entry = self._registry_entry_for_remote_job(runner, remote_dir)
+        entry = self._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
         self._rename_active_progress_tab(self._progress_title_for_job(entry, fallback="Remote job"), self._progress_job_identity(entry))
         self._log(f"Remote background job started: {remote_dir}")

@@ -858,7 +858,7 @@ class JobsMixin:
             "run_request": req,
         }
 
-    def _registry_entry_for_remote_job(self, runner: RemoteRunner, remote_dir: str, state: str = "running") -> dict:
+    def _registry_entry_for_remote_job(self, runner: RemoteRunner, remote_dir: str, state: str = "running", run_request: dict | None = None) -> dict:
         cfg = runner.config
         files = []
         if cfg.input_mode == "file" and cfg.input_file:
@@ -868,7 +868,7 @@ class JobsMixin:
         elif cfg.input_dir:
             files = [cfg.input_dir]
         now = time.time()
-        return {
+        entry = {
             "job_id": Path(remote_dir).name,
             "target": "Server",
             "state": state,
@@ -887,6 +887,9 @@ class JobsMixin:
                 "python": cfg.remote_python,
             },
         }
+        if run_request:
+            entry["run_request"] = run_request
+        return entry
 
     def _update_registry_for_active_job(self, state: str, exit_code=None) -> None:
         if not self.active_job:
