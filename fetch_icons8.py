@@ -3,9 +3,11 @@ import os
 
 icons = {
     'failed': ('cancel', 'ef4444'),
+    'download': ('download', '1e293b'),
     'load': ('opened-folder', '1e293b'),
     'pause': ('pause', 'f59e0b'),
     'pending': ('time', '64748b'),
+    'pin': ('pin', '1e293b'),
     'restart': ('restart', '3b82f6'),
     'resume': ('play', '10b981'),
     'run': ('play', '10b981'),
@@ -13,6 +15,7 @@ icons = {
     'running_light': ('loading', 'ffffff'),
     'save': ('save', '1e293b'),
     'success': ('ok', '10b981'),
+    'trash': ('trash', '1e293b'),
 }
 
 for name, (i8_name, color) in icons.items():

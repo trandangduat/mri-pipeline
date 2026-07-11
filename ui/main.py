@@ -195,7 +195,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_key_browse_button: ttk.Button | None = None
         self.remote_workspace_entry: ttk.Entry | None = None
         self.remote_connect_button: ttk.Button | None = None
-        self.remote_disconnect_button: ttk.Button | None = None
         self.input_location_label_var = tk.StringVar(value="Input location")
         self.input_browse_button: ttk.Button | None = None
         self.upload_input_row: ttk.Frame | None = None
@@ -433,15 +432,40 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._build_status_bar(root_frame)
         self._build_tabs(root_frame)
 
-    def _make_icon(self, name: str) -> tk.PhotoImage | None:
-        if name in self.toolbar_icons:
-            return self.toolbar_icons[name]
+    def _make_icon(self, name: str, color: str | None = None) -> tk.PhotoImage | None:
+        icon_key = f"{name}_{color}" if color else name
+        if icon_key in self.toolbar_icons:
+            return self.toolbar_icons[icon_key]
         try:
             import os
             icon_path = os.path.join(os.path.dirname(__file__), "icons", f"{name}.png")
             if os.path.exists(icon_path):
-                img = tk.PhotoImage(file=icon_path)
-                self.toolbar_icons[name] = img
+                if color:
+                    try:
+                        from PIL import Image, ImageTk
+
+                        hex_color = color.lstrip("#")
+                        rgb = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+                        image = Image.open(icon_path).convert("RGBA")
+                        alpha = image.getchannel("A")
+                        tinted = Image.new("RGBA", image.size, (*rgb, 0))
+                        tinted.putalpha(alpha)
+                        img = ImageTk.PhotoImage(tinted)
+                    except Exception:
+                        source = tk.PhotoImage(file=icon_path)
+                        img = tk.PhotoImage(width=source.width(), height=source.height())
+                        for x in range(source.width()):
+                            for y in range(source.height()):
+                                try:
+                                    if source.transparency_get(x, y):
+                                        img.transparency_set(x, y, True)
+                                    else:
+                                        img.put(color, (x, y))
+                                except tk.TclError:
+                                    img.put(color, (x, y))
+                else:
+                    img = tk.PhotoImage(file=icon_path)
+                self.toolbar_icons[icon_key] = img
                 return img
         except Exception:
             pass
@@ -481,8 +505,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         icon = self._make_icon(icon_name) if icon_name else None
         label.configure(image=icon if icon is not None else "", text="")
 
-    def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command) -> ttk.Button:
-        icon = self._make_icon(key)
+    def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command, icon_color: str | None = None) -> ttk.Button:
+        icon = self._make_icon(key, icon_color)
         options = {"text": f" {label} ", "command": command}
         if icon is not None:
             options.update({"image": icon, "compound": tk.LEFT})
@@ -500,7 +524,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
-        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False))
+        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
         self.run_button.configure(style="Accent.TButton")
         self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
         self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
@@ -637,11 +661,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         current_signature = self._current_remote_connection_signature()
         if self._connected_remote_signature is not None and current_signature == self._connected_remote_signature:
             return
+        self._cancel_remote_health_check()
         self._thread_max_request_id += 1
         self._connected_remote_signature = None
         self._remote_thread_max_signature = None
         self._set_thread_max(None)
         self._reset_remote_tool_image_state()
+        self.state.remote_status.set("Remote: disconnected")
+        self._set_remote_status_icon("pending")
+        self._set_python_env_status("Not checked")
         self._sync_remote_connection_controls()
 
     def _reset_remote_tool_image_state(self) -> None:
@@ -651,21 +679,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
         self._update_tools_download_button()
-        self._validate_configuration()
-
-    def _disconnect_remote_server(self) -> None:
-        self._cancel_remote_health_check()
-        self.remote_connecting = False
-        self._thread_max_request_id += 1
-        self._connected_remote_signature = None
-        self._remote_thread_max_signature = None
-        self._set_thread_max(None)
-        self._reset_remote_tool_image_state()
-        if self.state.run_target.get() == "Server":
-            self.state.remote_status.set("Remote: disconnected")
-            self._set_remote_status_icon("pending")
-            self._set_python_env_status("Not checked")
-        self._sync_remote_connection_controls()
         self._validate_configuration()
 
     def _handle_remote_connection_lost(self, reason: str = "") -> None:
@@ -754,11 +767,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _sync_remote_connection_controls(self) -> None:
         server_mode = self.state.run_target.get() == "Server"
-        connected = self._server_connected()
-        editing_state = tk.NORMAL if server_mode and not connected and not self.remote_connecting else tk.DISABLED
+        editing_state = tk.NORMAL if server_mode and not self.remote_connecting else tk.DISABLED
 
         if self.run_target_combo is not None:
-            self.run_target_combo.configure(state=tk.DISABLED if connected or self.remote_connecting else "readonly")
+            self.run_target_combo.configure(state=tk.DISABLED if self.remote_connecting else "readonly")
         for widget in (
             self.remote_host_entry,
             self.remote_port_entry,
@@ -774,9 +786,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if self.remote_connecting:
                 self.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
             else:
-                self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode and not connected else tk.DISABLED)
-        if self.remote_disconnect_button is not None:
-            self.remote_disconnect_button.configure(state=tk.NORMAL if server_mode and connected else tk.DISABLED)
+                self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
 
         self._refresh_tools_tree()
         self._update_config_tool_status_labels()
@@ -826,6 +836,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._cancel_remote_health_check()
             self._connected_remote_signature = None
             self._remote_thread_max_signature = None
+            self._reset_remote_tool_image_state()
             self._set_thread_max(self.local_max_threads)
             return
 
@@ -860,7 +871,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.remote_frame is not None:
             if enabled:
                 try:
-                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 10)}))
+                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 18)}))
                 except tk.TclError:
                     pass
             else:
@@ -1614,8 +1625,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             messagebox.showerror("Save workspace failed", str(exc))
 
     def _load_workspace(self) -> None:
-        if self._server_connected() or self.remote_connecting:
-            messagebox.showwarning("Server connected", "Disconnect from the current server before loading a workspace.")
+        if self.remote_connecting:
+            messagebox.showwarning("Server connecting", "Wait for the current server connection attempt to finish before loading a workspace.")
             return
         config_dir = PROJECT_ROOT / "configs" / "workspaces"
         path = filedialog.askopenfilename(

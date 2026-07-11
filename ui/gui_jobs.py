@@ -45,7 +45,7 @@ class JobsMixin:
             jobs = [
                 entry for entry in known_jobs
                 if entry.get("target") == "Server"
-                and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
+                and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
             ]
             load_remote_jobs = True
         elif target == "Local":
@@ -57,81 +57,92 @@ class JobsMixin:
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Background Jobs")
-        dialog.geometry("900x420")
+        dialog.geometry("980x560")
+        dialog.minsize(900, 520)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        ttk.Label(dialog, text="Select one or more background jobs to download outputs. View / Attach still opens the first selected job.").pack(anchor=tk.W, padx=12, pady=(12, 6))
-        columns = ("target", "state", "job", "output")
-        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12, selectmode="extended")
-        tree.heading("target", text="Target")
-        tree.heading("state", text="State")
-        tree.heading("job", text="Job")
-        tree.heading("output", text="Output")
-        tree.column("target", width=80, anchor=tk.W)
-        tree.column("state", width=90, anchor=tk.W)
-        tree.column("job", width=360, anchor=tk.W)
-        tree.column("output", width=300, anchor=tk.W)
-        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        if target == "Server" and ssh_config is not None:
+            server_label = f"Remote server: {ssh_config.username}@{ssh_config.host}:{int(ssh_config.port)} | workspace: {workspace}"
+            server_icon = self._make_icon("success") if hasattr(self, "_make_icon") else None
+        else:
+            server_label = "Current target: Local jobs"
+            server_icon = self._make_icon("pending") if hasattr(self, "_make_icon") else None
+        server_row = ttk.Frame(dialog)
+        server_row.pack(anchor=tk.W, fill=tk.X, padx=12, pady=(12, 6))
+        if server_icon is not None:
+            ttk.Label(server_row, image=server_icon).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(server_row, text=server_label, foreground="#1e293b", font=("Inter", 10, "bold")).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        status_text = tk.StringVar(value="Loading remote jobs..." if load_remote_jobs else "")
-        ttk.Label(dialog, textvariable=status_text, foreground="#64748b").pack(anchor=tk.W, padx=12, pady=(0, 4))
-
-        item_to_job: dict[str, dict] = {}
+        selected_job_ids: set[str] = set()
+        selection_initialized = False
+        row_widgets: list[dict] = []
         deleted_job_ids: set[str] = set()
 
-        def render_jobs() -> None:
-            item_to_job.clear()
-            for item in tree.get_children():
-                tree.delete(item)
-            for idx, job in enumerate(jobs):
-                job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
-                item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
-                item_to_job[item] = job
-                if idx == 0:
-                    tree.selection_set(item)
+        selection_bar = ttk.Frame(dialog)
+        selection_bar.pack(fill=tk.X, padx=16, pady=(0, 4))
+        ttk.Button(selection_bar, text="Select All", command=lambda: (selected_job_ids.update(self._job_identity(job) for job in jobs), render_jobs())).pack(side=tk.LEFT)
+        ttk.Button(selection_bar, text="Unselect All", command=lambda: (selected_job_ids.clear(), render_jobs())).pack(side=tk.LEFT, padx=(8, 0))
 
-        render_jobs()
+        table_outer = ttk.Frame(dialog)
+        table_outer.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 8))
+        table_canvas = tk.Canvas(table_outer, highlightthickness=0, bg="#ffffff")
+        table_scroll = ttk.Scrollbar(table_outer, orient=tk.VERTICAL, command=table_canvas.yview)
+        table = ttk.Frame(table_canvas)
+        table_window = table_canvas.create_window((0, 0), window=table, anchor=tk.NW)
 
-        buttons = ttk.Frame(dialog)
-        buttons.pack(fill=tk.X, padx=12, pady=(4, 12))
+        def sync_table_region(_event=None) -> None:
+            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
 
-        def selected_job() -> dict | None:
-            selection = tree.selection()
-            if not selection:
-                return None
-            return item_to_job.get(selection[0])
+        def sync_table_width(event) -> None:
+            table_canvas.itemconfigure(table_window, width=event.width)
+
+        table.bind("<Configure>", sync_table_region)
+        table_canvas.bind("<Configure>", sync_table_width)
+        table_canvas.configure(yscrollcommand=table_scroll.set)
+        table_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        table_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        table.columnconfigure(1, minsize=110)
+        table.columnconfigure(2, weight=3, minsize=420)
+        table.columnconfigure(3, weight=2, minsize=330)
+        ttk.Label(table, text="", width=4).grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=(0, 6))
+        ttk.Label(table, text="State", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(0, 6))
+        ttk.Label(table, text="Job", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(0, 6))
+        ttk.Label(table, text="Output", font=("Inter", 9, "bold")).grid(row=0, column=3, sticky=tk.W, padx=8, pady=(0, 6))
+        ttk.Separator(table, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(0, 4))
+
+        status_text = tk.StringVar(value="Loading remote jobs..." if load_remote_jobs else "")
+        status_label = ttk.Label(dialog, textvariable=status_text, foreground="#64748b")
+        if status_text.get():
+            status_label.pack(anchor=tk.W, padx=16, pady=(0, 4))
+
+        def set_status(text: str) -> None:
+            status_text.set(text)
+            if text:
+                if not status_label.winfo_ismapped():
+                    status_label.pack(anchor=tk.W, padx=16, pady=(0, 4))
+            else:
+                status_label.pack_forget()
 
         def selected_jobs() -> list[dict]:
-            return [item_to_job[item] for item in tree.selection() if item in item_to_job]
+            return [job for job in jobs if self._job_identity(job) in selected_job_ids]
 
-        def delete_selected() -> None:
-            nonlocal jobs
-            selection = tree.selection()
-            if not selection:
-                return
-            selected = [(item, item_to_job[item]) for item in selection if item in item_to_job]
-            if not selected:
-                return
-            labels = [job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job") for _item, job in selected]
-            if not messagebox.askyesno("Delete jobs", f"Delete {len(selected)} selected job(s) and their folders?\n\n" + "\n".join(labels)):
-                return
-            deleted = 0
-            for item, job in selected:
-                if self._delete_registry_job(job):
-                    identity = self._job_identity(job)
-                    deleted_job_ids.add(identity)
-                    jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
-                    if tree.exists(item):
-                        tree.delete(item)
-                    item_to_job.pop(item, None)
-                    deleted += 1
-            status_text.set(f"Deleted {deleted} job(s).")
-            remaining = tree.get_children()
-            if remaining:
-                tree.selection_set(remaining[0])
+        def selected_job() -> dict | None:
+            selected = selected_jobs()
+            return selected[0] if selected else None
+
+        def set_selected(identity: str, selected: bool) -> None:
+            if selected:
+                selected_job_ids.add(identity)
             else:
-                dialog.destroy()
+                selected_job_ids.discard(identity)
+            render_jobs()
+
+        def select_one(identity: str) -> None:
+            selected_job_ids.clear()
+            selected_job_ids.add(identity)
+            render_jobs()
 
         def attach_selected() -> None:
             job = selected_job()
@@ -140,19 +151,118 @@ class JobsMixin:
             dialog.destroy()
             self._attach_registry_job(job)
 
+        def state_color(state: str) -> str:
+            return {
+                "running": "#2563eb",
+                "completed": "#16a34a",
+                "success": "#16a34a",
+                "failed": "#dc2626",
+                "missing": "#dc2626",
+                "paused": "#f97316",
+                "unknown": "#64748b",
+            }.get(state.lower(), "#475569")
+
+        def draw_checkbox(canvas: tk.Canvas, selected: bool, bg: str) -> None:
+            canvas.configure(bg=bg)
+            canvas.delete("all")
+            fill = "#0f73d1" if selected else bg
+            outline = "#0f73d1" if selected else "#94a3b8"
+            canvas.create_rectangle(3, 3, 21, 21, outline=outline, fill=fill, width=1)
+            if selected:
+                canvas.create_text(12, 12, text="✓", fill="#ffffff", font=("Inter", 11, "bold"))
+
+        def render_jobs() -> None:
+            nonlocal selection_initialized
+            for widgets in row_widgets:
+                for widget in reversed(widgets.get("widgets", [])):
+                    try:
+                        widget.destroy()
+                    except tk.TclError:
+                        pass
+            row_widgets.clear()
+            if jobs and not selection_initialized:
+                selected_job_ids.add(self._job_identity(jobs[0]))
+                selection_initialized = True
+            for idx, job in enumerate(jobs):
+                identity = self._job_identity(job)
+                job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
+                row = 2 + idx * 2
+                selected = identity in selected_job_ids
+                bg = "#cbd5e1" if selected else "#fafafa"
+                cells = []
+                for col in range(4):
+                    cell = tk.Frame(table, padx=6, pady=5, bg=bg)
+                    cell.grid(row=row, column=col, sticky=tk.NSEW, padx=0, pady=1)
+                    cell.bind("<Button-1>", lambda _event, ident=identity: select_one(ident))
+                    cell.bind("<Double-1>", lambda _event, ident=identity: (select_one(ident), attach_selected()))
+                    cells.append(cell)
+                check = tk.Canvas(cells[0], width=24, height=24, bg=bg, highlightthickness=0, bd=0)
+                draw_checkbox(check, selected, bg)
+                check.bind("<Button-1>", lambda _event, ident=identity, is_selected=selected: set_selected(ident, not is_selected))
+                check.pack(anchor=tk.W)
+                raw_state = str(job.get("state", ""))
+                state_label = tk.Label(cells[1], text=raw_state, anchor=tk.W, bg=bg, fg=state_color(raw_state), font=("Inter", 9, "bold"))
+                state_label.pack(fill=tk.BOTH, expand=True)
+                job_label_widget = tk.Label(cells[2], text=str(job_label), anchor=tk.W, bg=bg, fg="#475569")
+                job_label_widget.pack(fill=tk.BOTH, expand=True)
+                output_label = tk.Label(cells[3], text=str(job.get("effective_output_dir") or job.get("output_dir", "")), anchor=tk.W, bg=bg, fg="#475569")
+                output_label.pack(fill=tk.BOTH, expand=True)
+                for label in (state_label, job_label_widget, output_label):
+                    label.bind("<Button-1>", lambda _event, ident=identity: select_one(ident))
+                    label.bind("<Double-1>", lambda _event, ident=identity: (select_one(ident), attach_selected()))
+                sep = ttk.Separator(table, orient=tk.HORIZONTAL)
+                sep.grid(row=row + 1, column=0, columnspan=4, sticky=tk.EW, pady=(2, 2))
+                row_widgets.append({"widgets": [*cells, check, state_label, job_label_widget, output_label, sep]})
+
+        render_jobs()
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=16, pady=(6, 14))
+
+        def action_button(parent: ttk.Frame, text: str, command, icon_name: str, style: str | None = None, side: str = tk.LEFT, padx=0, icon_color: str | None = None) -> ttk.Button:
+            icon = self._make_icon(icon_name, icon_color) if hasattr(self, "_make_icon") else None
+            options = {"text": f" {text}" if icon is not None else text, "command": command}
+            if style:
+                options["style"] = style
+            if icon is not None:
+                options.update({"image": icon, "compound": tk.LEFT})
+            button = ttk.Button(parent, **options)
+            button.pack(side=side, padx=padx)
+            return button
+
+        def delete_selected() -> None:
+            nonlocal jobs
+            selected = selected_jobs()
+            if not selected:
+                return
+            labels = [job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job") for job in selected]
+            if not messagebox.askyesno("Delete jobs", f"Delete {len(selected)} selected job(s) and their folders?\n\n" + "\n".join(labels)):
+                return
+            deleted = 0
+            for job in selected:
+                if self._delete_registry_job(job):
+                    identity = self._job_identity(job)
+                    deleted_job_ids.add(identity)
+                    selected_job_ids.discard(identity)
+                    jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
+                    deleted += 1
+            set_status(f"Deleted {deleted} job(s).")
+            if jobs:
+                render_jobs()
+            else:
+                dialog.destroy()
+
         def download_selected() -> None:
-            jobs = selected_jobs()
-            if not jobs:
+            selected = selected_jobs()
+            if not selected:
                 return
             dialog.destroy()
-            self._download_registry_jobs(jobs)
+            self._download_registry_jobs(selected)
 
-        ttk.Button(buttons, text="View / Attach", style="Accent.TButton", command=attach_selected).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Download Selected Outputs", command=download_selected).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(buttons, text="Delete Selected", command=delete_selected).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(buttons, text="Manual Attach", command=lambda: (dialog.destroy(), self._attach_manual_job_dialog())).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
-        tree.bind("<Double-1>", lambda _event: attach_selected())
+        action_button(buttons, "Attach", attach_selected, "pin", style="Accent.TButton", icon_color="#ffffff")
+        action_button(buttons, "Download Outputs", download_selected, "download", padx=(8, 0))
+        action_button(buttons, "Delete", delete_selected, "trash", padx=(8, 0))
+        action_button(buttons, "Manual Attach", lambda: (dialog.destroy(), self._attach_manual_job_dialog()), "load", padx=(8, 0))
 
         if load_remote_jobs and ssh_config is not None:
             def worker() -> None:
@@ -173,7 +283,7 @@ class JobsMixin:
                         str(entry.get("remote_job_dir")): entry
                         for entry in list(jobs)
                         if entry.get("target") == "Server"
-                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
+                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
                     }
                     for remote_job in listed_jobs:
                         remote_dir = str(remote_job.get("remote_job_dir", ""))
@@ -200,12 +310,12 @@ class JobsMixin:
                         return
                     load_remote_jobs = False
                     if error is not None:
-                        status_text.set(f"Remote job scan failed: {type(error).__name__}: {error}")
+                        set_status(f"Remote job scan failed: {type(error).__name__}: {error}")
                         render_jobs()
                         return
                     filtered_remote_jobs = [job for job in remote_jobs if self._job_identity(job) not in deleted_job_ids]
                     jobs = self._merge_job_lists(jobs, filtered_remote_jobs)
-                    status_text.set(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "No running remote jobs found on this server.")
+                    set_status(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "")
                     render_jobs()
 
                 self.root.after(0, finish)
@@ -439,8 +549,6 @@ class JobsMixin:
 
     def _sync_attach_toolbar_state(self) -> None:
         if self._is_background_monitor_active():
-            if hasattr(self, "run_button"):
-                self.run_button.configure(state=tk.DISABLED)
             if hasattr(self, "resume_button"):
                 self.resume_button.configure(state=tk.DISABLED)
             if hasattr(self, "restart_button"):
@@ -462,14 +570,13 @@ class JobsMixin:
         self._attach_loading_spinner_label = None
         self._attach_loading_active = False
         self._set_attach_buttons_busy(False)
-        self._set_button_busy(getattr(self, "attach_button", None), False)
         self._sync_attach_toolbar_state()
 
     def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Label]:
         label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "selected job"
         dialog = tk.Toplevel(self.root)
         dialog.withdraw()
-        dialog.title("Loading job")
+        dialog.title("Attaching job")
         dialog.transient(self.root)
         dialog.resizable(False, False)
         dialog.protocol("WM_DELETE_WINDOW", lambda: None)
@@ -480,7 +587,7 @@ class JobsMixin:
         header.pack(fill=tk.X)
         spinner = ttk.Label(header, image=self._spinner_frame() or "", width=2)
         spinner.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Label(header, text="Loading job...", font=("Inter", 11, "bold")).pack(side=tk.LEFT)
+        ttk.Label(header, text="Attaching job...", font=("Inter", 11, "bold")).pack(side=tk.LEFT)
         ttk.Label(body, text=str(label), foreground="#64748b", wraplength=460).pack(anchor=tk.W, pady=(4, 12))
 
         dialog.update_idletasks()
@@ -497,15 +604,26 @@ class JobsMixin:
     def _attach_registry_job(self, job: dict) -> None:
         attached = False
         self._set_attach_buttons_busy(True)
-        self._set_button_busy(getattr(self, "attach_button", None), True, "Loading")
+        shown_at = 0.0
         try:
             dialog, spinner = self._show_attach_loading(job)
             self._attach_loading_dialog = dialog
             self._attach_loading_spinner_label = spinner
             self._attach_loading_active = True
+            shown_at = time.monotonic()
             self.root.update()
             attached = self._attach_registry_job_loaded(job)
         finally:
+            if shown_at:
+                end_time = shown_at + 0.4
+                while time.monotonic() < end_time:
+                    try:
+                        if not dialog.winfo_exists():
+                            break
+                        self.root.update()
+                    except tk.TclError:
+                        break
+                    time.sleep(0.02)
             self._finish_attach_loading()
 
     def _attach_registry_job_loaded(self, job: dict) -> bool:
@@ -710,8 +828,6 @@ class JobsMixin:
     def _enter_background_monitor_state(self, title: str) -> None:
         self.running = True
         self.stop_requested.clear()
-        if hasattr(self, "run_button"):
-            self.run_button.configure(state=tk.DISABLED)
         if hasattr(self, "resume_button"):
             self.resume_button.configure(state=tk.DISABLED)
         if hasattr(self, "restart_button"):
@@ -826,15 +942,21 @@ class JobsMixin:
     def _running_local_jobs(self) -> list[dict]:
         return [entry for entry in self._known_jobs() if entry.get("target") == "Local" and entry.get("state") == "running"]
 
-    def _same_remote_server(self, entry: dict, host: str, port: int, username: str) -> bool:
+    def _same_remote_server(self, entry: dict, host: str, port: int, username: str, workspace: str | None = None) -> bool:
         remote = dict(entry.get("remote") or {})
         if not remote:
             return False
-        return (
+        same_server = (
             str(remote.get("host", "")) == host
             and int(remote.get("port", 22) or 22) == port
             and str(remote.get("username", "")) == username
         )
+        if not same_server:
+            return False
+        if workspace is None:
+            return True
+        remote_workspace = str(remote.get("workspace", "")).strip().rstrip("/")
+        return remote_workspace == workspace.strip().rstrip("/")
 
     def _running_remote_jobs(self) -> list[dict] | None:
         jobs = self._remote_jobs_for_current_server()
@@ -868,7 +990,7 @@ class JobsMixin:
             str(entry.get("remote_job_dir")): entry
             for entry in self._known_jobs()
             if entry.get("target") == "Server"
-            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username)
+            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
         }
         jobs: list[dict] = []
         for remote_job in remote_jobs:

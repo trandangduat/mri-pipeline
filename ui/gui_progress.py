@@ -880,16 +880,10 @@ class ProgressMixin:
         if hasattr(self, "progress"):
             self.progress.stop()
         self.running = False
-        busy = getattr(self, "_busy_buttons", None)
         for btn_name in ("run_button", "resume_button", "restart_button"):
             btn = getattr(self, btn_name, None)
             if btn is not None:
-                if busy is not None:
-                    busy.pop(btn, None)
-                try:
-                    btn.configure(image="", compound=tk.NONE)
-                except tk.TclError:
-                    pass
+                self._set_button_busy(btn, False)
         if hasattr(self, "run_button"):
             self.run_button.configure(text="Run", state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
         if hasattr(self, "resume_button"):

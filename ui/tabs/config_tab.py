@@ -225,7 +225,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     gui._update_config_tool_status_labels()
 
 def _build_input_section(parent: ttk.Frame, gui) -> None:
-    frame = create_card(parent, "", "Input & output", "", {"fill": tk.X, "pady": (0, 10)})
+    frame = create_card(parent, "", "Input & output", "", {"fill": tk.X, "pady": (0, 18)})
 
     mode_row = ttk.Frame(frame)
     mode_row.grid(row=0, column=0, columnspan=5, sticky=tk.EW, pady=(0, 10))
@@ -291,7 +291,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     frame.columnconfigure(1, weight=1)
 
 def _build_settings_section(parent: ttk.Frame, gui) -> None:
-    frame = create_card(parent, "", "Runtime Settings", "", {"fill": tk.X, "pady": (0, 10)})
+    frame = create_card(parent, "", "Runtime Settings", "", {"fill": tk.X, "pady": (0, 18)})
 
     ttk.Label(frame, text="Run on", width=10).grid(row=0, column=0, sticky=tk.W, pady=(4, 0))
     gui.run_target_combo = ttk.Combobox(frame, textvariable=gui.state.run_target, values=("Local", "Server"), state="readonly", width=10)
@@ -330,7 +330,7 @@ def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, b
     return container
 
 def _build_remote_section(parent: ttk.Frame, gui) -> None:
-    gui.remote_pack_options = {"fill": tk.X, "pady": (0, 10)}
+    gui.remote_pack_options = {"fill": tk.X, "pady": (0, 18)}
     frame = create_card(parent, "", "Remote Server", "", gui.remote_pack_options)
     gui.remote_frame = frame
     gui.remote_body = frame
@@ -363,8 +363,6 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     buttons.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
     gui.remote_connect_button = ttk.Button(buttons, text="Connect Server", style="Accent.TButton", command=gui._remote_test_ssh)
     gui.remote_connect_button.pack(side=tk.LEFT)
-    gui.remote_disconnect_button = ttk.Button(buttons, text="Disconnect", command=gui._disconnect_remote_server, state=tk.DISABLED)
-    gui.remote_disconnect_button.pack(side=tk.LEFT, padx=(8, 0))
     gui.remote_status_icon_label = ttk.Label(buttons)
     gui.remote_status_icon_label.pack(side=tk.LEFT, padx=(12, 6))
     if hasattr(gui, "_set_remote_status_icon"):

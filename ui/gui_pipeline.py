@@ -133,8 +133,9 @@ class PipelineMixin:
         if not self._confirm_start_with_existing_jobs():
             return
 
-        starter_button = getattr(self, "restart_button" if restart else "resume_button" if resume else "run_button", None)
-        self._set_button_busy(starter_button, True, "Starting")
+        starter_button = getattr(self, "restart_button" if restart else "resume_button", None) if (restart or resume) else None
+        if starter_button is not None:
+            self._set_button_busy(starter_button, True, "Starting")
         started = False
         try:
             if self.state.run_target.get() == "Server":
@@ -161,8 +162,11 @@ class PipelineMixin:
                     device=run_request.get("device", ""),
                 )
                 self._show_progress_tab()
-                started = True
                 self._start_remote_pipeline(resume=resume, restart=restart, runner=runner)
+                started = True
+                if starter_button is not None:
+                    self._set_button_busy(starter_button, False)
+                self._validate_configuration()
                 return
 
             run_request = self._build_run_request()
@@ -183,7 +187,6 @@ class PipelineMixin:
 
             self.running = True
             self.stop_requested.clear()
-            self.run_button.configure(state=tk.DISABLED)
             if hasattr(self, "resume_button"):
                 self.resume_button.configure(state=tk.DISABLED)
             if hasattr(self, "restart_button"):
@@ -207,11 +210,15 @@ class PipelineMixin:
             elif resume:
                 self._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
             self._log("Starting pipeline...")
-            started = True
             self._start_local_background_pipeline(run_request)
+            started = True
+            if starter_button is not None:
+                self._set_button_busy(starter_button, False)
+            self._validate_configuration()
         finally:
             if not started:
-                self._set_button_busy(starter_button, False)
+                if starter_button is not None:
+                    self._set_button_busy(starter_button, False)
                 self._validate_configuration()
 
     def _start_local_background_pipeline(self, run_request: dict) -> None:
@@ -435,8 +442,6 @@ class PipelineMixin:
         self.running = True
         self.state.remote_status.set(f"Remote: {title} running...")
         self.stop_requested.clear()
-        if hasattr(self, "run_button"):
-            self.run_button.configure(state=tk.DISABLED)
         if hasattr(self, "resume_button"):
             self.resume_button.configure(state=tk.DISABLED)
         if hasattr(self, "restart_button"):
@@ -473,8 +478,6 @@ class PipelineMixin:
     def _remote_test_ssh(self) -> None:
         if self.state.run_target.get() != "Server":
             return
-        if self._server_connected():
-            return
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return
@@ -487,11 +490,13 @@ class PipelineMixin:
         def task():
             try:
                 def set_testing():
+                    self._cancel_remote_health_check()
                     self.state.remote_status.set("Connecting to server...")
                     self._set_remote_status_icon("running")
                     self._connected_remote_signature = None
                     self._remote_thread_max_signature = None
                     self._set_thread_max(None, pending=True)
+                    self._reset_remote_tool_image_state()
                     if hasattr(self, "remote_status_label"):
                         self.remote_status_label.configure(foreground="")
                 self.root.after(0, set_testing)
