@@ -297,6 +297,7 @@ class PipelineMixin:
         base = {
             "mode": mode,
             "output_dir": output_dir,
+            "server_output_dir": self.state.server_output_dir.get().strip(),
             "effective_output_dir": str(Path(output_dir) / batch_output_name) if batch_output_name else output_dir,
             "is_batch": is_batch,
             "batch_output_name": batch_output_name,

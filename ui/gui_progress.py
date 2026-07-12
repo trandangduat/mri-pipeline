@@ -8,7 +8,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 from pipeline_runner import (
     STAGE_LABELS,
@@ -86,7 +86,7 @@ class ProgressMixin:
         self.progress_contexts[context_id] = context
         if job_identity:
             self.progress_context_by_job[job_identity] = context_id
-        self.notebook.add(context["tab"], text=title)
+        self.notebook.add(context["tab"], text=title + "  ✕")
         return context
 
     def _save_active_progress_context(self) -> None:
@@ -207,14 +207,36 @@ class ProgressMixin:
                 self._activate_progress_context(context_id)
                 return
 
+    def _on_notebook_click(self, event) -> None:
+        if self.notebook is None:
+            return
+        try:
+            index = self.notebook.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            return
+        tab_id = self.notebook.tabs()[index]
+        is_progress_tab = False
+        context_id = None
+        for cid, context in self.progress_contexts.items():
+            if str(context.get("tab")) == tab_id:
+                is_progress_tab = True
+                context_id = cid
+                break
+        if not is_progress_tab:
+            return
+        bbox = self.notebook.bbox(index)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        if event.x > x + w - 24:
+            self._close_progress_tab(context_id)
+
     def _close_progress_tab(self, context_id: str) -> None:
         context = self.progress_contexts.get(context_id)
         if not context or self.notebook is None:
             return
         monitor = getattr(self, "job_monitors", {}).get(context_id)
         if monitor and monitor.get("active_job") and not monitor.get("active_job", {}).get("done"):
-            from tkinter import messagebox
-
             if not messagebox.askyesno("Close progress tab", "Close this progress tab? The background job will continue running."):
                 return
             after_id = monitor.get("after_id")
@@ -261,7 +283,7 @@ class ProgressMixin:
             context["title"] = title
             context["tab_title"].set(title)
             if self.notebook is not None:
-                self.notebook.tab(context["tab"], text=title)
+                self.notebook.tab(context["tab"], text=title + "  ✕")
         self._activate_progress_context(context["id"])
         return context
 
@@ -278,7 +300,7 @@ class ProgressMixin:
         context["job_identity"] = job_identity
         if job_identity:
             self.progress_context_by_job[job_identity] = context["id"]
-        self.notebook.tab(context["tab"], text=title)
+        self.notebook.tab(context["tab"], text=title + "  ✕")
 
     def _toggle_progress_log(self) -> None:
         body = getattr(self, "progress_log_body", None)

@@ -44,6 +44,7 @@ class AppState:
         self.input_path = tk.StringVar()
         self.selected_files: list[str] = []
         self.output_dir = tk.StringVar(value=str(PROJECT_ROOT / "outputs"))
+        self.server_output_dir = tk.StringVar()
         self.license_dir = tk.StringVar(value=str(PROJECT_ROOT / "license"))
         self.export_outputs_enabled = tk.BooleanVar(value=False)
         self.export_default_format = tk.StringVar(value=".nii.gz")
@@ -193,6 +194,7 @@ class AppState:
             "input_path": self.input_path.get(),
             "selected_files": self.selected_files,
             "output_dir": self.output_dir.get(),
+            "server_output_dir": self.server_output_dir.get(),
             "export_outputs": self.get_export_config(),
             "device": self.device.get(),
             "threads": int(self.threads.get()),
@@ -219,6 +221,7 @@ class AppState:
         self.input_path.set(workspace.get("input_path", ""))
         self.selected_files = list(workspace.get("selected_files", []))
         self.output_dir.set(workspace.get("output_dir", str(PROJECT_ROOT / "outputs")))
+        self.server_output_dir.set(workspace.get("server_output_dir", ""))
 
         export = workspace.get("export_outputs", {})
         self.export_outputs_enabled.set(bool(export.get("enabled", False)))

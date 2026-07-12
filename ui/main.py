@@ -195,7 +195,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_key_browse_button: ttk.Button | None = None
         self.remote_workspace_entry: ttk.Entry | None = None
         self.remote_connect_button: ttk.Button | None = None
-        self.input_location_label_var = tk.StringVar(value="Input location")
+        self.input_location_label_var = tk.StringVar(value="Input Location")
         self.input_browse_button: ttk.Button | None = None
         self.upload_input_row: ttk.Frame | None = None
         self.upload_input_button: ttk.Button | None = None
@@ -541,6 +541,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.notebook.add(self.config_tab, text="Pipeline configuration")
         self.notebook.add(self.tools_tab, text="Tools / Docker Images")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
+        self.notebook.bind("<Button-1>", self._on_notebook_click)
 
         build_configuration_tab(self.config_tab, self)
         build_tools_tab(self.tools_tab, self)
@@ -908,7 +909,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _sync_input_source_controls(self) -> None:
         server_run = self.state.run_target.get() == "Server"
         connected = self._server_connected()
-        self.input_location_label_var.set("Server Input Location" if server_run else "Input location")
+        self.input_location_label_var.set("Server Input Location" if server_run else "Input Location")
         if self.input_browse_button is not None:
             self.input_browse_button.configure(text="Browse Server" if server_run else "Browse")
             if server_run and not connected:
@@ -922,6 +923,12 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     self.upload_input_button.configure(state=tk.NORMAL if connected else tk.DISABLED)
             else:
                 self.upload_input_row.grid_remove()
+        if hasattr(self, "server_output_dir_row"):
+            if server_run:
+                self.server_output_dir_row.grid()
+                self.server_output_browse_button.configure(state=tk.NORMAL if connected else tk.DISABLED)
+            else:
+                self.server_output_dir_row.grid_remove()
         if self.output_dir_row is not None:
             if server_run:
                 self.output_dir_row.grid_remove()
@@ -1340,14 +1347,16 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if paths:
                 self.state.selected_files = list(paths)
                 self.state.input_path.set("; ".join(self.state.selected_files))
-        else:
-            path = filedialog.askdirectory(title="Select MRI input folder")
+        elif mode == "dir":
+            path = filedialog.askdirectory(title="Select Input Directory")
             if path:
-                self.state.selected_files = []
                 self.state.input_path.set(path)
         self._input_source_paths[self.state.input_source.get()] = self.state.input_path.get().strip()
         self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
+
+    def _browse_server_output(self) -> None:
+        messagebox.showinfo("Server Output", "Chức năng duyệt thư mục trên Server chưa được hỗ trợ. Vui lòng nhập đường dẫn thủ công.")
 
     def _browse_remote_input(self) -> None:
         ssh_config = self._build_ssh_config()

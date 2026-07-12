@@ -261,10 +261,19 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
 
-    gui.output_dir_row = _path_row(frame, "Output directory", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
+    gui.output_dir_row = _path_row(frame, "Output Location", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
+
+    gui.server_output_dir_row = ttk.Frame(frame)
+    gui.server_output_dir_row.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=3)
+    ttk.Label(gui.server_output_dir_row, text="Server Output Location").pack(anchor=tk.W, pady=(0, 2))
+    server_input_frame = ttk.Frame(gui.server_output_dir_row)
+    server_input_frame.pack(fill=tk.X, expand=True)
+    ttk.Entry(server_input_frame, textvariable=gui.state.server_output_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+    gui.server_output_browse_button = ttk.Button(server_input_frame, text="Browse Server", style="Accent.TButton", command=gui._browse_server_output)
+    gui.server_output_browse_button.pack(side=tk.RIGHT)
 
     export_frame = ttk.Frame(frame)
-    export_frame.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
+    export_frame.grid(row=6, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
     def sync_export_options(*_args) -> None:

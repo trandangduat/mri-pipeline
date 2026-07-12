@@ -703,6 +703,7 @@ class JobsMixin:
                 remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
                 remote_python=self.state.remote_python.get().strip() or "python3",
                 output_dir=str(job.get("output_dir") or self.state.output_dir.get().strip()),
+                server_output_dir=str(job.get("server_output_dir") or ""),
                 download_subdir=str(job.get("download_subdir") or ""),
             ),
             on_log=self._remote_log_event,
@@ -711,7 +712,7 @@ class JobsMixin:
         if not remote_dir:
             messagebox.showerror("Missing remote job", "Selected registry entry has no remote job directory.")
             return None
-        runner.attach_job(remote_dir)
+        runner.attach_job(remote_dir, str(job.get("remote_output_dir") or ""))
         if read_metadata:
             metadata = runner.read_remote_metadata()
             if metadata.get("download_subdir"):
@@ -876,6 +877,8 @@ class JobsMixin:
             "started_at": now,
             "updated_at": now,
             "output_dir": cfg.output_dir,
+            "server_output_dir": cfg.server_output_dir,
+            "remote_output_dir": runner.remote_output_dir,
             "download_subdir": cfg.download_subdir,
             "input_files": files,
             "remote": {
@@ -1307,6 +1310,7 @@ class JobsMixin:
             input_files=req.get("input_files", []),
             input_dir=req.get("input_dir", ""),
             output_dir=req["output_dir"],
+            server_output_dir=req.get("server_output_dir", ""),
             license_dir=req["license_dir"],
             device=req["device"],
             threads=req["threads"],

@@ -1,6 +1,6 @@
 # MRI Processing Pipeline
 
-Docker-based MRI preprocessing pipeline with Streamlit GUI.
+Docker-based MRI preprocessing pipeline with Tkinter GUI.
 
 ## Output Structure
 
@@ -18,7 +18,7 @@ Default `subject_id` = input filename without extension (e.g., `sub-002_T1w.nii`
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
+python gui.py
 ```
 
 In the GUI, enter any dataset folder, click **Quét lại**, tick the input images you want, then **Chạy** to process them sequentially.
@@ -78,7 +78,7 @@ results = run_pipeline(config)
 ## Project Structure
 
 ```
-├── app.py                # Streamlit GUI
+├── gui.py                # Tkinter GUI entry point
 ├── pipeline_runner.py    # Pipeline orchestrator
 ├── requirements.txt
 ├── DEPLOYMENT.md         # Deployment guide

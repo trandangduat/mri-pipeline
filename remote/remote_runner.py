@@ -27,6 +27,7 @@ class RemoteRunConfig:
     input_files: list[str] = field(default_factory=list)
     input_dir: str = ""
     output_dir: str = ""
+    server_output_dir: str = ""
     license_dir: str = ""
     device: str = "cpu"
     threads: int = 4
@@ -261,9 +262,13 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             workspace = ssh.expand_path(self.config.remote_workspace)
             self.remote_job_dir = posixpath.join(workspace, self.job_id)
-            self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
+            if self.config.server_output_dir:
+                self.remote_output_dir = ssh.expand_path(self.config.server_output_dir)
+            else:
+                self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
             ssh.mkdir_p(workspace)
-            for sub in ("license", "outputs"):
+            ssh.mkdir_p(self.remote_output_dir)
+            for sub in ("license",):
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
@@ -280,9 +285,9 @@ class RemoteRunner:
             self.on_log("Remote upload complete.")
             return self.remote_job_dir
 
-    def attach_job(self, remote_job_dir: str) -> None:
+    def attach_job(self, remote_job_dir: str, remote_output_dir: str = "") -> None:
         self.remote_job_dir = remote_job_dir.rstrip("/")
-        self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
+        self.remote_output_dir = remote_output_dir or posixpath.join(self.remote_job_dir, "outputs")
 
     def read_remote_metadata(self) -> dict:
         if not self.remote_job_dir:
@@ -531,7 +536,8 @@ class RemoteRunner:
         if self.config.download_subdir:
             local_target = local_target / self.config.download_subdir
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            ssh.download_dir(posixpath.join(self.remote_job_dir, "outputs"), local_target)
+            remote_outputs = self.remote_output_dir or posixpath.join(self.remote_job_dir, "outputs")
+            ssh.download_dir(remote_outputs, local_target)
         return local_target
 
     def clean_remote(self) -> None:
