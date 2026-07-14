@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
+from ui.components.tooltip import Tooltip
 from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
 
 PANEL_BG = "#ffffff"
@@ -241,6 +242,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
         upload_options.update({"image": upload_icon, "compound": tk.LEFT})
     gui.upload_input_button = ttk.Button(gui.upload_input_row, **upload_options)
     gui.upload_input_button.pack(side=tk.LEFT)
+    gui.upload_input_tooltip = Tooltip(gui.upload_input_button, "")
 
     container = ttk.Frame(frame)
     container.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=3)
@@ -258,6 +260,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
 
     gui.input_browse_button = ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=gui._browse_input)
     gui.input_browse_button.pack(side=tk.RIGHT)
+    gui.input_browse_tooltip = Tooltip(gui.input_browse_button, "")
 
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
 
@@ -271,6 +274,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     ttk.Entry(server_input_frame, textvariable=gui.state.server_output_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
     gui.server_output_browse_button = ttk.Button(server_input_frame, text="Browse Server", style="Accent.TButton", command=gui._browse_server_output)
     gui.server_output_browse_button.pack(side=tk.RIGHT)
+    gui.server_output_tooltip = Tooltip(gui.server_output_browse_button, "")
 
     export_frame = ttk.Frame(frame)
     export_frame.grid(row=6, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))

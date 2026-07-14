@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ui.components.cards import create_card
+from ui.components.tooltip import Tooltip
 
 
 def build_tools_tab(parent: ttk.Frame, gui) -> None:
@@ -75,7 +76,9 @@ def build_tools_tab(parent: ttk.Frame, gui) -> None:
     button_group = ttk.Frame(controls)
     button_group.pack(side=tk.RIGHT)
     gui.tools_refresh_button = ttk.Button(button_group, text="Refresh", command=gui._refresh_tool_image_statuses)
-    gui.tools_refresh_button.pack(side=tk.LEFT, padx=3)
+    gui.tools_refresh_button.pack(side=tk.LEFT)
+    gui.tools_refresh_tooltip = Tooltip(gui.tools_refresh_button, "")
+
     gui.tools_select_all_button = ttk.Button(button_group, text="Select All", command=gui._select_all_tool_images)
     gui.tools_select_all_button.pack(side=tk.LEFT, padx=3)
     gui.tools_unselect_all_button = ttk.Button(button_group, text="Unselect All", command=gui._unselect_all_tool_images)

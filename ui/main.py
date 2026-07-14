@@ -41,7 +41,7 @@ from ui.state import AppState
 from ui.styles import configure_windows_dpi_awareness, setup_styles
 from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.tools_tab import build_tools_tab
-
+from ui.components.tooltip import Tooltip
 
 class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     PIPELINE_MODES = (
@@ -526,8 +526,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         
         self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
         self.run_button.configure(style="Accent.TButton")
+        self.run_tooltip = Tooltip(self.run_button, "")
         self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
         self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
+        self.restart_tooltip = Tooltip(self.restart_button, "")
         self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
         self.stop_button.configure(state=tk.DISABLED)
         self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
@@ -964,6 +966,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         return result["value"]
 
     def _upload_input_to_server_placeholder(self) -> None:
+        if not self._server_connected():
+            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+            return
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return
@@ -1356,9 +1361,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._refresh_input_label()
 
     def _browse_server_output(self) -> None:
+        if not self._server_connected():
+            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+            return
         messagebox.showinfo("Server Output", "Chức năng duyệt thư mục trên Server chưa được hỗ trợ. Vui lòng nhập đường dẫn thủ công.")
 
     def _browse_remote_input(self) -> None:
+        if not self._server_connected():
+            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+            return
         ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return
@@ -1808,6 +1819,22 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
         input_source = "Server" if self.state.run_target.get() == "Server" else "Local"
+        if self.state.run_target.get() == "Server":
+            if not self.state.remote_host.get().strip():
+                errors.append("Remote Host/IP is required.")
+            if not self.state.remote_username.get().strip():
+                errors.append("Remote Username is required.")
+            try:
+                port = int(self.state.remote_port.get())
+                if port < 1 or port > 65535:
+                    errors.append("Remote port must be between 1 and 65535.")
+            except (tk.TclError, ValueError):
+                errors.append("Remote port must be a valid integer.")
+            if not self.state.remote_workspace.get().strip():
+                errors.append("Remote workspace is required.")
+            elif self._current_remote_connection_signature() is not None and not self._server_connected():
+                errors.append("Connect to the server before running.")
+
         mode = self.state.input_mode.get()
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
@@ -1889,29 +1916,48 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if needs_license and not Path(self.state.license_dir.get().strip()).exists():
             errors.append("FreeSurfer license directory is required for selected tools.")
 
-        if self.state.run_target.get() == "Server":
-            if not self.state.remote_host.get().strip():
-                errors.append("Remote Host/IP is required.")
-            if not self.state.remote_username.get().strip():
-                errors.append("Remote Username is required.")
-            try:
-                port = int(self.state.remote_port.get())
-                if port < 1 or port > 65535:
-                    errors.append("Remote port must be between 1 and 65535.")
-            except (tk.TclError, ValueError):
-                errors.append("Remote port must be a valid integer.")
-            if not self.state.remote_workspace.get().strip():
-                errors.append("Remote workspace is required.")
-            elif self._current_remote_connection_signature() is not None and not self._server_connected():
-                errors.append("Connect to the server before running.")
+
 
         ok = not errors
         can_start = self._can_start_new_pipeline()
+        status_msg = "Configuration complete. Ready to run." if ok else errors[0]
+        if not can_start:
+            status_msg = "Pipeline is already running or busy."
+
         if hasattr(self, "run_button"):
             self.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
+            if hasattr(self, "run_tooltip"):
+                self.run_tooltip.update_text(status_msg)
         if hasattr(self, "restart_button"):
             self.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-        self.state.config_status.set("Configuration complete. Ready to run." if ok else errors[0])
+            if hasattr(self, "restart_tooltip"):
+                self.restart_tooltip.update_text(status_msg)
+        
+        self.state.config_status.set(status_msg)
+        
+        # Check server connection state for specific buttons
+        server_ok = self.state.run_target.get() != "Server" or self._server_connected()
+        server_msg = "Please connect to the server first" if not server_ok else ""
+        
+        if self.upload_input_button:
+            self.upload_input_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+            if hasattr(self, "upload_input_tooltip"):
+                self.upload_input_tooltip.update_text(server_msg)
+                
+        if self.server_output_browse_button:
+            self.server_output_browse_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+            if hasattr(self, "server_output_tooltip"):
+                self.server_output_tooltip.update_text(server_msg)
+                
+        if self.tools_refresh_button:
+            self.tools_refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+            if hasattr(self, "tools_refresh_tooltip"):
+                self.tools_refresh_tooltip.update_text(server_msg)
+                
+        if self.input_browse_button:
+            if hasattr(self, "input_browse_tooltip"):
+                self.input_browse_tooltip.update_text(server_msg)
+
         return ok
 
 
