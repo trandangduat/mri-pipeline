@@ -1,11 +1,12 @@
 {
   "version": 1,
   "type": "mri-pipeline-workspace",
-  "input_source": "Server",
+  "input_source": "Local",
   "input_mode": "file",
-  "input_path": "~",
+  "input_path": "",
   "selected_files": [],
   "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "server_output_dir": "",
   "export_outputs": {
     "enabled": false,
     "folder": "exports",

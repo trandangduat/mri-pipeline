@@ -189,7 +189,7 @@ class AppState:
         workspace = {
             "version": 1,
             "type": "mri-pipeline-workspace",
-            "input_source": "Server" if self.run_target.get() == "Server" else "Local",
+            "input_source": self.input_source.get(),
             "input_mode": self.input_mode.get(),
             "input_path": self.input_path.get(),
             "selected_files": self.selected_files,

@@ -63,7 +63,7 @@ def _delete_restart_outputs(req: dict, job_dir: Path) -> None:
             shutil.rmtree(subject_dir)
 
 
-def _run_job(job_dir: Path, req: dict) -> int:
+def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     stop_file = job_dir / "stop_requested"
     mode = req.get("mode")
     output_dir = req.get("effective_output_dir", req.get("output_dir", ""))
@@ -98,48 +98,84 @@ def _run_job(job_dir: Path, req: dict) -> int:
     def image_done_cb(result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
         _log(job_dir, f"Done image {idx}/{total}: {result.subject_id} | {status}")
-        for step in result.steps:
-            _emit_event(
-                job_dir,
-                "step_result",
-                input_file=result.input_file,
-                subject_id=result.subject_id,
-                idx=idx,
-                total=total,
-                stage=step.stage,
-                tool=step.tool,
-                success=step.success,
-                duration_sec=step.duration_sec,
-                build_duration_sec=step.build_duration_sec,
-                peak_ram_bytes=step.peak_ram_bytes,
-                avg_ram_bytes=step.avg_ram_bytes,
-                p95_ram_bytes=step.p95_ram_bytes,
-                peak_cpu_pct=step.peak_cpu_pct,
-                avg_cpu_pct=step.avg_cpu_pct,
-                p95_cpu_pct=step.p95_cpu_pct,
-                error=step.error,
-            )
         _emit_event(
             job_dir,
             "image_done",
             input_file=result.input_file,
             subject_id=result.subject_id,
+            success=result.success,
+            duration_sec=result.duration_sec,
             idx=idx,
             total=total,
-            success=result.success,
-            error=result.error,
+            log_text="\n".join(
+                [f"[{step.stage}] {step.tool} - {'OK' if step.success else 'FAIL'} ({step.duration_sec:.1f}s)" for step in result.steps]
+            ),
         )
 
-    if req.get("restart"):
+    def should_stop() -> bool:
+        return stop_file.exists()
+
+    if req.get("restart", False):
         _delete_restart_outputs(req, job_dir)
 
-    should_stop = stop_file.exists
+    dataset_root = req.get("input_dir", "")
+    
+    if is_lazy_watch:
+        input_dir = req.get("input_dir", "")
+        if not input_dir:
+            _log(job_dir, "Lazy watch requires an input_dir.")
+            return 1
+        _log(job_dir, f"Starting LAZY WATCH on directory: {input_dir}")
+        processed_files = set()
+        done_marker = Path(input_dir) / ".upload_done"
+        
+        while not should_stop():
+            files = _discover_mri_files(input_dir, recursive=bool(req.get("recursive", True)))
+            # Exclude .tmp files from processing
+            files = [f for f in files if not f.endswith(".tmp")]
+            new_files = [f for f in files if f not in processed_files]
+            
+            if new_files:
+                _log(job_dir, f"Lazy Watch found {len(new_files)} new files to process.")
+                subject_id_map = build_subject_id_map(new_files, input_dir)
+                results = run_batch_pipeline(
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    license_dir=req.get("license_dir", ""),
+                    device=req.get("device", "cpu"),
+                    threads=int(req.get("threads", 4)),
+                    resume=bool(req.get("resume", False)),
+                    selected_tools=selected_tools,
+                    export_config=export_config,
+                    stats_vector_config=stats_vector_config,
+                    subject_id_map=subject_id_map,
+                    recursive=bool(req.get("recursive", True)),
+                    input_files=new_files,
+                    on_progress=progress_cb,
+                    on_build_log=build_log_cb,
+                    on_image_start=image_start_cb,
+                    on_image_done=image_done_cb,
+                    on_metrics=metrics_cb,
+                    should_stop=should_stop,
+                    batch_config=req,
+                )
+                for f in new_files:
+                    processed_files.add(f)
+            else:
+                if done_marker.exists():
+                    _log(job_dir, "Lazy Watch: .upload_done marker found and no new files to process. Exiting.")
+                    break
+                time.sleep(2.0)
+        return 0
+
     if mode == "file":
-        input_file = req["input_file"]
+        input_file = req.get("input_file", "")
         subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
         subject_id = req.get("subject_id") or subject_id_map.get(input_file) or _derive_subject_id(input_file)
-        dataset_root = str(Path(input_file).expanduser().resolve().parent)
-        _write_stats_vector_reports(output_dir, [input_file], [], {input_file: subject_id}, dataset_root, stats_vector_config, running_input_file=input_file)
+        if not input_file:
+            _log(job_dir, "No input_file specified for file mode.")
+            return 1
+        _log(job_dir, f"Running single file: {input_file} (Subject: {subject_id})")
         image_start_cb(input_file, 1, 1)
         config = PipelineConfig(
             input_file=input_file,
@@ -205,6 +241,7 @@ def _run_job(job_dir: Path, req: dict) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one MRI GUI job in a detached worker process.")
     parser.add_argument("--job-config", required=True)
+    parser.add_argument("--lazy-watch", action="store_true", help="Watch input_dir for new files and process them immediately")
     args = parser.parse_args(argv)
 
     config_path = Path(args.job_config).resolve()
@@ -217,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_status(job_dir, state="running", pid=os.getpid(), started_at=start, job_dir=str(job_dir), output_dir=req.get("output_dir", ""))
     _log(job_dir, f"Background job started: {job_dir}")
     try:
-        code = _run_job(job_dir, req)
+        code = _run_job(job_dir, req, args.lazy_watch)
         state = "completed" if code == 0 else "failed"
         _write_status(job_dir, state=state, exit_code=code, finished_at=time.time(), duration_sec=time.time() - start)
         _log(job_dir, f"Background job finished with exit code {code}")

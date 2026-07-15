@@ -38,6 +38,7 @@ class RemoteRunConfig:
     download_subdir: str = ""
     resume: bool = False
     restart: bool = False
+    lazy_watch: bool = False
 
 
 class RemoteRunner:
@@ -424,9 +425,12 @@ class RemoteRunner:
             )
             config_path = posixpath.join(self.remote_job_dir, "job_config.json")
             launcher_log = posixpath.join(self.remote_job_dir, "launcher.log")
+            cmd_args = [f"--job-config {shlex.quote(config_path)}"]
+            if getattr(self.config, "lazy_watch", False):
+                cmd_args.append("--lazy-watch")
             command = (
                 f"cd {shlex.quote(remote_code)} && PYTHONPATH={shlex.quote(remote_code)}:$PYTHONPATH PYTHONUNBUFFERED=1 "
-                f"{shlex.quote(venv_python)} -m pipeline.job_worker --job-config {shlex.quote(config_path)}"
+                f"{shlex.quote(venv_python)} -m pipeline.job_worker {' '.join(cmd_args)}"
             )
             worker_script = (
                 "set +e; "

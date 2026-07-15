@@ -1320,6 +1320,7 @@ class JobsMixin:
             recursive=req.get("recursive", True),
             download_subdir=req.get("batch_output_name", "") if req.get("is_batch") else "",
             resume=resume,
+            lazy_watch=req.get("lazy_watch", False),
         )
         return RemoteRunner(remote_config, on_log=self._remote_log_event)
 

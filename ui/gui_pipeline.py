@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import shlex
 import stat
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from pipeline_runner import (
     STAGE_ORDER,
     _is_supported_mri_input,
 )
-from pipeline.utils import _is_dicom_series_dir
+from pipeline.utils import _is_dicom_series_dir, _discover_mri_files
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
 from ui.formatters import truncate_middle
@@ -139,6 +140,21 @@ class PipelineMixin:
         started = False
         try:
             if self.state.run_target.get() == "Server":
+                if self.state.input_source.get() == "Local":
+                    msg = (
+                        "You selected Local data for a Server run.\n\n"
+                        "Do you want to use Lazy Upload? This will upload and process files one by one.\n"
+                        "Warning: You must leave the application open until all files are uploaded.\n\n"
+                        "If you click No, you must use the 'Upload' button to upload all files manually before running."
+                    )
+                    lazy = messagebox.askyesno("Lazy Upload Mode", msg, parent=self.root)
+                    if lazy:
+                        self._start_lazy_upload_pipeline(resume, restart, starter_button)
+                    else:
+                        if starter_button is not None:
+                            self._set_button_busy(starter_button, False)
+                    return
+
                 run_request = self._build_run_request()
                 if run_request is None:
                     return
@@ -221,6 +237,90 @@ class PipelineMixin:
                     self._set_button_busy(starter_button, False)
                 self._validate_configuration()
 
+    def _start_lazy_upload_pipeline(self, resume: bool, restart: bool, starter_button: tk.Widget | None) -> None:
+        run_request = self._build_run_request()
+        if run_request is None:
+            if starter_button is not None:
+                self._set_button_busy(starter_button, False)
+            return
+
+        run_request["lazy_watch"] = True
+        run_request["resume"] = resume
+        run_request["restart"] = restart
+        
+        server_output_dir = self.state.server_output_dir.get().strip() or "~/mri-server-outputs"
+        remote_lazy_dir = posixpath.join(server_output_dir, "lazy_input", time.strftime('%Y%m%d_%H%M%S'))
+        
+        mode = run_request.get("mode")
+        if mode == "file":
+            local_files = [Path(run_request["input_file"])]
+        elif mode == "files":
+            local_files = [Path(f) for f in run_request.get("input_files", [])]
+        else:
+            local_files = [Path(f) for f in _discover_mri_files(run_request.get("input_dir", ""), recursive=run_request.get("recursive", True))]
+            
+        if not local_files:
+            messagebox.showerror("Error", "No local MRI files found to upload.")
+            if starter_button is not None:
+                self._set_button_busy(starter_button, False)
+            return
+
+        run_request["input_dir"] = remote_lazy_dir
+        run_request["input_source"] = "Server"
+        if mode == "file":
+            run_request["mode"] = "dir"
+            run_request["recursive"] = False
+
+        runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
+        if not runner:
+            if starter_button is not None:
+                self._set_button_busy(starter_button, False)
+            return
+            
+        if restart:
+            self.remote_runner = None
+            
+        runner.config.resume = resume
+        runner.config.restart = restart
+        
+        self.remote_runner = runner
+        self._prepare_progress_tab(
+            self._input_files_for_progress(run_request),
+            run_request.get("selected_tools"),
+            title="Server: starting (Lazy Upload)",
+            pipeline_mode=run_request.get("pipeline_mode", ""),
+            threads=int(run_request.get("threads", 0) or 0),
+            device=run_request.get("device", ""),
+        )
+        self._show_progress_tab()
+        self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
+        
+        if starter_button is not None:
+            self._set_button_busy(starter_button, False)
+        self._validate_configuration()
+        
+        def upload_worker() -> None:
+            try:
+                ssh_config = self._build_ssh_config()
+                with RemoteSSHClient(ssh_config, self._log) as ssh:
+                    ssh.mkdir_p(remote_lazy_dir)
+                    for idx, local_file in enumerate(local_files):
+                        self._log(f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
+                        remote_tmp = posixpath.join(remote_lazy_dir, local_file.name + ".tmp")
+                        remote_final = posixpath.join(remote_lazy_dir, local_file.name)
+                        ssh.sftp.put(str(local_file), remote_tmp)
+                        ssh.sftp.rename(remote_tmp, remote_final)
+                        self._log(f"Lazy Upload: {local_file.name} ready on server.")
+                        if getattr(self, "stop_requested", threading.Event()).is_set():
+                            self._log("Lazy Upload: Stopped early by user.")
+                            break
+                    ssh.run(f"touch {shlex.quote(remote_lazy_dir + '/.upload_done')}", stream=False, check=False)
+                    self._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
+            except Exception as e:
+                self._log(f"Lazy Upload Error: {e}")
+                
+        threading.Thread(target=upload_worker, daemon=True).start()
+
     def _start_local_background_pipeline(self, run_request: dict) -> None:
         job_dir = create_local_job_dir(run_request.get("output_dir") or PROJECT_ROOT / "outputs")
         run_request = dict(run_request)
@@ -279,9 +379,7 @@ class PipelineMixin:
 
     def _build_run_request(self) -> dict | None:
         mode = self.state.input_mode.get()
-        input_source = "Server" if self.state.run_target.get() == "Server" else "Local"
-        if self.state.input_source.get() != input_source:
-            self.state.input_source.set(input_source)
+        input_source = self.state.input_source.get()
         raw_input = self.state.input_path.get().strip()
         if not raw_input:
             messagebox.showerror("Missing input", "Chưa chọn file hoặc folder MRI.")

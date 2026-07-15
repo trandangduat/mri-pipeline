@@ -234,18 +234,26 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     ttk.Radiobutton(mode_row, text="Multiple files", variable=gui.state.input_mode, value="files", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
     ttk.Radiobutton(mode_row, text="Batch folder", variable=gui.state.input_mode, value="dir", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
 
+    gui.input_source_row = ttk.Frame(frame)
+    gui.input_source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
+    ttk.Label(gui.input_source_row, text="Input Source:").pack(side=tk.LEFT, padx=(0, 14))
+    gui.input_source_local_rb = ttk.Radiobutton(gui.input_source_row, text="Local Data", variable=gui.state.input_source, value="Local", command=lambda: gui._switch_input_source("Local"))
+    gui.input_source_local_rb.pack(side=tk.LEFT)
+    gui.input_source_server_rb = ttk.Radiobutton(gui.input_source_row, text="Server Data", variable=gui.state.input_source, value="Server", command=lambda: gui._switch_input_source("Server"))
+    gui.input_source_server_rb.pack(side=tk.LEFT, padx=(14, 0))
+
     gui.upload_input_row = ttk.Frame(frame)
-    gui.upload_input_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
+    gui.upload_input_row.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
     upload_options = {"text": "Upload input to server", "command": gui._upload_input_to_server_placeholder}
     upload_icon = gui._make_icon("load") if hasattr(gui, "_make_icon") else None
     if upload_icon is not None:
         upload_options.update({"image": upload_icon, "compound": tk.LEFT})
     gui.upload_input_button = ttk.Button(gui.upload_input_row, **upload_options)
     gui.upload_input_button.pack(side=tk.LEFT)
-    gui.upload_input_tooltip = Tooltip(gui.upload_input_button, "")
+    gui.upload_input_tooltip = Tooltip(gui.upload_input_button, "Standard Upload: Sync all local files to the server before running.\nFor Lazy Upload (upload & process simultaneously), just click 'Run'.")
 
     container = ttk.Frame(frame)
-    container.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=3)
+    container.grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=3)
     ttk.Label(container, textvariable=gui.input_location_label_var).pack(anchor=tk.W, pady=(0, 2))
 
     input_frame = ttk.Frame(container)
@@ -262,12 +270,12 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     gui.input_browse_button.pack(side=tk.RIGHT)
     gui.input_browse_tooltip = Tooltip(gui.input_browse_button, "")
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=10)
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=4, column=0, columnspan=5, sticky=tk.EW, pady=10)
 
-    gui.output_dir_row = _path_row(frame, "Output Location", gui.state.output_dir, 4, lambda: gui._browse_directory(gui.state.output_dir))
+    gui.output_dir_row = _path_row(frame, "Output Location", gui.state.output_dir, 5, lambda: gui._browse_directory(gui.state.output_dir))
 
     gui.server_output_dir_row = ttk.Frame(frame)
-    gui.server_output_dir_row.grid(row=5, column=0, columnspan=5, sticky=tk.EW, pady=3)
+    gui.server_output_dir_row.grid(row=6, column=0, columnspan=5, sticky=tk.EW, pady=3)
     ttk.Label(gui.server_output_dir_row, text="Server Output Location").pack(anchor=tk.W, pady=(0, 2))
     server_input_frame = ttk.Frame(gui.server_output_dir_row)
     server_input_frame.pack(fill=tk.X, expand=True)
@@ -277,7 +285,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     gui.server_output_tooltip = Tooltip(gui.server_output_browse_button, "")
 
     export_frame = ttk.Frame(frame)
-    export_frame.grid(row=6, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
+    export_frame.grid(row=7, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
     def sync_export_options(*_args) -> None:

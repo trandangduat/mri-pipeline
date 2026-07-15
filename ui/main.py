@@ -867,9 +867,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if not enabled:
             self._cancel_remote_health_check()
             self._connected_remote_signature = None
-        desired_source = "Server" if enabled else "Local"
-        if self.state.input_source.get() != desired_source:
-            self._switch_input_source(desired_source)
+            if self.state.input_source.get() != "Local":
+                self._switch_input_source("Local")
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
         if self.remote_frame is not None:
             if enabled:
@@ -911,15 +910,22 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _sync_input_source_controls(self) -> None:
         server_run = self.state.run_target.get() == "Server"
         connected = self._server_connected()
-        self.input_location_label_var.set("Server Input Location" if server_run else "Input Location")
+        
+        if hasattr(self, "input_source_row"):
+            if server_run:
+                self.input_source_row.grid()
+            else:
+                self.input_source_row.grid_remove()
+            
+        self.input_location_label_var.set("Server Input Location" if self.state.input_source.get() == "Server" else "Input Location")
         if self.input_browse_button is not None:
-            self.input_browse_button.configure(text="Browse Server" if server_run else "Browse")
-            if server_run and not connected:
+            self.input_browse_button.configure(text="Browse Server" if self.state.input_source.get() == "Server" else "Browse")
+            if self.state.input_source.get() == "Server" and not connected:
                 self.input_browse_button.configure(state=tk.DISABLED)
             else:
                 self.input_browse_button.configure(state=tk.NORMAL)
         if self.upload_input_row is not None:
-            if server_run:
+            if server_run and self.state.input_source.get() == "Local":
                 self.upload_input_row.grid()
                 if self.upload_input_button is not None:
                     self.upload_input_button.configure(state=tk.NORMAL if connected else tk.DISABLED)
@@ -1334,13 +1340,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.root.after(50, connect_server)
 
     def _browse_input(self) -> None:
-        if self.state.run_target.get() == "Server":
-            if self.state.input_source.get() != "Server":
-                self._switch_input_source("Server")
+        if self.state.input_source.get() == "Server":
             self._browse_remote_input()
             return
-        if self.state.input_source.get() != "Local":
-            self._switch_input_source("Local")
         mode = self.state.input_mode.get()
         if mode == "file":
             path = filedialog.askopenfilename(title="Select MRI file", filetypes=self._mri_filetypes())
@@ -1364,7 +1366,144 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if not self._server_connected():
             messagebox.showwarning("Connect Server", "Please connect to the server first.")
             return
-        messagebox.showinfo("Server Output", "Chức năng duyệt thư mục trên Server chưa được hỗ trợ. Vui lòng nhập đường dẫn thủ công.")
+        ssh_config = self._build_ssh_config()
+        if ssh_config is None:
+            return
+            
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Browse Server Output Location")
+        dialog.geometry("760x520")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        current_path = tk.StringVar(value=self.state.server_output_dir.get().strip() or "~")
+        status_text = tk.StringVar(value="Connecting...")
+        selected: dict[str, str | None] = {"path": None}
+        entries: list[dict] = []
+        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+
+        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+        top.pack(fill=tk.X)
+        ttk.Label(top, text="Server output path").pack(anchor=tk.W)
+        path_row = ttk.Frame(top)
+        path_row.pack(fill=tk.X, pady=(2, 6))
+        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
+        body.pack(fill=tk.BOTH, expand=True)
+        listing = tk.Listbox(body, selectmode=tk.BROWSE, height=18, activestyle="dotbox")
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+        listing.configure(yscrollcommand=scroll.set)
+        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+        bottom.pack(fill=tk.X)
+        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def normalize_remote_path(path: str) -> str:
+            path = path.strip() or "~"
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                try:
+                    path = ssh.expand_path(path)
+                except Exception:
+                    pass
+            return posixpath.normpath(path) if path.startswith("/") else path
+
+        def load_dir(path: str) -> None:
+            nonlocal entries
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return
+            try:
+                path = normalize_remote_path(path)
+                attrs = ssh.sftp.listdir_attr(path)
+                dirs = []
+                for item in attrs:
+                    if item.filename.startswith("."):
+                        continue
+                    if stat.S_ISDIR(item.st_mode):
+                        dirs.append({"name": item.filename, "path": posixpath.join(path, item.filename)})
+                
+                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/"}] + sorted(dirs, key=lambda x: x["name"].lower())
+                listing.delete(0, tk.END)
+                for row in entries:
+                    listing.insert(tk.END, "[D] " + row["name"])
+                current_path.set(path)
+                status_text.set("Select a folder for output.")
+            except Exception as exc:
+                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
+
+        def connect_and_load() -> None:
+            try:
+                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+                ssh.connect()
+                ssh_holder["ssh"] = ssh
+                load_dir(current_path.get())
+            except Exception as exc:
+                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+                
+        def create_new_folder() -> None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is None:
+                return
+            from tkinter import simpledialog
+            current = normalize_remote_path(current_path.get())
+            name = simpledialog.askstring("New folder", "Folder name:", parent=dialog)
+            if not name:
+                return
+            name = name.strip().strip("/")
+            if not name or "/" in name or name in {".", ".."}:
+                messagebox.showerror("Invalid name", "Invalid folder name.", parent=dialog)
+                return
+            new_path = posixpath.join(current, name)
+            try:
+                ssh.mkdir_p(new_path)
+                load_dir(new_path)
+                status_text.set(f"Created folder: {new_path}")
+            except Exception as exc:
+                messagebox.showerror("Error", f"Could not create folder:\n{exc}", parent=dialog)
+
+        def open_selected(_event=None) -> None:
+            selection = listing.curselection()
+            if not selection:
+                return
+            load_dir(str(entries[selection[0]]["path"]))
+
+        def choose() -> None:
+            path = normalize_remote_path(current_path.get())
+            selection = listing.curselection()
+            if selection:
+                # User selected a specific folder in the list
+                path = str(entries[selection[0]]["path"])
+            selected["path"] = path
+            dialog.destroy()
+
+        def close() -> None:
+            dialog.destroy()
+
+        def on_destroy(_event=None) -> None:
+            ssh = ssh_holder.get("ssh")
+            if ssh is not None:
+                ssh.close()
+                ssh_holder["ssh"] = None
+
+        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(path_row, text="+ Folder", command=create_new_folder).pack(side=tk.LEFT)
+        
+        listing.bind("<Double-Button-1>", open_selected)
+        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
+        
+        dialog.protocol("WM_DELETE_WINDOW", close)
+        dialog.bind("<Destroy>", on_destroy, add="+")
+        self.root.after(50, connect_and_load)
+        self.root.wait_window(dialog)
+        
+        if selected.get("path"):
+            self.state.server_output_dir.set(selected["path"])
 
     def _browse_remote_input(self) -> None:
         if not self._server_connected():
@@ -1818,7 +1957,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
-        input_source = "Server" if self.state.run_target.get() == "Server" else "Local"
+        input_source = self.state.input_source.get()
         if self.state.run_target.get() == "Server":
             if not self.state.remote_host.get().strip():
                 errors.append("Remote Host/IP is required.")
