@@ -339,6 +339,8 @@ class ProgressMixin:
             req = self._build_run_request()
         if not req:
             return []
+        if req.get("lazy_watch"):
+            return []
         if req["mode"] == "file":
             return [req["input_file"]]
         if req["mode"] == "files":
