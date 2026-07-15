@@ -1839,7 +1839,6 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 workspace = json.load(f)
             self.state.workspace_name = Path(path).stem
             self.state.apply_workspace(workspace)
-            self._apply_pipeline_mode(apply_stats_preset="stats_vectors" not in workspace, update_tools_visibility=False)
             self._on_run_target_changed()
             self._last_input_source = self.state.input_source.get()
             self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()

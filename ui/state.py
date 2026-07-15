@@ -200,9 +200,6 @@ class AppState:
             "threads": int(self.threads.get()),
             "non_recursive": self.non_recursive.get(),
             "run_target": self.run_target.get(),
-            "pipeline_mode": self.pipeline_mode.get(),
-            "tools": self.get_selected_tools(),
-            "stats_vectors": self.get_stats_vector_config(),
         }
         if self.run_target.get() == "Server":
             workspace["remote"] = {
@@ -239,15 +236,7 @@ class AppState:
         self.threads.set(int(workspace.get("threads", 4)))
         self.non_recursive.set(bool(workspace.get("non_recursive", False)))
         self.run_target.set(workspace.get("run_target", "Local"))
-        self.pipeline_mode.set(normalize_pipeline_mode(workspace.get("pipeline_mode", self.pipeline_mode.get())))
-        for stage, value in workspace.get("tools", {}).items():
-            if stage in self.tool_vars:
-                tool_key = tool_key_from_display(value)
-                if not tool_key and value in TOOL_DEFS:
-                    tool_key = value
-                self.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
-        if "stats_vectors" in workspace:
-            self.apply_stats_vector_config(workspace.get("stats_vectors", {}))
+
         self.input_source.set("Server" if self.run_target.get() == "Server" else "Local")
 
         remote = workspace.get("remote", {})
