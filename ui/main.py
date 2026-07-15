@@ -140,9 +140,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         normalized = self.PIPELINE_MODE_ALIASES.get(normalized, normalized)
         return normalized if normalized in self.PIPELINE_MODES else "Custom"
 
-    def _apply_custom_tool_defaults(self) -> None:
+    def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:
         for stage in STAGE_ORDER:
-            if stage not in self.state.tool_vars or self.state.tool_vars[stage].get().strip():
+            if not force_reset and (stage not in self.state.tool_vars or (self.state.tool_vars[stage].get().strip() and self.state.tool_vars[stage].get() != "Not available")):
                 continue
             tools = enabled_tools_for_stage(stage)
             if tools:
@@ -1688,7 +1688,21 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if path:
             self.state.remote_key_path.set(path)
 
-    def _apply_stats_preset_for_mode(self, mode: str) -> None:
+    def _apply_stats_preset_for_mode(self, mode: str, force_reset: bool = False) -> None:
+        if mode == "Custom":
+            if not force_reset:
+                return
+            self._is_applying_preset = True
+            try:
+                for stat, var in self.state.stat_vector_enabled_vars.items():
+                    var.set(False)
+                    first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
+                    if first_atlas:
+                        self.state.set_stat_atlas_choice(stat, first_atlas)
+            finally:
+                self._is_applying_preset = False
+            return
+            
         preset = self.PRESET_CONFIGS.get(mode)
         if preset is None:
             return
@@ -1725,7 +1739,13 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 else:
                     combo.configure(state=tk.DISABLED)
                     if choice_var:
-                        choice_var.set("Not available")
+                        if mode == "Custom":
+                            if choice_var.get() == "Not available" or not choice_var.get():
+                                first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
+                                if first_atlas:
+                                    self.state.set_stat_atlas_choice(stat, first_atlas)
+                        else:
+                            choice_var.set("Not available")
         finally:
             self._is_applying_preset = False
 
@@ -1736,8 +1756,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if mode != self.state.pipeline_mode.get():
             self.state.pipeline_mode.set(mode)
             return
+            
+        is_programmatic = getattr(self, "_is_applying_preset", False)
         if apply_stats_preset:
-            self._apply_stats_preset_for_mode(mode)
+            self._apply_stats_preset_for_mode(mode, force_reset=not is_programmatic)
+            
         preset = self.PRESET_CONFIGS.get(mode)
         if preset is not None:
             fixed_tools = preset["tools"]
@@ -1759,7 +1782,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
                 self.state.pipeline_note.set(f"{mode}: volume vectors and cortical thickness are selected. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
         else:
-            self._apply_custom_tool_defaults()
+            self._apply_custom_tool_defaults(force_reset=not is_programmatic)
             for combo in self.tool_combos.values():
                 combo.configure(state="readonly")
             self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
@@ -1977,8 +2000,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self.state.pipeline_mode.set("Custom")
             self._validate_configuration()
 
-        for var in [*self.state.stat_vector_enabled_vars.values(), *self.state.stat_atlas_choice_vars.values()]:
+        for var in self.state.stat_vector_enabled_vars.values():
             var.trace_add("write", _on_stat_vector_changed)
+        for var in self.state.stat_atlas_choice_vars.values():
+            var.trace_add("write", lambda *_args: self._validate_configuration())
 
     def _validate_configuration(self) -> bool:
         errors: list[str] = []
