@@ -924,13 +924,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self.input_browse_button.configure(state=tk.DISABLED)
             else:
                 self.input_browse_button.configure(state=tk.NORMAL)
-        if self.upload_input_row is not None:
-            if server_run and self.state.input_source.get() == "Local":
-                self.upload_input_row.grid()
-                if self.upload_input_button is not None:
-                    self.upload_input_button.configure(state=tk.NORMAL if connected else tk.DISABLED)
+        if hasattr(self, "upload_input_button") and self.upload_input_button is not None:
+            if self.state.input_source.get() == "Local" and connected:
+                self.upload_input_button.configure(state=tk.NORMAL)
             else:
-                self.upload_input_row.grid_remove()
+                self.upload_input_button.configure(state=tk.DISABLED)
         if hasattr(self, "server_output_dir_row"):
             if server_run:
                 self.server_output_dir_row.grid()

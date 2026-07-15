@@ -243,25 +243,23 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
         input_source_inner,
         textvariable=gui.state.input_source,
         values=("Local", "Server"),
-        state="readonly"
+        state="readonly",
+        width=10
     )
-    gui.input_source_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-    
-    # We trace input_source to trigger _switch_input_source properly
-    # Using lambda to avoid trace argument mismatch
-    def _on_input_source_change(*_args):
-        gui._switch_input_source(gui.state.input_source.get())
-    gui.state.input_source.trace_add("write", _on_input_source_change)
+    gui.input_source_combo.pack(side=tk.LEFT, padx=(0, 14))
 
-    gui.upload_input_row = ttk.Frame(frame)
-    gui.upload_input_row.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
     upload_options = {"text": "Upload input to server", "command": gui._upload_input_to_server_placeholder}
     upload_icon = gui._make_icon("load") if hasattr(gui, "_make_icon") else None
     if upload_icon is not None:
         upload_options.update({"image": upload_icon, "compound": tk.LEFT})
-    gui.upload_input_button = ttk.Button(gui.upload_input_row, **upload_options)
+    gui.upload_input_button = ttk.Button(input_source_inner, **upload_options)
     gui.upload_input_button.pack(side=tk.LEFT)
     gui.upload_input_tooltip = Tooltip(gui.upload_input_button, "Standard Upload: Sync all local files to the server before running.\nFor Lazy Upload (upload & process simultaneously), just click 'Run'.")
+    
+    # We trace input_source to trigger _switch_input_source properly
+    def _on_input_source_change(*_args):
+        gui._switch_input_source(gui.state.input_source.get())
+    gui.state.input_source.trace_add("write", _on_input_source_change)
 
     container = ttk.Frame(frame)
     container.grid(row=3, column=0, columnspan=5, sticky=tk.EW, pady=3)
