@@ -235,12 +235,23 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     ttk.Radiobutton(mode_row, text="Batch folder", variable=gui.state.input_mode, value="dir", command=gui._refresh_input_label).pack(side=tk.LEFT, padx=(14, 0))
 
     gui.input_source_row = ttk.Frame(frame)
-    gui.input_source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
-    ttk.Label(gui.input_source_row, text="Input Source:").pack(side=tk.LEFT, padx=(0, 14))
-    gui.input_source_local_rb = ttk.Radiobutton(gui.input_source_row, text="Local Data", variable=gui.state.input_source, value="Local", command=lambda: gui._switch_input_source("Local"))
-    gui.input_source_local_rb.pack(side=tk.LEFT)
-    gui.input_source_server_rb = ttk.Radiobutton(gui.input_source_row, text="Server Data", variable=gui.state.input_source, value="Server", command=lambda: gui._switch_input_source("Server"))
-    gui.input_source_server_rb.pack(side=tk.LEFT, padx=(14, 0))
+    gui.input_source_row.grid(row=1, column=0, columnspan=5, sticky=tk.EW, pady=3)
+    ttk.Label(gui.input_source_row, text="Input Source").pack(anchor=tk.W, pady=(0, 2))
+    input_source_inner = ttk.Frame(gui.input_source_row)
+    input_source_inner.pack(fill=tk.X, expand=True)
+    gui.input_source_combo = ttk.Combobox(
+        input_source_inner,
+        textvariable=gui.state.input_source,
+        values=("Local", "Server"),
+        state="readonly"
+    )
+    gui.input_source_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+    
+    # We trace input_source to trigger _switch_input_source properly
+    # Using lambda to avoid trace argument mismatch
+    def _on_input_source_change(*_args):
+        gui._switch_input_source(gui.state.input_source.get())
+    gui.state.input_source.trace_add("write", _on_input_source_change)
 
     gui.upload_input_row = ttk.Frame(frame)
     gui.upload_input_row.grid(row=2, column=0, columnspan=5, sticky=tk.EW, pady=(0, 8))
