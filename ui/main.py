@@ -1707,15 +1707,27 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._is_applying_preset = False
 
     def _update_stats_vector_controls(self, mode: str) -> None:
-        locked = set()
-        if mode in self.PRESET_CONFIGS:
-            locked = set(STAT_VECTOR_DEFS)
-
-        for stat, check in getattr(self, "stat_vector_checkbuttons", {}).items():
-            check.configure(state=tk.NORMAL)
-        for stat, combo in getattr(self, "stat_atlas_combos", {}).items():
-            var = self.state.stat_vector_enabled_vars.get(stat)
-            combo.configure(state="readonly" if (var is not None and var.get() and stat not in locked) else tk.DISABLED)
+        self._is_applying_preset = True
+        try:
+            for stat, check in getattr(self, "stat_vector_checkbuttons", {}).items():
+                check.configure(state=tk.NORMAL)
+            for stat, combo in getattr(self, "stat_atlas_combos", {}).items():
+                var = self.state.stat_vector_enabled_vars.get(stat)
+                choice_var = self.state.stat_atlas_choice_vars.get(stat)
+                is_enabled = var is not None and var.get()
+                
+                if is_enabled:
+                    combo.configure(state="readonly")
+                    if choice_var and choice_var.get() == "Not available":
+                        first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
+                        if first_atlas:
+                            self.state.set_stat_atlas_choice(stat, first_atlas)
+                else:
+                    combo.configure(state=tk.DISABLED)
+                    if choice_var:
+                        choice_var.set("Not available")
+        finally:
+            self._is_applying_preset = False
 
     def _apply_pipeline_mode(self, apply_stats_preset: bool = True, show_custom_tools: bool = True, update_tools_visibility: bool = True) -> None:
         if getattr(self, "_preserve_pipeline_tools_visibility", False):
