@@ -1694,13 +1694,17 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             return
         enabled = set(preset["stats"])
 
-        for stat, var in self.state.stat_vector_enabled_vars.items():
-            var.set(stat in enabled)
-        for stat in enabled:
-            if not self.state.selected_atlases_for_stat(stat):
-                first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
-                if first_atlas:
-                    self.state.set_stat_atlas_choice(stat, first_atlas)
+        self._is_applying_preset = True
+        try:
+            for stat, var in self.state.stat_vector_enabled_vars.items():
+                var.set(stat in enabled)
+            for stat in enabled:
+                if not self.state.selected_atlases_for_stat(stat):
+                    first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
+                    if first_atlas:
+                        self.state.set_stat_atlas_choice(stat, first_atlas)
+        finally:
+            self._is_applying_preset = False
 
     def _update_stats_vector_controls(self, mode: str) -> None:
         locked = set()
@@ -1830,20 +1834,24 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         }
 
     def _apply_run_config(self, config: dict) -> None:
-        self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom")))
+        self._is_applying_preset = True
+        try:
+            self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom")))
 
-        tools = config.get("tools", {})
-        for stage, value in tools.items():
-            if stage in self.state.tool_vars:
-                tool_key = tool_key_from_display(value)
-                if not tool_key and value in TOOL_DEFS:
-                    tool_key = value
-                self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
+            tools = config.get("tools", {})
+            for stage, value in tools.items():
+                if stage in self.state.tool_vars:
+                    tool_key = tool_key_from_display(value)
+                    if not tool_key and value in TOOL_DEFS:
+                        tool_key = value
+                    self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
 
-        self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
-        self._apply_pipeline_mode(apply_stats_preset=False)
-        self._update_config_tool_status_labels()
-        self._validate_configuration()
+            self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
+            self._apply_pipeline_mode(apply_stats_preset=False)
+            self._update_config_tool_status_labels()
+            self._validate_configuration()
+        finally:
+            self._is_applying_preset = False
 
     def _save_run_config(self) -> None:
         config_dir = PROJECT_ROOT / "configs" / "preset"
@@ -1950,6 +1958,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             var.trace_add("write", lambda *_args: self._validate_configuration())
 
         def _on_stat_vector_changed(*_args):
+            if getattr(self, "_is_applying_preset", False):
+                return
             mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
             if mode != "Custom":
                 self.state.pipeline_mode.set("Custom")
