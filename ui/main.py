@@ -1997,7 +1997,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 return
             mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
             if mode != "Custom":
-                self.state.pipeline_mode.set("Custom")
+                self._is_applying_preset = True
+                try:
+                    self.state.pipeline_mode.set("Custom")
+                finally:
+                    self._is_applying_preset = False
             self._validate_configuration()
 
         for var in self.state.stat_vector_enabled_vars.values():
