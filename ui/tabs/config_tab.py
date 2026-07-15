@@ -288,13 +288,22 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     export_frame.grid(row=7, column=0, columnspan=5, sticky=tk.EW, pady=(10, 0))
     export_frame.columnconfigure(1, weight=1)
 
+    gui.export_toggle_text = tk.StringVar(value="▼ Hide custom outputs" if gui.state.export_outputs_enabled.get() else "▶ Custom output files")
+
     def sync_export_options(*_args) -> None:
         if gui.state.export_outputs_enabled.get():
             options.grid(row=1, column=0, columnspan=3, sticky=tk.EW, padx=0, pady=(2, 0))
+            gui.export_toggle_text.set("▼ Hide custom outputs")
         else:
             options.grid_remove()
+            gui.export_toggle_text.set("▶ Custom output files")
 
-    ttk.Checkbutton(export_frame, text="Custom output files", variable=gui.state.export_outputs_enabled, command=sync_export_options).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 2))
+    def toggle_export() -> None:
+        current = gui.state.export_outputs_enabled.get()
+        gui.state.export_outputs_enabled.set(not current)
+        sync_export_options()
+
+    ttk.Button(export_frame, textvariable=gui.export_toggle_text, command=toggle_export).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
 
     options = ttk.Frame(export_frame)
     options.columnconfigure(1, weight=1)
