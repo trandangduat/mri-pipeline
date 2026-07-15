@@ -147,14 +147,17 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         var = gui.state.tool_vars[stage]
 
         tools_table.rowconfigure(row, minsize=46)
-        tk.Label(
+        gui.tool_step_labels = getattr(gui, "tool_step_labels", {})
+        step_label = tk.Label(
             tools_table,
             text=f"{idx + 1}. {STAGE_LABELS.get(stage, stage)}",
             bg=PANEL_BG,
             fg="#111827",
             font=("Inter", 10),
             anchor=tk.W,
-        ).grid(row=row, column=0, sticky=tk.EW, padx=(14, 10))
+        )
+        step_label.grid(row=row, column=0, sticky=tk.EW, padx=(14, 10))
+        gui.tool_step_labels[stage] = step_label
 
         combo = ttk.Combobox(tools_table, textvariable=var, values=tool_labels, state="readonly", width=30)
         combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 10))

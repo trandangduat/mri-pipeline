@@ -773,12 +773,24 @@ class ToolsMixin:
             return
         target = self.state.run_target.get()
         for stage, label in self.tool_status_labels.items():
-            tool_key = tool_key_from_display(self.state.tool_vars.get(stage).get()) if stage in self.state.tool_vars else ""
+            tool_val = self.state.tool_vars.get(stage).get() if stage in self.state.tool_vars else ""
+            tool_key = tool_key_from_display(tool_val)
             status = self._tool_status(tool_key, target)
             if status == "Skipped":
-                optional = stage in getattr(self, "OPTIONAL_STAGES", set())
-                label.configure(image="", text="-  Optional" if optional else "", compound=tk.LEFT, foreground=self._status_color(status))
+                if tool_val == "Not available":
+                    label.configure(image="", text="-  Not used", compound=tk.LEFT, foreground="#94a3b8")
+                    if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
+                        self.tool_step_labels[stage].configure(fg="#94a3b8")
+                else:
+                    optional = stage in getattr(self, "OPTIONAL_STAGES", set())
+                    label.configure(image="", text="-  Optional" if optional else "", compound=tk.LEFT, foreground=self._status_color(status))
+                    if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
+                        self.tool_step_labels[stage].configure(fg="#111827")
                 continue
+            
+            if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
+                self.tool_step_labels[stage].configure(fg="#111827")
+                
             icon = self._tool_status_icon_image(status, small=True)
             text = self._status_label_text(status)
             if self._is_busy_status(status):
