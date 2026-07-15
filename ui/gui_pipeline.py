@@ -141,20 +141,9 @@ class PipelineMixin:
         try:
             if self.state.run_target.get() == "Server":
                 if self.state.input_source.get() == "Local":
-                    msg = (
-                        "You selected Local data for a Server run.\n\n"
-                        "Do you want to use Lazy Upload? This will upload and process files one by one.\n"
-                        "Warning: You must leave the application open until all files are uploaded.\n\n"
-                        "If you click No, you must use the 'Upload' button to upload all files manually before running."
-                    )
-                    lazy = messagebox.askyesno("Lazy Upload Mode", msg, parent=self.root)
-                    if lazy:
-                        self._start_lazy_upload_pipeline(resume, restart, starter_button)
-                    else:
-                        if starter_button is not None:
-                            self._set_button_busy(starter_button, False)
+                    self._start_lazy_upload_pipeline(resume, restart, starter_button)
                     return
-
+                
                 run_request = self._build_run_request()
                 if run_request is None:
                     return
