@@ -653,6 +653,14 @@ class ProgressMixin:
         if input_file in self.image_runs:
             return input_file
             
+        context = self._current_progress_context()
+        if context and "Lazy Upload" in context.get("title", ""):
+            return input_file
+            
+        active_job = getattr(self, "active_job", {})
+        if active_job and active_job.get("registry_entry", {}).get("run_request", {}).get("lazy_watch"):
+            return input_file
+            
         # Match by idx for accurate mapping when multiple files have the same basename
         idx = event.get("idx")
         if idx is not None:
