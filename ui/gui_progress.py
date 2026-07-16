@@ -205,7 +205,21 @@ class ProgressMixin:
         for context_id, context in self.progress_contexts.items():
             if str(context.get("tab")) == selected:
                 self._activate_progress_context(context_id)
+                if hasattr(self, "_sync_attach_toolbar_state"):
+                    self._sync_attach_toolbar_state()
                 return
+                
+        # If it reaches here, a non-progress tab is selected (like config or tools)
+        self.active_progress_context_id = ""
+        self.active_job = None
+        if hasattr(self, "resume_button"):
+            self.resume_button.configure(state=tk.DISABLED)
+        if hasattr(self, "restart_button"):
+            self.restart_button.configure(state=tk.DISABLED)
+        if hasattr(self, "stop_button"):
+            self.stop_button.configure(state=tk.DISABLED)
+        if hasattr(self, "_validate_configuration"):
+            self._validate_configuration()
 
     def _on_notebook_click(self, event) -> None:
         if self.notebook is None:
