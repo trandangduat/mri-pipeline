@@ -415,7 +415,7 @@ class ToolsMixin:
         keep = (
             "Connecting SSH", "SSH connected", "Base Python", "Remote venv:", "Venv Python", "Venv pip",
             "Creating remote venv", "Using remote venv", "Installing", "Installed:", "Missing:", "Downloading:", "Deleting:", "Deleted:", "Failed:",
-            "Requirement", "Collecting", "Using cached", "Downloading ", "Successfully", "ERROR:", "WARNING:",
+            "Requirement", "Collecting", "Using cached", "Downloading ", "Successfully", "ERROR:", "WARNING:", "Docker:"
         )
         if line.startswith(keep):
             self.root.after(0, lambda l=line: self._append_tools_log(l))

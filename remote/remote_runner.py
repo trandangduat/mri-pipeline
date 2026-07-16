@@ -246,7 +246,7 @@ class RemoteRunner:
                 "for tool in sys.argv[1:]:\n"
                 "    image = TOOL_DEFS.get(tool, {}).get('image', tool)\n"
                 "    print(f'Downloading: {image}', flush=True)\n"
-                "    result, err, _ = ensure_image(tool)\n"
+                "    result, err, _ = ensure_image(tool, on_build_log=lambda l: print(f'Docker: {l}', flush=True))\n"
                 "    if result:\n"
                 "        print(f'Installed: {image}', flush=True)\n"
                 "    else:\n"
