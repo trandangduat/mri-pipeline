@@ -220,6 +220,7 @@ def _run_docker(
     mounts: list[tuple[str, str]] | dict[str, str],
     env: dict[str, str] | None = None,
     gpus: bool = False,
+    memory_bytes: int | None = None,
     timeout: int = 7200,
     container_name: str | None = None,
     on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
@@ -231,6 +232,8 @@ def _run_docker(
         cmd += ["--name", container_name]
     if gpus:
         cmd += ["--gpus", "all"]
+    if memory_bytes and memory_bytes > 0:
+        cmd += ["--memory", f"{int(memory_bytes)}b"]
     mount_items = mounts.items() if isinstance(mounts, dict) else mounts
     for host_path, container_path in mount_items:
         cmd += ["-v", f"{os.path.abspath(host_path)}:{container_path}"]

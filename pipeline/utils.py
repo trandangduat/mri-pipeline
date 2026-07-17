@@ -483,6 +483,7 @@ def _step_metrics_row(config: PipelineConfig, subject_dir: str, result: StepResu
         "tool": result.tool,
         "tool_label": tool_display_name(result.tool) or result.tool,
         "threads": config.threads,
+        "ram_percent": config.ram_percent,
         "device": config.device,
         "status": "OK" if result.success else "FAILED",
         "success": result.success,
@@ -519,6 +520,7 @@ BENCHMARK_STEP_FIELDS = [
     "tool",
     "tool_label",
     "threads",
+    "ram_percent",
     "device",
     "hostname",
     "cpu_vendor",
@@ -557,6 +559,7 @@ def _write_pipeline_metrics_log(logs_dir: str, config: PipelineConfig, subject_d
         f.write(f"Started: {datetime.fromtimestamp(started_at).isoformat(timespec='seconds')}\n")
         f.write(f"Finished: {datetime.fromtimestamp(ended_at).isoformat(timespec='seconds')}\n")
         f.write(f"Status: {status}\n")
+        f.write(f"RAM percent: {config.ram_percent}%\n")
         f.write(f"Total wall time: {ended_at - started_at:.1f}s\n")
         f.write(f"Total run time: {total_run:.1f}s\n")
         f.write(f"Total build/pull time: {total_build:.1f}s\n\n")
@@ -624,6 +627,7 @@ BENCHMARK_SUMMARY_FIELDS = [
     "tool",
     "tool_label",
     "threads",
+    "ram_percent",
     "device",
     "hostname",
     "cpu_vendor",
@@ -659,9 +663,11 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
     safe_config = _safe_batch_config(batch_config)
     host_info = _host_info()
     threads = safe_config.get("threads")
+    ram_percent = safe_config.get("ram_percent")
     device = safe_config.get("device")
     context = {
         "threads": threads,
+        "ram_percent": ram_percent,
         "device": device,
         "hostname": host_info.get("hostname"),
         "cpu_vendor": host_info.get("cpu_vendor"),
@@ -679,6 +685,7 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
                 subject_id=image_result.subject_id,
                 device=str(device or "cpu"),
                 threads=int(threads or 4),
+                ram_percent=int(ram_percent or 100),
             )
             for step in image_result.steps:
                 row = _step_metrics_row(config, image_result.subject_dir, step)
@@ -694,6 +701,7 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
                 "tool": "pipeline",
                 "tool_label": "Pipeline",
                 "threads": threads,
+                "ram_percent": ram_percent,
                 "device": device,
                 "status": "FAILED" if not image_result.success else "OK",
                 "success": image_result.success,
@@ -737,6 +745,7 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
             "tool": tool,
             "tool_label": first.get("tool_label", tool),
             "threads": first.get("threads"),
+            "ram_percent": first.get("ram_percent"),
             "device": first.get("device"),
             "hostname": first.get("hostname"),
             "cpu_vendor": first.get("cpu_vendor"),
@@ -816,6 +825,7 @@ def _new_pipeline_state(config: PipelineConfig, subject_dir: str) -> dict:
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "selected_tools": config.selected_tools,
+        "ram_percent": config.ram_percent,
         "export_config": config.export_config.to_dict(),
         "stats_vector_config": config.stats_vector_config.to_dict(),
         "stages": {},

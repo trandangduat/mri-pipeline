@@ -339,12 +339,27 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
     gui.run_target_combo = ttk.Combobox(frame, textvariable=gui.state.run_target, values=("Local", "Server"), state="readonly", width=10)
     gui.run_target_combo.grid(row=0, column=1, sticky=tk.EW, padx=(8, 0), pady=(4, 0))
 
-    ttk.Label(frame, text="Device", width=10).grid(row=1, column=0, sticky=tk.W, pady=(10, 0))
-    ttk.Combobox(frame, textvariable=gui.state.device, values=("cpu", "gpu"), state="readonly", width=10).grid(row=1, column=1, sticky=tk.EW, padx=(8, 0), pady=(10, 0))
+    ttk.Label(frame, text="RAM %", width=10).grid(row=1, column=0, sticky=tk.W, pady=(10, 4))
+    ram_row = ttk.Frame(frame)
+    ram_row.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=(10, 4))
+    ram_vcmd = (gui.root.register(gui._validate_ram_percent_input), "%P")
+    gui.ram_percent_spinbox = ttk.Spinbox(
+        ram_row,
+        from_=1,
+        to=100,
+        textvariable=gui.state.ram_percent,
+        width=8,
+        validate="key",
+        validatecommand=ram_vcmd,
+    )
+    gui.ram_percent_spinbox.pack(side=tk.LEFT)
 
-    ttk.Label(frame, text="Threads", width=10).grid(row=2, column=0, sticky=tk.W, pady=(10, 4))
+    ttk.Label(frame, text="Device", width=10).grid(row=2, column=0, sticky=tk.W, pady=(10, 0))
+    ttk.Combobox(frame, textvariable=gui.state.device, values=("cpu", "gpu"), state="readonly", width=10).grid(row=2, column=1, sticky=tk.EW, padx=(8, 0), pady=(10, 0))
+
+    ttk.Label(frame, text="Threads", width=10).grid(row=3, column=0, sticky=tk.W, pady=(10, 4))
     thread_row = ttk.Frame(frame)
-    thread_row.grid(row=2, column=1, sticky=tk.W, padx=(8, 0), pady=(10, 4))
+    thread_row.grid(row=3, column=1, sticky=tk.W, padx=(8, 0), pady=(10, 4))
     thread_vcmd = (gui.root.register(gui._validate_thread_input), "%P")
     gui.thread_spinbox = ttk.Spinbox(
         thread_row,

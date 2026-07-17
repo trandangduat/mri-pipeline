@@ -621,6 +621,15 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             return False
         return self.max_threads is None or value <= self.max_threads
 
+    def _validate_ram_percent_input(self, proposed: str) -> bool:
+        if proposed == "":
+            return True
+        try:
+            value = int(proposed)
+        except ValueError:
+            return False
+        return 1 <= value <= 100
+
     def _clamp_threads(self) -> None:
         if self.max_threads is None:
             return
@@ -1996,6 +2005,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.license_dir,
             self.state.device,
             self.state.threads,
+            self.state.ram_percent,
             self.state.non_recursive,
             self.state.run_target,
             self.state.remote_host,
@@ -2140,6 +2150,13 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
         except (tk.TclError, ValueError):
             errors.append("Threads must be a valid integer.")
+
+        try:
+            ram_percent = int(self.state.ram_percent.get())
+            if ram_percent < 1 or ram_percent > 100:
+                errors.append("RAM % must be between 1 and 100.")
+        except (tk.TclError, ValueError):
+            errors.append("RAM % must be a valid integer.")
 
         selected_tools = self.state.get_selected_tools()
         missing_stages = [

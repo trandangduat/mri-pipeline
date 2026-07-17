@@ -57,6 +57,7 @@ class AppState:
         # Runtime settings
         self.device = tk.StringVar(value="cpu")
         self.threads = tk.IntVar(value=4)
+        self.ram_percent = tk.IntVar(value=100)
         self.non_recursive = tk.BooleanVar(value=False)
         self.run_target = tk.StringVar(value="Local")
         self.pipeline_mode = tk.StringVar(value="Custom")
@@ -198,6 +199,7 @@ class AppState:
             "export_outputs": self.get_export_config(),
             "device": self.device.get(),
             "threads": int(self.threads.get()),
+            "ram_percent": int(self.ram_percent.get()),
             "non_recursive": self.non_recursive.get(),
             "run_target": self.run_target.get(),
         }
@@ -234,6 +236,7 @@ class AppState:
 
         self.device.set(workspace.get("device", "cpu"))
         self.threads.set(int(workspace.get("threads", 4)))
+        self.ram_percent.set(int(workspace.get("ram_percent", 100)))
         self.non_recursive.set(bool(workspace.get("non_recursive", False)))
         self.run_target.set(workspace.get("run_target", "Local"))
 

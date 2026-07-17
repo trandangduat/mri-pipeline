@@ -391,6 +391,7 @@ class PipelineMixin:
             "license_dir": self.state.license_dir.get().strip(),
             "device": self.state.device.get(),
             "threads": int(self.state.threads.get()),
+            "ram_percent": int(self.state.ram_percent.get()),
             "selected_tools": selected_tools,
             "export_config": self.state.get_export_config(),
             "stats_vector_config": self.state.get_stats_vector_config(),

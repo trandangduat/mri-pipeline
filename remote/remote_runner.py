@@ -31,6 +31,7 @@ class RemoteRunConfig:
     license_dir: str = ""
     device: str = "cpu"
     threads: int = 4
+    ram_percent: int = 100
     selected_tools: dict[str, str] = field(default_factory=dict)
     export_config: dict = field(default_factory=dict)
     stats_vector_config: dict = field(default_factory=dict)
@@ -378,6 +379,7 @@ class RemoteRunner:
             "license_dir": posixpath.join(self.remote_job_dir, "license"),
             "device": self.config.device,
             "threads": int(self.config.threads),
+            "ram_percent": int(self.config.ram_percent),
             "selected_tools": self.config.selected_tools,
             "export_config": self.config.export_config or {},
             "stats_vector_config": self.config.stats_vector_config or {},

@@ -471,6 +471,7 @@ class PipelineConfig:
     license_dir: str = ""
     device: str = "cpu"
     threads: int = 4
+    ram_percent: int = 100
     resume: bool = False
     selected_tools: dict[str, str] = field(default_factory=lambda: {
         "reorientation": "mri_convert_fs7",

@@ -48,6 +48,7 @@ from .utils import (
     _resume_output_for_stage,
     _safe_container_name,
     _set_stage_state,
+    _total_ram_bytes,
     _write_batch_benchmark_reports,
     _write_pipeline_metrics_log,
     _write_pipeline_state,
@@ -63,6 +64,16 @@ def _volume_extension(path: Path) -> str:
     if name.endswith(".nii.gz"):
         return ".nii.gz"
     return path.suffix.lower()
+
+
+def _docker_memory_limit_bytes(ram_percent: int) -> int | None:
+    pct = max(1, min(int(ram_percent), 100))
+    if pct >= 100:
+        return None
+    total = _total_ram_bytes()
+    if not total:
+        return None
+    return max(1, int(total * pct / 100))
 
 
 def _strip_volume_extension(name: str) -> str:
@@ -765,6 +776,8 @@ def run_pipeline(
     input_for_next_step: str | None = None
     total_stages = len(STAGE_ORDER)
     paused = False
+    ram_percent = max(1, min(int(config.ram_percent), 100))
+    memory_limit_bytes = _docker_memory_limit_bytes(ram_percent)
 
     for stage_idx, stage in enumerate(STAGE_ORDER):
         tool_key = config.selected_tools.get(stage)
@@ -877,6 +890,7 @@ def run_pipeline(
             args=args,
             mounts=mounts,
             gpus=(config.device == "gpu" or config.device == "cuda"),
+            memory_bytes=memory_limit_bytes,
             container_name=container_name,
             command=command,
             entrypoint=tool.get("entrypoint"),
@@ -942,6 +956,7 @@ def run_pipeline(
             f"Tool: {tool_display_name(tool_key)}",
             f"Duration: {duration:.1f}s",
             f"Build: {build_time:.1f}s",
+            f"RAM limit: {_format_bytes(memory_limit_bytes)} ({ram_percent}%)" if memory_limit_bytes else f"RAM limit: unlimited ({ram_percent}%)",
             f"Peak RAM: {_format_bytes(peak_ram)}",
             f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes)}",
             f"P95 RAM: {_format_bytes(metrics.p95_ram_bytes)}",
@@ -1015,6 +1030,7 @@ def run_batch_pipeline(
     license_dir: str = "",
     device: str = "cpu",
     threads: int = 4,
+    ram_percent: int = 100,
     selected_tools: dict[str, str] | None = None,
     resume: bool = False,
     recursive: bool = True,
@@ -1045,6 +1061,7 @@ def run_batch_pipeline(
     benchmark_config.setdefault("license_dir", license_dir)
     benchmark_config.setdefault("device", device)
     benchmark_config.setdefault("threads", threads)
+    benchmark_config.setdefault("ram_percent", ram_percent)
     benchmark_config.setdefault("selected_tools", selected_tools or PipelineConfig("", "", "").selected_tools)
     benchmark_config.setdefault("export_config", (export_config or ExportConfig()).to_dict())
     benchmark_config.setdefault("stats_vector_config", (stats_vector_config or StatsVectorConfig()).to_dict())
@@ -1070,7 +1087,7 @@ def run_batch_pipeline(
         _write_stats_vector_reports(output_dir, input_files, batch_results, subject_id_map, dataset_root, report_stats_config, running_input_file=input_file)
 
         try:
-            config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
+            config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, ram_percent=ram_percent, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
             steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics, should_stop=should_stop)
             success = bool(steps) and all(step.success for step in steps)
             error = "" if success else "one or more pipeline steps failed"
@@ -1090,7 +1107,7 @@ def run_batch_pipeline(
                 f.write(f"Finished: {datetime.now().isoformat(timespec='seconds')}\n")
                 f.write("Status: FAILED\n")
                 f.write(f"Error: {error}\n")
-            _write_pipeline_metrics_log(str(logs_dir), PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools), subject_dir, steps, started_at, time.time())
+            _write_pipeline_metrics_log(str(logs_dir), PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, ram_percent=ram_percent, selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools), subject_dir, steps, started_at, time.time())
 
         image_result = BatchImageResult(input_file=input_file, subject_id=subject_id, subject_dir=subject_dir, success=success, duration_sec=time.time() - started_at, steps=steps, error=error)
         batch_results.append(image_result)

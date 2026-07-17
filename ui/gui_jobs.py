@@ -1314,6 +1314,7 @@ class JobsMixin:
             license_dir=req["license_dir"],
             device=req["device"],
             threads=req["threads"],
+            ram_percent=req.get("ram_percent", 100),
             selected_tools=req["selected_tools"],
             export_config=req["export_config"],
             stats_vector_config=req["stats_vector_config"],

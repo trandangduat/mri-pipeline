@@ -82,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--license-dir", default=str(PROJECT_ROOT / "license"), help="FreeSurfer license directory")
     parser.add_argument("--device", choices=["cpu", "gpu"], default="cpu", help="Execution device")
     parser.add_argument("--threads", type=int, default=4, help="CPU threads passed to tools")
+    parser.add_argument("--ram-percent", type=int, default=100, help="Percent of host RAM available to each Docker container (100 disables Docker memory limit)")
     parser.add_argument("--resume", action="store_true", help="Verify existing outputs in pipeline_state.json/output folders and continue from the next incomplete stage")
     parser.add_argument("--stop-file", default="", help="Pause safely after current stage if this file exists")
     parser.add_argument("--non-recursive", action="store_true", help="Only scan files directly inside --input-dir")
@@ -112,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     export_config = _load_export_config(args.export_config)
     subject_id_map = _load_subject_id_map(args.subject_id_map)
     stats_vector_config = _load_stats_vector_config(args.stats_vector_config)
+
+    if args.ram_percent < 1 or args.ram_percent > 100:
+        print("--ram-percent must be between 1 and 100", file=sys.stderr, flush=True)
+        return 2
 
     if args.ensure_images_only:
         ok = True
@@ -153,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         input_path = str(Path(args.input_file).expanduser().resolve())
         root = args.input_dir or str(Path(input_path).parent)
         subject_id = subject_id_map.get(args.input_file) or subject_id_map.get(input_path) or _derive_subject_id(input_path, root, _duplicate_basenames([input_path]) if args.input_dir else None)
-        config = PipelineConfig(input_file=args.input_file, output_dir=args.output_dir, subject_id=subject_id, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, export_config=export_config, stats_vector_config=stats_vector_config, selected_tools=selected_tools)
+        config = PipelineConfig(input_file=args.input_file, output_dir=args.output_dir, subject_id=subject_id, license_dir=args.license_dir, device=args.device, threads=args.threads, ram_percent=args.ram_percent, resume=args.resume, export_config=export_config, stats_vector_config=stats_vector_config, selected_tools=selected_tools)
         if image_start_cb:
             image_start_cb(args.input_file, 1, 1)
         results = run_pipeline(config, on_progress=progress_cb, on_build_log=_cli_build_log, on_metrics=metrics_cb, should_stop=should_stop)
@@ -170,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Không tìm thấy file MRI hợp lệ trong folder: {input_dir}", file=sys.stderr, flush=True)
         return 1
     print(f"Tìm thấy {len(input_files)} ảnh MRI trong {input_dir}. Bắt đầu xử lý tuần tự.", flush=True)
-    batch_results = run_batch_pipeline(input_dir=input_dir, output_dir=args.output_dir, license_dir=args.license_dir, device=args.device, threads=args.threads, resume=args.resume, selected_tools=selected_tools, export_config=export_config, stats_vector_config=stats_vector_config, subject_id_map=subject_id_map, recursive=not args.non_recursive, on_progress=progress_cb, on_build_log=_cli_build_log, on_image_start=image_start_cb, on_image_done=image_done_cb, on_metrics=metrics_cb, should_stop=should_stop)
+    batch_results = run_batch_pipeline(input_dir=input_dir, output_dir=args.output_dir, license_dir=args.license_dir, device=args.device, threads=args.threads, ram_percent=args.ram_percent, resume=args.resume, selected_tools=selected_tools, export_config=export_config, stats_vector_config=stats_vector_config, subject_id_map=subject_id_map, recursive=not args.non_recursive, on_progress=progress_cb, on_build_log=_cli_build_log, on_image_start=image_start_cb, on_image_done=image_done_cb, on_metrics=metrics_cb, should_stop=should_stop)
     failed = [result for result in batch_results if not result.success]
     print(f"Batch hoàn tất: {len(batch_results) - len(failed)}/{len(batch_results)} ảnh thành công.", flush=True)
     return 1 if failed else 0

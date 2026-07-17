@@ -404,6 +404,7 @@ class ToolsMixin:
                 remote_python=self.state.remote_python.get().strip() or "python3",
                 output_dir=self.state.output_dir.get().strip(),
                 license_dir=self.state.license_dir.get().strip(),
+                ram_percent=int(self.state.ram_percent.get()),
                 export_config=self.state.get_export_config(),
                 stats_vector_config=self.state.get_stats_vector_config(),
                 selected_tools={},
