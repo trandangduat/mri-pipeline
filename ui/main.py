@@ -140,13 +140,50 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         normalized = self.PIPELINE_MODE_ALIASES.get(normalized, normalized)
         return normalized if normalized in self.PIPELINE_MODES else "Custom"
 
+    def _cortical_thickness_enabled(self) -> bool:
+        var = self.state.stat_vector_enabled_vars.get("cortical_thickness")
+        return bool(var is not None and var.get())
+
     def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:
+        thickness_on = self._cortical_thickness_enabled()
         for stage in STAGE_ORDER:
-            if not force_reset and (stage not in self.state.tool_vars or (self.state.tool_vars[stage].get().strip() and self.state.tool_vars[stage].get() != "Not available")):
+            current = self.state.tool_vars[stage].get().strip() if stage in self.state.tool_vars else ""
+            # Keep any existing choice (including explicit skips) unless force-resetting into Custom.
+            if not force_reset and current:
                 continue
             tools = enabled_tools_for_stage(stage)
-            if tools:
+            if stage in self.OPTIONAL_STAGES and not thickness_on:
+                self.state.tool_vars[stage].set("Not available")
+            elif tools:
                 self.state.tool_vars[stage].set(tool_display_name(tools[0]))
+            else:
+                self.state.tool_vars[stage].set("Not available")
+
+    def _sync_surface_stages_with_stats(self) -> None:
+        """Steps 7-8 track cortical thickness: off => skipped, on => restore a tool if needed."""
+        thickness_on = self._cortical_thickness_enabled()
+        for stage in self.OPTIONAL_STAGES:
+            if stage not in self.state.tool_vars:
+                continue
+            tools = enabled_tools_for_stage(stage)
+            if not thickness_on or not tools:
+                self.state.tool_vars[stage].set("Not available")
+                continue
+            current = self.state.tool_vars[stage].get().strip()
+            if not current or current == "Not available":
+                self.state.tool_vars[stage].set(tool_display_name(tools[0]))
+
+    def _sync_tool_combo_states(self) -> None:
+        """Enable tool dropdowns for active stages; dim/disable skipped ones."""
+        thickness_on = self._cortical_thickness_enabled()
+        for stage, combo in getattr(self, "tool_combos", {}).items():
+            tools = enabled_tools_for_stage(stage)
+            value = self.state.tool_vars[stage].get() if stage in self.state.tool_vars else ""
+            surface_skipped = stage in self.OPTIONAL_STAGES and not thickness_on
+            if not tools or value == "Not available" or surface_skipped:
+                combo.configure(state=tk.DISABLED, style="Skipped.TCombobox")
+            else:
+                combo.configure(state="readonly", style="TCombobox")
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -871,7 +908,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if self.remote_frame is not None:
             if enabled:
                 try:
-                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 18)}))
+                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 32)}))
                 except tk.TclError:
                     pass
             else:
@@ -1760,35 +1797,39 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         is_programmatic = getattr(self, "_is_applying_preset", False)
         if apply_stats_preset:
             self._apply_stats_preset_for_mode(mode, force_reset=not is_programmatic)
-            
+
         preset = self.PRESET_CONFIGS.get(mode)
-        if preset is not None:
-            fixed_tools = preset["tools"]
-            for stage, tool in fixed_tools.items():
-                if stage in self.state.tool_vars:
-                    if not tool:
-                        self.state.tool_vars[stage].set("Not available")
-                    else:
-                        self.state.tool_vars[stage].set(tool_display_name(tool))
-            for combo in self.tool_combos.values():
-                combo.configure(state="disabled")
-            stats = set(preset["stats"])
-            if stats == self.VOLUME_STATS:
-                self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
-            elif stats == self.THICKNESS_STATS:
-                suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
-                self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
+        self._is_applying_preset = True
+        try:
+            if preset is not None:
+                fixed_tools = preset["tools"]
+                for stage, tool in fixed_tools.items():
+                    if stage in self.state.tool_vars:
+                        if not tool:
+                            self.state.tool_vars[stage].set("Not available")
+                        else:
+                            self.state.tool_vars[stage].set(tool_display_name(tool))
+                stats = set(preset["stats"])
+                if stats == self.VOLUME_STATS:
+                    self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+                elif stats == self.THICKNESS_STATS:
+                    suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
+                    self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
+                else:
+                    suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
+                    self.state.pipeline_note.set(f"{mode}: volume vectors and cortical thickness are selected. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
             else:
-                suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
-                self.state.pipeline_note.set(f"{mode}: volume vectors and cortical thickness are selected. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
-        else:
-            self._apply_custom_tool_defaults(force_reset=not is_programmatic)
-            for combo in self.tool_combos.values():
-                combo.configure(state="readonly")
-            self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
-            if update_tools_visibility:
-                self._set_pipeline_tools_visible(show_custom_tools)
-        self._update_stats_vector_controls(mode)
+                self._apply_custom_tool_defaults(force_reset=not is_programmatic)
+                self.state.pipeline_note.set("Custom mode: choose tools freely for each stage.")
+                if update_tools_visibility:
+                    self._set_pipeline_tools_visible(show_custom_tools)
+            # Surface steps always follow cortical thickness, including Custom.
+            self._sync_surface_stages_with_stats()
+            self._update_stats_vector_controls(mode)
+        finally:
+            self._is_applying_preset = False
+
+        self._sync_tool_combo_states()
         self._update_config_tool_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
@@ -1985,8 +2026,24 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
         self.state.input_path.trace_add("write", self._refresh_input_label)
 
+        def _on_tool_selection_changed(*_args):
+            if getattr(self, "_is_applying_preset", False):
+                self._validate_configuration()
+                self._update_config_tool_status_labels()
+                return
+            mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+            if mode != "Custom":
+                self._is_applying_preset = True
+                try:
+                    # Switching to Custom keeps the tool the user just picked.
+                    self.state.pipeline_mode.set("Custom")
+                finally:
+                    self._is_applying_preset = False
+            self._validate_configuration()
+            self._update_config_tool_status_labels()
+
         for tool_var in self.state.tool_vars.values():
-            tool_var.trace_add("write", lambda *_args: (self._validate_configuration(), self._update_config_tool_status_labels()))
+            tool_var.trace_add("write", _on_tool_selection_changed)
 
         for var in [*self.state.export_name_vars.values(), *self.state.export_format_vars.values()]:
             var.trace_add("write", lambda *_args: self._validate_configuration())
@@ -1995,12 +2052,18 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if getattr(self, "_is_applying_preset", False):
                 return
             mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
-            if mode != "Custom":
-                self._is_applying_preset = True
-                try:
+            self._is_applying_preset = True
+            try:
+                if mode != "Custom":
                     self.state.pipeline_mode.set("Custom")
-                finally:
-                    self._is_applying_preset = False
+                    # Nested apply clears the flag; restore before syncing tools.
+                    self._is_applying_preset = True
+                # Keep steps 7-8 skipped unless cortical thickness is selected.
+                self._sync_surface_stages_with_stats()
+            finally:
+                self._is_applying_preset = False
+            self._sync_tool_combo_states()
+            self._update_config_tool_status_labels()
             self._validate_configuration()
 
         for var in self.state.stat_vector_enabled_vars.values():

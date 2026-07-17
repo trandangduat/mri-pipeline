@@ -62,6 +62,8 @@ def setup_styles(root) -> None:
 
     # In đậm tiêu đề pane (LabelFrame) và tăng kích cỡ lên 2 cỡ
     style.configure("TLabelframe.Label", font=("Inter", title_size, "bold"))
+
+    _setup_skipped_combobox_style(root, style)
     
     # Selected list item background
     style.configure("Selected.TFrame", background="#e2e8f0")
@@ -69,3 +71,49 @@ def setup_styles(root) -> None:
     style.configure("ToolSelected.TFrame", background="#cbd5e1")
     style.configure("ToolSelected.TLabel", background="#cbd5e1")
     style.configure("ToolSelected.TCheckbutton", background="#cbd5e1")
+
+
+def _setup_skipped_combobox_style(root: tk.Misc, style: ttk.Style) -> None:
+    """Dimmed combobox look for skipped pipeline steps (sv-ttk disabled sprites are nearly white)."""
+    try:
+        from PIL import Image, ImageDraw, ImageTk
+    except ImportError:
+        style.configure("Skipped.TCombobox", foreground="#94a3b8")
+        style.map("Skipped.TCombobox", foreground=[("disabled", "#94a3b8"), ("!disabled", "#94a3b8")])
+        return
+
+    size = 20
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([0, 0, size - 1, size - 1], radius=4, fill=(236, 239, 244, 255), outline=(203, 213, 225, 255))
+    photo = ImageTk.PhotoImage(img, master=root)
+    root._skipped_combobox_photo = photo  # type: ignore[attr-defined]
+
+    try:
+        style.element_create("SkippedCombobox.field", "image", photo, border=5, sticky="nsew")
+    except tk.TclError:
+        # Element already exists (theme reload / repeated setup)
+        pass
+
+    style.layout(
+        "Skipped.TCombobox",
+        [
+            (
+                "SkippedCombobox.field",
+                {
+                    "sticky": "nswe",
+                    "children": [
+                        (
+                            "Combobox.padding",
+                            {
+                                "sticky": "nswe",
+                                "children": [("Combobox.textarea", {"sticky": "nswe"})],
+                            },
+                        )
+                    ],
+                },
+            )
+        ],
+    )
+    style.configure("Skipped.TCombobox", foreground="#94a3b8", padding=(6, 1, 6, 2))
+    style.map("Skipped.TCombobox", foreground=[("disabled", "#94a3b8"), ("!disabled", "#94a3b8")])
