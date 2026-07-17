@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
@@ -56,12 +57,14 @@ class AppState:
         
         # Runtime settings
         self.device = tk.StringVar(value="cpu")
-        self.threads = tk.IntVar(value=4)
-        self.ram_percent = tk.IntVar(value=100)
+        self.threads = tk.IntVar(value=max(1, int((os.cpu_count() or 1) * 0.9)))
+        self.ram_percent = tk.IntVar(value=90)
         self.non_recursive = tk.BooleanVar(value=False)
         self.run_target = tk.StringVar(value="Local")
         self.pipeline_mode = tk.StringVar(value="Custom")
         self.allow_custom_tools = tk.BooleanVar(value=True)
+        self.optimization_mode = tk.StringVar(value="Use default options")
+        self.show_advanced_settings = tk.BooleanVar(value=False)
         self.workspace_name = ""
 
         # Remote

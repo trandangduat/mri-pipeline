@@ -224,6 +224,40 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     ttk.Entry(input_frame, textvariable=gui.state.license_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
     ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=lambda: gui._browse_directory(gui.state.license_dir)).pack(side=tk.RIGHT)
 
+    adv_frame = ttk.Frame(frame)
+    adv_frame.grid(row=stats_row + 2, column=0, sticky=tk.EW, pady=(10, 0))
+    gui.adv_toggle_text = tk.StringVar(value="▶ Advanced Settings")
+    
+    def sync_adv_options(*_args) -> None:
+        if gui.state.show_advanced_settings.get():
+            adv_options.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=0, pady=(5, 0))
+            gui.adv_toggle_text.set("▼ Advanced Settings")
+        else:
+            adv_options.grid_remove()
+            gui.adv_toggle_text.set("▶ Advanced Settings")
+
+    def toggle_adv() -> None:
+        gui.state.show_advanced_settings.set(not gui.state.show_advanced_settings.get())
+        sync_adv_options()
+
+    ttk.Button(adv_frame, textvariable=gui.adv_toggle_text, command=toggle_adv).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
+
+    adv_options = ttk.Frame(adv_frame)
+    adv_options.columnconfigure(1, weight=1)
+    
+    ttk.Label(adv_options, text="Optimization Mode").grid(row=0, column=0, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Combobox(
+        adv_options, 
+        textvariable=gui.state.optimization_mode, 
+        values=("Use default options", "Throughput", "FCFS (FIFO)", 'Complete oriented ("ASAP")'), 
+        state="readonly", 
+        width=25
+    ).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(8, 3))
+
+    gui.state.show_advanced_settings.trace_add("write", sync_adv_options)
+    sync_adv_options()
+
+
     gui.state.pipeline_mode.trace_add("write", lambda *_args: gui._apply_pipeline_mode())
     gui._apply_pipeline_mode(show_custom_tools=False)
     gui._update_config_tool_status_labels()
@@ -372,6 +406,26 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
     )
     gui.thread_spinbox.pack(side=tk.LEFT)
     ttk.Label(thread_row, textvariable=gui.thread_max_text, foreground="#64748b").pack(side=tk.LEFT, padx=(8, 0))
+
+    gui.runtime_warning_label = ttk.Label(frame, text="", foreground="#ef4444", font=("Inter", 9))
+    gui.runtime_warning_label.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+    gui.runtime_warning_label.grid_remove()
+
+    def _update_runtime_warning(*_args):
+        try:
+            threads = int(gui.state.threads.get())
+            ram = int(gui.state.ram_percent.get())
+            if threads >= gui.local_max_threads or ram == 100:
+                gui.runtime_warning_label.configure(text="Warning: Using 100% RAM or Threads may freeze your system. Consider leaving at least 10%.")
+                gui.runtime_warning_label.grid()
+            else:
+                gui.runtime_warning_label.grid_remove()
+        except Exception:
+            pass
+
+    gui.state.threads.trace_add("write", _update_runtime_warning)
+    gui.state.ram_percent.trace_add("write", _update_runtime_warning)
+
 
     gui.state.run_target.trace_add("write", lambda *_args: gui._on_run_target_changed())
     frame.columnconfigure(1, weight=1)

@@ -69,7 +69,10 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         "Volume": "FreeSurfer 7 + Volume",
         "Volume & Cortical Thickness": "FreeSurfer 7 + Volume + Cortical Thickness",
     }
-    OPTIONAL_STAGES = {
+    VOLUME_SKIPPED_STAGES = {
+        "brain_extraction",
+        "bias_correction",
+        "white_matter_segmentation",
         "surface_reconstruction",
         "surface_registration",
     }
@@ -152,7 +155,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if not force_reset and current:
                 continue
             tools = enabled_tools_for_stage(stage)
-            if stage in self.OPTIONAL_STAGES and not thickness_on:
+            if stage in self.VOLUME_SKIPPED_STAGES and not thickness_on:
                 self.state.tool_vars[stage].set("Not available")
             elif tools:
                 self.state.tool_vars[stage].set(tool_display_name(tools[0]))
@@ -162,7 +165,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _sync_surface_stages_with_stats(self) -> None:
         """Steps 7-8 track cortical thickness: off => skipped, on => restore a tool if needed."""
         thickness_on = self._cortical_thickness_enabled()
-        for stage in self.OPTIONAL_STAGES:
+        for stage in self.VOLUME_SKIPPED_STAGES:
             if stage not in self.state.tool_vars:
                 continue
             tools = enabled_tools_for_stage(stage)
@@ -179,7 +182,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         for stage, combo in getattr(self, "tool_combos", {}).items():
             tools = enabled_tools_for_stage(stage)
             value = self.state.tool_vars[stage].get() if stage in self.state.tool_vars else ""
-            surface_skipped = stage in self.OPTIONAL_STAGES and not thickness_on
+            surface_skipped = stage in self.VOLUME_SKIPPED_STAGES and not thickness_on
             if not tools or value == "Not available" or surface_skipped:
                 combo.configure(state=tk.DISABLED, style="Skipped.TCombobox")
             else:
@@ -188,7 +191,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("MRI Pipeline GUI")
-        self.root.geometry("1400x950")
+        self.root.geometry("1200x800+80+60")
         self.root.minsize(1180, 760)
 
         # Initialize State
@@ -2161,7 +2164,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         selected_tools = self.state.get_selected_tools()
         missing_stages = [
             stage for stage in STAGE_ORDER
-            if stage not in self.OPTIONAL_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
+            if stage not in self.VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
         ]
         if missing_stages:
             errors.append("Select one tool for every pipeline stage.")
@@ -2264,11 +2267,12 @@ def main() -> None:
         print(f"Probe window is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
 
     root.title("MRI Pipeline GUI - Tkinter")
-    root.geometry("1400x900+80+60")
+    root.geometry("1200x800+80+60")
     root.minsize(1180, 700)
     PipelineGUI(root)
     root.update_idletasks()
     root.deiconify()
+    root.title("MRI Pipeline GUI")
     root.lift()
     print(f"MRI Pipeline GUI is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
     root.mainloop()
