@@ -29,7 +29,7 @@ class BatchConfigWindow(tk.Toplevel):
         self.grab_set()
         
         self.files_data = [] # List of dict: {"path": str, "size": str, "selected": bool}
-        self.server_mode = self.gui.state.run_target.get() == "Server"
+        self.server_mode = self.gui.state.input_source.get() == "Server"
         self.ssh = None
         
         self.recursive_var = tk.BooleanVar(value=not self.gui.state.non_recursive.get())
