@@ -384,6 +384,40 @@ TOOL_DEFS: dict[str, dict] = {
             "cortical_volume.tsv",
         ],
     },
+    "corticalflow": {
+        "display_name": "CorticalFlow++",
+        "image": "duattran05/mri-corticalflow:latest",
+        "dockerfile": "docker/corticalflow",
+        "stage": "surface_reconstruction",
+        "needs_license": False,
+        "entrypoint": "",
+        "shell": "bash",
+        "command_builder": lambda ctx: (
+            f"cd /app && python3 predict.py inputs.data_type=list inputs.path={ctx.input_path} "
+            f"inputs.split_name={ctx.subject_id} outputs.output_dir=/work/corticalflow_out "
+            f"inputs.device={'cuda:0' if ctx.device != 'cpu' else 'cpu'}"
+        ),
+        "output_files": [],
+        "output_globs": ["corticalflow_out/*/*white*", "corticalflow_out/*/*pial*"],
+    },
+    "sugar": {
+        "display_name": "SUGAR",
+        "image": "ninganme/sugar:latest",
+        "dockerfile": "docker/sugar",
+        "stage": "surface_registration",
+        "needs_license": False,
+        "entrypoint": "",
+        "shell": "bash",
+        "command_builder": lambda ctx: (
+            "PREDICT=$(find / -name predict.py -path '*/SUGAR/predict.py' | head -n 1); "
+            f"python3 $PREDICT --sd /output/freesurfer --out /work/sugar_out --fsd /usr/local/freesurfer "
+            f"--sid {ctx.subject_id} --hemi lh --device {'cuda' if ctx.device != 'cpu' else 'cpu'} && "
+            f"python3 $PREDICT --sd /output/freesurfer --out /work/sugar_out --fsd /usr/local/freesurfer "
+            f"--sid {ctx.subject_id} --hemi rh --device {'cuda' if ctx.device != 'cpu' else 'cpu'}"
+        ),
+        "output_files": [],
+        "output_globs": ["sugar_out/*"],
+    },
 }
 
 
@@ -402,6 +436,10 @@ TOOL_DISPLAY_ALIASES = {
     "MRI Binarize FS8": "mri_binarize_fs8",
     "FreeSurfer Stats FS7": "freesurfer_stats_fs7",
     "FreeSurfer Stats FS8": "freesurfer_stats_fs8",
+    "CorticalFlow": "corticalflow",
+    "CorticalFlow++": "corticalflow",
+    "Sugar": "sugar",
+    "SUGAR": "sugar",
 }
 
 
