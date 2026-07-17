@@ -293,18 +293,50 @@ class PipelineMixin:
                 ssh_config = self._build_ssh_config()
                 with RemoteSSHClient(ssh_config, self._log) as ssh:
                     ssh.mkdir_p(remote_lazy_dir)
+                    
+                    valid_parents = [f.parent for f in local_files if f.exists()]
+                    if valid_parents:
+                        try:
+                            common_parent = Path(os.path.commonpath([str(p) for p in valid_parents]))
+                        except ValueError:
+                            common_parent = valid_parents[0]
+                    else:
+                        common_parent = None
+
+                    def upload_item(item_path: Path, item_rel: str) -> bool:
+                        if getattr(self, "stop_requested", threading.Event()).is_set():
+                            return False
+                        remote_tmp = posixpath.join(remote_lazy_dir, item_rel + ".tmp")
+                        remote_final = posixpath.join(remote_lazy_dir, item_rel)
+                        if item_path.is_file():
+                            ssh.mkdir_p(posixpath.dirname(remote_final))
+                            ssh.sftp.put(str(item_path), remote_tmp)
+                            ssh.sftp.rename(remote_tmp, remote_final)
+                        elif item_path.is_dir():
+                            ssh.mkdir_p(remote_final)
+                            for child in item_path.iterdir():
+                                if not upload_item(child, item_rel + "/" + child.name):
+                                    return False
+                        return True
+
                     for idx, local_file in enumerate(local_files):
                         self._log(f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
-                        remote_tmp = posixpath.join(remote_lazy_dir, local_file.name + ".tmp")
-                        remote_final = posixpath.join(remote_lazy_dir, local_file.name)
-                        ssh.sftp.put(str(local_file), remote_tmp)
-                        ssh.sftp.rename(remote_tmp, remote_final)
-                        self._log(f"Lazy Upload: {local_file.name} ready on server.")
-                        if getattr(self, "stop_requested", threading.Event()).is_set():
+                        
+                        if common_parent:
+                            try:
+                                rel_path = local_file.relative_to(common_parent).as_posix()
+                            except ValueError:
+                                rel_path = local_file.name
+                        else:
+                            rel_path = local_file.name
+                            
+                        if not upload_item(local_file, rel_path):
                             self._log("Lazy Upload: Stopped early by user.")
                             break
-                    ssh.run(f"touch {shlex.quote(remote_lazy_dir + '/.upload_done')}", stream=False, check=False)
-                    self._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
+                        self._log(f"Lazy Upload: {local_file.name} ready on server.")
+                    else:
+                        ssh.run(f"touch {shlex.quote(remote_lazy_dir + '/.upload_done')}", stream=False, check=False)
+                        self._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
             except Exception as e:
                 self._log(f"Lazy Upload Error: {e}")
                 
