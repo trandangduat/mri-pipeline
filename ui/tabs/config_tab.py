@@ -124,7 +124,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     ).grid(row=0, column=4, sticky=tk.E)
 
     gui.tool_combos = getattr(gui, "tool_combos", {})
-    gui.tool_status_labels = getattr(gui, "tool_status_labels", {})
+    gui.tools_ctrl.status_labels = getattr(gui, "status_labels", {})
     gui.pipeline_tools_body = ttk.Frame(frame)
     gui.pipeline_tools_body.grid(row=1, column=0, sticky=tk.EW, pady=(0, 14))
     gui.pipeline_tools_body.columnconfigure(0, weight=1)
@@ -164,7 +164,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         gui.tool_combos[stage] = combo
         status = tk.Label(tools_table, text="Not checked", bg=PANEL_BG, fg="#64748b", font=("Inter", 10), anchor=tk.W)
         status.grid(row=row, column=2, sticky=tk.EW, padx=(10, 14))
-        gui.tool_status_labels[stage] = status
+        gui.tools_ctrl.status_labels[stage] = status
         if idx < len(STAGE_ORDER) - 1:
             tk.Frame(tools_table, bg=PANEL_BORDER, height=1).grid(row=row + 1, column=0, columnspan=3, sticky=tk.EW)
 
@@ -260,7 +260,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     gui.state.pipeline_mode.trace_add("write", lambda *_args: gui._apply_pipeline_mode())
     gui._apply_pipeline_mode(show_custom_tools=False)
-    gui._update_config_tool_status_labels()
+    gui.tools_ctrl._update_config_status_labels()
 
 def _build_input_section(parent: ttk.Frame, gui) -> None:
     frame = create_card(parent, "", "Input & output", "", {"fill": tk.X, "pady": (0, 18)})

@@ -37,19 +37,19 @@ from remote.ssh_client import RemoteSSHClient, SSHConfig
 from ui.gui_jobs import JobsMixin
 from ui.gui_pipeline import PipelineMixin
 from ui.gui_progress import ProgressMixin
-from ui.gui_tools import ToolsMixin
+from ui.gui_tools import ToolsController
 from ui.state import AppState
 from ui.styles import configure_windows_dpi_awareness, setup_styles
 from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.tools_tab import build_tools_tab
 from ui.components.tooltip import Tooltip
 
-class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
+class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
 
     def _normalize_pipeline_mode(self, mode: str) -> str:
-        normalized = self.PIPELINE_MODE_ALIASES.get(mode, mode)
-        normalized = self.PIPELINE_MODE_ALIASES.get(normalized, normalized)
-        return normalized if normalized in self.PIPELINE_MODES else "Custom"
+        normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
+        normalized = PIPELINE_MODE_ALIASES.get(normalized, normalized)
+        return normalized if normalized in PIPELINE_MODES else "Custom"
 
     def _cortical_thickness_enabled(self) -> bool:
         var = self.state.stat_vector_enabled_vars.get("cortical_thickness")
@@ -63,7 +63,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if not force_reset and current:
                 continue
             tools = enabled_tools_for_stage(stage)
-            if stage in self.VOLUME_SKIPPED_STAGES and not thickness_on:
+            if stage in VOLUME_SKIPPED_STAGES and not thickness_on:
                 self.state.tool_vars[stage].set("Not available")
             elif tools:
                 self.state.tool_vars[stage].set(tool_display_name(tools[0]))
@@ -73,7 +73,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
     def _sync_surface_stages_with_stats(self) -> None:
         """Steps 7-8 track cortical thickness: off => skipped, on => restore a tool if needed."""
         thickness_on = self._cortical_thickness_enabled()
-        for stage in self.VOLUME_SKIPPED_STAGES:
+        for stage in VOLUME_SKIPPED_STAGES:
             if stage not in self.state.tool_vars:
                 continue
             tools = enabled_tools_for_stage(stage)
@@ -90,7 +90,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         for stage, combo in getattr(self, "tool_combos", {}).items():
             tools = enabled_tools_for_stage(stage)
             value = self.state.tool_vars[stage].get() if stage in self.state.tool_vars else ""
-            surface_skipped = stage in self.VOLUME_SKIPPED_STAGES and not thickness_on
+            surface_skipped = stage in VOLUME_SKIPPED_STAGES and not thickness_on
             if not tools or value == "Not available" or surface_skipped:
                 combo.configure(state=tk.DISABLED, style="Skipped.TCombobox")
             else:
@@ -169,33 +169,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._spinner_frames_light = self._load_spinner_frames("running_light")
         self._spinner_idx = 0
         self._busy_buttons: dict[ttk.Button, dict[str, str]] = {}
-        self.tools_tab: ttk.Frame | None = None
-        self.tools_table_frame: ttk.Frame | None = None
-        self.tools_log_text: tk.Text | None = None
-        self.tools_log_body: ttk.Frame | None = None
-        self.tools_log_toggle_text: tk.StringVar | None = None
-        self.tools_log_visible = False
-        self.tools_checked_tools: set[str] = set()
-        self.tools_check_vars: dict[str, tk.BooleanVar] = {}
-        self.tools_status_icon_labels: dict[str, ttk.Label] = {}
         self.python_env_check_button: ttk.Button | None = None
         self.python_env_install_button: ttk.Button | None = None
-        self.tools_refresh_button: ttk.Button | None = None
-        self.tools_select_all_button: ttk.Button | None = None
-        self.tools_unselect_all_button: ttk.Button | None = None
-        self.tools_select_missing_button: ttk.Button | None = None
-        self.tools_download_button: ttk.Button | None = None
-        self.tools_delete_button: ttk.Button | None = None
-        self.tools_row_widgets: dict[str, dict] = {}
-        self.python_env_status = tk.StringVar(value="Not checked")
         self.python_env_hint = tk.StringVar(value=sys.executable or "")
         self.python_env_status_icon_label: ttk.Label | None = None
         self.python_env_status_label: ttk.Label | None = None
-        self.tool_image_statuses: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
-        self.tool_image_sizes: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
-        self.tool_image_installed_sizes: dict[str, dict[str, str]] = {"Local": {}, "Server": {}}
-        self.tools_hub_size_loading = False
-        self.tool_status_labels: dict[str, ttk.Label] = {}
         self._last_input_source = self.state.input_source.get()
         self._input_source_paths: dict[str, str] = {"Local": "", "Server": "~"}
         self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
@@ -207,6 +185,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.remote_poll_in_flight = False
         self.job_monitors: dict[str, dict] = {}
 
+        self.tools_ctrl = ToolsController(self)
         self._build_ui()
         self._update_python_env_hint()
         self._setup_validation_traces()
@@ -329,8 +308,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             except Exception:
                 pass
 
-        if hasattr(self, "tools_status_icon_labels") and hasattr(self, "tool_image_statuses"):
-            for tool_key, label in self.tools_status_icon_labels.items():
+        if hasattr(self, "tools_status_icon_labels") and hasattr(self, "image_statuses"):
+            for tool_key, label in self.tools_ctrl.status_icon_labels.items():
                 status = self._tool_status(tool_key)
                 if self._is_busy_status(status):
                     try:
@@ -338,8 +317,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                     except Exception:
                         pass
 
-        if hasattr(self, "tool_status_labels") and hasattr(self, "tool_image_statuses"):
-            for stage, label in self.tool_status_labels.items():
+        if hasattr(self, "status_labels") and hasattr(self, "image_statuses"):
+            for stage, label in self.tools_ctrl.status_labels.items():
                 tool_var = self.state.tool_vars.get(stage)
                 tool_key = tool_key_from_display(tool_var.get()) if tool_var is not None else ""
                 status = self._tool_status(tool_key)
@@ -485,14 +464,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.config_tab = ttk.Frame(self.notebook)
-        self.tools_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.config_tab, text="Pipeline configuration")
-        self.notebook.add(self.tools_tab, text="Tools / Docker Images")
+        self.tools_ctrl.tab_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.tools_ctrl.tab_frame, text="Tools / Docker Images")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.notebook.bind("<Button-1>", self._on_notebook_click)
 
         build_configuration_tab(self.config_tab, self)
-        build_tools_tab(self.tools_tab, self)
+        build_tools_tab(self.tools_ctrl.tab_frame, self.tools_ctrl)
 
     def _build_status_bar(self, parent: ttk.Frame) -> None:
         bar = ttk.Frame(parent, padding=(10, 5))
@@ -627,16 +606,16 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._reset_remote_tool_image_state()
         self.state.remote_status.set("Remote: disconnected")
         self._set_remote_status_icon("pending")
-        self._set_python_env_status("Not checked")
+        self.tools_ctrl._set_python_env_status("Not checked")
         self._sync_remote_connection_controls()
 
     def _reset_remote_tool_image_state(self) -> None:
-        self.tool_image_statuses["Server"] = {}
-        self.tool_image_installed_sizes["Server"] = {}
-        self.tools_checked_tools.clear()
-        self._refresh_tools_tree()
-        self._update_config_tool_status_labels()
-        self._update_tools_download_button()
+        self.tools_ctrl.image_statuses["Server"] = {}
+        self.tools_ctrl.image_installed_sizes["Server"] = {}
+        self.tools_ctrl.checked_tools.clear()
+        self.tools_ctrl._refresh_tree()
+        self.tools_ctrl._update_config_status_labels()
+        self.tools_ctrl._update_download_button()
         self._validate_configuration()
 
     def _handle_remote_connection_lost(self, reason: str = "") -> None:
@@ -651,7 +630,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         self._reset_remote_tool_image_state()
         self.state.remote_status.set("Remote: disconnected unexpectedly")
         self._set_remote_status_icon("failed")
-        self._set_python_env_status("Not checked")
+        self.tools_ctrl._set_python_env_status("Not checked")
         self._sync_remote_connection_controls()
         self._validate_configuration()
         detail = f"\n\n{reason}" if reason else ""
@@ -746,8 +725,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             else:
                 self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
 
-        self._refresh_tools_tree()
-        self._update_config_tool_status_labels()
+        self.tools_ctrl._refresh_tree()
+        self.tools_ctrl._update_config_status_labels()
         self._sync_remote_action_buttons()
         self._sync_input_source_controls()
         self._set_thread_max(self.max_threads)
@@ -758,14 +737,14 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         for button in (
             self.python_env_check_button,
             self.python_env_install_button,
-            self.tools_refresh_button,
-            self.tools_select_all_button,
-            self.tools_unselect_all_button,
-            self.tools_select_missing_button,
+            self.tools_ctrl.refresh_button,
+            self.tools_ctrl.select_all_button,
+            self.tools_ctrl.unselect_all_button,
+            self.tools_ctrl.select_missing_button,
         ):
             if button is not None:
                 button.configure(state=state)
-        self._update_tools_action_buttons()
+        self.tools_ctrl._update_action_buttons()
 
     def _require_remote_connection(self, action: str) -> bool:
         if self.state.run_target.get() != "Server" or self._server_connected():
@@ -811,9 +790,9 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
     def _update_python_env_hint(self) -> None:
         if self.state.run_target.get() == "Server":
-            self.python_env_hint.set(self._remote_venv_display_path() if self.state.remote_workspace.get().strip() else "")
+            self.tools_ctrl.python_env_hint.set(self._remote_venv_display_path() if self.state.remote_workspace.get().strip() else "")
         else:
-            self.python_env_hint.set(sys.executable or "")
+            self.tools_ctrl.python_env_hint.set(sys.executable or "")
 
     def _on_run_target_changed(self) -> None:
         if self.remote_body is None:
@@ -840,11 +819,11 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self.state.remote_status.set("")
         self._update_python_env_hint()
         self._refresh_thread_max_for_target()
-        self._set_python_env_status("Not checked")
+        self.tools_ctrl._set_python_env_status("Not checked")
         self._sync_input_source_controls()
         self._sync_remote_connection_controls()
-        self._refresh_tools_tree()
-        self._update_config_tool_status_labels()
+        self.tools_ctrl._refresh_tree()
+        self.tools_ctrl._update_config_status_labels()
         self._validate_configuration()
 
     def _switch_input_source(self, new_source: str) -> None:
@@ -1660,7 +1639,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 self._is_applying_preset = False
             return
             
-        preset = self.PRESET_CONFIGS.get(mode)
+        preset = PRESET_CONFIGS.get(mode)
         if preset is None:
             return
         enabled = set(preset["stats"])
@@ -1718,7 +1697,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         if apply_stats_preset:
             self._apply_stats_preset_for_mode(mode, force_reset=not is_programmatic)
 
-        preset = self.PRESET_CONFIGS.get(mode)
+        preset = PRESET_CONFIGS.get(mode)
         self._is_applying_preset = True
         try:
             if preset is not None:
@@ -1750,7 +1729,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             self._is_applying_preset = False
 
         self._sync_tool_combo_states()
-        self._update_config_tool_status_labels()
+        self.tools_ctrl._update_config_status_labels()
 
     def _selected_tools(self) -> dict[str, str]:
         if self._normalize_pipeline_mode(self.state.pipeline_mode.get()) != "Custom":
@@ -1843,7 +1822,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
 
             self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
             self._apply_pipeline_mode(apply_stats_preset=False)
-            self._update_config_tool_status_labels()
+            self.tools_ctrl._update_config_status_labels()
             self._validate_configuration()
         finally:
             self._is_applying_preset = False
@@ -1950,7 +1929,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         def _on_tool_selection_changed(*_args):
             if getattr(self, "_is_applying_preset", False):
                 self._validate_configuration()
-                self._update_config_tool_status_labels()
+                self.tools_ctrl._update_config_status_labels()
                 return
             mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
             if mode != "Custom":
@@ -1961,7 +1940,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
                 finally:
                     self._is_applying_preset = False
             self._validate_configuration()
-            self._update_config_tool_status_labels()
+            self.tools_ctrl._update_config_status_labels()
 
         for tool_var in self.state.tool_vars.values():
             tool_var.trace_add("write", _on_tool_selection_changed)
@@ -1984,7 +1963,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             finally:
                 self._is_applying_preset = False
             self._sync_tool_combo_states()
-            self._update_config_tool_status_labels()
+            self.tools_ctrl._update_config_status_labels()
             self._validate_configuration()
 
         for var in self.state.stat_vector_enabled_vars.values():
@@ -2072,7 +2051,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
         selected_tools = self.state.get_selected_tools()
         missing_stages = [
             stage for stage in STAGE_ORDER
-            if stage not in self.VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
+            if stage not in VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
         ]
         if missing_stages:
             errors.append("Select one tool for every pipeline stage.")
@@ -2081,7 +2060,7 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             errors.append(f"Disabled tools selected: {', '.join(tool_display_name(tool) for tool in disabled_tools)}")
 
         target = self.state.run_target.get()
-        image_statuses = self.tool_image_statuses.setdefault(target, {})
+        image_statuses = self.tools_ctrl.image_statuses.setdefault(target, {})
         required_images: list[str] = []
         for tool in selected_tools.values():
             image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
@@ -2132,8 +2111,8 @@ class PipelineGUI(ToolsMixin, JobsMixin, PipelineMixin, ProgressMixin):
             if hasattr(self, "server_output_tooltip"):
                 self.server_output_tooltip.update_text(server_msg)
                 
-        if self.tools_refresh_button:
-            self.tools_refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+        if self.tools_ctrl.refresh_button:
+            self.tools_ctrl.refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
             if hasattr(self, "tools_refresh_tooltip"):
                 self.tools_refresh_tooltip.update_text(server_msg)
                 

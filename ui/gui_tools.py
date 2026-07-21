@@ -32,7 +32,38 @@ from pipeline.docker_ops import (
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 
 
-class ToolsMixin:
+class ToolsController:
+    def __init__(self, gui):
+        self.gui = gui
+        
+        # Tools state
+        self.tab_frame = None
+        self.table_frame = None
+        self.log_text = None
+        self.log_body = None
+        self.log_toggle_text = None
+        self.log_visible = False
+        self.checked_tools = set()
+        self.check_vars = {}
+        self.status_icon_labels = {}
+        self.python_env_check_button = None
+        self.python_env_install_button = None
+        self.refresh_button = None
+        self.select_all_button = None
+        self.unselect_all_button = None
+        self.select_missing_button = None
+        self.download_button = None
+        self.delete_button = None
+        self.row_widgets = {}
+        self.python_env_status = tk.StringVar(value="Not checked")
+        self.python_env_hint = tk.StringVar(value=sys.executable or "")
+        self.python_env_status_icon_label = None
+        self.python_env_status_label = None
+        self.image_statuses = {"Local": {}, "Server": {}}
+        self.image_sizes = {"Local": {}, "Server": {}}
+        self.image_installed_sizes = {"Local": {}, "Server": {}}
+        self.hub_size_loading = False
+        self.status_labels = {}
     def _tool_image(self, tool_key: str) -> str:
         return str(TOOL_DEFS.get(tool_key, {}).get("image", ""))
 
@@ -89,10 +120,10 @@ class ToolsMixin:
         if not image:
             return
         for target in ("Local", "Server"):
-            sizes = self.tool_image_sizes.setdefault(target, {})
+            sizes = self.image_sizes.setdefault(target, {})
             if sizes.get(image, "-") in {"-", "Loading..."}:
                 sizes[image] = size
-        self._refresh_tools_tree()
+        self._refresh_tree()
 
     def _preload_docker_hub_image_sizes(self) -> None:
         if getattr(self, "tools_hub_size_loading", False):
@@ -100,23 +131,23 @@ class ToolsMixin:
         images = self._all_enabled_images()
         missing = [
             image for image in images
-            if all(self.tool_image_sizes.setdefault(target, {}).get(image, "-") == "-" for target in ("Local", "Server"))
+            if all(self.image_sizes.setdefault(target, {}).get(image, "-") == "-" for target in ("Local", "Server"))
         ]
         if not missing:
             return
-        self.tools_hub_size_loading = True
+        self.hub_size_loading = True
         for image in missing:
             for target in ("Local", "Server"):
-                self.tool_image_sizes.setdefault(target, {})[image] = "Loading..."
-        self._refresh_tools_tree()
+                self.image_sizes.setdefault(target, {})[image] = "Loading..."
+        self._refresh_tree()
 
         def worker() -> None:
             try:
                 for image in missing:
                     size = self._fetch_docker_hub_image_size(image)
-                    self.root.after(0, lambda i=image, s=size: self._set_hub_image_size(i, s))
+                    self.gui.root.after(0, lambda i=image, s=size: self._set_hub_image_size(i, s))
             finally:
-                self.root.after(0, lambda: setattr(self, "tools_hub_size_loading", False))
+                self.gui.root.after(0, lambda: setattr(self, "tools_hub_size_loading", False))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -127,15 +158,15 @@ class ToolsMixin:
         ]
 
     def _selected_images(self, statuses: set[str] | None = None) -> list[str]:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._server_connected():
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._server_connected():
             return []
         images: list[str] = []
-        for tool_key in self.tools_checked_tools:
+        for tool_key in self.checked_tools:
             image = self._tool_image(tool_key)
             if not image or image in images:
                 continue
-            if statuses is not None and self.tool_image_statuses.setdefault(target, {}).get(image, "Unknown") not in statuses:
+            if statuses is not None and self.image_statuses.setdefault(target, {}).get(image, "Unknown") not in statuses:
                 continue
             images.append(image)
         return images
@@ -157,8 +188,8 @@ class ToolsMixin:
         image = self._tool_image(tool_key)
         if not image:
             return "Unknown"
-        target = target or self.state.run_target.get()
-        return self.tool_image_statuses.setdefault(target, {}).get(image, "Unknown")
+        target = target or self.gui.state.run_target.get()
+        return self.image_statuses.setdefault(target, {}).get(image, "Unknown")
 
     def _status_label_text(self, status: str) -> str:
         return "Not checked" if status == "Unknown" else status
@@ -177,7 +208,7 @@ class ToolsMixin:
         }.get(status, "?")
 
     def _tool_status_icon_image(self, status: str, small: bool = False) -> tk.PhotoImage | None:
-        if self._is_busy_status(status):
+        if self.gui._is_busy_status(status):
             return None
         icon_name = {
             "Installed": "success",
@@ -190,8 +221,8 @@ class ToolsMixin:
         if not icon_name:
             return None
         key = f"tool_status_{icon_name}_{'small' if small else 'normal'}"
-        if key in self.toolbar_icons:
-            return self.toolbar_icons[key]
+        if key in self.gui.toolbar_icons:
+            return self.gui.toolbar_icons[key]
         icon_path = Path(__file__).parent / "icons" / f"{icon_name}.png"
         if not icon_path.exists():
             return None
@@ -202,40 +233,40 @@ class ToolsMixin:
 
                     img = Image.open(icon_path).convert("RGBA").resize((14, 14), resample=Image.BICUBIC)
                     photo = ImageTk.PhotoImage(img)
-                    self.toolbar_icons[key] = photo
+                    self.gui.toolbar_icons[key] = photo
                     return photo
                 except Exception:
                     pass
             img = tk.PhotoImage(file=str(icon_path))
             if small:
                 img = img.subsample(2, 2)
-            self.toolbar_icons[key] = img
+            self.gui.toolbar_icons[key] = img
             return img
         except Exception:
             return None
 
-    def _tools_checkbox_enabled(self, tool_key: str, status: str | None = None) -> bool:
+    def _checkbox_enabled(self, tool_key: str, status: str | None = None) -> bool:
         if not is_tool_enabled(tool_key):
             return False
-        if self.state.run_target.get() == "Server" and not self._server_connected():
+        if self.gui.state.run_target.get() == "Server" and not self.gui._server_connected():
             return False
         status = status or self._tool_status(tool_key)
         return status not in {"Disabled", "Skipped", "Checking", "Downloading", "Deleting"}
 
-    def _update_tools_download_button(self) -> None:
-        self._update_tools_action_buttons()
+    def _update_download_button(self) -> None:
+        self._update_action_buttons()
 
-    def _update_tools_action_buttons(self) -> None:
+    def _update_action_buttons(self) -> None:
         download_button = getattr(self, "tools_download_button", None)
         delete_button = getattr(self, "tools_delete_button", None)
-        remote_ready = self._remote_actions_enabled()
+        remote_ready = self.gui._remote_actions_enabled()
         download_enabled = remote_ready and bool(self._selected_images({"Missing", "Unknown", "Error"}))
         delete_enabled = remote_ready and bool(self._selected_images({"Installed"}))
         if download_button is not None:
-            if not self._is_button_busy(download_button):
+            if not self.gui._is_button_busy(download_button):
                 download_button.configure(state=tk.NORMAL if download_enabled else tk.DISABLED)
         if delete_button is not None:
-            if not self._is_button_busy(delete_button):
+            if not self.gui._is_button_busy(delete_button):
                 delete_button.configure(state=tk.NORMAL if delete_enabled else tk.DISABLED)
 
     def _status_color(self, status: str) -> str:
@@ -251,54 +282,54 @@ class ToolsMixin:
         }.get(status, "#64748b")
 
     def _compressed_image_size_text(self, target: str, image: str) -> str:
-        return self.tool_image_sizes.setdefault(target, {}).get(image, "-")
+        return self.image_sizes.setdefault(target, {}).get(image, "-")
 
     def _installed_image_size_text(self, target: str, image: str) -> str:
-        return self.tool_image_installed_sizes.setdefault(target, {}).get(image, "-")
+        return self.image_installed_sizes.setdefault(target, {}).get(image, "-")
 
     def _set_installed_image_size(self, target: str, image: str, size: str) -> None:
         if not image:
             return
-        self.tool_image_installed_sizes.setdefault(target, {})[image] = size
-        self._refresh_tools_tree()
+        self.image_installed_sizes.setdefault(target, {})[image] = size
+        self._refresh_tree()
 
     def _set_image_status(self, target: str, image: str, status: str) -> None:
         if not image:
             return
-        self.tool_image_statuses.setdefault(target, {})[image] = status
-        self._refresh_tools_tree()
-        self._update_config_tool_status_labels()
-        self._validate_configuration()
+        self.image_statuses.setdefault(target, {})[image] = status
+        self._refresh_tree()
+        self._update_config_status_labels()
+        self.gui._validate_configuration()
 
-    def _refresh_tools_tree(self) -> None:
+    def _refresh_tree(self) -> None:
         table = getattr(self, "tools_table_frame", None)
         if table is None:
             return
-        target = self.state.run_target.get()
+        target = self.gui.state.run_target.get()
         for idx, (tool_key, tool) in enumerate(TOOL_DEFS.items(), start=0):
             row = 2 + idx * 2
             stage = str(tool.get("stage", ""))
             image = str(tool.get("image", ""))
             status = self._tool_status(tool_key, target)
-            enabled = self._tools_checkbox_enabled(tool_key, status)
+            enabled = self._checkbox_enabled(tool_key, status)
             if not enabled:
-                self.tools_checked_tools.discard(tool_key)
-            var = self.tools_check_vars.get(tool_key)
+                self.checked_tools.discard(tool_key)
+            var = self.check_vars.get(tool_key)
             if var is None:
-                var = tk.BooleanVar(value=tool_key in self.tools_checked_tools)
-                self.tools_check_vars[tool_key] = var
-            var.set(tool_key in self.tools_checked_tools)
+                var = tk.BooleanVar(value=tool_key in self.checked_tools)
+                self.check_vars[tool_key] = var
+            var.set(tool_key in self.checked_tools)
 
             def on_check(key=tool_key, check_var=var) -> None:
                 group = self._tools_for_image(self._tool_image(key))
                 if check_var.get():
-                    self.tools_checked_tools.update(group)
+                    self.checked_tools.update(group)
                 else:
-                    self.tools_checked_tools.difference_update(group)
-                self._refresh_tools_tree()
-                self._update_tools_download_button()
+                    self.checked_tools.difference_update(group)
+                self._refresh_tree()
+                self._update_download_button()
 
-            widgets = self.tools_row_widgets.get(tool_key)
+            widgets = self.row_widgets.get(tool_key)
             if widgets is None:
                 cells = []
                 for col in range(7):
@@ -338,9 +369,9 @@ class ToolsMixin:
                     "status": status_label,
                     "sep": sep,
                 }
-                self.tools_row_widgets[tool_key] = widgets
+                self.row_widgets[tool_key] = widgets
 
-            row_selected = tool_key in self.tools_checked_tools
+            row_selected = tool_key in self.checked_tools
             bg = "#cbd5e1" if row_selected else "#fafafa"
             for cell in widgets["cells"]:
                 cell.configure(bg=bg)
@@ -357,22 +388,22 @@ class ToolsMixin:
             widgets["compressed_size"].configure(text=self._compressed_image_size_text(target, image), bg=bg)
             widgets["installed_size"].configure(text=self._installed_image_size_text(target, image), bg=bg)
             icon = self._tool_status_icon_image(status)
-            if self._is_busy_status(status):
-                widgets["status"].configure(image=self._spinner_frame() or "", text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
+            if self.gui._is_busy_status(status):
+                widgets["status"].configure(image=self.gui._spinner_frame() or "", text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
             elif icon is not None:
                 widgets["status"].configure(image=icon, text=f"  {status}", compound=tk.LEFT, bg=bg, fg=self._status_color(status), font=("Inter", 9))
             else:
                 widgets["status"].configure(image="", text=self._tool_status_icon(status), compound=tk.CENTER, bg=bg, fg=self._status_color(status), font=("Inter", 10, "bold"))
-            self.tools_status_icon_labels[tool_key] = widgets["status"]
-        self._update_tools_download_button()
+            self.status_icon_labels[tool_key] = widgets["status"]
+        self._update_download_button()
 
-    def _toggle_tools_log(self) -> None:
+    def _toggle_log(self) -> None:
         body = getattr(self, "tools_log_body", None)
         label = getattr(self, "tools_log_toggle_text", None)
         if body is None:
             return
-        self.tools_log_visible = not self.tools_log_visible
-        if self.tools_log_visible:
+        self.log_visible = not self.log_visible
+        if self.log_visible:
             body.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
             if label is not None:
                 label.set("Hide Image Log")
@@ -381,7 +412,7 @@ class ToolsMixin:
             if label is not None:
                 label.set("Show Image Log")
 
-    def _append_tools_log(self, line: str) -> None:
+    def _append_log(self, line: str) -> None:
         log = getattr(self, "tools_log_text", None)
         if log is None:
             return
@@ -390,38 +421,38 @@ class ToolsMixin:
         log.see(tk.END)
         log.configure(state=tk.DISABLED)
 
-    def _selected_tool_rows(self) -> list[str]:
-        return [tool for tool in self.tools_checked_tools if tool in TOOL_DEFS]
+    def _selected_rows(self) -> list[str]:
+        return [tool for tool in self.checked_tools if tool in TOOL_DEFS]
 
     def _build_image_remote_runner(self) -> RemoteRunner | None:
-        if self.state.run_target.get() == "Server" and not self._server_connected():
+        if self.gui.state.run_target.get() == "Server" and not self.gui._server_connected():
             return None
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.gui._build_ssh_config()
         if ssh_config is None:
             return None
         return RemoteRunner(
             RemoteRunConfig(
                 ssh=ssh_config,
-                remote_workspace=self.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
-                remote_python=self.state.remote_python.get().strip() or "python3",
-                output_dir=self.state.output_dir.get().strip(),
-                license_dir=self.state.license_dir.get().strip(),
-                ram_percent=int(self.state.ram_percent.get()),
-                export_config=self.state.get_export_config(),
-                stats_vector_config=self.state.get_stats_vector_config(),
+                remote_workspace=self.gui.state.remote_workspace.get().strip() or "~/mri-remote-jobs",
+                remote_python=self.gui.state.remote_python.get().strip() or "python3",
+                output_dir=self.gui.state.output_dir.get().strip(),
+                license_dir=self.gui.state.license_dir.get().strip(),
+                ram_percent=int(self.gui.state.ram_percent.get()),
+                export_config=self.gui.state.get_export_config(),
+                stats_vector_config=self.gui.state.get_stats_vector_config(),
                 selected_tools={},
             ),
-            on_log=self._tools_remote_log_event,
+            on_log=self._remote_log_event,
         )
 
-    def _tools_remote_log_event(self, line: str) -> None:
+    def _remote_log_event(self, line: str) -> None:
         keep = (
             "Connecting SSH", "SSH connected", "Base Python", "Remote venv:", "Venv Python", "Venv pip",
             "Creating remote venv", "Using remote venv", "Installing", "Installed:", "Missing:", "Downloading:", "Deleting:", "Deleted:", "Failed:",
             "Requirement", "Collecting", "Using cached", "Downloading ", "Successfully", "ERROR:", "WARNING:", "Docker:"
         )
         if line.startswith(keep):
-            self.root.after(0, lambda l=line: self._append_tools_log(l))
+            self.gui.root.after(0, lambda l=line: self._append_log(l))
         status_prefixes = {
             "Downloading: ": "Downloading",
             "Deleting: ": "Deleting",
@@ -433,7 +464,7 @@ class ToolsMixin:
         for prefix, status in status_prefixes.items():
             if line.startswith(prefix):
                 image = line[len(prefix):].strip().split()[0]
-                self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
                 break
 
     def _set_python_env_status(self, status: str) -> None:
@@ -460,18 +491,18 @@ class ToolsMixin:
             label.configure(foreground=color)
         if icon_label is not None:
             if icon_name == "running":
-                icon_label.configure(image=self._spinner_frame() or "", text="", foreground=color)
+                icon_label.configure(image=self.gui._spinner_frame() or "", text="", foreground=color)
             else:
-                icon = self._make_icon(icon_name)
+                icon = self.gui._make_icon(icon_name)
                 icon_label.configure(image=icon if icon is not None else "", text="")
 
     def _check_python_environment(self) -> None:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._require_remote_connection("checking the remote environment"):
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._require_remote_connection("checking the remote environment"):
             return
-        self._set_button_busy(getattr(self, "python_env_check_button", None), True, "Checking")
+        self.gui._set_button_busy(getattr(self, "python_env_check_button", None), True, "Checking")
         self._set_python_env_status("Checking...")
-        self._append_tools_log(f"Checking Python: {target}")
+        self._append_log(f"Checking Python: {target}")
 
         def worker() -> None:
             try:
@@ -483,23 +514,23 @@ class ToolsMixin:
                         pip_text = (pip.stdout or pip.stderr).strip() or "pip not found"
                         python_ok = version.returncode == 0
                         pip_ok = pip.returncode == 0
-                        self.root.after(0, lambda t=py_text, ok=python_ok: self._append_tools_log(("Python OK: " if ok else "Python missing: ") + t))
-                        self.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_tools_log(("pip OK: " if ok else "pip missing: ") + t))
+                        self.gui.root.after(0, lambda t=py_text, ok=python_ok: self._append_log(("Python OK: " if ok else "Python missing: ") + t))
+                        self.gui.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_log(("pip OK: " if ok else "pip missing: ") + t))
                         if python_ok and pip_ok:
                             status = "Local: Python OK, pip OK"
                         elif python_ok:
                             status = "Local: Python OK, pip missing"
                         else:
                             status = "Local: Python missing"
-                        self.root.after(0, lambda s=status: self._set_python_env_status(s))
+                        self.gui.root.after(0, lambda s=status: self._set_python_env_status(s))
                     except Exception as exc:
-                        self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
-                        self.root.after(0, lambda: self._set_python_env_status("Local: Error"))
+                        self.gui.root.after(0, lambda e=exc: self._append_log(f"Python check failed: {type(e).__name__}: {e}"))
+                        self.gui.root.after(0, lambda: self._set_python_env_status("Local: Error"))
                     return
 
                 runner = self._build_image_remote_runner()
                 if runner is None:
-                    self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                    self.gui.root.after(0, lambda: self._set_python_env_status("Not configured"))
                     return
                 try:
                     details = runner.check_python_details()
@@ -516,30 +547,30 @@ class ToolsMixin:
                         status = "Server: venv not created"
                     else:
                         status = "Server: venv incomplete"
-                    self.root.after(0, lambda p=venv_path: self.python_env_hint.set(p))
-                    self.root.after(0, lambda s=status: self._set_python_env_status(s))
+                    self.gui.root.after(0, lambda p=venv_path: self.python_env_hint.set(p))
+                    self.gui.root.after(0, lambda s=status: self._set_python_env_status(s))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Python check failed: {type(e).__name__}: {e}"))
-                    self.root.after(0, lambda: self._set_python_env_status("Server: Error"))
+                    self.gui.root.after(0, lambda e=exc: self._append_log(f"Python check failed: {type(e).__name__}: {e}"))
+                    self.gui.root.after(0, lambda: self._set_python_env_status("Server: Error"))
             finally:
-                self.root.after(0, lambda: self._set_button_busy(getattr(self, "python_env_check_button", None), False))
+                self.gui.root.after(0, lambda: self.gui._set_button_busy(getattr(self, "python_env_check_button", None), False))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _install_python_requirements(self) -> None:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._require_remote_connection("creating or updating remote packages"):
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._require_remote_connection("creating or updating remote packages"):
             return
         requirements = PROJECT_ROOT / "requirements.txt"
         if not requirements.exists():
             messagebox.showerror("Missing requirements", f"requirements.txt not found: {requirements}")
             return
-        self._set_button_busy(getattr(self, "python_env_install_button", None), True, "Installing")
+        self.gui._set_button_busy(getattr(self, "python_env_install_button", None), True, "Installing")
         self._set_python_env_status("Installing...")
         action = "Installing Python packages from requirements.txt"
         if target == "Server":
-            action = f"Creating/updating remote venv and packages: {self._remote_venv_display_path()}"
-        self._append_tools_log(f"{action}: {target}")
+            action = f"Creating/updating remote venv and packages: {self.gui._remote_venv_display_path()}"
+        self._append_log(f"{action}: {target}")
 
         def worker() -> None:
             try:
@@ -547,7 +578,7 @@ class ToolsMixin:
                     try:
                         pip_check = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
                         if pip_check.returncode != 0:
-                            self.root.after(0, lambda: self._append_tools_log("pip missing: trying ensurepip..."))
+                            self.gui.root.after(0, lambda: self._append_log("pip missing: trying ensurepip..."))
                             subprocess.run([sys.executable, "-m", "ensurepip", "--user", "--upgrade"], capture_output=True, text=True, timeout=120)
                         proc = subprocess.run(
                             [sys.executable, "-m", "pip", "install", "--user", "-r", str(requirements)],
@@ -557,64 +588,64 @@ class ToolsMixin:
                         )
                         ok = proc.returncode == 0
                         msg = "Python packages installed: Local" if ok else "Python packages failed: Local"
-                        self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                        self.gui.root.after(0, lambda m=msg: self._append_log(m))
                         if not ok:
                             tail = " | ".join((proc.stderr or proc.stdout).strip().splitlines()[-3:])
-                            self.root.after(0, lambda t=tail: self._append_tools_log(f"pip error: {t}"))
-                        self.root.after(0, lambda: self._set_python_env_status("Local: Python packages installed" if ok else "Local: Package install failed"))
+                            self.gui.root.after(0, lambda t=tail: self._append_log(f"pip error: {t}"))
+                        self.gui.root.after(0, lambda: self._set_python_env_status("Local: Python packages installed" if ok else "Local: Package install failed"))
                     except Exception as exc:
-                        self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
-                        self.root.after(0, lambda: self._set_python_env_status("Local: Package install failed"))
+                        self.gui.root.after(0, lambda e=exc: self._append_log(f"Install failed: {type(e).__name__}: {e}"))
+                        self.gui.root.after(0, lambda: self._set_python_env_status("Local: Package install failed"))
                     return
 
                 runner = self._build_image_remote_runner()
                 if runner is None:
-                    self.root.after(0, lambda: self._set_python_env_status("Not configured"))
+                    self.gui.root.after(0, lambda: self._set_python_env_status("Not configured"))
                     return
                 try:
                     ok = runner.install_python_requirements()
                     msg = "Remote venv packages installed: Server" if ok else "Remote venv package install failed: Server"
-                    self.root.after(0, lambda m=msg: self._append_tools_log(m))
-                    self.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
+                    self.gui.root.after(0, lambda m=msg: self._append_log(m))
+                    self.gui.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Install failed: {type(e).__name__}: {e}"))
-                    self.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
+                    self.gui.root.after(0, lambda e=exc: self._append_log(f"Install failed: {type(e).__name__}: {e}"))
+                    self.gui.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
             finally:
-                self.root.after(0, lambda: self._set_button_busy(getattr(self, "python_env_install_button", None), False))
+                self.gui.root.after(0, lambda: self.gui._set_button_busy(getattr(self, "python_env_install_button", None), False))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _refresh_tool_image_statuses(self) -> None:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._require_remote_connection("refreshing remote Docker images"):
+    def _refresh_image_statuses(self) -> None:
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._require_remote_connection("refreshing remote Docker images"):
             return
         images = self._all_enabled_images()
         if not images:
-            self._append_tools_log("No enabled tool images to check.")
+            self._append_log("No enabled tool images to check.")
             return
-        self._set_button_busy(getattr(self, "tools_refresh_button", None), True, "Refreshing")
+        self.gui._set_button_busy(getattr(self, "tools_refresh_button", None), True, "Refreshing")
         for image in images:
-            self.tool_image_statuses.setdefault(target, {})[image] = "Checking"
-        self._refresh_tools_tree()
-        self._update_config_tool_status_labels()
+            self.image_statuses.setdefault(target, {})[image] = "Checking"
+        self._refresh_tree()
+        self._update_config_status_labels()
 
         def worker() -> None:
             try:
                 if target == "Local":
                     for image in images:
-                        self.root.after(0, lambda i=image: self._append_tools_log(f"Checking: {i}"))
+                        self.gui.root.after(0, lambda i=image: self._append_log(f"Checking: {i}"))
                         installed = image_exists(image)
                         status = "Installed" if installed else "Missing"
                         size = format_image_size(image_size_bytes(image)) if installed else "-"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
-                        self.root.after(0, lambda i=image, s=status: self._append_tools_log(f"{s}: {i}"))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        self.gui.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
+                        self.gui.root.after(0, lambda i=image, s=status: self._append_log(f"{s}: {i}"))
                     return
 
                 runner = self._build_image_remote_runner()
                 if runner is None:
                     for image in images:
-                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
+                        self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
                     return
                 try:
                     details = runner.check_image_details(images)
@@ -622,28 +653,28 @@ class ToolsMixin:
                         installed = bool(data.get("installed"))
                         status = "Installed" if installed else "Missing"
                         size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        self.gui.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    self.gui.root.after(0, lambda e=exc: self._append_log(f"Error: {type(e).__name__}: {e}"))
                     for image in images:
-                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+                        self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
             finally:
-                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_refresh_button", None), False), self._update_tools_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_refresh_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _ensure_tool_images(self, tool_keys: list[str]) -> None:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._require_remote_connection("downloading remote Docker images"):
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._require_remote_connection("downloading remote Docker images"):
             return
         requested = [tool for tool in dict.fromkeys(tool_keys) if tool in TOOL_DEFS and is_tool_enabled(tool)]
         images = [self._tool_image(tool) for tool in requested if self._tool_image(tool)]
         tool_keys = self._representative_tools_for_images(images)
         if not tool_keys:
-            self._append_tools_log("No enabled tools selected.")
+            self._append_log("No enabled tools selected.")
             return
-        self._set_button_busy(getattr(self, "tools_download_button", None), True, "Downloading")
+        self.gui._set_button_busy(getattr(self, "tools_download_button", None), True, "Downloading")
         for tool_key in tool_keys:
             self._set_image_status(target, self._tool_image(tool_key), "Downloading")
 
@@ -652,20 +683,20 @@ class ToolsMixin:
                 if target == "Local":
                     for tool_key in tool_keys:
                         image = self._tool_image(tool_key)
-                        self.root.after(0, lambda i=image: self._append_tools_log(f"Downloading: {i}"))
+                        self.gui.root.after(0, lambda i=image: self._append_log(f"Downloading: {i}"))
                         ok, err, _ = ensure_image(tool_key, on_build_log=None)
                         status = "Installed" if ok or image_exists(image) else "Error"
                         size = format_image_size(image_size_bytes(image)) if status == "Installed" else "-"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
-                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        self.gui.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Local", i, z))
                         msg = f"Installed: {image}" if status == "Installed" else f"Failed: {image} {err}"
-                        self.root.after(0, lambda m=msg: self._append_tools_log(m))
+                        self.gui.root.after(0, lambda m=msg: self._append_log(m))
                     return
 
                 runner = self._build_image_remote_runner()
                 if runner is None:
                     for tool_key in tool_keys:
-                        self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Unknown"))
+                        self.gui.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Unknown"))
                     return
                 try:
                     ok = runner.ensure_tool_images(tool_keys)
@@ -675,31 +706,31 @@ class ToolsMixin:
                         installed = bool(data.get("installed"))
                         status = "Installed" if installed else ("Missing" if ok else "Error")
                         size = format_image_size(data.get("size") if isinstance(data.get("size"), int) else None) if installed else "-"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
-                        self.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        self.gui.root.after(0, lambda i=image, z=size: self._set_installed_image_size("Server", i, z))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    self.gui.root.after(0, lambda e=exc: self._append_log(f"Error: {type(e).__name__}: {e}"))
                     for tool_key in tool_keys:
-                        self.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
+                        self.gui.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
             finally:
-                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_download_button", None), False), self._update_tools_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_download_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _ensure_checked_tool_images(self) -> None:
+    def _ensure_checked_images(self) -> None:
         self._ensure_tool_images(self._representative_tools_for_images(self._selected_images({"Missing", "Unknown", "Error"})))
 
-    def _delete_checked_tool_images(self) -> None:
-        target = self.state.run_target.get()
-        if target == "Server" and not self._require_remote_connection("deleting remote Docker images"):
+    def _delete_checked_images(self) -> None:
+        target = self.gui.state.run_target.get()
+        if target == "Server" and not self.gui._require_remote_connection("deleting remote Docker images"):
             return
         images = self._selected_images({"Installed"})
         if not images:
-            self._append_tools_log("No installed images selected for delete.")
+            self._append_log("No installed images selected for delete.")
             return
         if not messagebox.askyesno("Delete Docker images", "Delete these Docker images?\n\n" + "\n".join(images)):
             return
-        self._set_button_busy(getattr(self, "tools_delete_button", None), True, "Deleting")
+        self.gui._set_button_busy(getattr(self, "tools_delete_button", None), True, "Deleting")
         for image in images:
             self._set_image_status(target, image, "Deleting")
 
@@ -707,76 +738,76 @@ class ToolsMixin:
             try:
                 if target == "Local":
                     for image in images:
-                        self.root.after(0, lambda i=image: self._append_tools_log(f"Deleting: {i}"))
+                        self.gui.root.after(0, lambda i=image: self._append_log(f"Deleting: {i}"))
                         ok, err = remove_image(image)
                         status = "Missing" if ok else "Error"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Local", i, s))
                         if ok:
-                            self.root.after(0, lambda i=image: self._set_installed_image_size("Local", i, "-"))
-                            self.root.after(0, lambda i=image: self._append_tools_log(f"Deleted: {i}"))
+                            self.gui.root.after(0, lambda i=image: self._set_installed_image_size("Local", i, "-"))
+                            self.gui.root.after(0, lambda i=image: self._append_log(f"Deleted: {i}"))
                         else:
-                            self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
+                            self.gui.root.after(0, lambda i=image, e=err: self._append_log(f"Failed: {i} {e}"))
                     return
 
                 runner = self._build_image_remote_runner()
                 if runner is None:
                     for image in images:
-                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
+                        self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Unknown"))
                     return
                 try:
                     results = runner.remove_images(images)
                     for image, (ok, err) in results.items():
                         status = "Missing" if ok else "Error"
-                        self.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
+                        self.gui.root.after(0, lambda i=image, s=status: self._set_image_status("Server", i, s))
                         if ok:
-                            self.root.after(0, lambda i=image: self._set_installed_image_size("Server", i, "-"))
+                            self.gui.root.after(0, lambda i=image: self._set_installed_image_size("Server", i, "-"))
                         elif err:
-                            self.root.after(0, lambda i=image, e=err: self._append_tools_log(f"Failed: {i} {e}"))
+                            self.gui.root.after(0, lambda i=image, e=err: self._append_log(f"Failed: {i} {e}"))
                 except Exception as exc:
-                    self.root.after(0, lambda e=exc: self._append_tools_log(f"Error: {type(e).__name__}: {e}"))
+                    self.gui.root.after(0, lambda e=exc: self._append_log(f"Error: {type(e).__name__}: {e}"))
                     for image in images:
-                        self.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
+                        self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
             finally:
-                self.root.after(0, lambda: (self._set_button_busy(getattr(self, "tools_delete_button", None), False), self._update_tools_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_delete_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _select_all_tool_images(self) -> None:
-        target = self.state.run_target.get()
-        self.tools_checked_tools = {
+    def _select_all_images(self) -> None:
+        target = self.gui.state.run_target.get()
+        self.checked_tools = {
             tool for tool in TOOL_DEFS
-            if self._tools_checkbox_enabled(tool, self._tool_status(tool, target))
+            if self._checkbox_enabled(tool, self._tool_status(tool, target))
         }
-        self._refresh_tools_tree()
-        self._update_tools_download_button()
+        self._refresh_tree()
+        self._update_download_button()
 
-    def _unselect_all_tool_images(self) -> None:
-        self.tools_checked_tools.clear()
-        self._refresh_tools_tree()
-        self._update_tools_download_button()
+    def _unselect_all_images(self) -> None:
+        self.checked_tools.clear()
+        self._refresh_tree()
+        self._update_download_button()
 
-    def _select_missing_tool_images(self) -> None:
-        target = self.state.run_target.get()
-        self.tools_checked_tools = {
+    def _select_missing_images(self) -> None:
+        target = self.gui.state.run_target.get()
+        self.checked_tools = {
             tool for tool in TOOL_DEFS
-            if self._tools_checkbox_enabled(tool, self._tool_status(tool, target))
+            if self._checkbox_enabled(tool, self._tool_status(tool, target))
             and self._tool_status(tool, target) in ("Missing", "Unknown", "Error")
         }
-        self._refresh_tools_tree()
-        self._update_tools_download_button()
+        self._refresh_tree()
+        self._update_download_button()
 
-    def _ensure_missing_tool_images(self) -> None:
-        target = self.state.run_target.get()
+    def _ensure_missing_images(self) -> None:
+        target = self.gui.state.run_target.get()
         missing = [tool for tool in TOOL_DEFS if self._tool_status(tool, target) in ("Missing", "Unknown") and is_tool_enabled(tool)]
         images = [self._tool_image(tool) for tool in missing if self._tool_image(tool)]
         self._ensure_tool_images(self._representative_tools_for_images(images))
 
-    def _update_config_tool_status_labels(self) -> None:
-        if not getattr(self, "tool_status_labels", None):
+    def _update_config_status_labels(self) -> None:
+        if not getattr(self, "status_labels", None):
             return
-        target = self.state.run_target.get()
-        for stage, label in self.tool_status_labels.items():
-            tool_val = self.state.tool_vars.get(stage).get() if stage in self.state.tool_vars else ""
+        target = self.gui.state.run_target.get()
+        for stage, label in self.status_labels.items():
+            tool_val = self.gui.state.tool_vars.get(stage).get() if stage in self.gui.state.tool_vars else ""
             tool_key = tool_key_from_display(tool_val)
             status = self._tool_status(tool_key, target)
             if status == "Skipped":
@@ -796,8 +827,8 @@ class ToolsMixin:
                 
             icon = self._tool_status_icon_image(status, small=True)
             text = self._status_label_text(status)
-            if self._is_busy_status(status):
-                label.configure(image=self._spinner_frame() or "", text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
+            if self.gui._is_busy_status(status):
+                label.configure(image=self.gui._spinner_frame() or "", text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
             elif icon is not None:
                 label.configure(image=icon, text=f" {text}", compound=tk.LEFT, foreground=self._status_color(status))
             else:
