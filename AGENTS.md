@@ -58,6 +58,8 @@ When writing code, agents **MUST** adhere to the following standards:
 3. **No Feature Envy**: If a function mostly reads variables from an object, move that function into the object as a method.
 4. **Strict Typing**: All files must use type hints and start with `from __future__ import annotations`.
 5. **Robust Imports**: Never use wildcard imports (`from module import *`). Avoid circular imports by keeping data structures (`config.py`) separate from business logic (`runner.py`).
+6. **Remote Server Safety**: The project interacts with an external, high-value server (the professor's server). **Zero Tolerance for Data Loss**. Any code executing remote SSH commands MUST explicitly validate paths (e.g. strict containment within the defined workspace, no directory traversal). 
+7. **Testing Strategy**: Use `pytest` and `pytest-mock`. Prefer mocking for unit tests to keep them fast and independent of the external server. If an integration test MUST connect to the server, it must be explicitly marked and strictly read-only or confined to a dedicated test directory to avoid collateral damage.
 
 ## 4. Skills Usage (For AI Agents)
 

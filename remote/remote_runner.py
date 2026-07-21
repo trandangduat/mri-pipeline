@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map, is_tool_enabled
+from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map
+from pipeline.registry import is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
 
@@ -549,6 +550,17 @@ class RemoteRunner:
     def clean_remote(self) -> None:
         if not self.remote_job_dir:
             return
+        
+        # Guardrail: Prevent data loss by ensuring we only delete paths inside the remote workspace
+        import os
+        workspace_norm = os.path.normpath(self.config.remote_workspace)
+        job_dir_norm = os.path.normpath(self.remote_job_dir)
+        
+        # Ensure job_dir is inside workspace and doesn't use directory traversal to escape
+        if not job_dir_norm.startswith(workspace_norm + os.sep) and job_dir_norm != workspace_norm:
+            raise ValueError(f"Security error: Attempted to clean directory outside of designated workspace. "
+                             f"Job dir: {self.remote_job_dir}, Workspace: {self.config.remote_workspace}")
+
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             code = ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
             if code != 0:
