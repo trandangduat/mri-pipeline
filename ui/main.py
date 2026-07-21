@@ -34,9 +34,9 @@ from pipeline.config import (
 from pipeline.discovery import _is_supported_mri_input
 from remote.remote_runner import RemoteRunner
 from remote.ssh_client import RemoteSSHClient, SSHConfig
-from ui.gui_jobs import JobsMixin
+from ui.gui_jobs import JobsController
 from ui.gui_pipeline import PipelineController
-from ui.gui_progress import ProgressMixin
+from ui.gui_progress import ProgressController
 from ui.gui_tools import ToolsController
 from ui.state import AppState
 from ui.styles import configure_windows_dpi_awareness, setup_styles
@@ -44,7 +44,7 @@ from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.tools_tab import build_tools_tab
 from ui.components.tooltip import Tooltip
 
-class PipelineGUI(JobsMixin, ProgressMixin):
+class PipelineGUI:
 
     def _normalize_pipeline_mode(self, mode: str) -> str:
         normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
@@ -117,9 +117,6 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.metrics_queue: queue.Queue[tuple[float | None, int | None, float | None, str]] = queue.Queue()
         
-        self.active_job: dict | None = None
-        self.job_poll_after_id: str | None = None
-        self.job_log_offset = 0
         self.run_target_combo: ttk.Combobox | None = None
         self.remote_key_browse_button: ttk.Button | None = None
         self.remote_workspace_entry: ttk.Entry | None = None
@@ -138,15 +135,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
         self.notebook: ttk.Notebook | None = None
         self.config_tab: ttk.Frame | None = None
-        self.progress_tab: ttk.Frame | None = None
-        self.progress_contexts: dict[str, dict] = {}
-        self.progress_context_by_job: dict[str, str] = {}
-        self.active_progress_context_id = ""
         self.toolbar_icons: dict[str, tk.PhotoImage] = {}
-        self.image_runs: dict[str, dict] = {}
-        self.image_rows: dict[str, dict] = {}
-        self.current_image_key = ""
-        self.active_image_key = ""
         self._spinner_frames = self._load_spinner_frames("running")
         self._spinner_frames_light = self._load_spinner_frames("running_light")
         self._spinner_idx = 0
@@ -159,21 +148,16 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         self._last_input_source = self.state.input_source.get()
         self._input_source_paths: dict[str, str] = {"Local": "", "Server": "~"}
         self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
-        self.progress_log_body: ttk.Frame | None = None
-        self.progress_log_toggle_text: tk.StringVar | None = None
-        self.progress_log_visible = False
-        self.step_summary_rows: dict[str, dict[str, ttk.Label]] = {}
-        self.progress_selected_tools: dict[str, str] = {}
-        self.remote_poll_in_flight = False
-        self.job_monitors: dict[str, dict] = {}
 
         self.tools_ctrl = ToolsController(self)
         self.pipeline_ctrl = PipelineController(self)
+        self.jobs_ctrl = JobsController(self)
+        self.progress_ctrl = ProgressController(self)
         self._build_ui()
         self._update_python_env_hint()
         self._setup_validation_traces()
         self._validate_configuration()
-        self._poll_queues()
+        self.progress_ctrl._poll_queues()
         if self._spinner_frames or self._spinner_frames_light:
             self.root.after(120, self._animate_spinner)
 
@@ -312,7 +296,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
                         pass
 
         if hasattr(self, "image_rows"):
-            for key, row in self.image_rows.items():
+            for key, row in self.progress_ctrl.image_rows.items():
                 run_state = getattr(self, "image_runs", {}).get(key, {})
                 if row.get("status") and run_state.get("status") == "Running":
                     try:
@@ -324,9 +308,9 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         run = getattr(self, "image_runs", {}).get(getattr(self, "current_image_key", ""))
         if run and hasattr(self, "step_summary_rows"):
             for stage, step in run.get("steps", {}).items():
-                if step.get("status") == "Running" and stage in self.step_summary_rows:
+                if step.get("status") == "Running" and stage in self.progress_ctrl.step_summary_rows:
                     try:
-                        self.step_summary_rows[stage]["icon"].configure(image=frame if frame is not None else "", text="")
+                        self.progress_ctrl.step_summary_rows[stage]["icon"].configure(image=frame if frame is not None else "", text="")
                     except Exception:
                         pass
 
@@ -435,12 +419,12 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
         self.run_button.configure(style="Accent.TButton")
         self.run_tooltip = Tooltip(self.run_button, "")
-        self.pipeline_ctrl.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
+        self.pipeline_ctrl.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self.jobs_ctrl._resume_pipeline)
         self.pipeline_ctrl.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=True))
         self.pipeline_ctrl.restart_tooltip = Tooltip(self.pipeline_ctrl.restart_button, "")
-        self.pipeline_ctrl.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
+        self.pipeline_ctrl.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self.progress_ctrl._request_stop)
         self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
-        self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
+        self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self.jobs_ctrl._attach_job_dialog)
 
     def _build_tabs(self, parent: ttk.Frame) -> None:
         self.notebook = ttk.Notebook(parent)
@@ -450,8 +434,8 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         self.notebook.add(self.config_tab, text="Pipeline configuration")
         self.tools_ctrl.tab_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.tools_ctrl.tab_frame, text="Tools / Docker Images")
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
-        self.notebook.bind("<Button-1>", self._on_notebook_click)
+        self.notebook.bind("<<NotebookTabChanged>>", self.progress_ctrl._on_notebook_tab_changed)
+        self.notebook.bind("<Button-1>", self.progress_ctrl._on_notebook_click)
 
         build_configuration_tab(self.config_tab, self)
         build_tools_tab(self.tools_ctrl.tab_frame, self.tools_ctrl)
@@ -878,7 +862,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         if not self._server_connected():
             messagebox.showwarning("Connect Server", "Please connect to the server first.")
             return
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.jobs_ctrl._build_ssh_config()
         if ssh_config is None:
             return
 
@@ -1269,7 +1253,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         if not self._server_connected():
             messagebox.showwarning("Connect Server", "Please connect to the server first.")
             return
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.jobs_ctrl._build_ssh_config()
         if ssh_config is None:
             return
             
@@ -1412,7 +1396,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         if not self._server_connected():
             messagebox.showwarning("Connect Server", "Please connect to the server first.")
             return
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.jobs_ctrl._build_ssh_config()
         if ssh_config is None:
             return
         mode = self.state.input_mode.get()
@@ -1726,7 +1710,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(workspace, f, indent=2, ensure_ascii=False)
-            self._log(f"Saved workspace: {path}")
+            self.progress_ctrl._log(f"Saved workspace: {path}")
         except Exception as exc:
             messagebox.showerror("Save workspace failed", str(exc))
 
@@ -1756,7 +1740,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
             self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
             self._refresh_input_label()
             self._validate_configuration()
-            self._log(f"Loaded workspace: {path}")
+            self.progress_ctrl._log(f"Loaded workspace: {path}")
         except Exception as exc:
             messagebox.showerror("Load workspace failed", str(exc))
         finally:
@@ -1814,7 +1798,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            self._log(f"Saved preset: {path}")
+            self.progress_ctrl._log(f"Saved preset: {path}")
         except Exception as exc:
             messagebox.showerror("Save preset failed", str(exc))
 
@@ -1834,7 +1818,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
                 messagebox.showerror("Invalid preset", "Selected file is not an MRI pipeline preset.")
                 return
             self._apply_run_config(config)
-            self._log(f"Loaded preset: {path}")
+            self.progress_ctrl._log(f"Loaded preset: {path}")
         except Exception as exc:
             messagebox.showerror("Load preset failed", str(exc))
 
@@ -2052,7 +2036,7 @@ class PipelineGUI(JobsMixin, ProgressMixin):
 
 
         ok = not errors
-        can_start = self._can_start_new_pipeline()
+        can_start = self.jobs_ctrl._can_start_new_pipeline()
         status_msg = "Configuration complete. Ready to run." if ok else errors[0]
         if not can_start:
             status_msg = "Pipeline is already running or busy."

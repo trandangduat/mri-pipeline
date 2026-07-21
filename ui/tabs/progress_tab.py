@@ -86,10 +86,10 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
     list_card = create_card(left, "IMG", "Input images", "Click an image to inspect details", {"fill": tk.BOTH, "expand": True})
     # Cannot use ttk.Canvas, so keep tk.Canvas
     image_list_canvas = tk.Canvas(list_card, highlightthickness=0)
-    _target(context, gui, "image_list_canvas", image_list_canvas)
+    _target(context, gui.progress_ctrl, "image_list_canvas", image_list_canvas)
     image_scroll = ttk.Scrollbar(list_card, orient=tk.VERTICAL, command=image_list_canvas.yview)
     image_list_frame = ttk.Frame(image_list_canvas)
-    _target(context, gui, "image_list_frame", image_list_frame)
+    _target(context, gui.progress_ctrl, "image_list_frame", image_list_frame)
     def _on_frame_configure(_event):
         image_list_canvas.configure(scrollregion=image_list_canvas.bbox("all"))
     image_list_frame.bind("<Configure>", _on_frame_configure)
@@ -123,7 +123,7 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
         ttk.Label(steps, text=heading, font=("Inter", 9, "bold")).grid(row=0, column=col, sticky=tk.W, padx=(0, 8), pady=(0, 6))
     ttk.Separator(steps, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=len(columns), sticky=tk.EW, pady=(0, 4))
     step_summary_rows = {}
-    _target(context, gui, "step_summary_rows", step_summary_rows)
+    _target(context, gui.progress_ctrl, "step_summary_rows", step_summary_rows)
     for idx, stage in enumerate(STAGE_ORDER, start=0):
         row = 2 + idx
         icon = ttk.Label(steps, width=2)
@@ -154,32 +154,32 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
         }
     
     detail_chart = MetricsCharts(detail)
-    _target(context, gui, "detail_chart", detail_chart)
+    _target(context, gui.progress_ctrl, "detail_chart", detail_chart)
     detail_chart.pack(fill=tk.X, pady=(0, 8))
     
     gpu_chart = LineChart(detail, "GPU", "#f59e0b", "%", 100.0)
-    _target(context, gui, "gpu_chart", gpu_chart)
+    _target(context, gui.progress_ctrl, "gpu_chart", gpu_chart)
     gpu_chart.pack(fill=tk.X, pady=(0, 8))
     
     log_card = ttk.LabelFrame(detail, text=" Image log ", padding=12)
-    _target(context, gui, "progress_log_card", log_card)
+    _target(context, gui.progress_ctrl, "progress_log_card", log_card)
     log_card.pack(fill=tk.X, pady=(0, 0))
     log_header = ttk.Frame(log_card)
     log_header.pack(fill=tk.X)
     progress_log_toggle_text = tk.StringVar(value="Show Image Log")
-    _target(context, gui, "progress_log_toggle_text", progress_log_toggle_text)
+    _target(context, gui.progress_ctrl, "progress_log_toggle_text", progress_log_toggle_text)
     if context is not None:
-        toggle_command = lambda: (gui._activate_progress_context(context["id"]), gui._toggle_progress_log())
+        toggle_command = lambda: (gui._activate_progress_context(context["id"]), gui.progress_ctrl._toggle_progress_log())
     else:
-        toggle_command = gui._toggle_progress_log
+        toggle_command = gui.progress_ctrl._toggle_progress_log
     ttk.Button(log_header, textvariable=progress_log_toggle_text, command=toggle_command).pack(side=tk.LEFT)
     if context is not None:
-        copy_command = lambda: (gui._activate_progress_context(context["id"]), gui._copy_progress_log())
+        copy_command = lambda: (gui._activate_progress_context(context["id"]), gui.progress_ctrl._copy_progress_log())
     else:
-        copy_command = gui._copy_progress_log
+        copy_command = gui.progress_ctrl._copy_progress_log
     ttk.Button(log_header, text="Copy log", command=copy_command).pack(side=tk.RIGHT)
     progress_log_body = ttk.Frame(log_card)
-    _target(context, gui, "progress_log_body", progress_log_body)
+    _target(context, gui.progress_ctrl, "progress_log_body", progress_log_body)
     log_text = tk.Text(
         progress_log_body,
         wrap=tk.WORD,
@@ -190,7 +190,7 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
         pady=10,
         font=("JetBrains Mono", 10),
     )
-    _target(context, gui, "log_text", log_text)
+    _target(context, gui.progress_ctrl, "log_text", log_text)
     log_scroll = ttk.Scrollbar(progress_log_body, orient=tk.VERTICAL, command=log_text.yview)
     log_text.configure(yscrollcommand=log_scroll.set)
     log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

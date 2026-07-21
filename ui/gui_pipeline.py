@@ -158,7 +158,7 @@ class PipelineController:
         return state["ok"]
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
-        if not self.gui._can_start_new_pipeline():
+        if not self.gui.jobs_ctrl._can_start_new_pipeline():
             return
 
         if not self.gui._validate_configuration():
@@ -192,15 +192,15 @@ class PipelineController:
                     messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                     return
                 self.remote_runner = runner
-                self.gui._prepare_progress_tab(
-                    self.gui._input_files_for_progress(run_request),
+                self.gui.progress_ctrl._prepare_progress_tab(
+                    self.gui.progress_ctrl._input_files_for_progress(run_request),
                     run_request.get("selected_tools"),
                     title="Server: starting",
                     pipeline_mode=run_request.get("pipeline_mode", ""),
                     threads=int(run_request.get("threads", 0) or 0),
                     device=run_request.get("device", ""),
                 )
-                self.gui._show_progress_tab()
+                self.gui.progress_ctrl._show_progress_tab()
                 self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
                 started = True
                 if starter_button is not None:
@@ -214,15 +214,15 @@ class PipelineController:
             run_request["resume"] = resume
             run_request["restart"] = restart
 
-            self.gui._prepare_progress_tab(
-                self.gui._input_files_for_progress(run_request),
+            self.gui.progress_ctrl._prepare_progress_tab(
+                self.gui.progress_ctrl._input_files_for_progress(run_request),
                 run_request.get("selected_tools"),
                 title="Local: starting",
                 pipeline_mode=run_request.get("pipeline_mode", ""),
                 threads=int(run_request.get("threads", 0) or 0),
                 device=run_request.get("device", ""),
             )
-            self.gui._show_progress_tab()
+            self.gui.progress_ctrl._show_progress_tab()
 
             self.running = True
             self.stop_requested.clear()
@@ -234,21 +234,21 @@ class PipelineController:
                 self.stop_button.configure(state=tk.NORMAL)
             if hasattr(self, "progress"):
                 self.gui.progress.start(10)
-            self.gui.detail_chart.reset()
-            self.gui.gpu_chart.reset()
+            self.gui.progress_ctrl.detail_chart.reset()
+            self.gui.progress_ctrl.gpu_chart.reset()
             self.gui.state.overall_progress_var.set(0)
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
             for stage in STAGE_ORDER:
                 if hasattr(self, "_set_step_status"):
                     self.gui._set_step_status(stage, "Ready", 0)
-            self.gui._clear_log()
-            self.gui._log("=" * 80)
+            self.gui.progress_ctrl._clear_log()
+            self.gui.progress_ctrl._log("=" * 80)
             if restart:
-                self.gui._log("Restart mode: existing subject outputs will be removed before running.")
+                self.gui.progress_ctrl._log("Restart mode: existing subject outputs will be removed before running.")
             elif resume:
-                self.gui._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
-            self.gui._log("Starting pipeline...")
+                self.gui.progress_ctrl._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
+            self.gui.progress_ctrl._log("Starting pipeline...")
             self._start_local_background_pipeline(run_request)
             started = True
             if starter_button is not None:
@@ -307,15 +307,15 @@ class PipelineController:
         runner.config.restart = restart
         
         self.remote_runner = runner
-        self.gui._prepare_progress_tab(
-            self.gui._input_files_for_progress(run_request),
+        self.gui.progress_ctrl._prepare_progress_tab(
+            self.gui.progress_ctrl._input_files_for_progress(run_request),
             run_request.get("selected_tools"),
             title="Server: starting (Lazy Upload)",
             pipeline_mode=run_request.get("pipeline_mode", ""),
             threads=int(run_request.get("threads", 0) or 0),
             device=run_request.get("device", ""),
         )
-        self.gui._show_progress_tab()
+        self.gui.progress_ctrl._show_progress_tab()
         self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
         
         if starter_button is not None:
@@ -325,7 +325,7 @@ class PipelineController:
         def upload_worker() -> None:
             try:
                 ssh_config = self._build_ssh_config()
-                with RemoteSSHClient(ssh_config, self.gui._log) as ssh:
+                with RemoteSSHClient(ssh_config, self.gui.progress_ctrl._log) as ssh:
                     ssh.mkdir_p(remote_lazy_dir)
                     
                     valid_parents = [f.parent for f in local_files if f.exists()]
@@ -354,7 +354,7 @@ class PipelineController:
                         return True
 
                     for idx, local_file in enumerate(local_files):
-                        self.gui._log(f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
+                        self.gui.progress_ctrl._log(f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
                         
                         if common_parent:
                             try:
@@ -365,14 +365,14 @@ class PipelineController:
                             rel_path = local_file.name
                             
                         if not upload_item(local_file, rel_path):
-                            self.gui._log("Lazy Upload: Stopped early by user.")
+                            self.gui.progress_ctrl._log("Lazy Upload: Stopped early by user.")
                             break
-                        self.gui._log(f"Lazy Upload: {local_file.name} ready on server.")
+                        self.gui.progress_ctrl._log(f"Lazy Upload: {local_file.name} ready on server.")
                     else:
                         ssh.run(f"touch {shlex.quote(remote_lazy_dir + '/.upload_done')}", stream=False, check=False)
-                        self.gui._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
+                        self.gui.progress_ctrl._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
             except Exception as e:
-                self.gui._log(f"Lazy Upload Error: {e}")
+                self.gui.progress_ctrl._log(f"Lazy Upload Error: {e}")
                 
         threading.Thread(target=upload_worker, daemon=True).start()
 
@@ -399,38 +399,38 @@ class PipelineController:
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
         entry = self.gui._registry_entry_for_local_job(job_dir, run_request, proc.pid)
         upsert_job_registry(entry)
-        self.gui._rename_active_progress_tab(self.gui._progress_title_for_job(entry, fallback="Local job"), self.gui._progress_job_identity(entry))
-        self.gui._log(f"Local background job started: {job_dir}")
-        self.gui._log("You can close the GUI. The local worker process will keep running.")
-        self.gui.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
-        self.gui.job_log_offset = 0
-        self.gui._register_job_monitor_for_active_context()
+        self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Local job"), self.gui.progress_ctrl._progress_job_identity(entry))
+        self.gui.progress_ctrl._log(f"Local background job started: {job_dir}")
+        self.gui.progress_ctrl._log("You can close the GUI. The local worker process will keep running.")
+        self.gui.jobs_ctrl.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
+        self.gui.jobs_ctrl.job_log_offset = 0
+        self.gui.jobs_ctrl._register_job_monitor_for_active_context()
         self.gui._validate_configuration()
-        self.gui._schedule_job_poll(delay_ms=0)
+        self.gui.jobs_ctrl._schedule_job_poll(delay_ms=0)
 
     def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None, run_request: dict | None = None) -> None:
         runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
         if not runner:
             return
         if resume and self.remote_runner is None:
-            self.gui._log("No previous remote job is loaded in this GUI session; creating a new remote job instead.")
+            self.gui.progress_ctrl._log("No previous remote job is loaded in this GUI session; creating a new remote job instead.")
         if restart:
             self.remote_runner = None
         runner.config.resume = resume
         runner.config.restart = restart
         self.remote_runner = runner
-        self.gui._enter_background_monitor_state("Starting remote background job...")
+        self.gui.jobs_ctrl._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
         entry = self.gui._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
-        self.gui._rename_active_progress_tab(self.gui._progress_title_for_job(entry, fallback="Remote job"), self.gui._progress_job_identity(entry))
-        self.gui._log(f"Remote background job started: {remote_dir}")
-        self.gui._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
-        self.gui.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
-        self.gui.job_log_offset = 0
-        self.gui._register_job_monitor_for_active_context()
+        self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Remote job"), self.gui.progress_ctrl._progress_job_identity(entry))
+        self.gui.progress_ctrl._log(f"Remote background job started: {remote_dir}")
+        self.gui.progress_ctrl._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
+        self.gui.jobs_ctrl.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
+        self.gui.jobs_ctrl.job_log_offset = 0
+        self.gui.jobs_ctrl._register_job_monitor_for_active_context()
         self.gui._validate_configuration()
-        self.gui._schedule_job_poll(delay_ms=0)
+        self.gui.jobs_ctrl._schedule_job_poll(delay_ms=0)
 
     def _build_run_request(self) -> dict | None:
         mode = self.gui.state.input_mode.get()
@@ -592,7 +592,7 @@ class PipelineController:
 
     def _run_remote_task(self, title: str, task, clear_log: bool = False, enable_pause: bool = False) -> None:
         if self.running:
-            self.gui._append_log("Remote task ignored: another task is already running.")
+            self.gui.progress_ctrl._append_log("Remote task ignored: another task is already running.")
             return
         self.running = True
         self.gui.state.remote_status.set(f"Remote: {title} running...")
@@ -606,17 +606,17 @@ class PipelineController:
         if hasattr(self, "progress"):
             self.gui.progress.start(10)
         if clear_log:
-            self.gui._clear_log()
-            self.gui.detail_chart.reset()
-            self.gui.gpu_chart.reset()
+            self.gui.progress_ctrl._clear_log()
+            self.gui.progress_ctrl.detail_chart.reset()
+            self.gui.progress_ctrl.gpu_chart.reset()
             self.gui.state.overall_progress_var.set(0)
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
             for stage in STAGE_ORDER:
                 if hasattr(self, "_set_step_status"):
                     self.gui._set_step_status(stage, "Ready", 0)
-        self.gui._append_log("=" * 80)
-        self.gui._append_log(f"Remote task started: {title}")
+        self.gui.progress_ctrl._append_log("=" * 80)
+        self.gui.progress_ctrl._append_log(f"Remote task started: {title}")
 
         def worker():
             try:
@@ -626,7 +626,7 @@ class PipelineController:
                 self.gui.log_queue.put(f"REMOTE ERROR [{title}]: {type(exc).__name__}: {exc}")
             finally:
                 self.gui.root.after(0, lambda: self.gui.state.remote_status.set("Remote: idle"))
-                self.gui.root.after(0, self.gui._set_idle_state)
+                self.gui.root.after(0, self.gui.progress_ctrl._set_idle_state)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -695,10 +695,10 @@ class PipelineController:
     def _remote_download_outputs(self) -> None:
         def task():
             if not self.remote_runner:
-                self.gui._log("No remote job is available. Run or attach a remote job first.")
+                self.gui.progress_ctrl._log("No remote job is available. Run or attach a remote job first.")
                 return
             local_path = self.remote_runner.download_outputs(self.gui.state.output_dir.get())
-            self.gui._log(f"Downloaded outputs to: {local_path}")
+            self.gui.progress_ctrl._log(f"Downloaded outputs to: {local_path}")
         self._run_remote_task("Download Outputs", task)
 
     def _common_input_root(self, files: list[str]) -> str:

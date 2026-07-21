@@ -24,7 +24,34 @@ from ui.formatters import format_bytes, format_duration, format_percent, truncat
 from ui.tabs.progress_tab import build_progress_tab
 
 
-class ProgressMixin:
+class ProgressController:
+    def __init__(self, gui):
+        self.gui = gui
+        
+        # Progress state
+        self.progress_tab = None
+        self.progress_contexts = {}
+        self.progress_context_by_job = {}
+        self.active_progress_context_id = ""
+        self.progress_log_body = None
+        
+        import tkinter as tk
+        self.progress_log_toggle_text = tk.StringVar(value="Show Log")
+        self.progress_log_visible = False
+        self.progress_selected_tools = {}
+        
+        self.image_runs = {}
+        self.image_rows = {}
+        self.current_image_key = ""
+        self.active_image_key = ""
+        self.step_summary_rows = {}
+        
+        self.detail_chart = None
+        self.gpu_chart = None
+        self.log_text = None
+        self.image_list_canvas = None
+        self.image_list_frame = None
+        self.progress_log_card = None
     def _progress_job_identity(self, job: dict | None) -> str:
         if not job:
             return ""
@@ -56,7 +83,7 @@ class ProgressMixin:
         return f"{base} #{idx}"
 
     def _make_progress_context(self, title: str, job_identity: str = "") -> dict:
-        if self.notebook is None:
+        if self.gui.notebook is None:
             raise RuntimeError("Notebook is not initialized")
         context_id = f"progress-{len(self.progress_contexts) + 1}-{int(time.time() * 1000)}"
         title = self._unique_progress_title(title)
@@ -65,7 +92,7 @@ class ProgressMixin:
             "title": title,
             "tab_title": tk.StringVar(value=title),
             "job_identity": job_identity,
-            "tab": ttk.Frame(self.notebook),
+            "tab": ttk.Frame(self.gui.notebook),
             "image_runs": {},
             "image_rows": {},
             "current_image_key": "",
@@ -88,7 +115,7 @@ class ProgressMixin:
         self.progress_contexts[context_id] = context
         if job_identity:
             self.progress_context_by_job[job_identity] = context_id
-        self.notebook.add(context["tab"], text=title + "  ✕")
+        self.gui.notebook.add(context["tab"], text=title + "  ✕")
         return context
 
     def _save_active_progress_context(self) -> None:
@@ -150,22 +177,22 @@ class ProgressMixin:
         self._sync_progress_context_to_state(context)
         monitor = getattr(self, "job_monitors", {}).get(context_id)
         if monitor:
-            self.active_job = monitor.get("active_job")
-            self.pipeline_ctrl.remote_runner = monitor.get("remote_runner")
-            self.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
-            self.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
-            self.job_poll_after_id = monitor.get("after_id")
+            self.gui.jobs_ctrl.active_job = monitor.get("active_job")
+            self.gui.pipeline_ctrl.remote_runner = monitor.get("remote_runner")
+            self.gui.jobs_ctrl.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
+            self.gui.jobs_ctrl.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
+            self.gui.jobs_ctrl.job_poll_after_id = monitor.get("after_id")
         return context
 
     def _sync_progress_context_to_state(self, context: dict) -> None:
-        self.state.current_total_images = int(context.get("current_total_images", 0) or 0)
-        self.state.current_success_images = int(context.get("current_success_images", 0) or 0)
-        self.state.current_failed_images = int(context.get("current_failed_images", 0) or 0)
-        self.state.current_running_images = int(context.get("current_running_images", 0) or 0)
-        self.state.batch_total_text.set(context["batch_total_text"].get())
-        self.state.batch_running_text.set(context["batch_running_text"].get())
-        self.state.batch_failed_text.set(context["batch_failed_text"].get())
-        self.state.detail_title.set(context["detail_title"].get())
+        self.gui.state.current_total_images = int(context.get("current_total_images", 0) or 0)
+        self.gui.state.current_success_images = int(context.get("current_success_images", 0) or 0)
+        self.gui.state.current_failed_images = int(context.get("current_failed_images", 0) or 0)
+        self.gui.state.current_running_images = int(context.get("current_running_images", 0) or 0)
+        self.gui.state.batch_total_text.set(context["batch_total_text"].get())
+        self.gui.state.batch_running_text.set(context["batch_running_text"].get())
+        self.gui.state.batch_failed_text.set(context["batch_failed_text"].get())
+        self.gui.state.detail_title.set(context["detail_title"].get())
 
     def _current_progress_context(self) -> dict | None:
         return self.progress_contexts.get(getattr(self, "active_progress_context_id", ""))
@@ -174,19 +201,19 @@ class ProgressMixin:
         context = self._current_progress_context()
         if context is not None:
             context[name] = value
-        setattr(self.state, name, value)
+        setattr(self.gui.state, name, value)
 
     def _get_progress_count(self, name: str) -> int:
         context = self._current_progress_context()
         if context is not None:
             return int(context.get(name, 0) or 0)
-        return int(getattr(self.state, name, 0) or 0)
+        return int(getattr(self.gui.state, name, 0) or 0)
 
     def _set_detail_title(self, value: str) -> None:
         context = self._current_progress_context()
         if context is not None:
             context["detail_title"].set(value)
-        self.state.detail_title.set(value)
+        self.gui.state.detail_title.set(value)
 
     def _set_current_image_key(self, value: str) -> None:
         self.current_image_key = value
@@ -201,36 +228,36 @@ class ProgressMixin:
             context["active_image_key"] = value
 
     def _on_notebook_tab_changed(self, _event=None) -> None:
-        if self.notebook is None:
+        if self.gui.notebook is None:
             return
-        selected = str(self.notebook.select())
+        selected = str(self.gui.notebook.select())
         for context_id, context in self.progress_contexts.items():
             if str(context.get("tab")) == selected:
                 self._activate_progress_context(context_id)
                 if hasattr(self, "_sync_attach_toolbar_state"):
-                    self._sync_attach_toolbar_state()
+                    self.gui.jobs_ctrl._sync_attach_toolbar_state()
                 return
                 
         # If it reaches here, a non-progress tab is selected (like config or tools)
         self.active_progress_context_id = ""
-        self.active_job = None
+        self.gui.jobs_ctrl.active_job = None
         if hasattr(self, "resume_button"):
-            self.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
+            self.gui.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
         if hasattr(self, "restart_button"):
-            self.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
+            self.gui.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
         if hasattr(self, "stop_button"):
-            self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
+            self.gui.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
         if hasattr(self, "_validate_configuration"):
-            self._validate_configuration()
+            self.gui._validate_configuration()
 
     def _on_notebook_click(self, event) -> None:
-        if self.notebook is None:
+        if self.gui.notebook is None:
             return
         try:
-            index = self.notebook.index(f"@{event.x},{event.y}")
+            index = self.gui.notebook.index(f"@{event.x},{event.y}")
         except tk.TclError:
             return
-        tab_id = self.notebook.tabs()[index]
+        tab_id = self.gui.notebook.tabs()[index]
         is_progress_tab = False
         context_id = None
         for cid, context in self.progress_contexts.items():
@@ -240,7 +267,7 @@ class ProgressMixin:
                 break
         if not is_progress_tab:
             return
-        bbox = self.notebook.bbox(index)
+        bbox = self.gui.notebook.bbox(index)
         if not bbox:
             return
         x, y, w, h = bbox
@@ -249,7 +276,7 @@ class ProgressMixin:
 
     def _close_progress_tab(self, context_id: str) -> None:
         context = self.progress_contexts.get(context_id)
-        if not context or self.notebook is None:
+        if not context or self.gui.notebook is None:
             return
         monitor = getattr(self, "job_monitors", {}).get(context_id)
         if monitor and monitor.get("active_job") and not monitor.get("active_job", {}).get("done"):
@@ -258,16 +285,16 @@ class ProgressMixin:
             after_id = monitor.get("after_id")
             if after_id:
                 try:
-                    self.root.after_cancel(after_id)
+                    self.gui.root.after_cancel(after_id)
                 except Exception:
                     pass
-            self.job_monitors.pop(context_id, None)
+            self.gui.jobs_ctrl.job_monitors.pop(context_id, None)
         identity = str(context.get("job_identity") or "")
         if identity:
             self.progress_context_by_job.pop(identity, None)
         was_active = self.active_progress_context_id == context_id
         try:
-            self.notebook.forget(context["tab"])
+            self.gui.notebook.forget(context["tab"])
         except Exception:
             pass
         try:
@@ -280,14 +307,14 @@ class ProgressMixin:
             next_context = next(iter(self.progress_contexts), "")
             if next_context:
                 self._activate_progress_context(next_context)
-                self.notebook.select(self.progress_contexts[next_context]["tab"])
-            elif self.config_tab is not None:
+                self.gui.notebook.select(self.progress_contexts[next_context]["tab"])
+            elif self.gui.config_tab is not None:
                 self.progress_tab = None
-                self.active_job = None
-                self.pipeline_ctrl.remote_runner = None
-                self.job_poll_after_id = None
-                self.remote_poll_in_flight = False
-                self.notebook.select(self.config_tab)
+                self.gui.jobs_ctrl.active_job = None
+                self.gui.pipeline_ctrl.remote_runner = None
+                self.gui.jobs_ctrl.job_poll_after_id = None
+                self.gui.jobs_ctrl.remote_poll_in_flight = False
+                self.gui.notebook.select(self.gui.config_tab)
 
     def _ensure_progress_context(self, title: str, job_identity: str = "") -> dict:
         context_id = self.progress_context_by_job.get(job_identity, "") if job_identity else ""
@@ -298,14 +325,14 @@ class ProgressMixin:
             title = self._unique_progress_title(title, context_id=context_id)
             context["title"] = title
             context["tab_title"].set(title)
-            if self.notebook is not None:
-                self.notebook.tab(context["tab"], text=title + "  ✕")
+            if self.gui.notebook is not None:
+                self.gui.notebook.tab(context["tab"], text=title + "  ✕")
         self._activate_progress_context(context["id"])
         return context
 
     def _rename_active_progress_tab(self, title: str, job_identity: str = "") -> None:
         context = self._current_progress_context()
-        if not context or self.notebook is None:
+        if not context or self.gui.notebook is None:
             return
         title = self._unique_progress_title(title, context_id=context["id"])
         old_identity = str(context.get("job_identity") or "")
@@ -316,7 +343,7 @@ class ProgressMixin:
         context["job_identity"] = job_identity
         if job_identity:
             self.progress_context_by_job[job_identity] = context["id"]
-        self.notebook.tab(context["tab"], text=title + "  ✕")
+        self.gui.notebook.tab(context["tab"], text=title + "  ✕")
 
     def _toggle_progress_log(self) -> None:
         body = getattr(self, "progress_log_body", None)
@@ -346,13 +373,13 @@ class ProgressMixin:
         if log is None:
             return
         text = log.get("1.0", tk.END).strip()
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.state.status_text.set("Image log copied")
+        self.gui.root.clipboard_clear()
+        self.gui.root.clipboard_append(text)
+        self.gui.state.status_text.set("Image log copied")
 
     def _input_files_for_progress(self, req: dict | None = None) -> list[str]:
         if req is None:
-            req = self._build_run_request()
+            req = self.gui.pipeline_ctrl._build_run_request()
         if not req:
             return []
         if req.get("lazy_watch"):
@@ -366,9 +393,9 @@ class ProgressMixin:
         return _discover_mri_files(req["input_dir"], recursive=req.get("recursive", True))
 
     def _show_progress_tab(self) -> None:
-        if self.notebook is None or self.progress_tab is None:
+        if self.gui.notebook is None or self.progress_tab is None:
             return
-        self.notebook.select(self.progress_tab)
+        self.gui.notebook.select(self.progress_tab)
 
     def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None, title: str = "Run progress", job_identity: str = "", pipeline_mode: str = "", threads: int = 0, device: str = "") -> None:
         self._ensure_progress_context(title, job_identity)
@@ -376,7 +403,7 @@ class ProgressMixin:
         self.image_rows.clear()
         self._set_current_image_key("")
         self._set_active_image_key("")
-        self.progress_selected_tools = dict(selected_tools or self.state.get_selected_tools())
+        self.progress_selected_tools = dict(selected_tools or self.gui.state.get_selected_tools())
         self._set_progress_count("current_total_images", len(files))
         self._set_progress_count("current_success_images", 0)
         self._set_progress_count("current_failed_images", 0)
@@ -390,11 +417,11 @@ class ProgressMixin:
         self._set_detail_title("Select an input image")
         self._reset_step_summary()
         if pipeline_mode:
-            self.job_preset_text.set(pipeline_mode)
+            self.gui.job_preset_text.set(pipeline_mode)
         if threads:
-            self.job_threads_text.set(str(threads))
+            self.gui.job_threads_text.set(str(threads))
         if device:
-            self.job_device_text.set(device.upper())
+            self.gui.job_device_text.set(device.upper())
         for idx, path in enumerate(files, start=1):
             self._create_image_run(path, idx, len(files))
         if files:
@@ -444,7 +471,7 @@ class ProgressMixin:
         }.get(status, "pending")
         if status == "Running":
             return None
-        return self._make_icon(icon_name)
+        return self.gui._make_icon(icon_name)
 
     def _apply_step_row_widgets(self, widgets: dict, stage: str, step: dict) -> None:
         status = str(step.get("status") or "Pending")
@@ -454,7 +481,7 @@ class ProgressMixin:
             duration = step.get("elapsed_sec")
         icon = self._step_icon(status)
         if status == "Running":
-            widgets["icon"].configure(image=self._spinner_frame() or "", text="", foreground=self._step_status_color(status))
+            widgets["icon"].configure(image=self.gui._spinner_frame() or "", text="", foreground=self._step_status_color(status))
         else:
             widgets["icon"].configure(image=icon if icon is not None else "", text="")
         widgets["tool"].configure(text=tool_display_name(tool) if tool else "")
@@ -520,7 +547,7 @@ class ProgressMixin:
         top = ttk.Frame(row)
         top.pack(fill=tk.X, padx=4, pady=(4, 2))
         
-        icon_img = self._get_status_icon("Pending")
+        icon_img = self.gui._get_status_icon("Pending")
         icon_label = ttk.Label(top, image=icon_img, width=3) if icon_img else ttk.Label(top, text="..", width=3)
         icon_label.pack(side=tk.LEFT, padx=(0, 8))
         
@@ -632,9 +659,9 @@ class ProgressMixin:
             run["status"] = status
             display_text = run.get("stage", status) if status == "Running" else status
             self.image_rows[input_file]["status"].configure(text=display_text)
-            icon_img = self._get_status_icon(status)
+            icon_img = self.gui._get_status_icon(status)
             if status == "Running":
-                self.image_rows[input_file]["icon"].configure(image=self._spinner_frame() or "", text="")
+                self.image_rows[input_file]["icon"].configure(image=self.gui._spinner_frame() or "", text="")
             elif icon_img:
                 self.image_rows[input_file]["icon"].configure(image=icon_img, text="")
             else:
@@ -660,9 +687,9 @@ class ProgressMixin:
             context["batch_total_text"].set(f"Success: {success} / {total}")
             context["batch_running_text"].set(f"Running: {running}")
             context["batch_failed_text"].set(f"Failed: {failed}")
-        self.state.batch_total_text.set(f"Success: {success} / {total}")
-        self.state.batch_running_text.set(f"Running: {running}")
-        self.state.batch_failed_text.set(f"Failed: {failed}")
+        self.gui.state.batch_total_text.set(f"Success: {success} / {total}")
+        self.gui.state.batch_running_text.set(f"Running: {running}")
+        self.gui.state.batch_failed_text.set(f"Failed: {failed}")
 
     def _match_progress_input_key(self, event: dict) -> str:
         input_file = str(event.get("input_file", ""))
@@ -694,7 +721,7 @@ class ProgressMixin:
         return input_file
 
     def _remote_log_event(self, line: str) -> None:
-        self.root.after(0, lambda l=line: self._handle_remote_log_event(l))
+        self.gui.root.after(0, lambda l=line: self._handle_remote_log_event(l))
 
     def _handle_background_log_chunk(self, data: str) -> None:
         for line in data.splitlines():
@@ -722,7 +749,7 @@ class ProgressMixin:
             self._update_batch_summary()
             self._log(f"Remote image {idx}/{total} started: {key}")
             self._update_image_run(key, status="Running", percent=0, stage_text="Starting")
-            self.root.after(0, lambda k=key: self._select_image(k))
+            self.gui.root.after(0, lambda k=key: self._select_image(k))
         elif kind == "progress":
             pct = float(event.get("pct", 0)) * 100
             status = str(event.get("status", "running"))
@@ -734,10 +761,10 @@ class ProgressMixin:
             idx = int(current_run.get("idx", 1) or 1)
             total = max(int(current_run.get("total", self._get_progress_count("current_total_images")) or 1), 1)
             overall_pct = pct if stage == "batch" else (((idx - 1) + (pct / 100.0)) / total) * 100.0
-            self.state.overall_progress_var.set(max(0, min(100, overall_pct)))
-            self.state.overall_progress_text.set(f"{int(max(0, min(100, overall_pct)))}%")
-            self.state.status_text.set(status.capitalize())
-            prefix = "REMOTE " if self.state.run_target.get() == "Server" else ""
+            self.gui.state.overall_progress_var.set(max(0, min(100, overall_pct)))
+            self.gui.state.overall_progress_text.set(f"{int(max(0, min(100, overall_pct)))}%")
+            self.gui.state.status_text.set(status.capitalize())
+            prefix = "REMOTE " if self.gui.state.run_target.get() == "Server" else ""
             self._log(f"{prefix}{status.upper()} {stage}: {msg}")
             if target_key:
                 stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
@@ -812,9 +839,9 @@ class ProgressMixin:
         total = max(int(current_run.get("total", self._get_progress_count("current_total_images")) or 1), 1)
         overall_pct = pct_value if stage == "batch" else (((idx - 1) + (pct_value / 100.0)) / total) * 100.0
         overall_pct = max(0, min(100, overall_pct))
-        self.state.overall_progress_var.set(overall_pct)
-        self.state.overall_progress_text.set(f"{int(overall_pct)}%")
-        self.state.status_text.set(status.capitalize())
+        self.gui.state.overall_progress_var.set(overall_pct)
+        self.gui.state.overall_progress_text.set(f"{int(overall_pct)}%")
+        self.gui.state.status_text.set(status.capitalize())
         if target_key:
             label = {
                 "running": "Running",
@@ -838,10 +865,10 @@ class ProgressMixin:
                 percent=None if stage == "batch" else pct_value,
                 stage_text=stage_text,
             )
-        if self.state.run_target.get() == "Server":
-            self.state.server_text.set("Server: connected")
+        if self.gui.state.run_target.get() == "Server":
+            self.gui.state.server_text.set("Server: connected")
         else:
-            self.state.server_text.set("Server: local")
+            self.gui.state.server_text.set("Server: local")
 
     def _on_image_start(self, input_file: str, idx: int, total: int) -> None:
         self._set_active_image_key(input_file)
@@ -850,7 +877,7 @@ class ProgressMixin:
         self._update_batch_summary()
         self._update_image_run(input_file, status="Running", percent=0, stage_text="Starting")
         self._select_image(input_file)
-        self.metrics_queue.put((getattr(self, "active_progress_context_id", ""), getattr(self, "active_image_key", ""), 0.0, 0, 0.0, "new image"))
+        self.gui.metrics_queue.put((getattr(self, "active_progress_context_id", ""), getattr(self, "active_image_key", ""), 0.0, 0, 0.0, "new image"))
 
     def _on_image_done(self, result: BatchImageResult, idx: int, total: int) -> None:
         status = "OK" if result.success else "FAILED"
@@ -900,23 +927,23 @@ class ProgressMixin:
                     peak_cpu_pct=cpu_pct,
                     peak_gpu_pct=gpu_pct,
                 )
-        self.metrics_queue.put((getattr(self, "active_progress_context_id", ""), target_key, cpu_pct, ram_bytes, gpu_pct, container_name))
+        self.gui.metrics_queue.put((getattr(self, "active_progress_context_id", ""), target_key, cpu_pct, ram_bytes, gpu_pct, container_name))
 
     def _request_stop(self) -> None:
-        self.pipeline_ctrl.stop_requested.set()
-        if self.state.run_target.get() == "Server" and self.pipeline_ctrl.remote_runner and self.pipeline_ctrl.remote_runner.remote_job_dir:
+        self.gui.pipeline_ctrl.stop_requested.set()
+        if self.gui.state.run_target.get() == "Server" and self.gui.pipeline_ctrl.remote_runner and self.gui.pipeline_ctrl.remote_runner.remote_job_dir:
             def request_remote_pause():
                 try:
-                    self.pipeline_ctrl.remote_runner.request_pause()
+                    self.gui.pipeline_ctrl.remote_runner.request_pause()
                 except Exception as exc:
                     self._log(f"REMOTE PAUSE ERROR: {type(exc).__name__}: {exc}")
 
             threading.Thread(target=request_remote_pause, daemon=True).start()
             self._log("Remote pause requested. Server will pause after the current pipeline stage.")
             return
-        if self.active_job and self.active_job.get("target") == "Local" and self.active_job.get("job_dir"):
+        if self.gui.jobs_ctrl.active_job and self.gui.jobs_ctrl.active_job.get("target") == "Local" and self.gui.jobs_ctrl.active_job.get("job_dir"):
             try:
-                stop_file = Path(str(self.active_job["job_dir"])) / "stop_requested"
+                stop_file = Path(str(self.gui.jobs_ctrl.active_job["job_dir"])) / "stop_requested"
                 stop_file.touch()
                 self._log(f"Local pause requested via stop file: {stop_file}")
             except Exception as exc:
@@ -927,27 +954,27 @@ class ProgressMixin:
     def _set_idle_state(self) -> None:
         if hasattr(self, "progress"):
             self.progress.stop()
-        self.pipeline_ctrl.running = False
+        self.gui.pipeline_ctrl.running = False
         for btn_name in ("run_button", "resume_button", "restart_button"):
             btn = getattr(self, btn_name, None)
             if btn is not None:
-                self._set_button_busy(btn, False)
+                self.gui._set_button_busy(btn, False)
         if hasattr(self, "run_button"):
-            self.run_button.configure(text="Run", state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
+            self.gui.run_button.configure(text="Run", state=tk.NORMAL if self.gui._validate_configuration() else tk.DISABLED)
         if hasattr(self, "resume_button"):
-            self.pipeline_ctrl.resume_button.configure(text="Resume", state=tk.NORMAL)
+            self.gui.pipeline_ctrl.resume_button.configure(text="Resume", state=tk.NORMAL)
         if hasattr(self, "restart_button"):
-            self.pipeline_ctrl.restart_button.configure(text="Restart", state=tk.NORMAL)
+            self.gui.pipeline_ctrl.restart_button.configure(text="Restart", state=tk.NORMAL)
         if hasattr(self, "stop_button"):
-            self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
-        self.state.status_text.set("Ready")
+            self.gui.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
+        self.gui.state.status_text.set("Ready")
         self._log("Pipeline finished.")
         self._log("=" * 80)
 
     def _poll_queues(self) -> None:
         while True:
             try:
-                item = self.log_queue.get_nowait()
+                item = self.gui.log_queue.get_nowait()
             except queue.Empty:
                 break
             if isinstance(item, tuple) and len(item) == 3:
@@ -976,7 +1003,7 @@ class ProgressMixin:
 
         while True:
             try:
-                item = self.metrics_queue.get_nowait()
+                item = self.gui.metrics_queue.get_nowait()
             except queue.Empty:
                 break
             if len(item) == 6:
@@ -991,8 +1018,8 @@ class ProgressMixin:
                     if context_id == self.active_progress_context_id:
                         cpu = max(cpu_pct or 0.0, 0.0)
                         ram_mib = (ram_bytes or 0) / (1024 * 1024)
-                        self.state.cpu_text.set(f"CPU {cpu:.0f}%")
-                        self.state.ram_text.set(f"RAM {ram_mib / 1024:.2f} GB" if ram_mib >= 1024 else f"RAM {ram_mib:.0f} MB")
+                        self.gui.state.cpu_text.set(f"CPU {cpu:.0f}%")
+                        self.gui.state.ram_text.set(f"RAM {ram_mib / 1024:.2f} GB" if ram_mib >= 1024 else f"RAM {ram_mib:.0f} MB")
             elif len(item) == 5:
                 image_key, cpu_pct, ram_bytes, gpu_pct, container_name = item
             else:
@@ -1006,13 +1033,13 @@ class ProgressMixin:
                     self.gpu_chart.add(gpu, f"{gpu:.1f}%")
                 cpu = max(cpu_pct or 0.0, 0.0)
                 ram_mib = (ram_bytes or 0) / (1024 * 1024)
-                self.state.cpu_text.set(f"CPU {cpu:.0f}%")
-                self.state.ram_text.set(f"RAM {ram_mib / 1024:.2f} GB" if ram_mib >= 1024 else f"RAM {ram_mib:.0f} MB")
+                self.gui.state.cpu_text.set(f"CPU {cpu:.0f}%")
+                self.gui.state.ram_text.set(f"RAM {ram_mib / 1024:.2f} GB" if ram_mib >= 1024 else f"RAM {ram_mib:.0f} MB")
 
-        self.root.after(100, self._poll_queues)
+        self.gui.root.after(100, self._poll_queues)
 
     def _log(self, line: str) -> None:
-        self.log_queue.put((getattr(self, "active_progress_context_id", ""), getattr(self, "active_image_key", ""), line))
+        self.gui.log_queue.put((getattr(self, "active_progress_context_id", ""), getattr(self, "active_image_key", ""), line))
 
     def _append_log_to_context(self, context: dict, line: str) -> None:
         log_text = context.get("log_text")
