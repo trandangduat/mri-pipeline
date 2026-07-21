@@ -504,7 +504,7 @@ class PipelineGUI:
         if spinbox is not None:
             spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self.remote_ctrl._server_thread_max_known() else tk.DISABLED
             spinbox.configure(to=max_value, state=spinbox_state)
-        self._clamp_threads()
+        self.validation_ctrl._clamp_threads()
         self.validation_ctrl._validate_configuration()
 
 

@@ -40,7 +40,7 @@ class ValidationController:
     
         self.gui.state.run_target.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
         self.gui.state.remote_workspace.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
-        self.gui.state.threads.trace_add("write", lambda *_args: self.gui._clamp_threads())
+        self.gui.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
         for var in (
             self.gui.state.remote_host,
             self.gui.state.remote_port,
