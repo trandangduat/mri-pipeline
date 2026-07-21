@@ -172,7 +172,7 @@ class PipelineGUI:
         self.remote_ctrl = RemoteController(self)
         self._build_ui()
         self._update_python_env_hint()
-        self._setup_validation_traces()
+        self.validation_ctrl._setup_validation_traces()
         self.validation_ctrl._validate_configuration()
         self.progress_ctrl._poll_queues()
         if self._spinner_frames or self._spinner_frames_light:

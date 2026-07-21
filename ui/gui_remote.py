@@ -321,7 +321,7 @@ class RemoteController:
 
         self._sync_remote_action_buttons()
 
-        self._sync_input_source_controls()
+        self.gui._sync_input_source_controls()
 
         self.gui._set_thread_max(self.gui.max_threads)
 
