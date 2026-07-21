@@ -2,7 +2,8 @@ import shutil
 from pathlib import Path
 from typing import Tuple, List
 from .config import EXPORT_OUTPUT_ITEMS, ExportConfig, TOOL_DEFS
-from .docker_ops import ensure_image, _run_docker
+from .docker_ops import ensure_image
+from .executor import LocalDockerExecutor, ExecutionRequest
 from .utils import _repair_host_permissions, _safe_container_name
 
 def _volume_extension(path: Path) -> str:
@@ -50,13 +51,16 @@ def _copy_or_convert_export(src: Path, dst: Path, subject_dir: str) -> tuple[boo
     subject_path = Path(subject_dir).resolve()
     src_rel = src.resolve().relative_to(subject_path).as_posix()
     dst_rel = dst.resolve().relative_to(subject_path).as_posix()
-    code, output, _metrics = _run_docker(
+    req = ExecutionRequest(
         image=TOOL_DEFS["mri_convert_fs7"]["image"],
         args=[],
         mounts=[(str(subject_path), "/subject")],
         command=["bash", "-c", f"mri_convert /subject/{src_rel} /subject/{dst_rel}"],
-        container_name=_safe_container_name("mri", subject_path.name, "export"),
+        container_name=_safe_container_name("mri", subject_path.name, "export")
     )
+    res = LocalDockerExecutor().execute(req)
+    code = res.return_code
+    output = res.output
     if code != 0:
         tail = " | ".join(output.strip().splitlines()[-3:]) if output.strip() else "no output"
         return False, f"mri_convert failed: {tail}"

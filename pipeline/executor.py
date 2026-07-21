@@ -1,15 +1,39 @@
 from __future__ import annotations
 import os
-from pathlib import Path
 import time
-import shutil
+import subprocess
+import threading
+import logging
+import math
 from dataclasses import dataclass
 from typing import Callable
+from abc import ABC, abstractmethod
 
-from .config import ToolContext, PipelineConfig, TOOL_DEFS
-from .docker_ops import _run_docker, DockerResourceMetrics
-from .utils import _repair_host_permissions, _safe_container_name
-from .discovery import _dicom_files_in_series, _first_dicom_file_in_series
+from .utils import _parse_docker_stats_line
+
+log = logging.getLogger(__name__)
+
+@dataclass
+class DockerResourceMetrics:
+    peak_ram_bytes: int | None = None
+    avg_ram_bytes: int | None = None
+    p95_ram_bytes: int | None = None
+    peak_cpu_pct: float | None = None
+    avg_cpu_pct: float | None = None
+    p95_cpu_pct: float | None = None
+
+@dataclass
+class ExecutionRequest:
+    image: str
+    args: list[str]
+    mounts: list[tuple[str, str]]
+    command: list[str] | None = None
+    entrypoint: str | None = None
+    env: dict[str, str] | None = None
+    gpus: bool = False
+    memory_bytes: int | None = None
+    container_name: str | None = None
+    timeout: int = 7200
 
 @dataclass
 class ExecutionResult:
@@ -18,133 +42,123 @@ class ExecutionResult:
     output: str
     duration_sec: float
     metrics: DockerResourceMetrics | None
-    container_name: str
+    container_name: str | None = None
+    return_code: int = 0
 
-class PipelineExecutor:
-    """
-    Deep module interface for executing pipeline tools.
-    """
+
+class BaseExecutor(ABC):
+    @abstractmethod
     def execute(
         self,
-        tool_key: str,
-        stage: str,
-        input_file: str | None,
-        subject_dir: str,
-        config: PipelineConfig,
-        logs_dir: str,
-        memory_limit_bytes: int | None,
-        on_metrics: Callable[[str, str, float, int | None, float, str], None] | None = None,
+        req: ExecutionRequest,
+        on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
     ) -> ExecutionResult:
-        tool = TOOL_DEFS[tool_key]
-        
-        # 1. Resolve Input Mounts
-        if input_file is None:
-            input_abs = Path(config.input_file).expanduser().resolve()
-            dicom_files = _dicom_files_in_series(input_abs)
-            docker_input_abs = _first_dicom_file_in_series(input_abs) or input_abs
-            host_input_dir = str(input_abs.parent)
-            input_rel = docker_input_abs.relative_to(input_abs.parent).as_posix()
-            input_path = f"/input/{input_rel}"
-            dicom_list_path = ""
-            if dicom_files:
-                dicom_list_file = Path(logs_dir) / "dicom_input_files.txt"
-                dicom_list_file.write_text(
-                    "\n".join(f"/input/{path.relative_to(input_abs.parent).as_posix()}" for path in dicom_files) + "\n",
-                    encoding="utf-8",
-                )
-                dicom_list_path = "/work/logs/dicom_input_files.txt"
-            mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
-        else:
-            rel = os.path.relpath(input_file, subject_dir)
-            input_path = f"/work/{rel}"
-            dicom_list_path = ""
-            mounts = []
+        pass
 
-        # 2. Resolve Workspace Mounts
-        mounts.append((subject_dir, "/output"))
-        mounts.append((subject_dir, "/work"))
-        
-        license_mount: list[tuple[str, str]] = []
-        if config.license_dir:
-            lic_path = Path(config.license_dir).absolute()
-            license_mount.append((str(lic_path), "/license/license.txt" if lic_path.is_file() else "/license"))
-            
-        if tool.get("needs_license") and license_mount:
-            mounts.extend(license_mount)
-            
-        for rel, container in tool.get("extra_mounts", {}).items():
-            host = os.path.join(subject_dir, "mri", rel)
-            Path(host).mkdir(parents=True, exist_ok=True)
-            mounts.append((host, container))
-            
-        norm_vol = Path(__file__).resolve().parent.parent / "normalize_volumes.py"
-        if norm_vol.exists():
-            mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
 
-        # 3. Resolve Commands
-        args = ["--input", input_path, "--output-dir", "/output", "--work-dir", "/work", "--subject-id", config.subject_id, "--threads", str(config.threads), "--device", config.device]
-        command = tool.get("command")
+def _mean(values: list[int] | list[float]) -> float | None:
+    return (sum(values) / len(values)) if values else None
 
-        if "command_builder" in tool:
-            ctx = ToolContext(
-                input_path=input_path,
-                subject_id=config.subject_id,
-                threads=config.threads,
-                device=config.device,
-                dicom_list_path=dicom_list_path,
-            )
-            actual_cmd = tool["command_builder"](ctx)
-            command = [tool.get("shell", "bash"), "-c", actual_cmd]
-            args = []
+def _p95(values: list[int] | list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * 0.95) - 1))
+    return ordered[index]
 
-        # 4. Execute
+def _resource_metrics(ram_samples: list[int], cpu_samples: list[float]) -> DockerResourceMetrics:
+    avg_ram = _mean(ram_samples)
+    p95_ram = _p95(ram_samples)
+    avg_cpu = _mean(cpu_samples)
+    p95_cpu = _p95(cpu_samples)
+    return DockerResourceMetrics(
+        peak_ram_bytes=max(ram_samples) if ram_samples else None,
+        avg_ram_bytes=round(avg_ram) if avg_ram is not None else None,
+        p95_ram_bytes=round(p95_ram) if p95_ram is not None else None,
+        peak_cpu_pct=max(cpu_samples) if cpu_samples else None,
+        avg_cpu_pct=avg_cpu,
+        p95_cpu_pct=p95_cpu,
+    )
+
+
+class LocalDockerExecutor(BaseExecutor):
+    def execute(
+        self,
+        req: ExecutionRequest,
+        on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
+    ) -> ExecutionResult:
+        cmd = ["docker", "run", "--rm"]
+        if req.container_name:
+            cmd += ["--name", req.container_name]
+        if req.gpus:
+            cmd += ["--gpus", "all"]
+        if req.memory_bytes and req.memory_bytes > 0:
+            cmd += ["--memory", f"{int(req.memory_bytes)}b"]
+        for host_path, container_path in req.mounts:
+            cmd += ["-v", f"{os.path.abspath(host_path)}:{container_path}"]
+        if req.env:
+            for k, v in req.env.items():
+                cmd += ["-e", f"{k}={v}"]
+        if req.entrypoint is not None:
+            cmd += ["--entrypoint", req.entrypoint]
+        cmd.append(req.image)
+        if req.command:
+            cmd.extend(req.command)
+        cmd += req.args
+        log.info("Running: %s", " ".join(cmd))
+
+        ram_samples: list[int] = []
+        cpu_samples: list[float] = []
+        stop_monitor = threading.Event()
         t0 = time.time()
-        container_name = _safe_container_name("mri", config.subject_id, tool_key)
 
-        def _metrics_relay(cpu_pct, ram_bytes, elapsed, _cn=container_name):
-            if on_metrics:
-                on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, _cn)
-
-        code, output, metrics = _run_docker(
-            image=tool["image"],
-            args=args,
-            mounts=mounts,
-            gpus=(config.device == "gpu" or config.device == "cuda"),
-            memory_bytes=memory_limit_bytes,
-            container_name=container_name,
-            command=command,
-            entrypoint=tool.get("entrypoint"),
-            on_metrics=_metrics_relay,
-        )
-        
-        duration = time.time() - t0
-        _repair_host_permissions(subject_dir, tool["image"])
-
-        success = code == 0
-        error = ""
-        if not success:
-            if not output.strip():
+        def monitor_resources() -> None:
+            if not req.container_name:
+                return
+            while not stop_monitor.is_set():
                 try:
-                    logs = [p for p in Path(logs_dir).glob("*.log") if p.name not in ("pipeline_metrics.log", "pipeline_state.json")]
-                    if logs:
-                        output = max(logs, key=lambda p: p.stat().st_mtime).read_text(encoding="utf-8", errors="replace")
+                    stats = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", req.container_name], capture_output=True, text=True, timeout=5)
+                    if stats.returncode == 0 and stats.stdout.strip():
+                        cpu, current = _parse_docker_stats_line(stats.stdout.strip().splitlines()[0])
+                        if current is not None:
+                            ram_samples.append(current)
+                        if cpu is not None:
+                            cpu_samples.append(cpu)
+                        if on_metrics:
+                            on_metrics(cpu, current, time.time() - t0, req.container_name or "")
                 except Exception:
                     pass
-            tail = " | ".join(output.strip().splitlines()[-3:]) if output.strip() else "No output"
-            error = f"exit code {code} ({tail})"
-            lower_output = output.lower()
-            if "error writing data" in lower_output or "no space left on device" in lower_output:
-                try:
-                    disk_hint = f"free disk at output: {shutil.disk_usage(subject_dir).free} bytes"
-                except OSError:
-                    disk_hint = "could not check free disk at output"
-                error += f". Write failure hint: check remote disk space and output permissions ({disk_hint})"
+                stop_monitor.wait(0.5)
 
-        return ExecutionResult(
-            success=success,
-            error=error,
-            output=output,
-            duration_sec=duration,
-            metrics=metrics,
-            container_name=container_name
-        )
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            monitor = threading.Thread(target=monitor_resources, daemon=True)
+            monitor.start()
+            try:
+                output, _ = proc.communicate(timeout=req.timeout)
+                return_code = proc.returncode
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                if req.container_name:
+                    subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
+                output, _ = proc.communicate()
+                output = f"{output or ''}\nDocker timed out after {req.timeout}s"
+                return_code = -1
+            finally:
+                stop_monitor.set()
+                monitor.join(timeout=2)
+                
+            metrics = _resource_metrics(ram_samples, cpu_samples)
+            return ExecutionResult(
+                success=(return_code == 0),
+                error="" if return_code == 0 else f"exit code {return_code}",
+                output=output or "",
+                duration_sec=time.time() - t0,
+                metrics=metrics,
+                container_name=req.container_name,
+                return_code=return_code
+            )
+        except subprocess.TimeoutExpired:
+            return ExecutionResult(False, f"Docker timed out after {req.timeout}s", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)
+        except FileNotFoundError:
+            return ExecutionResult(False, "docker not found - is Docker installed and in PATH?", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)

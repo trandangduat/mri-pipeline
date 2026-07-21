@@ -10,47 +10,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback, TOOL_DEFS, is_tool_enabled, tool_display_name
-from .utils import _parse_docker_stats_line
 
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class DockerResourceMetrics:
-    peak_ram_bytes: int | None = None
-    avg_ram_bytes: int | None = None
-    p95_ram_bytes: int | None = None
-    peak_cpu_pct: float | None = None
-    avg_cpu_pct: float | None = None
-    p95_cpu_pct: float | None = None
-
-
-def _mean(values: list[int] | list[float]) -> float | None:
-    return (sum(values) / len(values)) if values else None
-
-
-def _p95(values: list[int] | list[float]) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * 0.95) - 1))
-    return ordered[index]
-
-
-def _resource_metrics(ram_samples: list[int], cpu_samples: list[float]) -> DockerResourceMetrics:
-    avg_ram = _mean(ram_samples)
-    p95_ram = _p95(ram_samples)
-    avg_cpu = _mean(cpu_samples)
-    p95_cpu = _p95(cpu_samples)
-    return DockerResourceMetrics(
-        peak_ram_bytes=max(ram_samples) if ram_samples else None,
-        avg_ram_bytes=round(avg_ram) if avg_ram is not None else None,
-        p95_ram_bytes=round(p95_ram) if p95_ram is not None else None,
-        peak_cpu_pct=max(cpu_samples) if cpu_samples else None,
-        avg_cpu_pct=avg_cpu,
-        p95_cpu_pct=p95_cpu,
-    )
 
 
 def image_exists(image: str) -> bool:
@@ -214,82 +176,3 @@ def ensure_image(tool_key: str, on_progress: ProgressCallback | None = None, on_
     return True, "", total_build
 
 
-def _run_docker(
-    image: str,
-    args: list[str],
-    mounts: list[tuple[str, str]] | dict[str, str],
-    env: dict[str, str] | None = None,
-    gpus: bool = False,
-    memory_bytes: int | None = None,
-    timeout: int = 7200,
-    container_name: str | None = None,
-    on_metrics: Callable[[float | None, int | None, float, str], None] | None = None,
-    command: list[str] | None = None,
-    entrypoint: str | None = None,
-) -> tuple[int, str, DockerResourceMetrics]:
-    cmd = ["docker", "run", "--rm"]
-    if container_name:
-        cmd += ["--name", container_name]
-    if gpus:
-        cmd += ["--gpus", "all"]
-    if memory_bytes and memory_bytes > 0:
-        cmd += ["--memory", f"{int(memory_bytes)}b"]
-    mount_items = mounts.items() if isinstance(mounts, dict) else mounts
-    for host_path, container_path in mount_items:
-        cmd += ["-v", f"{os.path.abspath(host_path)}:{container_path}"]
-    if env:
-        for k, v in env.items():
-            cmd += ["-e", f"{k}={v}"]
-    if entrypoint is not None:
-        cmd += ["--entrypoint", entrypoint]
-    cmd.append(image)
-    if command:
-        cmd.extend(command)
-    cmd += args
-    log.info("Running: %s", " ".join(cmd))
-
-    ram_samples: list[int] = []
-    cpu_samples: list[float] = []
-    stop_monitor = threading.Event()
-    t0 = time.time()
-
-    def monitor_resources() -> None:
-        if not container_name:
-            return
-        while not stop_monitor.is_set():
-            try:
-                stats = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", container_name], capture_output=True, text=True, timeout=5)
-                if stats.returncode == 0 and stats.stdout.strip():
-                    cpu, current = _parse_docker_stats_line(stats.stdout.strip().splitlines()[0])
-                    if current is not None:
-                        ram_samples.append(current)
-                    if cpu is not None:
-                        cpu_samples.append(cpu)
-                    if on_metrics:
-                        on_metrics(cpu, current, time.time() - t0, container_name or "")
-            except Exception:
-                pass
-            stop_monitor.wait(0.5)
-
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        monitor = threading.Thread(target=monitor_resources, daemon=True)
-        monitor.start()
-        try:
-            output, _ = proc.communicate(timeout=timeout)
-            return_code = proc.returncode
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            if container_name:
-                subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, timeout=30)
-            output, _ = proc.communicate()
-            output = f"{output or ''}\nDocker timed out after {timeout}s"
-            return_code = -1
-        finally:
-            stop_monitor.set()
-            monitor.join(timeout=2)
-        return return_code, output or "", _resource_metrics(ram_samples, cpu_samples)
-    except subprocess.TimeoutExpired:
-        return -1, f"Docker timed out after {timeout}s", _resource_metrics(ram_samples, cpu_samples)
-    except FileNotFoundError:
-        return -1, "docker not found - is Docker installed and in PATH?", _resource_metrics(ram_samples, cpu_samples)

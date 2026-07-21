@@ -32,7 +32,7 @@ from .config import (
     tool_display_name,
 )
 from .docker_ops import ensure_image
-from .executor import PipelineExecutor
+from .executor import LocalDockerExecutor
 from .state import PipelineTracker
 from .discovery import (
     _derive_subject_id,
@@ -233,7 +233,7 @@ def run_pipeline(
             progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {err}")
             break
 
-        executor = executor or PipelineExecutor()
+        executor = executor or LocalDockerExecutor()
         exec_result = executor.execute(
             tool_key=tool_key,
             stage=stage,
