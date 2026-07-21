@@ -23,20 +23,32 @@ The project has been aggressively refactored into **Deep Modules** with strict s
 - `utils.py`: Pure math and string manipulation helpers (e.g., `_as_number`, `_avg`). 
 
 ### Frontend (`ui/`)
-- GUI execution relies on `tkinter`.
-- Separated into Controller classes (`PipelineController`, `JobsController`) and View components (Tabs).
+The Frontend has been strictly partitioned into cohesive Controllers to prevent the "God Object" anti-pattern.
+- `main.py`: The **Main View Container** (`PipelineGUI`). Only handles high-level layout drawing, toolbars, and spinning animations.
+- `state.py`: The **State Store** (`AppState`). Contains all `tkinter` Variables (StringVars, BooleanVars).
+- `gui_config.py`: The **Config Controller**. Handles saving/loading workspaces and run configurations.
+- `gui_jobs.py`: The **Jobs Controller**. Manages job lifecycle dialogs (attach, resume, manual runs).
+- `job_registry.py`: The **Registry Controller**. Handles parsing, saving, and querying `.mri-pipeline-jobs.json`.
+- `gui_pipeline.py`: The **Pipeline Controller**. Handles the main pipeline setup tab logic.
+- `gui_progress.py`: The **Progress Controller**. Manages the Progress tab, log streaming, and metric updating.
+- `gui_remote.py`: The **Remote Controller**. Handles all SSH health checks and remote status UI.
+- `gui_tools.py`: The **Tools Controller**. Handles tool selection tab and Python environment checks.
+- `gui_validation.py`: The **Validation Controller**. Validates user input before allowing a run.
 - App Entrypoint: `python gui.py` (Not `ui/main.py`).
 
 ## 2. Where and How to Edit
 
 | Goal | Where to edit | Notes |
 |---|---|---|
-| **Add a new Docker Tool** | `pipeline/registry.py` | Add to `TOOL_DEFS` and update `STAGE_ORDER` if it introduces a new stage. |
-| **Change a Preset (e.g. FS7)** | `pipeline/presets.py` | Modify the corresponding list (e.g., `FREESURFER_7_TOOLS`). |
-| **Change Docker Execution Logic** | `pipeline/executor.py` | E.g., Adding GPU memory limit params. Modify `ExecutionRequest` and `LocalDockerExecutor`. |
+| **Add a new Docker Tool** | `pipeline/registry.py` | Add to `TOOL_DEFS` and update `STAGE_ORDER`. |
+| **Change UI Layout/Animations** | `ui/main.py` | This is the main view container now. |
+| **Change SSH/Remote logic** | `ui/gui_remote.py` | Health checks and connection status. |
+| **Change Job Saving/Loading** | `ui/job_registry.py` | Any changes to how jobs are written to JSON. |
+| **Add a UI Configuration Field** | `ui/state.py` & `ui/gui_config.py`| Add variable to `AppState`, then update load/save in `ConfigController`. |
+| **Change Docker Execution Logic** | `pipeline/executor.py` | Modify `ExecutionRequest` and `LocalDockerExecutor`. |
 | **Fix RAM/CPU Detection** | `pipeline/hardware.py` | Any OS-level hardware detection logic goes here. |
 | **Change Benchmark Output** | `pipeline/reports.py` | Modify `write_batch_reports` or `_step_metrics_row`. |
-| **Add new CLI flags** | `pipeline/cli.py` & `pipeline_runner.py` | Ensure arguments map correctly to `PipelineConfig` |
+| **Add new CLI flags** | `pipeline/cli.py` & `pipeline_runner.py` | Ensure arguments map correctly to `PipelineConfig`. |
 
 ## 3. Coding Practices & Standards
 
