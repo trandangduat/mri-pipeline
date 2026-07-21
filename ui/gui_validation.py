@@ -36,7 +36,7 @@ class ValidationController:
             self.gui.state.export_default_format,
         ]
         for var in variables:
-            var.trace_add("write", lambda *_args: self.gui._validate_configuration())
+            var.trace_add("write", lambda *_args: self._validate_configuration())
     
         self.gui.state.run_target.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
         self.gui.state.remote_workspace.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
@@ -55,7 +55,7 @@ class ValidationController:
     
         def _on_tool_selection_changed(*_args):
             if getattr(self.gui, "_is_applying_preset", False) or getattr(self, "_is_applying_preset", False):
-                self.gui._validate_configuration()
+                self._validate_configuration()
                 self.gui.tools_ctrl._update_config_status_labels()
                 return
             mode = self.gui._normalize_pipeline_mode(self.gui.state.pipeline_mode.get())
@@ -66,14 +66,14 @@ class ValidationController:
                     self.gui.state.pipeline_mode.set("Custom")
                 finally:
                     self._is_applying_preset = False
-            self.gui._validate_configuration()
+            self._validate_configuration()
             self.gui.tools_ctrl._update_config_status_labels()
     
         for tool_var in self.gui.state.tool_vars.values():
             tool_var.trace_add("write", _on_tool_selection_changed)
     
         for var in [*self.gui.state.export_name_vars.values(), *self.gui.state.export_format_vars.values()]:
-            var.trace_add("write", lambda *_args: self.gui._validate_configuration())
+            var.trace_add("write", lambda *_args: self._validate_configuration())
     
         def _on_stat_vector_changed(*_args):
             if getattr(self.gui, "_is_applying_preset", False) or getattr(self, "_is_applying_preset", False):
@@ -91,12 +91,12 @@ class ValidationController:
                 self._is_applying_preset = False
             self.gui._sync_tool_combo_states()
             self.gui.tools_ctrl._update_config_status_labels()
-            self.gui._validate_configuration()
+            self._validate_configuration()
     
         for var in self.gui.state.stat_vector_enabled_vars.values():
             var.trace_add("write", _on_stat_vector_changed)
         for var in self.gui.state.stat_atlas_choice_vars.values():
-            var.trace_add("write", lambda *_args: self.gui._validate_configuration())
+            var.trace_add("write", lambda *_args: self._validate_configuration())
     
     def _validate_configuration(self) -> bool:
         errors: list[str] = []

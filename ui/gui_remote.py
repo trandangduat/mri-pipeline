@@ -413,7 +413,7 @@ class RemoteController:
 
         from ui.dialogs.remote_browser import show_remote_input_browser
 
-        show_remote_input_browser(self)
+        show_remote_input_browser(self.gui)
 
     def _browse_remote_key(self) -> None:
 
