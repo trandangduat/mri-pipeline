@@ -49,7 +49,7 @@ class ConfigController:
 
                 json.dump(workspace, f, indent=2, ensure_ascii=False)
 
-            self.progress_ctrl._log(f"Saved workspace: {path}")
+            self.gui.progress_ctrl._log(f"Saved workspace: {path}")
 
         except Exception as exc:
 
@@ -81,9 +81,9 @@ class ConfigController:
 
     
 
-        tools_visible = self.pipeline_tools_visible.get()
+        tools_visible = self.gui.pipeline_tools_visible.get()
 
-        self._preserve_pipeline_tools_visibility = True
+        self.gui._preserve_pipeline_tools_visibility = True
 
         try:
 
@@ -95,19 +95,19 @@ class ConfigController:
 
             self.gui.state.apply_workspace(workspace)
 
-            self._on_run_target_changed()
+            self.gui._on_run_target_changed()
 
-            self._last_input_source = self.gui.state.input_source.get()
+            self.gui._last_input_source = self.gui.state.input_source.get()
 
-            self._input_source_paths[self._last_input_source] = self.gui.state.input_path.get().strip()
+            self.gui._input_source_paths[self.gui._last_input_source] = self.gui.state.input_path.get().strip()
 
-            self._input_source_selected_files[self._last_input_source] = list(self.gui.state.selected_files)
+            self.gui._input_source_selected_files[self.gui._last_input_source] = list(self.gui.state.selected_files)
 
-            self._refresh_input_label()
+            self.gui._refresh_input_label()
 
-            self.validation_ctrl._validate_configuration()
+            self.gui.validation_ctrl._validate_configuration()
 
-            self.progress_ctrl._log(f"Loaded workspace: {path}")
+            self.gui.progress_ctrl._log(f"Loaded workspace: {path}")
 
         except Exception as exc:
 
@@ -115,9 +115,9 @@ class ConfigController:
 
         finally:
 
-            self._preserve_pipeline_tools_visibility = False
+            self.gui._preserve_pipeline_tools_visibility = False
 
-            self._set_pipeline_tools_visible(tools_visible)
+            self.gui._set_pipeline_tools_visible(tools_visible)
 
     def _save_config(self) -> None:
 
@@ -173,9 +173,9 @@ class ConfigController:
 
             self.gui._apply_pipeline_mode(apply_stats_preset=False)
 
-            self.tools_ctrl._update_config_status_labels()
+            self.gui.tools_ctrl._update_config_status_labels()
 
-            self.validation_ctrl._validate_configuration()
+            self.gui.validation_ctrl._validate_configuration()
 
         finally:
 
@@ -213,7 +213,7 @@ class ConfigController:
 
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
-            self.progress_ctrl._log(f"Saved preset: {path}")
+            self.gui.progress_ctrl._log(f"Saved preset: {path}")
 
         except Exception as exc:
 
@@ -251,7 +251,7 @@ class ConfigController:
 
             self._apply_run_config(config)
 
-            self.progress_ctrl._log(f"Loaded preset: {path}")
+            self.gui.progress_ctrl._log(f"Loaded preset: {path}")
 
         except Exception as exc:
 

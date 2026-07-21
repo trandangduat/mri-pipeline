@@ -7,7 +7,7 @@ from remote.remote_runner import RemoteRunner
 import time
 from tkinter import messagebox
 from ui.events import ui_events, EVENT_LOG_MESSAGE
-from pipeline.utils import load_job_registry, save_job_registry, upsert_job_registry, read_json
+from pipeline.jobs import load_job_registry, save_job_registry, upsert_job_registry, read_json
 from remote.remote_runner import RemoteRunConfig
 
 class JobRegistryController:
