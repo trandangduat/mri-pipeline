@@ -441,28 +441,28 @@ def _path_row(parent: ttk.Frame, label: str, variable: tk.StringVar, row: int, b
     return container
 
 def _build_remote_section(parent: ttk.Frame, gui) -> None:
-    gui.remote_pack_options = {"fill": tk.X, "pady": (0, 18)}
-    frame = create_card(parent, "", "Remote Server", "", gui.remote_pack_options)
-    gui.remote_frame = frame
-    gui.remote_body = frame
+    gui.pipeline_ctrl.remote_pack_options = {"fill": tk.X, "pady": (0, 18)}
+    frame = create_card(parent, "", "Remote Server", "", gui.pipeline_ctrl.remote_pack_options)
+    gui.pipeline_ctrl.remote_frame = frame
+    gui.pipeline_ctrl.remote_body = frame
 
     ttk.Label(frame, text="Host/IP", width=10).grid(row=0, column=0, sticky=tk.W, pady=4)
-    gui.remote_host_entry = ttk.Entry(frame, textvariable=gui.state.remote_host)
-    gui.remote_host_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
+    gui.pipeline_ctrl.remote_host_entry = ttk.Entry(frame, textvariable=gui.state.remote_host)
+    gui.pipeline_ctrl.remote_host_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
     ttk.Label(frame, text="Port", width=8).grid(row=0, column=2, sticky=tk.W, pady=4)
-    gui.remote_port_entry = ttk.Entry(frame, textvariable=gui.state.remote_port, width=8)
-    gui.remote_port_entry.grid(row=0, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
+    gui.pipeline_ctrl.remote_port_entry = ttk.Entry(frame, textvariable=gui.state.remote_port, width=8)
+    gui.pipeline_ctrl.remote_port_entry.grid(row=0, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
     ttk.Label(frame, text="Username", width=10).grid(row=1, column=0, sticky=tk.W, pady=4)
-    gui.remote_username_entry = ttk.Entry(frame, textvariable=gui.state.remote_username)
-    gui.remote_username_entry.grid(row=1, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
+    gui.pipeline_ctrl.remote_username_entry = ttk.Entry(frame, textvariable=gui.state.remote_username)
+    gui.pipeline_ctrl.remote_username_entry.grid(row=1, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
     ttk.Label(frame, text="Password", width=8).grid(row=1, column=2, sticky=tk.W, pady=4)
-    gui.remote_password_entry = ttk.Entry(frame, textvariable=gui.state.remote_password, show="*")
-    gui.remote_password_entry.grid(row=1, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
+    gui.pipeline_ctrl.remote_password_entry = ttk.Entry(frame, textvariable=gui.state.remote_password, show="*")
+    gui.pipeline_ctrl.remote_password_entry.grid(row=1, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
     ttk.Label(frame, text="SSH Key", width=10).grid(row=2, column=0, sticky=tk.W, pady=4)
-    gui.remote_key_entry = ttk.Entry(frame, textvariable=gui.state.remote_key_path)
-    gui.remote_key_entry.grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=(8, 8), pady=3)
+    gui.pipeline_ctrl.remote_key_entry = ttk.Entry(frame, textvariable=gui.state.remote_key_path)
+    gui.pipeline_ctrl.remote_key_entry.grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=(8, 8), pady=3)
     gui.remote_key_browse_button = ttk.Button(frame, text="Browse", style="Accent.TButton", command=gui._browse_remote_key)
     gui.remote_key_browse_button.grid(row=2, column=3, sticky=tk.EW, padx=(0, 0), pady=3)
 
@@ -472,10 +472,10 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
 
     buttons = ttk.Frame(frame)
     buttons.grid(row=4, column=0, columnspan=4, sticky=tk.EW, pady=(8, 0))
-    gui.remote_connect_button = ttk.Button(buttons, text="Connect Server", style="Accent.TButton", command=gui._remote_test_ssh)
-    gui.remote_connect_button.pack(side=tk.LEFT)
-    gui.remote_status_icon_label = ttk.Label(buttons)
-    gui.remote_status_icon_label.pack(side=tk.LEFT, padx=(12, 6))
+    gui.pipeline_ctrl.remote_connect_button = ttk.Button(buttons, text="Connect Server", style="Accent.TButton", command=gui.pipeline_ctrl._remote_test_ssh)
+    gui.pipeline_ctrl.remote_connect_button.pack(side=tk.LEFT)
+    gui.pipeline_ctrl.remote_status_icon_label = ttk.Label(buttons)
+    gui.pipeline_ctrl.remote_status_icon_label.pack(side=tk.LEFT, padx=(12, 6))
     if hasattr(gui, "_set_remote_status_icon"):
         gui._set_remote_status_icon("pending")
     gui.remote_status_label = ttk.Label(buttons, textvariable=gui.state.remote_status)

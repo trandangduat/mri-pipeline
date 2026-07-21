@@ -464,7 +464,7 @@ class JobsMixin:
         return bool(self.active_job and not self.active_job.get("done"))
 
     def _can_start_new_pipeline(self) -> bool:
-        return not self.running or self._is_background_monitor_active()
+        return not self.pipeline_ctrl.running or self._is_background_monitor_active()
 
     def _stop_current_job_monitor(self) -> None:
         was_monitoring = self._is_background_monitor_active()
@@ -478,7 +478,7 @@ class JobsMixin:
         self.active_job = None
         self.job_log_offset = 0
         if was_monitoring:
-            self.running = False
+            self.pipeline_ctrl.running = False
 
     def _register_job_monitor_for_active_context(self) -> None:
         context_id = getattr(self, "active_progress_context_id", "")
@@ -487,7 +487,7 @@ class JobsMixin:
         self.job_monitors[context_id] = {
             "context_id": context_id,
             "active_job": self.active_job,
-            "remote_runner": self.remote_runner if self.active_job.get("target") == "Server" else None,
+            "remote_runner": self.pipeline_ctrl.remote_runner if self.active_job.get("target") == "Server" else None,
             "job_log_offset": int(self.job_log_offset or 0),
             "after_id": None,
             "remote_poll_in_flight": False,
@@ -499,7 +499,7 @@ class JobsMixin:
             return None
         self._activate_progress_context(context_id)
         self.active_job = monitor.get("active_job")
-        self.remote_runner = monitor.get("remote_runner")
+        self.pipeline_ctrl.remote_runner = monitor.get("remote_runner")
         self.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
         self.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
         self.job_poll_after_id = monitor.get("after_id")
@@ -507,7 +507,7 @@ class JobsMixin:
 
     def _save_job_monitor(self, monitor: dict) -> None:
         monitor["active_job"] = self.active_job
-        monitor["remote_runner"] = self.remote_runner if self.active_job and self.active_job.get("target") == "Server" else monitor.get("remote_runner")
+        monitor["remote_runner"] = self.pipeline_ctrl.remote_runner if self.active_job and self.active_job.get("target") == "Server" else monitor.get("remote_runner")
         monitor["job_log_offset"] = int(self.job_log_offset or 0)
         monitor["remote_poll_in_flight"] = bool(self.remote_poll_in_flight)
         if monitor.get("context_id") == getattr(self, "active_progress_context_id", ""):
@@ -556,11 +556,11 @@ class JobsMixin:
     def _sync_attach_toolbar_state(self) -> None:
         if self._is_background_monitor_active():
             if hasattr(self, "resume_button"):
-                self.resume_button.configure(state=tk.DISABLED)
+                self.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
             if hasattr(self, "restart_button"):
-                self.restart_button.configure(state=tk.DISABLED)
+                self.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
             if hasattr(self, "stop_button"):
-                self.stop_button.configure(state=tk.NORMAL)
+                self.pipeline_ctrl.stop_button.configure(state=tk.NORMAL)
         else:
             self._validate_configuration()
 
@@ -640,7 +640,7 @@ class JobsMixin:
             runner = self._remote_runner_from_job_entry(job, read_metadata=False)
             if runner is None:
                 return False
-            self.remote_runner = runner
+            self.pipeline_ctrl.remote_runner = runner
             self.state.run_target.set("Server")
             self._on_run_target_changed()
             input_files = list(job.get("input_files") or [])
@@ -792,7 +792,7 @@ class JobsMixin:
                 runner = self._remote_runner_from_job_entry(job)
                 if runner is None:
                     return
-                self.remote_runner = runner
+                self.pipeline_ctrl.remote_runner = runner
                 self._remote_download_outputs()
                 return
             output_dir = job.get("effective_output_dir") or job.get("output_dir")
@@ -807,7 +807,7 @@ class JobsMixin:
         remote_jobs = [job for job in jobs if job.get("target") == "Server"]
         if not remote_jobs:
             return
-        if self.running:
+        if self.pipeline_ctrl.running:
             self._append_log("Remote task ignored: another task is already running.")
             return
 
@@ -833,14 +833,14 @@ class JobsMixin:
         self._run_remote_task(f"Download Outputs ({len(runners)} jobs)", task)
 
     def _enter_background_monitor_state(self, title: str) -> None:
-        self.running = True
-        self.stop_requested.clear()
+        self.pipeline_ctrl.running = True
+        self.pipeline_ctrl.stop_requested.clear()
         if hasattr(self, "resume_button"):
-            self.resume_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
         if hasattr(self, "stop_button"):
-            self.stop_button.configure(state=tk.NORMAL)
+            self.pipeline_ctrl.stop_button.configure(state=tk.NORMAL)
         if hasattr(self, "progress"):
             self.progress.start(10)
         self.state.status_text.set("Running in background")
@@ -1168,7 +1168,7 @@ class JobsMixin:
         return result.get()
 
     def _resume_pipeline(self) -> None:
-        if self.running:
+        if self.pipeline_ctrl.running:
             return
         candidates = self._running_jobs_for_current_target()
         if candidates:
@@ -1256,7 +1256,7 @@ class JobsMixin:
         runner.write_remote_job_config(config)
         runner.config.resume = True
         runner.config.restart = False
-        self.remote_runner = runner
+        self.pipeline_ctrl.remote_runner = runner
         self.state.run_target.set("Server")
         self._on_run_target_changed()
         remote_dir = runner.start_remote_detached()
@@ -1399,7 +1399,7 @@ class JobsMixin:
             return
         if monitor is None and self.remote_poll_in_flight:
             return
-        if not self.remote_runner:
+        if not self.pipeline_ctrl.remote_runner:
             self._set_idle_state()
             if getattr(self, "_attach_loading_active", False):
                 self._finish_attach_loading()
@@ -1407,7 +1407,7 @@ class JobsMixin:
         self.remote_poll_in_flight = True
         if monitor is not None:
             monitor["remote_poll_in_flight"] = True
-        runner = self.remote_runner
+        runner = self.pipeline_ctrl.remote_runner
         offset = self.job_log_offset
 
         def worker() -> None:
@@ -1431,7 +1431,7 @@ class JobsMixin:
 
     def _finish_remote_poll(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None, context_id: str | None = None) -> None:
         monitor = self._load_job_monitor(context_id) if context_id else None
-        expected_runner = monitor.get("remote_runner") if monitor is not None else self.remote_runner
+        expected_runner = monitor.get("remote_runner") if monitor is not None else self.pipeline_ctrl.remote_runner
         if runner is not expected_runner:
             return
         finish_attach_loading = bool(getattr(self, "_attach_loading_active", False))

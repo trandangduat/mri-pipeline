@@ -151,7 +151,7 @@ class ProgressMixin:
         monitor = getattr(self, "job_monitors", {}).get(context_id)
         if monitor:
             self.active_job = monitor.get("active_job")
-            self.remote_runner = monitor.get("remote_runner")
+            self.pipeline_ctrl.remote_runner = monitor.get("remote_runner")
             self.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
             self.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
             self.job_poll_after_id = monitor.get("after_id")
@@ -215,11 +215,11 @@ class ProgressMixin:
         self.active_progress_context_id = ""
         self.active_job = None
         if hasattr(self, "resume_button"):
-            self.resume_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
         if hasattr(self, "stop_button"):
-            self.stop_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
         if hasattr(self, "_validate_configuration"):
             self._validate_configuration()
 
@@ -284,7 +284,7 @@ class ProgressMixin:
             elif self.config_tab is not None:
                 self.progress_tab = None
                 self.active_job = None
-                self.remote_runner = None
+                self.pipeline_ctrl.remote_runner = None
                 self.job_poll_after_id = None
                 self.remote_poll_in_flight = False
                 self.notebook.select(self.config_tab)
@@ -903,11 +903,11 @@ class ProgressMixin:
         self.metrics_queue.put((getattr(self, "active_progress_context_id", ""), target_key, cpu_pct, ram_bytes, gpu_pct, container_name))
 
     def _request_stop(self) -> None:
-        self.stop_requested.set()
-        if self.state.run_target.get() == "Server" and self.remote_runner and self.remote_runner.remote_job_dir:
+        self.pipeline_ctrl.stop_requested.set()
+        if self.state.run_target.get() == "Server" and self.pipeline_ctrl.remote_runner and self.pipeline_ctrl.remote_runner.remote_job_dir:
             def request_remote_pause():
                 try:
-                    self.remote_runner.request_pause()
+                    self.pipeline_ctrl.remote_runner.request_pause()
                 except Exception as exc:
                     self._log(f"REMOTE PAUSE ERROR: {type(exc).__name__}: {exc}")
 
@@ -927,7 +927,7 @@ class ProgressMixin:
     def _set_idle_state(self) -> None:
         if hasattr(self, "progress"):
             self.progress.stop()
-        self.running = False
+        self.pipeline_ctrl.running = False
         for btn_name in ("run_button", "resume_button", "restart_button"):
             btn = getattr(self, btn_name, None)
             if btn is not None:
@@ -935,11 +935,11 @@ class ProgressMixin:
         if hasattr(self, "run_button"):
             self.run_button.configure(text="Run", state=tk.NORMAL if self._validate_configuration() else tk.DISABLED)
         if hasattr(self, "resume_button"):
-            self.resume_button.configure(text="Resume", state=tk.NORMAL)
+            self.pipeline_ctrl.resume_button.configure(text="Resume", state=tk.NORMAL)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(text="Restart", state=tk.NORMAL)
+            self.pipeline_ctrl.restart_button.configure(text="Restart", state=tk.NORMAL)
         if hasattr(self, "stop_button"):
-            self.stop_button.configure(state=tk.DISABLED)
+            self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
         self.state.status_text.set("Ready")
         self._log("Pipeline finished.")
         self._log("=" * 80)

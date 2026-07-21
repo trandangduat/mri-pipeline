@@ -35,7 +35,7 @@ from pipeline.discovery import _is_supported_mri_input
 from remote.remote_runner import RemoteRunner
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 from ui.gui_jobs import JobsMixin
-from ui.gui_pipeline import PipelineMixin
+from ui.gui_pipeline import PipelineController
 from ui.gui_progress import ProgressMixin
 from ui.gui_tools import ToolsController
 from ui.state import AppState
@@ -44,7 +44,7 @@ from ui.tabs.config_tab import build_configuration_tab
 from ui.tabs.tools_tab import build_tools_tab
 from ui.components.tooltip import Tooltip
 
-class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+class PipelineGUI(JobsMixin, ProgressMixin):
 
     def _normalize_pipeline_mode(self, mode: str) -> str:
         normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
@@ -109,11 +109,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         self.thread_max_text = tk.StringVar(value=f"/ {self.local_max_threads} max")
         self.thread_spinbox: ttk.Spinbox | None = None
         self._thread_max_request_id = 0
-        self._remote_thread_max_signature: tuple[str, int, str, str, str] | None = None
-        self._connected_remote_signature: tuple[str, int, str, str, str] | None = None
-        self.remote_connecting = False
-        self.remote_health_after_id: str | None = None
-        self.remote_health_in_flight = False
         if int(self.state.threads.get()) > self.local_max_threads:
             self.state.threads.set(self.local_max_threads)
         
@@ -121,26 +116,13 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.metrics_queue: queue.Queue[tuple[float | None, int | None, float | None, str]] = queue.Queue()
-        self.running = False
-        self.stop_requested = threading.Event()
         
-        self.remote_runner: RemoteRunner | None = None
         self.active_job: dict | None = None
         self.job_poll_after_id: str | None = None
         self.job_log_offset = 0
-        self.remote_frame: ttk.Frame | None = None
-        self.remote_body: ttk.Frame | None = None
-        self.remote_pack_options: dict | None = None
-        self.remote_status_icon_label: ttk.Label | None = None
         self.run_target_combo: ttk.Combobox | None = None
-        self.remote_host_entry: ttk.Entry | None = None
-        self.remote_port_entry: ttk.Entry | None = None
-        self.remote_username_entry: ttk.Entry | None = None
-        self.remote_password_entry: ttk.Entry | None = None
-        self.remote_key_entry: ttk.Entry | None = None
         self.remote_key_browse_button: ttk.Button | None = None
         self.remote_workspace_entry: ttk.Entry | None = None
-        self.remote_connect_button: ttk.Button | None = None
         self.input_location_label_var = tk.StringVar(value="Input Location")
         self.input_browse_button: ttk.Button | None = None
         self.upload_input_row: ttk.Frame | None = None
@@ -186,6 +168,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         self.job_monitors: dict[str, dict] = {}
 
         self.tools_ctrl = ToolsController(self)
+        self.pipeline_ctrl = PipelineController(self)
         self._build_ui()
         self._update_python_env_hint()
         self._setup_validation_traces()
@@ -281,7 +264,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
 
         if getattr(self, "remote_connecting", False) and getattr(self, "remote_status_icon_label", None) is not None:
             try:
-                self.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
+                self.pipeline_ctrl.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
             except Exception:
                 pass
 
@@ -449,14 +432,14 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
-        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
+        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
         self.run_button.configure(style="Accent.TButton")
         self.run_tooltip = Tooltip(self.run_button, "")
-        self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
-        self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
-        self.restart_tooltip = Tooltip(self.restart_button, "")
-        self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
-        self.stop_button.configure(state=tk.DISABLED)
+        self.pipeline_ctrl.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
+        self.pipeline_ctrl.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=True))
+        self.pipeline_ctrl.restart_tooltip = Tooltip(self.pipeline_ctrl.restart_button, "")
+        self.pipeline_ctrl.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
+        self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
         self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
 
     def _build_tabs(self, parent: ttk.Frame) -> None:
@@ -600,8 +583,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
             return
         self._cancel_remote_health_check()
         self._thread_max_request_id += 1
-        self._connected_remote_signature = None
-        self._remote_thread_max_signature = None
         self._set_thread_max(None)
         self._reset_remote_tool_image_state()
         self.state.remote_status.set("Remote: disconnected")
@@ -619,13 +600,10 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         self._validate_configuration()
 
     def _handle_remote_connection_lost(self, reason: str = "") -> None:
-        if self._connected_remote_signature is None and not self.remote_connecting:
+        if self._connected_remote_signature is None and not self.pipeline_ctrl.remote_connecting:
             return
         self._cancel_remote_health_check()
-        self.remote_connecting = False
         self._thread_max_request_id += 1
-        self._connected_remote_signature = None
-        self._remote_thread_max_signature = None
         self._set_thread_max(None)
         self._reset_remote_tool_image_state()
         self.state.remote_status.set("Remote: disconnected unexpectedly")
@@ -637,8 +615,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         messagebox.showwarning("Server disconnected", "The server connection was lost. Remote actions are disabled until you connect again." + detail)
 
     def _cancel_remote_health_check(self) -> None:
-        after_id = self.remote_health_after_id
-        self.remote_health_after_id = None
+        after_id = self.pipeline_ctrl.remote_health_after_id
         if after_id:
             try:
                 self.root.after_cancel(after_id)
@@ -649,7 +626,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         self._cancel_remote_health_check()
         if not self._server_connected():
             return
-        self.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
+        self.pipeline_ctrl.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
 
     def _ssh_config_from_current_remote(self) -> SSHConfig | None:
         host = self.state.remote_host.get().strip()
@@ -669,15 +646,14 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         )
 
     def _remote_health_check(self) -> None:
-        self.remote_health_after_id = None
-        if self.remote_health_in_flight or not self._server_connected():
+        if self.pipeline_ctrl.remote_health_in_flight or not self._server_connected():
             return
         signature = self._connected_remote_signature
         ssh_config = self._ssh_config_from_current_remote()
         if signature is None or ssh_config is None:
             self._handle_remote_connection_lost("Remote server configuration is incomplete.")
             return
-        self.remote_health_in_flight = True
+        self.pipeline_ctrl.remote_health_in_flight = True
 
         def worker() -> None:
             error = ""
@@ -690,7 +666,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
                 error = f"{type(exc).__name__}: {exc}"
 
             def finish() -> None:
-                self.remote_health_in_flight = False
                 if signature != self._connected_remote_signature:
                     return
                 if error:
@@ -704,26 +679,26 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
 
     def _sync_remote_connection_controls(self) -> None:
         server_mode = self.state.run_target.get() == "Server"
-        editing_state = tk.NORMAL if server_mode and not self.remote_connecting else tk.DISABLED
+        editing_state = tk.NORMAL if server_mode and not self.pipeline_ctrl.remote_connecting else tk.DISABLED
 
         if self.run_target_combo is not None:
-            self.run_target_combo.configure(state=tk.DISABLED if self.remote_connecting else "readonly")
+            self.run_target_combo.configure(state=tk.DISABLED if self.pipeline_ctrl.remote_connecting else "readonly")
         for widget in (
-            self.remote_host_entry,
-            self.remote_port_entry,
-            self.remote_username_entry,
-            self.remote_password_entry,
-            self.remote_key_entry,
+            self.pipeline_ctrl.remote_host_entry,
+            self.pipeline_ctrl.remote_port_entry,
+            self.pipeline_ctrl.remote_username_entry,
+            self.pipeline_ctrl.remote_password_entry,
+            self.pipeline_ctrl.remote_key_entry,
             self.remote_key_browse_button,
             self.remote_workspace_entry,
         ):
             if widget is not None:
                 widget.configure(state=editing_state)
-        if self.remote_connect_button is not None:
-            if self.remote_connecting:
-                self.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
+        if self.pipeline_ctrl.remote_connect_button is not None:
+            if self.pipeline_ctrl.remote_connecting:
+                self.pipeline_ctrl.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
             else:
-                self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
+                self.pipeline_ctrl.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
 
         self.tools_ctrl._refresh_tree()
         self.tools_ctrl._update_config_status_labels()
@@ -771,8 +746,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         if self.state.run_target.get() != "Server":
             self._thread_max_request_id += 1
             self._cancel_remote_health_check()
-            self._connected_remote_signature = None
-            self._remote_thread_max_signature = None
             self._reset_remote_tool_image_state()
             self._set_thread_max(self.local_max_threads)
             return
@@ -781,7 +754,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
         if self._server_connected():
             self._set_thread_max(self.max_threads)
             return
-        self._remote_thread_max_signature = None
         self._set_thread_max(None)
 
     def _remote_venv_display_path(self) -> str:
@@ -795,24 +767,23 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
             self.tools_ctrl.python_env_hint.set(sys.executable or "")
 
     def _on_run_target_changed(self) -> None:
-        if self.remote_body is None:
+        if self.pipeline_ctrl.remote_body is None:
             return
         enabled = self.state.run_target.get() == "Server"
         if not enabled:
             self._cancel_remote_health_check()
-            self._connected_remote_signature = None
             if self.state.input_source.get() != "Local":
                 self._switch_input_source("Local")
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
-        if self.remote_frame is not None:
+        if self.pipeline_ctrl.remote_frame is not None:
             if enabled:
                 try:
-                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 32)}))
+                    self.pipeline_ctrl.remote_frame.pack(**(self.pipeline_ctrl.remote_pack_options or {"fill": tk.X, "pady": (0, 32)}))
                 except tk.TclError:
                     pass
             else:
-                self.remote_frame.pack_forget()
-        self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
+                self.pipeline_ctrl.remote_frame.pack_forget()
+        self._set_widget_tree_state(self.pipeline_ctrl.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         if enabled:
             self.state.remote_status.set("Remote: connected" if self._server_connected() else "Remote: disconnected")
         else:
@@ -1760,7 +1731,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
             messagebox.showerror("Save workspace failed", str(exc))
 
     def _load_workspace(self) -> None:
-        if self.remote_connecting:
+        if self.pipeline_ctrl.remote_connecting:
             messagebox.showwarning("Server connecting", "Wait for the current server connection attempt to finish before loading a workspace.")
             return
         config_dir = PROJECT_ROOT / "configs" / "workspaces"
@@ -2091,9 +2062,9 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
             if hasattr(self, "run_tooltip"):
                 self.run_tooltip.update_text(status_msg)
         if hasattr(self, "restart_button"):
-            self.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
+            self.pipeline_ctrl.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
             if hasattr(self, "restart_tooltip"):
-                self.restart_tooltip.update_text(status_msg)
+                self.pipeline_ctrl.restart_tooltip.update_text(status_msg)
         
         self.state.config_status.set(status_msg)
         
