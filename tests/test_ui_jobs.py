@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from ui.gui_jobs import JobsController
+from ui.gui_tools import ToolsController
 
 def test_ensure_remote_auth_for_job_action():
     mock_gui = MagicMock()
@@ -30,3 +31,16 @@ def test_ensure_remote_auth_for_job_action():
             
             # Verify warning was shown
             mock_msg.assert_called_once()
+
+
+def test_set_image_status_validates_through_validation_controller(mocker) -> None:
+    mocker.patch("ui.gui_tools.tk.StringVar", side_effect=lambda **kwargs: MagicMock())
+    mock_gui = MagicMock()
+    ctrl = ToolsController(mock_gui)
+    ctrl._refresh_tree = MagicMock()
+    ctrl._update_config_status_labels = MagicMock()
+
+    ctrl._set_image_status("Server", "image:latest", "Installed")
+
+    assert ctrl.image_statuses["Server"]["image:latest"] == "Installed"
+    mock_gui.validation_ctrl._validate_configuration.assert_called_once_with()

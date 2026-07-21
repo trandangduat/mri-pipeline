@@ -507,6 +507,9 @@ class PipelineGUI:
         self.validation_ctrl._clamp_threads()
         self.validation_ctrl._validate_configuration()
 
+    def _validate_configuration(self) -> bool:
+        return self.validation_ctrl._validate_configuration()
+
 
 
 

@@ -300,7 +300,7 @@ class ToolsController:
         self.image_statuses.setdefault(target, {})[image] = status
         self._refresh_tree()
         self._update_config_status_labels()
-        self.gui._validate_configuration()
+        self.gui.validation_ctrl._validate_configuration()
 
     def _refresh_tree(self) -> None:
         table = getattr(self, "table_frame", None)

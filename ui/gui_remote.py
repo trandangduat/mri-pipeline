@@ -21,11 +21,11 @@ class RemoteController:
 
         if icon_name == "running":
 
-            label.configure(image=self._spinner_frame() or "", text="", foreground="#2563eb")
+            label.configure(image=self.gui._spinner_frame() or "", text="", foreground="#2563eb")
 
             return
 
-        icon = self._make_icon(icon_name) if icon_name else None
+        icon = self.gui._make_icon(icon_name) if icon_name else None
 
         label.configure(image=icon if icon is not None else "", text="")
 
@@ -93,7 +93,7 @@ class RemoteController:
 
         self._cancel_remote_health_check()
 
-        self._thread_max_request_id += 1
+        self.gui._thread_max_request_id += 1
 
         self.gui._set_thread_max(None)
 
@@ -131,7 +131,7 @@ class RemoteController:
 
         self._cancel_remote_health_check()
 
-        self._thread_max_request_id += 1
+        self.gui._thread_max_request_id += 1
 
         self.gui._set_thread_max(None)
 

@@ -98,3 +98,15 @@ def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> Non
 
     mock_gui.jobs_ctrl.stop_current_job_monitor.assert_called_once_with()
     mock_gui.jobs_ctrl.delete_local_job_folders.assert_called_once_with(active_job)
+
+
+def test_pipeline_gui_validate_configuration_facade(mocker) -> None:
+    mocker.patch.dict("sys.modules", {"sv_ttk": MagicMock()})
+    from ui.main import PipelineGUI
+
+    gui = PipelineGUI.__new__(PipelineGUI)
+    gui.validation_ctrl = MagicMock()
+    gui.validation_ctrl._validate_configuration.return_value = True
+
+    assert gui._validate_configuration() is True
+    gui.validation_ctrl._validate_configuration.assert_called_once_with()

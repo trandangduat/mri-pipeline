@@ -51,3 +51,29 @@ def test_ssh_config_from_current_remote():
     assert config.username == "admin"
     assert config.password == "secret"
     assert config.key_path == "/path/to/key.pem"
+
+
+def test_invalidate_remote_thread_max_uses_gui_request_state() -> None:
+    gui_mock = MagicMock()
+    gui_mock.state.run_target.get.return_value = "Server"
+    gui_mock.state.remote_host.get.return_value = "new-host"
+    gui_mock.state.remote_username.get.return_value = "user"
+    gui_mock.state.remote_workspace.get.return_value = "~/mri-remote-jobs"
+    gui_mock.state.remote_port.get.return_value = "22"
+    gui_mock.state.remote_key_path.get.return_value = ""
+    gui_mock._connected_remote_signature = ("old-host", 22, "user", "", "~/mri-remote-jobs")
+    gui_mock._thread_max_request_id = 7
+    gui_mock.tools_ctrl.image_statuses = {"Server": {"image": "Installed"}}
+    gui_mock.tools_ctrl.image_installed_sizes = {"Server": {"image": "1 GB"}}
+    gui_mock.tools_ctrl.checked_tools = set()
+
+    ctrl = RemoteController(gui_mock)
+    ctrl._cancel_remote_health_check = MagicMock()
+    ctrl._set_remote_status_icon = MagicMock()
+    ctrl._sync_remote_connection_controls = MagicMock()
+
+    ctrl._invalidate_remote_thread_max()
+
+    assert gui_mock._thread_max_request_id == 8
+    gui_mock._set_thread_max.assert_called_once_with(None)
+    gui_mock.validation_ctrl._validate_configuration.assert_called_once_with()
