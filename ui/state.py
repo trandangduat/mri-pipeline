@@ -2,12 +2,13 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from pipeline.config import (
-    ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, 
-    STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, 
-    tool_display_name, tool_key_from_display,
-    PIPELINE_MODES, PIPELINE_MODE_ALIASES
+from pipeline.config import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS
+from pipeline.registry import (
+    STAGE_ORDER, TOOL_DEFS, 
+    enabled_tools_for_stage, is_tool_enabled, 
+    tool_display_name, tool_key_from_display
 )
+from pipeline.presets import PIPELINE_MODES, PIPELINE_MODE_ALIASES
 
 def normalize_pipeline_mode(mode: str) -> str:
     normalized = PIPELINE_MODE_ALIASES.get(mode, mode)

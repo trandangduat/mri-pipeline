@@ -20,17 +20,22 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from pipeline.config import (
-    PIPELINE_MODES, PIPELINE_MODE_ALIASES, VOLUME_SKIPPED_STAGES, PRESET_CONFIGS,
-    VOLUME_STATS, THICKNESS_STATS,
-    PROJECT_ROOT,
+from pipeline.config import PROJECT_ROOT, STAT_VECTOR_DEFS
+from pipeline.registry import (
     STAGE_ORDER,
     TOOL_DEFS,
-    STAT_VECTOR_DEFS,
     enabled_tools_for_stage,
     is_tool_enabled,
     tool_display_name,
     tool_key_from_display,
+)
+from pipeline.presets import (
+    PIPELINE_MODES,
+    PIPELINE_MODE_ALIASES,
+    VOLUME_SKIPPED_STAGES,
+    PRESET_CONFIGS,
+    VOLUME_STATS,
+    THICKNESS_STATS,
 )
 from pipeline.discovery import _is_supported_mri_input
 from remote.remote_runner import RemoteRunner
