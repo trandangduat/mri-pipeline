@@ -35,8 +35,6 @@ def _safe_container_name(*parts: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw).strip("-_.")
     if not safe:
         safe = "mri-pipeline"
-    if not safe[0].isalnum():
-        safe = f"mri-{safe}"
     return f"{safe[:80]}-{uuid4().hex[:8]}"
 
 def _parse_docker_memory(value: str) -> int | None:
