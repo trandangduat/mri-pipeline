@@ -12,6 +12,7 @@ from typing import Callable
 from .stats import StatsGenerator, StatsResult
 from .reports import write_batch_reports, BatchReportContext
 
+from .export import _export_stage_outputs, _safe_export_stem
 from .config import (
     BatchImageResult,
     EXPORT_OUTPUT_ITEMS,
@@ -30,7 +31,8 @@ from .config import (
     is_tool_enabled,
     tool_display_name,
 )
-from .docker_ops import _run_docker, ensure_image
+from .docker_ops import ensure_image
+from .executor import PipelineExecutor
 from .state import PipelineTracker
 from .discovery import (
     _derive_subject_id,
@@ -58,11 +60,6 @@ from .utils import (
 log = logging.getLogger(__name__)
 
 
-def _volume_extension(path: Path) -> str:
-    name = path.name.lower()
-    if name.endswith(".nii.gz"):
-        return ".nii.gz"
-    return path.suffix.lower()
 
 
 def _docker_memory_limit_bytes(ram_percent: int) -> int | None:
@@ -75,145 +72,22 @@ def _docker_memory_limit_bytes(ram_percent: int) -> int | None:
     return max(1, int(total * pct / 100))
 
 
-def _strip_volume_extension(name: str) -> str:
-    lower = name.lower()
-    if lower.endswith(".nii.gz"):
-        return name[:-7]
-    return Path(name).stem
-
-
-def _safe_export_stem(value: str, fallback: str) -> str:
-    raw = (value or fallback).strip()
-    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw).strip("._-")
-    return safe or fallback
-
-
-def _export_item_id(stage: str, path: Path, index: int) -> str:
-    name = path.name.lower()
-    if stage == "brain_extraction" and ("mask" in name or name.endswith("_bet.nii.gz") or name.endswith("_bet.mgz")):
-        return "brain_extraction.mask"
-    if stage == "template_registration" and ("deformation" in name or "field" in name):
-        return "template_registration.deformation"
-    primary = f"{stage}.primary"
-    return primary if index == 0 else f"{stage}.extra{index + 1}"
-
-
-def _default_export_name(item_id: str, path: Path) -> str:
-    item = EXPORT_OUTPUT_ITEMS.get(item_id)
-    if item:
-        return item["default_name"]
-    return _strip_volume_extension(path.name)
-
-
-def _copy_or_convert_export(src: Path, dst: Path, subject_dir: str) -> tuple[bool, str]:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if _volume_extension(src) == _volume_extension(dst):
-        shutil.copy2(src, dst)
-        return True, ""
-
-    ok, err, _build_time = ensure_image("mri_convert_fs7")
-    if not ok:
-        return False, f"mri_convert image not available: {err}"
-
-    subject_path = Path(subject_dir).resolve()
-    src_rel = src.resolve().relative_to(subject_path).as_posix()
-    dst_rel = dst.resolve().relative_to(subject_path).as_posix()
-    code, output, _metrics = _run_docker(
-        image=TOOL_DEFS["mri_convert_fs7"]["image"],
-        args=[],
-        mounts=[(str(subject_path), "/subject")],
-        command=["bash", "-c", f"mri_convert /subject/{src_rel} /subject/{dst_rel}"],
-        container_name=_safe_container_name("mri", subject_path.name, "export"),
-    )
-    if code != 0:
-        tail = " | ".join(output.strip().splitlines()[-3:]) if output.strip() else "no output"
-        return False, f"mri_convert failed: {tail}"
-    _repair_host_permissions(str(subject_path), TOOL_DEFS["mri_convert_fs7"]["image"])
-    return True, ""
-
-
-def _export_stage_outputs(subject_dir: str, stage: str, outputs_found: list[str], export_config: ExportConfig) -> tuple[list[str], str]:
-    if not export_config.enabled:
-        return [], ""
-    fmt_default = export_config.default_format if export_config.default_format in ("same", ".nii.gz", ".mgz") else ".nii.gz"
-    export_folder = _safe_export_stem(export_config.folder, "exports")
-    export_dir = Path(subject_dir) / export_folder
-    exported: list[str] = []
-    errors: list[str] = []
-    used_names: set[str] = set()
-
-    volume_exts = (".nii", ".nii.gz", ".mgz", ".mgh")
-    volume_outputs = [Path(p) for p in outputs_found if Path(p).name.lower().endswith(volume_exts)]
-    for idx, src in enumerate(volume_outputs):
-        if not src.exists():
-            continue
-        item_id = _export_item_id(stage, src, idx)
-        default_name = _default_export_name(item_id, src)
-        configured_name = _strip_volume_extension(export_config.names.get(item_id, default_name))
-        stem = _safe_export_stem(configured_name, default_name)
-        target_format = export_config.formats.get(item_id, fmt_default)
-        if target_format not in ("same", ".nii.gz", ".mgz"):
-            target_format = fmt_default
-        ext = _volume_extension(src) if target_format == "same" else target_format
-        filename = f"{stem}{ext}"
-        if filename in used_names:
-            filename = f"{stem}_{idx + 1}{ext}"
-        used_names.add(filename)
-        dst = export_dir / filename
-        ok, err = _copy_or_convert_export(src, dst, subject_dir)
-        if ok:
-            exported.append(str(dst))
-        else:
-            errors.append(f"{src.name} -> {filename}: {err}")
-    return exported, "; ".join(errors)
 
 
 
 
 
 
-VECTOR_SPECS = {
-    "subcortical_volume": {
-        "column": "subcortical_volume",
-        "features": "subcortical_volume_feats.txt",
-        "value": "volume_mm3",
-    },
-    "cortical_volume": {
-        "column": "cortical_volume",
-        "features": "cortical_volume_feats.txt",
-        "value": "volume_mm3",
-    },
-    "aparc": {
-        "column": "aparc_cortical_thickness",
-        "features": "aparc_cortical_thickness_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "aparc",
-    },
-    "aparc_a2009s": {
-        "column": "aparc_a2009s_cortical_thickness",
-        "features": "aparc_a2009s_cortical_thickness_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "aparc.a2009s",
-    },
-    "schaefer2018": {
-        "column": "schaefer200_7network",
-        "features": "schaefer200_7network_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "schaefer200_7network",
-    },
-    "kong": {
-        "column": "200Parcels_Kong2022_17Networks",
-        "features": "200Parcels_Kong2022_17Networks_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "200Parcels_Kong2022_17Networks",
-    },
-    "yale": {
-        "column": "YBA_696parcels",
-        "features": "YBA_696parcels_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "YBA_696parcels",
-    },
-}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -270,6 +144,7 @@ def run_pipeline(
     on_build_log: Callable[[str], None] | None = None,
     on_metrics: MetricsCallback | None = None,
     should_stop: Callable[[], bool] | None = None,
+    executor=None,
 ) -> list[StepResult]:
     started_at = time.time()
 
@@ -358,103 +233,33 @@ def run_pipeline(
             progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {err}")
             break
 
-        if input_for_next_step is None:
-            input_abs = Path(config.input_file).expanduser().resolve()
-            dicom_files = _dicom_files_in_series(input_abs)
-            docker_input_abs = _first_dicom_file_in_series(input_abs) or input_abs
-            host_input_dir = str(input_abs.parent)
-            input_rel = docker_input_abs.relative_to(input_abs.parent).as_posix()
-            input_path = f"/input/{input_rel}"
-            dicom_list_path = ""
-            if dicom_files:
-                dicom_list_file = Path(logs_dir) / "dicom_input_files.txt"
-                dicom_list_file.write_text(
-                    "\n".join(f"/input/{path.relative_to(input_abs.parent).as_posix()}" for path in dicom_files) + "\n",
-                    encoding="utf-8",
-                )
-                dicom_list_path = "/work/logs/dicom_input_files.txt"
-            mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
-        else:
-            rel = os.path.relpath(input_for_next_step, subject_dir)
-            input_path = f"/work/{rel}"
-            dicom_list_path = ""
-            mounts = []
-
-        mounts.append((subject_dir, "/output"))
-        mounts.append((subject_dir, "/work"))
-        if tool["needs_license"] and license_mount:
-            mounts.extend(license_mount)
-        for rel, container in tool.get("extra_mounts", {}).items():
-            host = os.path.join(subject_dir, "mri", rel)
-            Path(host).mkdir(parents=True, exist_ok=True)
-            mounts.append((host, container))
-        norm_vol = Path(__file__).resolve().parent.parent / "normalize_volumes.py"
-        if norm_vol.exists():
-            mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
-
-        args = ["--input", input_path, "--output-dir", "/output", "--work-dir", "/work", "--subject-id", config.subject_id, "--threads", str(config.threads), "--device", config.device]
-        command = tool.get("command")
-
-        if "command_builder" in tool:
-            ctx = ToolContext(
-                input_path=input_path,
-                subject_id=config.subject_id,
-                threads=config.threads,
-                device=config.device,
-                dicom_list_path=dicom_list_path,
-            )
-            actual_cmd = tool["command_builder"](ctx)
-            command = [tool.get("shell", "bash"), "-c", actual_cmd]
-            args = []
-
-        t0 = time.time()
-        container_name = _safe_container_name("mri", config.subject_id, tool_key)
-
-        def _metrics_relay(cpu_pct, ram_bytes, elapsed, _cn=container_name, _stage=stage, _tool=tool_key):
-            if on_metrics:
-                on_metrics(_stage, _tool, cpu_pct, ram_bytes, elapsed, _cn)
-
-        code, output, metrics = _run_docker(
-            image=tool["image"],
-            args=args,
-            mounts=mounts,
-            gpus=(config.device == "gpu" or config.device == "cuda"),
-            memory_bytes=memory_limit_bytes,
-            container_name=container_name,
-            command=command,
-            entrypoint=tool.get("entrypoint"),
-            on_metrics=_metrics_relay if on_metrics else None,
+        executor = executor or PipelineExecutor()
+        exec_result = executor.execute(
+            tool_key=tool_key,
+            stage=stage,
+            input_file=input_for_next_step,
+            subject_dir=subject_dir,
+            config=config,
+            logs_dir=logs_dir,
+            memory_limit_bytes=memory_limit_bytes,
+            on_metrics=on_metrics
         )
-        peak_ram = metrics.peak_ram_bytes
-        peak_cpu = metrics.peak_cpu_pct
-        duration = time.time() - t0
-        _repair_host_permissions(subject_dir, tool["image"])
+        
+        peak_ram = exec_result.metrics.peak_ram_bytes if exec_result.metrics else None
+        peak_cpu = exec_result.metrics.peak_cpu_pct if exec_result.metrics else None
+        duration = exec_result.duration_sec
+        metrics = exec_result.metrics
+        success = exec_result.success
+        error = exec_result.error
+        output = exec_result.output
+        
         _organize_output(subject_dir, preserve_dirs={_safe_export_stem(config.export_config.folder, "exports")})
-
-        success = code == 0
-        error = ""
-        if not success:
-            if not output.strip():
-                try:
-                    logs = [p for p in Path(logs_dir).glob("*.log") if p.name not in ("pipeline_metrics.log", "pipeline_state.json")]
-                    if logs:
-                        output = max(logs, key=lambda p: p.stat().st_mtime).read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
-            tail = " | ".join(output.strip().splitlines()[-3:]) if output.strip() else "No output"
-            error = f"exit code {code} ({tail})"
-            lower_output = output.lower()
-            if "error writing data" in lower_output or "no space left on device" in lower_output:
-                try:
-                    disk_hint = f"free disk at output: {_format_bytes(shutil.disk_usage(subject_dir).free)}"
-                except OSError:
-                    disk_hint = "could not check free disk at output"
-                error += f". Write failure hint: check remote disk space and output permissions ({disk_hint})"
-            if output.strip():
-                print(f"\n--- DOCKER ERROR LOG ({tool_key}) ---", flush=True)
-                for line in output.strip().splitlines()[-20:]:
-                    print(line, flush=True)
-                print("-" * 40, flush=True)
+        
+        if not success and output.strip():
+            print(f"\n--- DOCKER ERROR LOG ({tool_key}) ---", flush=True)
+            for line in output.strip().splitlines()[-20:]:
+                print(line, flush=True)
+            print("-" * 40, flush=True)
 
         if success:
             found = _find_output_file(subject_dir, tool["output_files"], tool.get("output_globs", []))

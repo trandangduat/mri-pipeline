@@ -1,0 +1,1397 @@
+diff --git a/ui/main.py b/ui/main.py
+index dcb344f..2ad67a9 100644
+--- a/ui/main.py
++++ b/ui/main.py
+@@ -22,6 +22,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
+ 
+ from pipeline.config import (
+     PIPELINE_MODES, PIPELINE_MODE_ALIASES, VOLUME_SKIPPED_STAGES, PRESET_CONFIGS,
++    VOLUME_STATS, THICKNESS_STATS,
+     PROJECT_ROOT,
+     STAGE_ORDER,
+     TOOL_DEFS,
+@@ -34,9 +35,9 @@ from pipeline.config import (
+ from pipeline.discovery import _is_supported_mri_input
+ from remote.remote_runner import RemoteRunner
+ from remote.ssh_client import RemoteSSHClient, SSHConfig
+-from ui.gui_jobs import JobsMixin
+-from ui.gui_pipeline import PipelineMixin
+-from ui.gui_progress import ProgressMixin
++from ui.gui_jobs import JobsController
++from ui.gui_pipeline import PipelineController
++from ui.gui_progress import ProgressController
+ from ui.gui_tools import ToolsController
+ from ui.state import AppState
+ from ui.styles import configure_windows_dpi_awareness, setup_styles
+@@ -44,7 +45,7 @@ from ui.tabs.config_tab import build_configuration_tab
+ from ui.tabs.tools_tab import build_tools_tab
+ from ui.components.tooltip import Tooltip
+ 
+-class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
++class PipelineGUI:
+ 
+     def _normalize_pipeline_mode(self, mode: str) -> str:
+         normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
+@@ -109,11 +110,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self.thread_max_text = tk.StringVar(value=f"/ {self.local_max_threads} max")
+         self.thread_spinbox: ttk.Spinbox | None = None
+         self._thread_max_request_id = 0
+-        self._remote_thread_max_signature: tuple[str, int, str, str, str] | None = None
+-        self._connected_remote_signature: tuple[str, int, str, str, str] | None = None
+-        self.remote_connecting = False
+-        self.remote_health_after_id: str | None = None
+-        self.remote_health_in_flight = False
+         if int(self.state.threads.get()) > self.local_max_threads:
+             self.state.threads.set(self.local_max_threads)
+         
+@@ -121,26 +117,10 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+ 
+         self.log_queue: queue.Queue[str] = queue.Queue()
+         self.metrics_queue: queue.Queue[tuple[float | None, int | None, float | None, str]] = queue.Queue()
+-        self.running = False
+-        self.stop_requested = threading.Event()
+         
+-        self.remote_runner: RemoteRunner | None = None
+-        self.active_job: dict | None = None
+-        self.job_poll_after_id: str | None = None
+-        self.job_log_offset = 0
+-        self.remote_frame: ttk.Frame | None = None
+-        self.remote_body: ttk.Frame | None = None
+-        self.remote_pack_options: dict | None = None
+-        self.remote_status_icon_label: ttk.Label | None = None
+         self.run_target_combo: ttk.Combobox | None = None
+-        self.remote_host_entry: ttk.Entry | None = None
+-        self.remote_port_entry: ttk.Entry | None = None
+-        self.remote_username_entry: ttk.Entry | None = None
+-        self.remote_password_entry: ttk.Entry | None = None
+-        self.remote_key_entry: ttk.Entry | None = None
+         self.remote_key_browse_button: ttk.Button | None = None
+         self.remote_workspace_entry: ttk.Entry | None = None
+-        self.remote_connect_button: ttk.Button | None = None
+         self.input_location_label_var = tk.StringVar(value="Input Location")
+         self.input_browse_button: ttk.Button | None = None
+         self.upload_input_row: ttk.Frame | None = None
+@@ -156,15 +136,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self.stat_atlas_combos: dict[str, ttk.Combobox] = {}
+         self.notebook: ttk.Notebook | None = None
+         self.config_tab: ttk.Frame | None = None
+-        self.progress_tab: ttk.Frame | None = None
+-        self.progress_contexts: dict[str, dict] = {}
+-        self.progress_context_by_job: dict[str, str] = {}
+-        self.active_progress_context_id = ""
+         self.toolbar_icons: dict[str, tk.PhotoImage] = {}
+-        self.image_runs: dict[str, dict] = {}
+-        self.image_rows: dict[str, dict] = {}
+-        self.current_image_key = ""
+-        self.active_image_key = ""
+         self._spinner_frames = self._load_spinner_frames("running")
+         self._spinner_frames_light = self._load_spinner_frames("running_light")
+         self._spinner_idx = 0
+@@ -177,20 +149,20 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self._last_input_source = self.state.input_source.get()
+         self._input_source_paths: dict[str, str] = {"Local": "", "Server": "~"}
+         self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
+-        self.progress_log_body: ttk.Frame | None = None
+-        self.progress_log_toggle_text: tk.StringVar | None = None
+-        self.progress_log_visible = False
+-        self.step_summary_rows: dict[str, dict[str, ttk.Label]] = {}
+-        self.progress_selected_tools: dict[str, str] = {}
+-        self.remote_poll_in_flight = False
+-        self.job_monitors: dict[str, dict] = {}
++        self._connected_remote_signature: tuple | None = None
++        self._remote_thread_max_signature: tuple | None = None
+ 
+         self.tools_ctrl = ToolsController(self)
++        self.pipeline_ctrl = PipelineController(self)
++        self.jobs_ctrl = JobsController(self)
++        self.progress_ctrl = ProgressController(self)
++        from ui.gui_validation import ValidationController
++        self.validation_ctrl = ValidationController(self)
+         self._build_ui()
+         self._update_python_env_hint()
+         self._setup_validation_traces()
+-        self._validate_configuration()
+-        self._poll_queues()
++        self.validation_ctrl._validate_configuration()
++        self.progress_ctrl._poll_queues()
+         if self._spinner_frames or self._spinner_frames_light:
+             self.root.after(120, self._animate_spinner)
+ 
+@@ -281,7 +253,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+ 
+         if getattr(self, "remote_connecting", False) and getattr(self, "remote_status_icon_label", None) is not None:
+             try:
+-                self.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
++                self.pipeline_ctrl.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
+             except Exception:
+                 pass
+ 
+@@ -310,7 +282,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+ 
+         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "image_statuses"):
+             for tool_key, label in self.tools_ctrl.status_icon_labels.items():
+-                status = self._tool_status(tool_key)
++                status = self.tools_ctrl._tool_status(tool_key)
+                 if self._is_busy_status(status):
+                     try:
+                         label.configure(image=frame if frame is not None else "", text=f"  {status}", compound=tk.LEFT)
+@@ -321,15 +293,15 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             for stage, label in self.tools_ctrl.status_labels.items():
+                 tool_var = self.state.tool_vars.get(stage)
+                 tool_key = tool_key_from_display(tool_var.get()) if tool_var is not None else ""
+-                status = self._tool_status(tool_key)
++                status = self.tools_ctrl._tool_status(tool_key)
+                 if self._is_busy_status(status):
+                     try:
+-                        label.configure(image=frame if frame is not None else "", text=f" {self._status_label_text(status)}", compound=tk.LEFT)
++                        label.configure(image=frame if frame is not None else "", text=f" {self.tools_ctrl._status_label_text(status)}", compound=tk.LEFT)
+                     except Exception:
+                         pass
+ 
+         if hasattr(self, "image_rows"):
+-            for key, row in self.image_rows.items():
++            for key, row in self.progress_ctrl.image_rows.items():
+                 run_state = getattr(self, "image_runs", {}).get(key, {})
+                 if row.get("status") and run_state.get("status") == "Running":
+                     try:
+@@ -341,9 +313,9 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         run = getattr(self, "image_runs", {}).get(getattr(self, "current_image_key", ""))
+         if run and hasattr(self, "step_summary_rows"):
+             for stage, step in run.get("steps", {}).items():
+-                if step.get("status") == "Running" and stage in self.step_summary_rows:
++                if step.get("status") == "Running" and stage in self.progress_ctrl.step_summary_rows:
+                     try:
+-                        self.step_summary_rows[stage]["icon"].configure(image=frame if frame is not None else "", text="")
++                        self.progress_ctrl.step_summary_rows[stage]["icon"].configure(image=frame if frame is not None else "", text="")
+                     except Exception:
+                         pass
+ 
+@@ -449,15 +421,15 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         
+         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
+         
+-        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
++        self.run_button = self._toolbar_button(toolbar, "run", "Run", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=False), icon_color="#ffffff")
+         self.run_button.configure(style="Accent.TButton")
+         self.run_tooltip = Tooltip(self.run_button, "")
+-        self.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self._resume_pipeline)
+-        self.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self._start_pipeline(resume=False, restart=True))
+-        self.restart_tooltip = Tooltip(self.restart_button, "")
+-        self.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self._request_stop)
+-        self.stop_button.configure(state=tk.DISABLED)
+-        self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self._attach_job_dialog)
++        self.pipeline_ctrl.resume_button = self._toolbar_button(toolbar, "resume", "Resume", self.jobs_ctrl._resume_pipeline)
++        self.pipeline_ctrl.restart_button = self._toolbar_button(toolbar, "restart", "Restart", lambda: self.pipeline_ctrl._start_pipeline(resume=False, restart=True))
++        self.pipeline_ctrl.restart_tooltip = Tooltip(self.pipeline_ctrl.restart_button, "")
++        self.pipeline_ctrl.stop_button = self._toolbar_button(toolbar, "pause", "Stop After Current Step", self.progress_ctrl._request_stop)
++        self.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
++        self.attach_button = self._toolbar_button(toolbar, "load", "Attach Job", self.jobs_ctrl._attach_job_dialog)
+ 
+     def _build_tabs(self, parent: ttk.Frame) -> None:
+         self.notebook = ttk.Notebook(parent)
+@@ -467,8 +439,8 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self.notebook.add(self.config_tab, text="Pipeline configuration")
+         self.tools_ctrl.tab_frame = ttk.Frame(self.notebook)
+         self.notebook.add(self.tools_ctrl.tab_frame, text="Tools / Docker Images")
+-        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
+-        self.notebook.bind("<Button-1>", self._on_notebook_click)
++        self.notebook.bind("<<NotebookTabChanged>>", self.progress_ctrl._on_notebook_tab_changed)
++        self.notebook.bind("<Button-1>", self.progress_ctrl._on_notebook_click)
+ 
+         build_configuration_tab(self.config_tab, self)
+         build_tools_tab(self.tools_ctrl.tab_frame, self.tools_ctrl)
+@@ -560,7 +532,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self._server_thread_max_known() else tk.DISABLED
+             spinbox.configure(to=max_value, state=spinbox_state)
+         self._clamp_threads()
+-        self._validate_configuration()
++        self.validation_ctrl._validate_configuration()
+ 
+     def _current_remote_thread_signature(self) -> tuple[str, int, str, str, str] | None:
+         return self._current_remote_connection_signature()
+@@ -600,8 +572,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             return
+         self._cancel_remote_health_check()
+         self._thread_max_request_id += 1
+-        self._connected_remote_signature = None
+-        self._remote_thread_max_signature = None
+         self._set_thread_max(None)
+         self._reset_remote_tool_image_state()
+         self.state.remote_status.set("Remote: disconnected")
+@@ -616,29 +586,25 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self.tools_ctrl._refresh_tree()
+         self.tools_ctrl._update_config_status_labels()
+         self.tools_ctrl._update_download_button()
+-        self._validate_configuration()
++        self.validation_ctrl._validate_configuration()
+ 
+     def _handle_remote_connection_lost(self, reason: str = "") -> None:
+-        if self._connected_remote_signature is None and not self.remote_connecting:
++        if self._connected_remote_signature is None and not self.pipeline_ctrl.remote_connecting:
+             return
+         self._cancel_remote_health_check()
+-        self.remote_connecting = False
+         self._thread_max_request_id += 1
+-        self._connected_remote_signature = None
+-        self._remote_thread_max_signature = None
+         self._set_thread_max(None)
+         self._reset_remote_tool_image_state()
+         self.state.remote_status.set("Remote: disconnected unexpectedly")
+         self._set_remote_status_icon("failed")
+         self.tools_ctrl._set_python_env_status("Not checked")
+         self._sync_remote_connection_controls()
+-        self._validate_configuration()
++        self.validation_ctrl._validate_configuration()
+         detail = f"\n\n{reason}" if reason else ""
+         messagebox.showwarning("Server disconnected", "The server connection was lost. Remote actions are disabled until you connect again." + detail)
+ 
+     def _cancel_remote_health_check(self) -> None:
+-        after_id = self.remote_health_after_id
+-        self.remote_health_after_id = None
++        after_id = self.pipeline_ctrl.remote_health_after_id
+         if after_id:
+             try:
+                 self.root.after_cancel(after_id)
+@@ -649,7 +615,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self._cancel_remote_health_check()
+         if not self._server_connected():
+             return
+-        self.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
++        self.pipeline_ctrl.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
+ 
+     def _ssh_config_from_current_remote(self) -> SSHConfig | None:
+         host = self.state.remote_host.get().strip()
+@@ -669,15 +635,14 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         )
+ 
+     def _remote_health_check(self) -> None:
+-        self.remote_health_after_id = None
+-        if self.remote_health_in_flight or not self._server_connected():
++        if self.pipeline_ctrl.remote_health_in_flight or not self._server_connected():
+             return
+         signature = self._connected_remote_signature
+         ssh_config = self._ssh_config_from_current_remote()
+         if signature is None or ssh_config is None:
+             self._handle_remote_connection_lost("Remote server configuration is incomplete.")
+             return
+-        self.remote_health_in_flight = True
++        self.pipeline_ctrl.remote_health_in_flight = True
+ 
+         def worker() -> None:
+             error = ""
+@@ -690,7 +655,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+                 error = f"{type(exc).__name__}: {exc}"
+ 
+             def finish() -> None:
+-                self.remote_health_in_flight = False
+                 if signature != self._connected_remote_signature:
+                     return
+                 if error:
+@@ -704,26 +668,26 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+ 
+     def _sync_remote_connection_controls(self) -> None:
+         server_mode = self.state.run_target.get() == "Server"
+-        editing_state = tk.NORMAL if server_mode and not self.remote_connecting else tk.DISABLED
++        editing_state = tk.NORMAL if server_mode and not self.pipeline_ctrl.remote_connecting else tk.DISABLED
+ 
+         if self.run_target_combo is not None:
+-            self.run_target_combo.configure(state=tk.DISABLED if self.remote_connecting else "readonly")
++            self.run_target_combo.configure(state=tk.DISABLED if self.pipeline_ctrl.remote_connecting else "readonly")
+         for widget in (
+-            self.remote_host_entry,
+-            self.remote_port_entry,
+-            self.remote_username_entry,
+-            self.remote_password_entry,
+-            self.remote_key_entry,
++            self.pipeline_ctrl.remote_host_entry,
++            self.pipeline_ctrl.remote_port_entry,
++            self.pipeline_ctrl.remote_username_entry,
++            self.pipeline_ctrl.remote_password_entry,
++            self.pipeline_ctrl.remote_key_entry,
+             self.remote_key_browse_button,
+             self.remote_workspace_entry,
+         ):
+             if widget is not None:
+                 widget.configure(state=editing_state)
+-        if self.remote_connect_button is not None:
+-            if self.remote_connecting:
+-                self.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
++        if self.pipeline_ctrl.remote_connect_button is not None:
++            if self.pipeline_ctrl.remote_connecting:
++                self.pipeline_ctrl.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
+             else:
+-                self.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
++                self.pipeline_ctrl.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
+ 
+         self.tools_ctrl._refresh_tree()
+         self.tools_ctrl._update_config_status_labels()
+@@ -771,8 +735,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         if self.state.run_target.get() != "Server":
+             self._thread_max_request_id += 1
+             self._cancel_remote_health_check()
+-            self._connected_remote_signature = None
+-            self._remote_thread_max_signature = None
+             self._reset_remote_tool_image_state()
+             self._set_thread_max(self.local_max_threads)
+             return
+@@ -781,7 +743,6 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         if self._server_connected():
+             self._set_thread_max(self.max_threads)
+             return
+-        self._remote_thread_max_signature = None
+         self._set_thread_max(None)
+ 
+     def _remote_venv_display_path(self) -> str:
+@@ -795,24 +756,23 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             self.tools_ctrl.python_env_hint.set(sys.executable or "")
+ 
+     def _on_run_target_changed(self) -> None:
+-        if self.remote_body is None:
++        if self.pipeline_ctrl.remote_body is None:
+             return
+         enabled = self.state.run_target.get() == "Server"
+         if not enabled:
+             self._cancel_remote_health_check()
+-            self._connected_remote_signature = None
+             if self.state.input_source.get() != "Local":
+                 self._switch_input_source("Local")
+         self.state.server_text.set("Server: remote" if enabled else "Server: local")
+-        if self.remote_frame is not None:
++        if self.pipeline_ctrl.remote_frame is not None:
+             if enabled:
+                 try:
+-                    self.remote_frame.pack(**(self.remote_pack_options or {"fill": tk.X, "pady": (0, 32)}))
++                    self.pipeline_ctrl.remote_frame.pack(**(self.pipeline_ctrl.remote_pack_options or {"fill": tk.X, "pady": (0, 32)}))
+                 except tk.TclError:
+                     pass
+             else:
+-                self.remote_frame.pack_forget()
+-        self._set_widget_tree_state(self.remote_body, tk.NORMAL if enabled else tk.DISABLED)
++                self.pipeline_ctrl.remote_frame.pack_forget()
++        self._set_widget_tree_state(self.pipeline_ctrl.remote_body, tk.NORMAL if enabled else tk.DISABLED)
+         if enabled:
+             self.state.remote_status.set("Remote: connected" if self._server_connected() else "Remote: disconnected")
+         else:
+@@ -824,7 +784,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self._sync_remote_connection_controls()
+         self.tools_ctrl._refresh_tree()
+         self.tools_ctrl._update_config_status_labels()
+-        self._validate_configuration()
++        self.validation_ctrl._validate_configuration()
+ 
+     def _switch_input_source(self, new_source: str) -> None:
+         old_source = getattr(self, "_last_input_source", "Local")
+@@ -904,372 +864,8 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         return result["value"]
+ 
+     def _upload_input_to_server_placeholder(self) -> None:
+-        if not self._server_connected():
+-            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+-            return
+-        ssh_config = self._build_ssh_config()
+-        if ssh_config is None:
+-            return
+-
+-        dialog = tk.Toplevel(self.root)
+-        dialog.title("Upload input to server")
+-        dialog.geometry("1080x650")
+-        dialog.transient(self.root)
+-        dialog.grab_set()
+-
+-        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+-        local_entries: list[dict] = []
+-        server_entries: list[dict] = []
+-        upload_running = {"value": False}
+-
+-        def initial_local_dir() -> str:
+-            raw = self.state.input_path.get().strip()
+-            if raw and ";" not in raw:
+-                path = Path(raw).expanduser()
+-                if path.is_file():
+-                    return str(path.parent)
+-                if path.is_dir():
+-                    return str(path)
+-            return str(PROJECT_ROOT)
+-
+-        def initial_server_dir() -> str:
+-            raw = self.state.input_path.get().strip()
+-            if self.state.input_source.get() == "Server" and raw:
+-                first = raw.split(";", 1)[0].strip()
+-                if first and not first.endswith("/") and "." in posixpath.basename(first):
+-                    return posixpath.dirname(first) or "~"
+-                return first
+-            return self.state.remote_workspace.get().strip() or "~"
+-
+-        local_path = tk.StringVar(value=initial_local_dir())
+-        server_path = tk.StringVar(value=initial_server_dir())
+-        status_text = tk.StringVar(value="Connecting to server...")
+-        progress_text = tk.StringVar(value="Ready")
+-        progress_percent_text = tk.StringVar(value="0%")
+-
+-        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+-        top.pack(fill=tk.X)
+-        start_button = ttk.Button(top, text="Start upload", style="Accent.TButton", state=tk.DISABLED)
+-        start_button.pack(side=tk.LEFT)
+-        ttk.Label(top, textvariable=progress_text, anchor=tk.W).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(12, 8))
+-        ttk.Label(top, textvariable=progress_percent_text, width=6, anchor=tk.E).pack(side=tk.RIGHT)
+-        progress = ttk.Progressbar(dialog, mode="determinate", maximum=1, value=0)
+-        progress.pack(fill=tk.X, padx=12, pady=(0, 6))
+-        ttk.Label(dialog, textvariable=status_text, foreground="#64748b").pack(anchor=tk.W, padx=12, pady=(0, 8))
+-
+-        panes = ttk.PanedWindow(dialog, orient=tk.HORIZONTAL)
+-        panes.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+-        local_frame = ttk.Frame(panes, padding=8)
+-        server_frame = ttk.Frame(panes, padding=8)
+-        panes.add(local_frame, weight=1)
+-        panes.add(server_frame, weight=1)
+-
+-        def build_browser(parent: ttk.Frame, title: str, variable: tk.StringVar, go_cmd, up_cmd, new_folder_cmd=None, selectmode=tk.BROWSE):
+-            ttk.Label(parent, text=title, font=("Inter", 10, "bold")).pack(anchor=tk.W, pady=(0, 6))
+-            row = ttk.Frame(parent)
+-            row.pack(fill=tk.X, pady=(0, 8))
+-            ttk.Entry(row, textvariable=variable).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+-            ttk.Button(row, text="↵", width=3, command=go_cmd).pack(side=tk.LEFT, padx=(0, 6))
+-            ttk.Button(row, text="↑", width=3, command=up_cmd).pack(side=tk.LEFT, padx=(0, 6))
+-            if new_folder_cmd is not None:
+-                ttk.Button(row, text="+ Folder", command=new_folder_cmd).pack(side=tk.LEFT)
+-            list_frame = ttk.Frame(parent)
+-            list_frame.pack(fill=tk.BOTH, expand=True)
+-            listing = tk.Listbox(list_frame, selectmode=selectmode, activestyle="dotbox")
+-            scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=listing.yview)
+-            listing.configure(yscrollcommand=scroll.set)
+-            listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+-            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+-            return listing
+-
+-        def is_mri_name(name: str) -> bool:
+-            return name.lower().endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"))
+-
+-        def refresh_local(path_text: str | None = None) -> None:
+-            nonlocal local_entries
+-            path = Path(path_text or local_path.get().strip() or ".").expanduser()
+-            try:
+-                path = path.resolve()
+-                dirs = []
+-                files = []
+-                for child in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+-                    if child.name.startswith("."):
+-                        continue
+-                    entry = {"name": child.name, "path": str(child), "is_dir": child.is_dir()}
+-                    if child.is_dir():
+-                        dirs.append(entry)
+-                    elif child.is_file():
+-                        files.append(entry)
+-                local_entries = [{"name": "..", "path": str(path.parent), "is_dir": True}, *dirs, *files]
+-                local_list.delete(0, tk.END)
+-                for entry in local_entries:
+-                    prefix = "[D] " if entry["is_dir"] else "    "
+-                    local_list.insert(tk.END, prefix + entry["name"])
+-                local_path.set(str(path))
+-                status_text.set("Select local files or DICOM folders to upload.")
+-            except Exception as exc:
+-                status_text.set(f"Local browse failed: {type(exc).__name__}: {exc}")
+-
+-        def normalize_server_path(path_text: str) -> str:
+-            ssh = ssh_holder.get("ssh")
+-            path = path_text.strip() or "~"
+-            if ssh is not None:
+-                try:
+-                    path = ssh.expand_path(path)
+-                except Exception:
+-                    pass
+-            return posixpath.normpath(path) if path.startswith("/") else path
+-
+-        def refresh_server(path_text: str | None = None) -> None:
+-            nonlocal server_entries
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return
+-            try:
+-                path = normalize_server_path(path_text or server_path.get())
+-                attrs = ssh.sftp.listdir_attr(path)
+-                dirs = []
+-                files = []
+-                for item in attrs:
+-                    if item.filename.startswith("."):
+-                        continue
+-                    entry = {"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": stat.S_ISDIR(item.st_mode)}
+-                    if entry["is_dir"]:
+-                        dirs.append(entry)
+-                    else:
+-                        files.append(entry)
+-                server_entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower()), *sorted(files, key=lambda x: x["name"].lower())]
+-                server_list.delete(0, tk.END)
+-                for entry in server_entries:
+-                    prefix = "[D] " if entry["is_dir"] else "    "
+-                    server_list.insert(tk.END, prefix + entry["name"])
+-                server_path.set(path)
+-                status_text.set("Choose the server destination folder.")
+-            except Exception as exc:
+-                status_text.set(f"Server browse failed: {type(exc).__name__}: {exc}")
+-
+-        def create_server_folder() -> None:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                messagebox.showerror("Server not connected", "SSH server is not connected yet.", parent=dialog)
+-                return
+-            current = normalize_server_path(server_path.get())
+-            name = simpledialog.askstring("New server folder", "Folder name:", parent=dialog)
+-            if not name:
+-                return
+-            name = name.strip().strip("/")
+-            if not name or "/" in name or name in {".", ".."}:
+-                messagebox.showerror("Invalid folder name", "Folder name cannot be empty, '.', '..', or contain '/'.", parent=dialog)
+-                return
+-            new_path = posixpath.join(current, name)
+-            try:
+-                ssh.mkdir_p(new_path)
+-                refresh_server(new_path)
+-                status_text.set(f"Created folder: {new_path}")
+-            except Exception as exc:
+-                messagebox.showerror("Create folder failed", f"Could not create folder:\n\n{type(exc).__name__}: {exc}", parent=dialog)
+-
+-        local_list = build_browser(
+-            local_frame,
+-            "Local folder",
+-            local_path,
+-            lambda: refresh_local(local_path.get()),
+-            lambda: refresh_local(str(Path(local_path.get()).expanduser().parent)),
+-            selectmode=tk.EXTENDED,
+-        )
+-        server_list = build_browser(
+-            server_frame,
+-            "Server folder",
+-            server_path,
+-            lambda: refresh_server(server_path.get()),
+-            lambda: refresh_server(posixpath.dirname(normalize_server_path(server_path.get()).rstrip("/")) or "/"),
+-            new_folder_cmd=create_server_folder,
+-        )
+-
+-        def open_local(_event=None) -> None:
+-            selection = local_list.curselection()
+-            if selection and local_entries[selection[0]]["is_dir"]:
+-                refresh_local(local_entries[selection[0]]["path"])
+-
+-        def open_server(_event=None) -> None:
+-            selection = server_list.curselection()
+-            if selection and server_entries[selection[0]]["is_dir"]:
+-                refresh_server(server_entries[selection[0]]["path"])
+-
+-        def selected_local_inputs() -> list[Path]:
+-            inputs: list[Path] = []
+-            for idx in local_list.curselection():
+-                entry = local_entries[idx]
+-                if entry["name"] == "..":
+-                    continue
+-                inputs.append(Path(entry["path"]))
+-            return inputs
+-
+-        def upload_file_pairs(inputs: list[Path], dest_dir: str) -> tuple[list[tuple[Path, str]], list[str]]:
+-            pairs: list[tuple[Path, str]] = []
+-            remote_roots: list[str] = []
+-            for src in inputs:
+-                if src.is_dir():
+-                    remote_root = posixpath.join(dest_dir, src.name)
+-                    remote_roots.append(remote_root)
+-                    for root, dirs, files in os.walk(src):
+-                        dirs[:] = [name for name in dirs if not name.startswith(".")]
+-                        for name in sorted(files):
+-                            if name.startswith("."):
+-                                continue
+-                            local_file = Path(root) / name
+-                            rel = local_file.relative_to(src).as_posix()
+-                            pairs.append((local_file, posixpath.join(remote_root, rel)))
+-                else:
+-                    remote_file = posixpath.join(dest_dir, src.name)
+-                    remote_roots.append(remote_file)
+-                    pairs.append((src, remote_file))
+-            return pairs, remote_roots
+-
+-        def preflight_upload(pairs: list[tuple[Path, str]], dest_dir: str) -> tuple[list[tuple[Path, str]], int] | None:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return None
+-            ssh.mkdir_p(dest_dir)
+-            upload_items: list[tuple[Path, str]] = []
+-            skipped = 0
+-            overwrite_all: bool | None = None
+-            for src, remote_file in pairs:
+-                ssh.mkdir_p(posixpath.dirname(remote_file))
+-                exists = False
+-                try:
+-                    ssh.sftp.stat(remote_file)
+-                    exists = True
+-                except OSError:
+-                    exists = False
+-                if exists:
+-                    if overwrite_all is True:
+-                        upload_items.append((src, remote_file))
+-                        continue
+-                    if overwrite_all is False:
+-                        skipped += 1
+-                        continue
+-                    choice = self._ask_upload_overwrite(remote_file)
+-                    if choice == "cancel":
+-                        return None
+-                    if choice == "yes_all":
+-                        overwrite_all = True
+-                        upload_items.append((src, remote_file))
+-                    elif choice == "no_all":
+-                        overwrite_all = False
+-                        skipped += 1
+-                    elif choice == "yes":
+-                        upload_items.append((src, remote_file))
+-                    else:
+-                        skipped += 1
+-                        continue
+-                else:
+-                    upload_items.append((src, remote_file))
+-            return upload_items, skipped
+-
+-        def apply_uploaded_inputs(remote_paths: list[str], uploaded_dirs: bool) -> None:
+-            if not remote_paths:
+-                return
+-            self.state.input_source.set("Server")
+-            if uploaded_dirs:
+-                self.state.input_mode.set("dir")
+-                self.state.selected_files = []
+-                self.state.input_path.set(remote_paths[0] if len(remote_paths) == 1 else normalize_server_path(server_path.get()))
+-            elif len(remote_paths) == 1:
+-                self.state.input_mode.set("file")
+-                self.state.selected_files = remote_paths
+-                self.state.input_path.set(remote_paths[0])
+-            else:
+-                self.state.input_mode.set("files")
+-                self.state.selected_files = remote_paths
+-                self.state.input_path.set("; ".join(remote_paths))
+-            self._input_source_paths["Server"] = self.state.input_path.get().strip()
+-            self._input_source_selected_files["Server"] = list(self.state.selected_files)
+-            self._last_input_source = "Server"
+-            self._sync_input_source_controls()
+-            self._refresh_input_label()
+-            self._validate_configuration()
+-
+-        def start_upload() -> None:
+-            if upload_running["value"]:
+-                return
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                messagebox.showerror("Server not connected", "SSH server is not connected yet.", parent=dialog)
+-                return
+-            inputs = selected_local_inputs()
+-            if not inputs:
+-                messagebox.showwarning("No files selected", "Select one or more local files or DICOM folders to upload.", parent=dialog)
+-                return
+-            dest_dir = normalize_server_path(server_path.get())
+-            pairs, remote_paths = upload_file_pairs(inputs, dest_dir)
+-            uploaded_dirs = any(path.is_dir() for path in inputs)
+-            if not pairs:
+-                status_text.set("No files found to upload.")
+-                return
+-            preflight = preflight_upload(pairs, dest_dir)
+-            if preflight is None:
+-                status_text.set("Upload cancelled.")
+-                return
+-            upload_items, skipped = preflight
+-            if not upload_items:
+-                status_text.set("No files uploaded.")
+-                return
+-            upload_running["value"] = True
+-            self._set_button_busy(start_button, True, "Uploading")
+-            progress.configure(maximum=len(pairs), value=skipped)
+-            percent = int((skipped / len(pairs)) * 100) if pairs else 0
+-            progress_text.set(f"Uploading {len(upload_items)} file(s), skipped {skipped}")
+-            progress_percent_text.set(f"{percent}%")
+-
+-            def worker() -> None:
+-                uploaded: list[str] = []
+-                processed = skipped
+-                try:
+-                    for src, remote_file in upload_items:
+-                        processed += 1
+-                        self.root.after(0, lambda p=processed, name=src.name: (status_text.set(f"Uploading: {name}"), progress.configure(value=p), progress_text.set(f"{p} of {len(pairs)} files"), progress_percent_text.set(f"{int((p / len(pairs)) * 100)}%")))
+-                        ssh.sftp.put(str(src), remote_file)
+-                        uploaded.append(remote_file)
+-                    self.root.after(0, lambda: (progress.configure(value=len(pairs)), progress_text.set("Upload complete"), progress_percent_text.set("100%"), status_text.set(f"Uploaded {len(uploaded)} file(s)."), apply_uploaded_inputs(remote_paths, uploaded_dirs), refresh_server(dest_dir)))
+-                except Exception as exc:
+-                    self.root.after(0, lambda e=exc: (progress_text.set("Upload failed"), status_text.set(f"Upload failed: {type(e).__name__}: {e}")))
+-                finally:
+-                    def finish() -> None:
+-                        upload_running["value"] = False
+-                        self._set_button_busy(start_button, False)
+-                        if ssh_holder.get("ssh") is not None:
+-                            start_button.configure(state=tk.NORMAL)
+-                    self.root.after(0, finish)
+-
+-            threading.Thread(target=worker, daemon=True).start()
+-
+-        def connect_server() -> None:
+-            try:
+-                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+-                ssh.connect()
+-                ssh_holder["ssh"] = ssh
+-                refresh_server(server_path.get())
+-                start_button.configure(state=tk.NORMAL)
+-            except Exception as exc:
+-                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+-
+-        def close() -> None:
+-            if upload_running["value"]:
+-                if not messagebox.askyesno("Upload running", "Close while upload is running?", parent=dialog):
+-                    return
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is not None:
+-                ssh.close()
+-                ssh_holder["ssh"] = None
+-            dialog.destroy()
+-
+-        local_list.bind("<Double-Button-1>", open_local)
+-        server_list.bind("<Double-Button-1>", open_server)
+-        start_button.configure(command=start_upload)
+-        dialog.protocol("WM_DELETE_WINDOW", close)
+-        refresh_local(local_path.get())
+-        self.root.after(50, connect_server)
++        from ui.dialogs.remote_browser import show_upload_dialog
++        show_upload_dialog(self)
+ 
+     def _browse_input(self) -> None:
+         if self.state.input_source.get() == "Server":
+@@ -1295,318 +891,12 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         self._refresh_input_label()
+ 
+     def _browse_server_output(self) -> None:
+-        if not self._server_connected():
+-            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+-            return
+-        ssh_config = self._build_ssh_config()
+-        if ssh_config is None:
+-            return
+-            
+-        dialog = tk.Toplevel(self.root)
+-        dialog.title("Browse Server Output Location")
+-        dialog.geometry("760x520")
+-        dialog.transient(self.root)
+-        dialog.grab_set()
+-
+-        current_path = tk.StringVar(value=self.state.server_output_dir.get().strip() or "~")
+-        status_text = tk.StringVar(value="Connecting...")
+-        selected: dict[str, str | None] = {"path": None}
+-        entries: list[dict] = []
+-        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+-
+-        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+-        top.pack(fill=tk.X)
+-        ttk.Label(top, text="Server output path").pack(anchor=tk.W)
+-        path_row = ttk.Frame(top)
+-        path_row.pack(fill=tk.X, pady=(2, 6))
+-        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+-
+-        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
+-        body.pack(fill=tk.BOTH, expand=True)
+-        listing = tk.Listbox(body, selectmode=tk.BROWSE, height=18, activestyle="dotbox")
+-        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+-        listing.configure(yscrollcommand=scroll.set)
+-        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+-
+-        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+-        bottom.pack(fill=tk.X)
+-        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
+-
+-        def normalize_remote_path(path: str) -> str:
+-            path = path.strip() or "~"
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is not None:
+-                try:
+-                    path = ssh.expand_path(path)
+-                except Exception:
+-                    pass
+-            return posixpath.normpath(path) if path.startswith("/") else path
+-
+-        def load_dir(path: str) -> None:
+-            nonlocal entries
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return
+-            try:
+-                path = normalize_remote_path(path)
+-                attrs = ssh.sftp.listdir_attr(path)
+-                dirs = []
+-                for item in attrs:
+-                    if item.filename.startswith("."):
+-                        continue
+-                    if stat.S_ISDIR(item.st_mode):
+-                        dirs.append({"name": item.filename, "path": posixpath.join(path, item.filename)})
+-                
+-                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/"}] + sorted(dirs, key=lambda x: x["name"].lower())
+-                listing.delete(0, tk.END)
+-                for row in entries:
+-                    listing.insert(tk.END, "[D] " + row["name"])
+-                current_path.set(path)
+-                status_text.set("Select a folder for output.")
+-            except Exception as exc:
+-                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
+-
+-        def connect_and_load() -> None:
+-            try:
+-                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+-                ssh.connect()
+-                ssh_holder["ssh"] = ssh
+-                load_dir(current_path.get())
+-            except Exception as exc:
+-                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+-                
+-        def create_new_folder() -> None:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return
+-            from tkinter import simpledialog
+-            current = normalize_remote_path(current_path.get())
+-            name = simpledialog.askstring("New folder", "Folder name:", parent=dialog)
+-            if not name:
+-                return
+-            name = name.strip().strip("/")
+-            if not name or "/" in name or name in {".", ".."}:
+-                messagebox.showerror("Invalid name", "Invalid folder name.", parent=dialog)
+-                return
+-            new_path = posixpath.join(current, name)
+-            try:
+-                ssh.mkdir_p(new_path)
+-                load_dir(new_path)
+-                status_text.set(f"Created folder: {new_path}")
+-            except Exception as exc:
+-                messagebox.showerror("Error", f"Could not create folder:\n{exc}", parent=dialog)
+-
+-        def open_selected(_event=None) -> None:
+-            selection = listing.curselection()
+-            if not selection:
+-                return
+-            load_dir(str(entries[selection[0]]["path"]))
+-
+-        def choose() -> None:
+-            path = normalize_remote_path(current_path.get())
+-            selection = listing.curselection()
+-            if selection:
+-                # User selected a specific folder in the list
+-                path = str(entries[selection[0]]["path"])
+-            selected["path"] = path
+-            dialog.destroy()
+-
+-        def close() -> None:
+-            dialog.destroy()
+-
+-        def on_destroy(_event=None) -> None:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is not None:
+-                ssh.close()
+-                ssh_holder["ssh"] = None
+-
+-        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
+-        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT, padx=(0, 6))
+-        ttk.Button(path_row, text="+ Folder", command=create_new_folder).pack(side=tk.LEFT)
+-        
+-        listing.bind("<Double-Button-1>", open_selected)
+-        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
+-        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
+-        
+-        dialog.protocol("WM_DELETE_WINDOW", close)
+-        dialog.bind("<Destroy>", on_destroy, add="+")
+-        self.root.after(50, connect_and_load)
+-        self.root.wait_window(dialog)
+-        
+-        if selected.get("path"):
+-            self.state.server_output_dir.set(selected["path"])
++        from ui.dialogs.remote_browser import show_remote_output_browser
++        show_remote_output_browser(self)
+ 
+     def _browse_remote_input(self) -> None:
+-        if not self._server_connected():
+-            messagebox.showwarning("Connect Server", "Please connect to the server first.")
+-            return
+-        ssh_config = self._build_ssh_config()
+-        if ssh_config is None:
+-            return
+-        mode = self.state.input_mode.get()
+-        dialog = tk.Toplevel(self.root)
+-        dialog.title("Browse server input")
+-        dialog.geometry("760x520")
+-        dialog.transient(self.root)
+-        dialog.grab_set()
+-
+-        current_path = tk.StringVar(value=self.state.input_path.get().strip() or "~")
+-        status_text = tk.StringVar(value="Connecting...")
+-        selected: dict[str, list[str] | str] = {"paths": []}
+-        entries: list[dict] = []
+-        ssh_holder: dict[str, RemoteSSHClient | None] = {"ssh": None}
+-
+-        top = ttk.Frame(dialog, padding=(12, 12, 12, 6))
+-        top.pack(fill=tk.X)
+-        ttk.Label(top, text="Server path").pack(anchor=tk.W)
+-        path_row = ttk.Frame(top)
+-        path_row.pack(fill=tk.X, pady=(2, 6))
+-        ttk.Entry(path_row, textvariable=current_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+-
+-        body = ttk.Frame(dialog, padding=(12, 0, 12, 6))
+-        body.pack(fill=tk.BOTH, expand=True)
+-        selectmode = tk.EXTENDED if mode == "files" else tk.BROWSE
+-        listing = tk.Listbox(body, selectmode=selectmode, height=18, activestyle="dotbox")
+-        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=listing.yview)
+-        listing.configure(yscrollcommand=scroll.set)
+-        listing.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+-
+-        bottom = ttk.Frame(dialog, padding=(12, 0, 12, 12))
+-        bottom.pack(fill=tk.X)
+-        ttk.Label(bottom, textvariable=status_text, foreground="#64748b").pack(side=tk.LEFT, fill=tk.X, expand=True)
+-
+-        def normalize_remote_path(path: str) -> str:
+-            path = path.strip() or "~"
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is not None:
+-                try:
+-                    path = ssh.expand_path(path)
+-                except Exception:
+-                    pass
+-            return posixpath.normpath(path) if path.startswith("/") else path
+-
+-        def is_mri_name(name: str) -> bool:
+-            lower = name.lower()
+-            return lower.endswith((".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"))
+-
+-        def is_dicom_name(name: str) -> bool:
+-            return name.lower().endswith((".dcm", ".dicom", ".ima"))
+-
+-        def dir_contains_dicom(path: str) -> bool:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return False
+-            try:
+-                for item in ssh.sftp.listdir_attr(path):
+-                    if item.filename.startswith("."):
+-                        continue
+-                    if not stat.S_ISDIR(item.st_mode) and is_dicom_name(item.filename):
+-                        return True
+-            except OSError:
+-                return False
+-            return False
+-
+-        def load_dir(path: str) -> None:
+-            nonlocal entries
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is None:
+-                return
+-            try:
+-                path = normalize_remote_path(path)
+-                attrs = ssh.sftp.listdir_attr(path)
+-                dirs = []
+-                files = []
+-                for item in attrs:
+-                    if item.filename.startswith("."):
+-                        continue
+-                    row = {"name": item.filename, "path": posixpath.join(path, item.filename), "is_dir": stat.S_ISDIR(item.st_mode)}
+-                    if row["is_dir"]:
+-                        dirs.append(row)
+-                    elif mode != "dir" and is_mri_name(item.filename):
+-                        files.append(row)
+-                entries = [{"name": "..", "path": posixpath.dirname(path.rstrip("/")) or "/", "is_dir": True}, *sorted(dirs, key=lambda x: x["name"].lower()), *sorted(files, key=lambda x: x["name"].lower())]
+-                listing.delete(0, tk.END)
+-                for row in entries:
+-                    prefix = "[D] " if row["is_dir"] else "    "
+-                    listing.insert(tk.END, prefix + row["name"])
+-                current_path.set(path)
+-                status_text.set("Select a folder." if mode == "dir" else "Double-click folders to browse; select MRI file(s) or DICOM folder(s).")
+-            except Exception as exc:
+-                status_text.set(f"Browse failed: {type(exc).__name__}: {exc}")
+-
+-        def connect_and_load() -> None:
+-            try:
+-                ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+-                ssh.connect()
+-                ssh_holder["ssh"] = ssh
+-                load_dir(current_path.get())
+-            except Exception as exc:
+-                status_text.set(f"SSH failed: {type(exc).__name__}: {exc}")
+-
+-        def open_selected(_event=None) -> None:
+-            selection = listing.curselection()
+-            if not selection:
+-                return
+-            row = entries[selection[0]]
+-            if row["is_dir"]:
+-                load_dir(str(row["path"]))
+-
+-        def choose() -> None:
+-            path = normalize_remote_path(current_path.get())
+-            selection = listing.curselection()
+-            chosen: list[str] = []
+-            if mode == "dir":
+-                if selection and entries[selection[0]]["is_dir"]:
+-                    path = str(entries[selection[0]]["path"])
+-                selected["paths"] = [path]
+-            else:
+-                for idx in selection:
+-                    row = entries[idx]
+-                    if not row["is_dir"]:
+-                        chosen.append(str(row["path"]))
+-                    elif dir_contains_dicom(str(row["path"])):
+-                        chosen.append(str(row["path"]))
+-                if not chosen and mode == "file":
+-                    chosen = [path]
+-                selected["paths"] = chosen
+-            dialog.destroy()
+-
+-        def close() -> None:
+-            dialog.destroy()
+-
+-        def on_destroy(_event=None) -> None:
+-            ssh = ssh_holder.get("ssh")
+-            if ssh is not None:
+-                ssh.close()
+-                ssh_holder["ssh"] = None
+-
+-        ttk.Button(path_row, text="Go", command=lambda: load_dir(current_path.get())).pack(side=tk.LEFT, padx=(0, 6))
+-        ttk.Button(path_row, text="Up", command=lambda: load_dir(posixpath.dirname(normalize_remote_path(current_path.get()).rstrip("/")) or "/")).pack(side=tk.LEFT)
+-        listing.bind("<Double-Button-1>", open_selected)
+-        ttk.Button(bottom, text="Cancel", command=close).pack(side=tk.RIGHT, padx=(8, 0))
+-        ttk.Button(bottom, text="Select", style="Accent.TButton", command=choose).pack(side=tk.RIGHT)
+-        dialog.protocol("WM_DELETE_WINDOW", close)
+-        dialog.bind("<Destroy>", on_destroy, add="+")
+-        self.root.after(50, connect_and_load)
+-        self.root.wait_window(dialog)
+-
+-        paths = list(selected.get("paths") or [])
+-        if not paths:
+-            return
+-        if mode == "file":
+-            self.state.selected_files = [paths[0]]
+-            self.state.input_path.set(paths[0])
+-        elif mode == "files":
+-            self.state.selected_files = paths
+-            self.state.input_path.set("; ".join(paths))
+-        else:
+-            self.state.selected_files = []
+-            self.state.input_path.set(paths[0])
+-        self._input_source_paths[self.state.input_source.get()] = self.state.input_path.get().strip()
+-        self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
+-        self._refresh_input_label()
++        from ui.dialogs.remote_browser import show_remote_input_browser
++        show_remote_input_browser(self)
+ 
+     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
+         return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm *.dicom *.ima"), ("All files", "*.*"))
+@@ -1709,9 +999,9 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+                         else:
+                             self.state.tool_vars[stage].set(tool_display_name(tool))
+                 stats = set(preset["stats"])
+-                if stats == self.VOLUME_STATS:
++                if stats == VOLUME_STATS:
+                     self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+-                elif stats == self.THICKNESS_STATS:
++                elif stats == THICKNESS_STATS:
+                     suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
+                     self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
+                 else:
+@@ -1755,12 +1045,12 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         try:
+             with open(path, "w", encoding="utf-8") as f:
+                 json.dump(workspace, f, indent=2, ensure_ascii=False)
+-            self._log(f"Saved workspace: {path}")
++            self.progress_ctrl._log(f"Saved workspace: {path}")
+         except Exception as exc:
+             messagebox.showerror("Save workspace failed", str(exc))
+ 
+     def _load_workspace(self) -> None:
+-        if self.remote_connecting:
++        if self.pipeline_ctrl.remote_connecting:
+             messagebox.showwarning("Server connecting", "Wait for the current server connection attempt to finish before loading a workspace.")
+             return
+         config_dir = PROJECT_ROOT / "configs" / "workspaces"
+@@ -1784,8 +1074,8 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
+             self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
+             self._refresh_input_label()
+-            self._validate_configuration()
+-            self._log(f"Loaded workspace: {path}")
++            self.validation_ctrl._validate_configuration()
++            self.progress_ctrl._log(f"Loaded workspace: {path}")
+         except Exception as exc:
+             messagebox.showerror("Load workspace failed", str(exc))
+         finally:
+@@ -1823,7 +1113,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
+             self._apply_pipeline_mode(apply_stats_preset=False)
+             self.tools_ctrl._update_config_status_labels()
+-            self._validate_configuration()
++            self.validation_ctrl._validate_configuration()
+         finally:
+             self._is_applying_preset = False
+ 
+@@ -1843,7 +1133,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+         try:
+             with open(path, "w", encoding="utf-8") as f:
+                 json.dump(data, f, indent=2, ensure_ascii=False)
+-            self._log(f"Saved preset: {path}")
++            self.progress_ctrl._log(f"Saved preset: {path}")
+         except Exception as exc:
+             messagebox.showerror("Save preset failed", str(exc))
+ 
+@@ -1863,7 +1153,7 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+                 messagebox.showerror("Invalid preset", "Selected file is not an MRI pipeline preset.")
+                 return
+             self._apply_run_config(config)
+-            self._log(f"Loaded preset: {path}")
++            self.progress_ctrl._log(f"Loaded preset: {path}")
+         except Exception as exc:
+             messagebox.showerror("Load preset failed", str(exc))
+ 
+@@ -1880,247 +1170,17 @@ class PipelineGUI(JobsMixin, PipelineMixin, ProgressMixin):
+             else:
+                 self.btn_config_batch.configure(state=tk.DISABLED)
+                 
+-        self._validate_configuration()
++        self.validation_ctrl._validate_configuration()
+ 
+     def _configure_batch(self) -> None:
+         from ui.batch_window import BatchConfigWindow
+         BatchConfigWindow(self.root, self)
+ 
+     def _setup_validation_traces(self) -> None:
+-        variables = [
+-            self.state.input_source,
+-            self.state.input_mode,
+-            self.state.input_path,
+-            self.state.output_dir,
+-            self.state.license_dir,
+-            self.state.device,
+-            self.state.threads,
+-            self.state.ram_percent,
+-            self.state.non_recursive,
+-            self.state.run_target,
+-            self.state.remote_host,
+-            self.state.remote_port,
+-            self.state.remote_username,
+-            self.state.remote_key_path,
+-            self.state.remote_workspace,
+-            self.state.remote_python,
+-            self.state.pipeline_mode,
+-            self.state.export_outputs_enabled,
+-            self.state.export_default_format,
+-        ]
+-        for var in variables:
+-            var.trace_add("write", lambda *_args: self._validate_configuration())
+-
+-        self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
+-        self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
+-        self.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
+-        for var in (
+-            self.state.remote_host,
+-            self.state.remote_port,
+-            self.state.remote_username,
+-            self.state.remote_password,
+-            self.state.remote_key_path,
+-            self.state.remote_workspace,
+-        ):
+-            var.trace_add("write", lambda *_args: self._invalidate_remote_thread_max())
+-
+-        self.state.input_path.trace_add("write", self._refresh_input_label)
+-
+-        def _on_tool_selection_changed(*_args):
+-            if getattr(self, "_is_applying_preset", False):
+-                self._validate_configuration()
+-                self.tools_ctrl._update_config_status_labels()
+-                return
+-            mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+-            if mode != "Custom":
+-                self._is_applying_preset = True
+-                try:
+-                    # Switching to Custom keeps the tool the user just picked.
+-                    self.state.pipeline_mode.set("Custom")
+-                finally:
+-                    self._is_applying_preset = False
+-            self._validate_configuration()
+-            self.tools_ctrl._update_config_status_labels()
+-
+-        for tool_var in self.state.tool_vars.values():
+-            tool_var.trace_add("write", _on_tool_selection_changed)
+-
+-        for var in [*self.state.export_name_vars.values(), *self.state.export_format_vars.values()]:
+-            var.trace_add("write", lambda *_args: self._validate_configuration())
+-
+-        def _on_stat_vector_changed(*_args):
+-            if getattr(self, "_is_applying_preset", False):
+-                return
+-            mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+-            self._is_applying_preset = True
+-            try:
+-                if mode != "Custom":
+-                    self.state.pipeline_mode.set("Custom")
+-                    # Nested apply clears the flag; restore before syncing tools.
+-                    self._is_applying_preset = True
+-                # Keep steps 7-8 skipped unless cortical thickness is selected.
+-                self._sync_surface_stages_with_stats()
+-            finally:
+-                self._is_applying_preset = False
+-            self._sync_tool_combo_states()
+-            self.tools_ctrl._update_config_status_labels()
+-            self._validate_configuration()
+-
+-        for var in self.state.stat_vector_enabled_vars.values():
+-            var.trace_add("write", _on_stat_vector_changed)
+-        for var in self.state.stat_atlas_choice_vars.values():
+-            var.trace_add("write", lambda *_args: self._validate_configuration())
++        self.validation_ctrl._setup_validation_traces()
+ 
+     def _validate_configuration(self) -> bool:
+-        errors: list[str] = []
+-        input_source = self.state.input_source.get()
+-        if self.state.run_target.get() == "Server":
+-            if not self.state.remote_host.get().strip():
+-                errors.append("Remote Host/IP is required.")
+-            if not self.state.remote_username.get().strip():
+-                errors.append("Remote Username is required.")
+-            try:
+-                port = int(self.state.remote_port.get())
+-                if port < 1 or port > 65535:
+-                    errors.append("Remote port must be between 1 and 65535.")
+-            except (tk.TclError, ValueError):
+-                errors.append("Remote port must be a valid integer.")
+-            if not self.state.remote_workspace.get().strip():
+-                errors.append("Remote workspace is required.")
+-            elif self._current_remote_connection_signature() is not None and not self._server_connected():
+-                errors.append("Connect to the server before running.")
+-
+-        mode = self.state.input_mode.get()
+-        raw_input = self.state.input_path.get().strip()
+-        if not raw_input:
+-            errors.append("Choose an input MRI file or folder.")
+-        elif self.state.run_target.get() != "Server" and input_source != "Local":
+-            errors.append("Local runs can only use local input data.")
+-        elif input_source == "Server" and self.state.run_target.get() != "Server":
+-            errors.append("Server input requires Run on = Server.")
+-        elif input_source == "Local" and mode == "file":
+-            path = self.state.selected_files[0] if self.state.selected_files else raw_input
+-            if not _is_supported_mri_input(path):
+-                errors.append("Input file or DICOM folder does not exist.")
+-        elif input_source == "Local" and mode == "files":
+-            files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
+-            if not files:
+-                errors.append("Choose at least one input file.")
+-            elif any(not _is_supported_mri_input(p) for p in files):
+-                errors.append("One or more selected input files or DICOM folders do not exist.")
+-        elif input_source == "Local":
+-            if not Path(raw_input).is_dir():
+-                errors.append("Input folder does not exist.")
+-        elif input_source == "Server":
+-            files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
+-            if mode == "file" and raw_input == "~" and not self.state.selected_files:
+-                errors.append("Choose a server MRI file or upload input to server first.")
+-            elif mode == "files" and (not files or files == ["~"]):
+-                errors.append("Choose server MRI files or upload input to server first.")
+-            elif mode == "dir" and raw_input == "~" and not self.state.selected_files:
+-                errors.append("Choose a server MRI folder or upload input to server first.")
+-
+-        if self.state.run_target.get() != "Server" and not self.state.output_dir.get().strip():
+-            errors.append("Choose an output directory.")
+-        if self.state.export_outputs_enabled.get():
+-            invalid_names = [name.get().strip() for name in self.state.export_name_vars.values() if not name.get().strip() or any(sep in name.get() for sep in ("/", "\\"))]
+-            if invalid_names:
+-                errors.append("Export file names cannot be empty or contain path separators.")
+-        for stat, stat_def in STAT_VECTOR_DEFS.items():
+-            if self.state.stat_vector_enabled_vars.get(stat) and self.state.stat_vector_enabled_vars[stat].get():
+-                if stat_def.get("atlases") and not self.state.selected_atlases_for_stat(stat):
+-                    errors.append(f"Choose at least one atlas for {stat_def['label']}.")
+-        try:
+-            threads = int(self.state.threads.get())
+-            if threads < 1:
+-                errors.append("Threads must be at least 1.")
+-            elif self.state.run_target.get() == "Server" and self._server_connected() and not self._server_thread_max_known():
+-                errors.append("Connect Server could not read the server CPU thread limit.")
+-            elif self.max_threads is not None and threads > self.max_threads:
+-                errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
+-        except (tk.TclError, ValueError):
+-            errors.append("Threads must be a valid integer.")
+-
+-        try:
+-            ram_percent = int(self.state.ram_percent.get())
+-            if ram_percent < 1 or ram_percent > 100:
+-                errors.append("RAM % must be between 1 and 100.")
+-        except (tk.TclError, ValueError):
+-            errors.append("RAM % must be a valid integer.")
+-
+-        selected_tools = self.state.get_selected_tools()
+-        missing_stages = [
+-            stage for stage in STAGE_ORDER
+-            if stage not in VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
+-        ]
+-        if missing_stages:
+-            errors.append("Select one tool for every pipeline stage.")
+-        disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]
+-        if disabled_tools:
+-            errors.append(f"Disabled tools selected: {', '.join(tool_display_name(tool) for tool in disabled_tools)}")
+-
+-        target = self.state.run_target.get()
+-        image_statuses = self.tools_ctrl.image_statuses.setdefault(target, {})
+-        required_images: list[str] = []
+-        for tool in selected_tools.values():
+-            image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
+-            if tool and is_tool_enabled(tool) and image and image not in required_images:
+-                required_images.append(image)
+-        if required_images and (target != "Server" or self._server_connected()):
+-            unknown = [image for image in required_images if image_statuses.get(image, "Unknown") == "Unknown"]
+-            not_installed = [image for image in required_images if image_statuses.get(image, "Unknown") not in {"Installed", "Unknown"}]
+-            if unknown:
+-                errors.append("Check Docker images before running.")
+-            elif not_installed:
+-                errors.append("Install selected Docker images before running.")
+-
+-        needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
+-        if needs_license and not Path(self.state.license_dir.get().strip()).exists():
+-            errors.append("FreeSurfer license directory is required for selected tools.")
+-
+-
+-
+-        ok = not errors
+-        can_start = self._can_start_new_pipeline()
+-        status_msg = "Configuration complete. Ready to run." if ok else errors[0]
+-        if not can_start:
+-            status_msg = "Pipeline is already running or busy."
+-
+-        if hasattr(self, "run_button"):
+-            self.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
+-            if hasattr(self, "run_tooltip"):
+-                self.run_tooltip.update_text(status_msg)
+-        if hasattr(self, "restart_button"):
+-            self.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
+-            if hasattr(self, "restart_tooltip"):
+-                self.restart_tooltip.update_text(status_msg)
+-        
+-        self.state.config_status.set(status_msg)
+-        
+-        # Check server connection state for specific buttons
+-        server_ok = self.state.run_target.get() != "Server" or self._server_connected()
+-        server_msg = "Please connect to the server first" if not server_ok else ""
+-        
+-        if self.upload_input_button:
+-            self.upload_input_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+-            if hasattr(self, "upload_input_tooltip"):
+-                self.upload_input_tooltip.update_text(server_msg)
+-                
+-        if self.server_output_browse_button:
+-            self.server_output_browse_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+-            if hasattr(self, "server_output_tooltip"):
+-                self.server_output_tooltip.update_text(server_msg)
+-                
+-        if self.tools_ctrl.refresh_button:
+-            self.tools_ctrl.refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
+-            if hasattr(self, "tools_refresh_tooltip"):
+-                self.tools_refresh_tooltip.update_text(server_msg)
+-                
+-        if self.input_browse_button:
+-            if hasattr(self, "input_browse_tooltip"):
+-                self.input_browse_tooltip.update_text(server_msg)
+-
+-        return ok
++        return self.validation_ctrl._validate_configuration()
+ 
+ 
+ def main() -> None:

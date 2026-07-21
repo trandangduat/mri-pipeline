@@ -1,5 +1,49 @@
 from __future__ import annotations
 
+VECTOR_SPECS = {
+    "subcortical_volume": {
+        "column": "subcortical_volume",
+        "features": "subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "cortical_volume": {
+        "column": "cortical_volume",
+        "features": "cortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "aparc": {
+        "column": "aparc_cortical_thickness",
+        "features": "aparc_cortical_thickness_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "aparc",
+    },
+    "aparc_a2009s": {
+        "column": "aparc_a2009s_cortical_thickness",
+        "features": "aparc_a2009s_cortical_thickness_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "aparc.a2009s",
+    },
+    "schaefer2018": {
+        "column": "schaefer200_7network",
+        "features": "schaefer200_7network_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "schaefer200_7network",
+    },
+    "kong": {
+        "column": "200Parcels_Kong2022_17Networks",
+        "features": "200Parcels_Kong2022_17Networks_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "200Parcels_Kong2022_17Networks",
+    },
+    "yale": {
+        "column": "YBA_696parcels",
+        "features": "YBA_696parcels_feats.txt",
+        "value": "thickness_mm",
+        "stats_stem": "YBA_696parcels",
+    },
+}
+
+
 import csv
 import re
 import logging
