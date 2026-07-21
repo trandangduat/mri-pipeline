@@ -226,13 +226,13 @@ class PipelineController:
 
             self.running = True
             self.stop_requested.clear()
-            if hasattr(self, "resume_button"):
+            if getattr(self, "resume_button", None) is not None:
                 self.resume_button.configure(state=tk.DISABLED)
-            if hasattr(self, "restart_button"):
+            if getattr(self, "restart_button", None) is not None:
                 self.restart_button.configure(state=tk.DISABLED)
-            if hasattr(self, "stop_button"):
+            if getattr(self, "stop_button", None) is not None:
                 self.stop_button.configure(state=tk.NORMAL)
-            if hasattr(self, "progress"):
+            if getattr(self, "progress", None) is not None:
                 self.gui.progress.start(10)
             self.gui.progress_ctrl.detail_chart.reset()
             self.gui.progress_ctrl.gpu_chart.reset()
@@ -240,7 +240,7 @@ class PipelineController:
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
             for stage in STAGE_ORDER:
-                if hasattr(self, "_set_step_status"):
+                if getattr(self, "_set_step_status", None) is not None:
                     self.gui._set_step_status(stage, "Ready", 0)
             self.gui.progress_ctrl._clear_log()
             self.gui.progress_ctrl._log("=" * 80)
@@ -597,13 +597,13 @@ class PipelineController:
         self.running = True
         self.gui.state.remote_status.set(f"Remote: {title} running...")
         self.stop_requested.clear()
-        if hasattr(self, "resume_button"):
+        if getattr(self, "resume_button", None) is not None:
             self.resume_button.configure(state=tk.DISABLED)
-        if hasattr(self, "restart_button"):
+        if getattr(self, "restart_button", None) is not None:
             self.restart_button.configure(state=tk.DISABLED)
-        if hasattr(self, "stop_button"):
+        if getattr(self, "stop_button", None) is not None:
             self.stop_button.configure(state=tk.NORMAL if enable_pause else tk.DISABLED)
-        if hasattr(self, "progress"):
+        if getattr(self, "progress", None) is not None:
             self.gui.progress.start(10)
         if clear_log:
             self.gui.progress_ctrl._clear_log()
@@ -613,7 +613,7 @@ class PipelineController:
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
             for stage in STAGE_ORDER:
-                if hasattr(self, "_set_step_status"):
+                if getattr(self, "_set_step_status", None) is not None:
                     self.gui._set_step_status(stage, "Ready", 0)
         self.gui.progress_ctrl._append_log("=" * 80)
         self.gui.progress_ctrl._append_log(f"Remote task started: {title}")
@@ -652,7 +652,7 @@ class PipelineController:
                     self._remote_thread_max_signature = None
                     self.gui._set_thread_max(None, pending=True)
                     self._reset_remote_tool_image_state()
-                    if hasattr(self, "remote_status_label"):
+                    if getattr(self, "remote_status_label", None) is not None:
                         self.remote_status_label.configure(foreground="")
                 self.gui.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
@@ -673,7 +673,7 @@ class PipelineController:
                     self.gui._set_thread_max(max_threads)
                     self.gui._sync_remote_connection_controls()
                     self._schedule_remote_health_check()
-                    if hasattr(self, "remote_status_label"):
+                    if getattr(self, "remote_status_label", None) is not None:
                         self.remote_status_label.configure(foreground="#16a34a") # green
                 self.gui.root.after(0, set_success)
             except Exception as exc:
@@ -686,7 +686,7 @@ class PipelineController:
                     self._remote_thread_max_signature = None
                     self.gui._set_thread_max(None)
                     self.gui._sync_remote_connection_controls()
-                    if hasattr(self, "remote_status_label"):
+                    if getattr(self, "remote_status_label", None) is not None:
                         self.remote_status_label.configure(foreground="#dc2626") # red
                 self.gui.root.after(0, set_failed)
 

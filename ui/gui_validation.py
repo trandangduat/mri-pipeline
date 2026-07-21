@@ -210,13 +210,13 @@ class ValidationController:
         if not can_start:
             status_msg = "Pipeline is already running or busy."
     
-        if hasattr(self, "run_button"):
+        if getattr(self, "run_button", None) is not None:
             self.gui.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-            if hasattr(self, "run_tooltip"):
+            if getattr(self.gui, "run_tooltip", None) is not None:
                 self.gui.run_tooltip.update_text(status_msg)
-        if hasattr(self, "restart_button"):
+        if getattr(self, "restart_button", None) is not None:
             self.gui.pipeline_ctrl.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-            if hasattr(self, "restart_tooltip"):
+            if getattr(self.gui, "restart_tooltip", None) is not None:
                 self.gui.pipeline_ctrl.restart_tooltip.update_text(status_msg)
         
         self.gui.state.config_status.set(status_msg)
@@ -227,22 +227,22 @@ class ValidationController:
         
         if self.gui.upload_input_button:
             self.gui.upload_input_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "upload_input_tooltip"):
-                self.upload_input_tooltip.update_text(server_msg)
+            if getattr(self.gui, "upload_input_tooltip", None) is not None:
+                self.gui.upload_input_tooltip.update_text(server_msg)
                 
         if self.gui.server_output_browse_button:
             self.gui.server_output_browse_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "server_output_tooltip"):
-                self.server_output_tooltip.update_text(server_msg)
+            if getattr(self.gui, "server_output_tooltip", None) is not None:
+                self.gui.server_output_tooltip.update_text(server_msg)
                 
         if self.gui.tools_ctrl.refresh_button:
             self.gui.tools_ctrl.refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "tools_refresh_tooltip"):
-                self.tools_refresh_tooltip.update_text(server_msg)
+            if getattr(self.gui, "tools_refresh_tooltip", None) is not None:
+                self.gui.tools_refresh_tooltip.update_text(server_msg)
                 
         if self.gui.input_browse_button:
-            if hasattr(self, "input_browse_tooltip"):
-                self.input_browse_tooltip.update_text(server_msg)
+            if getattr(self.gui, "input_browse_tooltip", None) is not None:
+                self.gui.input_browse_tooltip.update_text(server_msg)
     
         return ok
     

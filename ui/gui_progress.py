@@ -241,13 +241,13 @@ class ProgressController:
         # If it reaches here, a non-progress tab is selected (like config or tools)
         self.active_progress_context_id = ""
         self.gui.jobs_ctrl.active_job = None
-        if hasattr(self, "resume_button"):
+        if getattr(self, "resume_button", None) is not None:
             self.gui.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
-        if hasattr(self, "restart_button"):
+        if getattr(self, "restart_button", None) is not None:
             self.gui.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
-        if hasattr(self, "stop_button"):
+        if getattr(self, "stop_button", None) is not None:
             self.gui.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
-        if hasattr(self, "_validate_configuration"):
+        if getattr(self, "_validate_configuration", None) is not None:
             self.gui._validate_configuration()
 
     def _on_notebook_click(self, event) -> None:
@@ -952,20 +952,20 @@ class ProgressController:
         self._log("Pause requested. The current Docker step will finish, then state will be saved as PAUSED.")
 
     def _set_idle_state(self) -> None:
-        if hasattr(self, "progress"):
+        if getattr(self, "progress", None) is not None:
             self.progress.stop()
         self.gui.pipeline_ctrl.running = False
         for btn_name in ("run_button", "resume_button", "restart_button"):
             btn = getattr(self, btn_name, None)
             if btn is not None:
                 self.gui._set_button_busy(btn, False)
-        if hasattr(self, "run_button"):
+        if getattr(self, "run_button", None) is not None:
             self.gui.run_button.configure(text="Run", state=tk.NORMAL if self.gui._validate_configuration() else tk.DISABLED)
-        if hasattr(self, "resume_button"):
+        if getattr(self, "resume_button", None) is not None:
             self.gui.pipeline_ctrl.resume_button.configure(text="Resume", state=tk.NORMAL)
-        if hasattr(self, "restart_button"):
+        if getattr(self, "restart_button", None) is not None:
             self.gui.pipeline_ctrl.restart_button.configure(text="Restart", state=tk.NORMAL)
-        if hasattr(self, "stop_button"):
+        if getattr(self, "stop_button", None) is not None:
             self.gui.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
         self.gui.state.status_text.set("Ready")
         self._log("Pipeline finished.")

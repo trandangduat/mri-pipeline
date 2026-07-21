@@ -85,10 +85,10 @@ class JobsController:
 
         if target == "Server" and ssh_config is not None:
             server_label = f"Remote server: {ssh_config.username}@{ssh_config.host}:{int(ssh_config.port)} | workspace: {workspace}"
-            server_icon = self.gui._make_icon("success") if hasattr(self, "_make_icon") else None
+            server_icon = self.gui._make_icon("success") if getattr(self, "_make_icon", None) is not None else None
         else:
             server_label = "Current target: Local jobs"
-            server_icon = self.gui._make_icon("pending") if hasattr(self, "_make_icon") else None
+            server_icon = self.gui._make_icon("pending") if getattr(self, "_make_icon", None) is not None else None
         server_row = ttk.Frame(dialog)
         server_row.pack(anchor=tk.W, fill=tk.X, padx=12, pady=(12, 6))
         if server_icon is not None:
@@ -241,7 +241,7 @@ class JobsController:
         buttons.pack(fill=tk.X, padx=16, pady=(6, 14))
 
         def action_button(parent: ttk.Frame, text: str, command, icon_name: str, style: str | None = None, side: str = tk.LEFT, padx=0, icon_color: str | None = None) -> ttk.Button:
-            icon = self.gui._make_icon(icon_name, icon_color) if hasattr(self, "_make_icon") else None
+            icon = self.gui._make_icon(icon_name, icon_color) if getattr(self, "_make_icon", None) is not None else None
             options = {"text": f" {text}" if icon is not None else text, "command": command}
             if style:
                 options["style"] = style
@@ -570,11 +570,11 @@ class JobsController:
 
     def _sync_attach_toolbar_state(self) -> None:
         if self._is_background_monitor_active():
-            if hasattr(self, "resume_button"):
+            if getattr(self, "resume_button", None) is not None:
                 self.gui.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
-            if hasattr(self, "restart_button"):
+            if getattr(self, "restart_button", None) is not None:
                 self.gui.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
-            if hasattr(self, "stop_button"):
+            if getattr(self, "stop_button", None) is not None:
                 self.gui.pipeline_ctrl.stop_button.configure(state=tk.NORMAL)
         else:
             self.gui._validate_configuration()
@@ -850,13 +850,13 @@ class JobsController:
     def _enter_background_monitor_state(self, title: str) -> None:
         self.gui.pipeline_ctrl.running = True
         self.gui.pipeline_ctrl.stop_requested.clear()
-        if hasattr(self, "resume_button"):
+        if getattr(self, "resume_button", None) is not None:
             self.gui.pipeline_ctrl.resume_button.configure(state=tk.DISABLED)
-        if hasattr(self, "restart_button"):
+        if getattr(self, "restart_button", None) is not None:
             self.gui.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
-        if hasattr(self, "stop_button"):
+        if getattr(self, "stop_button", None) is not None:
             self.gui.pipeline_ctrl.stop_button.configure(state=tk.NORMAL)
-        if hasattr(self, "progress"):
+        if getattr(self, "progress", None) is not None:
             self.gui.progress.start(10)
         self.gui.state.status_text.set("Running in background")
         self.gui.progress_ctrl._log(title)
