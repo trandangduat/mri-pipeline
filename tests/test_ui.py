@@ -86,6 +86,16 @@ def test_config_controller_apply_run_config(mocker):
     mock_gui.validation_ctrl._validate_configuration.assert_called_once()
 
 
+def test_configure_batch_opens_batch_window_with_gui_root(mocker) -> None:
+    mock_gui = MagicMock()
+    ctrl = ConfigController(mock_gui)
+    batch_window = mocker.patch("ui.batch_window.BatchConfigWindow")
+
+    ctrl._configure_batch()
+
+    batch_window.assert_called_once_with(mock_gui.root, mock_gui)
+
+
 def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> None:
     mock_gui = MagicMock()
     active_job = {"job_id": "active", "state": "completed", "target": "Local"}

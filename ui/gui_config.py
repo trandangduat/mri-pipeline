@@ -261,4 +261,4 @@ class ConfigController:
 
         from ui.batch_window import BatchConfigWindow
 
-        BatchConfigWindow(self.root, self)
+        BatchConfigWindow(self.gui.root, self.gui)
