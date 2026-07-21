@@ -37,7 +37,7 @@ class BatchConfigWindow(tk.Toplevel):
         if self.server_mode:
             try:
                 from remote.ssh_client import RemoteSSHClient
-                ssh_config = self.gui._build_ssh_config()
+                ssh_config = self.gui.jobs_ctrl._build_ssh_config()
                 if ssh_config is None:
                     self.destroy()
                     return

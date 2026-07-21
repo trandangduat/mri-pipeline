@@ -12,7 +12,7 @@ import urllib.request
 import tarfile
 
 from pipeline.config import PROJECT_ROOT
-from remote.remote_api import RemoteSSHClient
+from remote.ssh_client import RemoteSSHClient
 
 def show_attach_job_dialog(ctrl) -> None:
     target = ctrl.gui.state.run_target.get()
@@ -28,7 +28,7 @@ def show_attach_job_dialog(ctrl) -> None:
             return
         if not ctrl._ensure_remote_auth_for_job_action("Attach job"):
             return
-        ssh_config = ctrl.gui.pipeline_ctrl._build_ssh_config()
+        ssh_config = ctrl._build_ssh_config()
         if ssh_config is None:
             return
         jobs = [

@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
 from ui.components.tooltip import Tooltip
-from pipeline.config import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
+from pipeline.config import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PIPELINE_MODES, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
 
 PANEL_BG = "#ffffff"
 PANEL_BORDER = "#e5e7eb"
@@ -111,7 +111,7 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     ttk.Label(mode_row, text="Preset").grid(row=0, column=0, sticky=tk.W, padx=(0, 12))
     ttk.Combobox(
         mode_row, textvariable=gui.state.pipeline_mode,
-        values=getattr(gui, "PIPELINE_MODES", ("Custom",)),
+        values=PIPELINE_MODES,
         state="readonly",
         width=34,
     ).grid(row=0, column=1, sticky=tk.EW, padx=(0, 12))
@@ -415,7 +415,8 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
         try:
             threads = int(gui.state.threads.get())
             ram = int(gui.state.ram_percent.get())
-            if threads >= gui.local_max_threads or ram == 100:
+            max_t = gui.max_threads or gui.local_max_threads
+            if threads >= max_t or ram == 100:
                 gui.runtime_warning_label.configure(text="Warning: Using 100% RAM or Threads may freeze your system. Consider leaving at least 10%.")
                 gui.runtime_warning_label.grid()
             else:
@@ -423,8 +424,11 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
         except Exception:
             pass
 
-    gui.state.threads.trace_add("write", _update_runtime_warning)
-    gui.state.ram_percent.trace_add("write", _update_runtime_warning)
+    gui.state.threads.trace_add("write", lambda *_args: _update_runtime_warning())
+    gui.state.ram_percent.trace_add("write", lambda *_args: _update_runtime_warning())
+    gui.state.run_target.trace_add("write", lambda *_args: _update_runtime_warning())
+    gui.thread_max_text.trace_add("write", lambda *_args: _update_runtime_warning())
+    gui.thread_max_text.trace_add("write", lambda *_args: _update_runtime_warning())
 
 
     gui.state.run_target.trace_add("write", lambda *_args: gui._on_run_target_changed())

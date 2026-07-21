@@ -38,7 +38,7 @@ class ValidationController:
     
         self.gui.state.run_target.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
         self.gui.state.remote_workspace.trace_add("write", lambda *_args: self.gui._update_python_env_hint())
-        self.gui.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
+        self.gui.state.threads.trace_add("write", lambda *_args: self.gui._clamp_threads())
         for var in (
             self.gui.state.remote_host,
             self.gui.state.remote_port,
@@ -47,12 +47,12 @@ class ValidationController:
             self.gui.state.remote_key_path,
             self.gui.state.remote_workspace,
         ):
-            var.trace_add("write", lambda *_args: self._invalidate_remote_thread_max())
+            var.trace_add("write", lambda *_args: self.gui._invalidate_remote_thread_max())
     
         self.gui.state.input_path.trace_add("write", self.gui._refresh_input_label)
     
         def _on_tool_selection_changed(*_args):
-            if getattr(self, "_is_applying_preset", False):
+            if getattr(self.gui, "_is_applying_preset", False) or getattr(self, "_is_applying_preset", False):
                 self.gui._validate_configuration()
                 self.gui.tools_ctrl._update_config_status_labels()
                 return
@@ -74,7 +74,7 @@ class ValidationController:
             var.trace_add("write", lambda *_args: self.gui._validate_configuration())
     
         def _on_stat_vector_changed(*_args):
-            if getattr(self, "_is_applying_preset", False):
+            if getattr(self.gui, "_is_applying_preset", False) or getattr(self, "_is_applying_preset", False):
                 return
             mode = self.gui._normalize_pipeline_mode(self.gui.state.pipeline_mode.get())
             self._is_applying_preset = True
@@ -211,13 +211,13 @@ class ValidationController:
         if not can_start:
             status_msg = "Pipeline is already running or busy."
     
-        if getattr(self, "run_button", None) is not None:
+        if getattr(self.gui, "run_button", None) is not None:
             self.gui.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
             if getattr(self.gui, "run_tooltip", None) is not None:
                 self.gui.run_tooltip.update_text(status_msg)
-        if getattr(self, "restart_button", None) is not None:
+        if getattr(self.gui.pipeline_ctrl, "restart_button", None) is not None:
             self.gui.pipeline_ctrl.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-            if getattr(self.gui, "restart_tooltip", None) is not None:
+            if getattr(self.gui.pipeline_ctrl, "restart_tooltip", None) is not None:
                 self.gui.pipeline_ctrl.restart_tooltip.update_text(status_msg)
         
         self.gui.state.config_status.set(status_msg)

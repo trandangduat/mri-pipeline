@@ -104,7 +104,7 @@ class PipelineController:
             messagebox.showerror("Configuration incomplete", self.gui.state.config_status.get())
             return
 
-        if not self._confirm_start_with_existing_jobs():
+        if not self.gui.jobs_ctrl._confirm_start_with_existing_jobs():
             return
 
         starter_button = getattr(self, "restart_button" if restart else "resume_button", None) if (restart or resume) else None
@@ -120,7 +120,7 @@ class PipelineController:
                 run_request = self._build_run_request()
                 if run_request is None:
                     return
-                runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
+                runner = self.remote_runner if resume and self.remote_runner else self.gui.jobs_ctrl._build_remote_runner(resume=resume, req=run_request)
                 if not runner:
                     return
                 if restart:
@@ -178,9 +178,6 @@ class PipelineController:
             self.gui.state.overall_progress_var.set(0)
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
-            for stage in STAGE_ORDER:
-                if getattr(self, "_set_step_status", None) is not None:
-                    self.gui._set_step_status(stage, "Ready", 0)
             self.gui.progress_ctrl._clear_log()
             ui_events.emit(EVENT_LOG_MESSAGE, "=" * 80)
             if restart:
@@ -233,7 +230,7 @@ class PipelineController:
             run_request["mode"] = "dir"
             run_request["recursive"] = False
 
-        runner = self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume, req=run_request)
+        runner = self.remote_runner if resume and self.remote_runner else self.gui.jobs_ctrl._build_remote_runner(resume=resume, req=run_request)
         if not runner:
             if starter_button is not None:
                 self.gui._set_button_busy(starter_button, False)
@@ -263,7 +260,9 @@ class PipelineController:
         
         def upload_worker() -> None:
             try:
-                ssh_config = self._build_ssh_config()
+                ssh_config = self.gui._ssh_config_from_current_remote()
+                if ssh_config is None:
+                    return
                 with RemoteSSHClient(ssh_config, self.gui.progress_ctrl._log) as ssh:
                     ssh.mkdir_p(remote_lazy_dir)
                     
@@ -336,7 +335,7 @@ class PipelineController:
             kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **kwargs)
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
-        entry = self.gui._registry_entry_for_local_job(job_dir, run_request, proc.pid)
+        entry = self.gui.jobs_ctrl._registry_entry_for_local_job(job_dir, run_request, proc.pid)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Local job"), self.gui.progress_ctrl._progress_job_identity(entry))
         ui_events.emit(EVENT_LOG_MESSAGE, f"Local background job started: {job_dir}")
@@ -348,7 +347,7 @@ class PipelineController:
         self.gui.jobs_ctrl._schedule_job_poll(delay_ms=0)
 
     def _start_remote_pipeline(self, resume: bool = False, restart: bool = False, runner: RemoteRunner | None = None, run_request: dict | None = None) -> None:
-        runner = runner or (self.remote_runner if resume and self.remote_runner else self._build_remote_runner(resume=resume))
+        runner = runner or (self.remote_runner if resume and self.remote_runner else self.gui.jobs_ctrl._build_remote_runner(resume=resume))
         if not runner:
             return
         if resume and self.remote_runner is None:
@@ -360,7 +359,7 @@ class PipelineController:
         self.remote_runner = runner
         self.gui.jobs_ctrl._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
-        entry = self.gui._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
+        entry = self.gui.jobs_ctrl._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Remote job"), self.gui.progress_ctrl._progress_job_identity(entry))
         ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job started: {remote_dir}")
@@ -495,7 +494,7 @@ class PipelineController:
             )
             return False
 
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.gui._ssh_config_from_current_remote()
         if ssh_config is None:
             return False
         try:
@@ -551,9 +550,6 @@ class PipelineController:
             self.gui.state.overall_progress_var.set(0)
             self.gui.state.overall_progress_text.set("0%")
             self.gui.state.status_text.set("Running")
-            for stage in STAGE_ORDER:
-                if getattr(self, "_set_step_status", None) is not None:
-                    self.gui._set_step_status(stage, "Ready", 0)
         self.gui.progress_ctrl._append_log("=" * 80)
         self.gui.progress_ctrl._append_log(f"Remote task started: {title}")
 
@@ -572,10 +568,10 @@ class PipelineController:
     def _remote_test_ssh(self) -> None:
         if self.gui.state.run_target.get() != "Server":
             return
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.gui._ssh_config_from_current_remote()
         if ssh_config is None:
             return
-        thread_signature = self._current_remote_connection_signature()
+        thread_signature = self.gui._current_remote_connection_signature()
         if thread_signature is None:
             return
         self.remote_connecting = True
@@ -584,34 +580,34 @@ class PipelineController:
         def task():
             try:
                 def set_testing():
-                    self._cancel_remote_health_check()
+                    self.gui._cancel_remote_health_check()
                     self.gui.state.remote_status.set("Connecting to server...")
                     self.gui._set_remote_status_icon("running")
-                    self._connected_remote_signature = None
-                    self._remote_thread_max_signature = None
+                    self.gui._connected_remote_signature = None
+                    self.gui._remote_thread_max_signature = None
                     self.gui._set_thread_max(None, pending=True)
-                    self._reset_remote_tool_image_state()
+                    self.gui._reset_remote_tool_image_state()
                     if getattr(self, "remote_status_label", None) is not None:
                         self.remote_status_label.configure(foreground="")
                 self.gui.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
                 runner.test_ssh()
                 try:
-                    max_threads = self._read_remote_thread_max(ssh_config)
+                    max_threads = self.gui._read_remote_thread_max(ssh_config)
                 except Exception:
                     max_threads = None
                 def set_success():
                     self.remote_connecting = False
-                    if thread_signature != self._current_remote_connection_signature():
+                    if thread_signature != self.gui._current_remote_connection_signature():
                         self.gui._sync_remote_connection_controls()
                         return
-                    self._connected_remote_signature = thread_signature
+                    self.gui._connected_remote_signature = thread_signature
                     self.gui.state.remote_status.set("Remote: connected")
                     self.gui._set_remote_status_icon("success")
-                    self._remote_thread_max_signature = thread_signature if max_threads else None
+                    self.gui._remote_thread_max_signature = thread_signature if max_threads else None
                     self.gui._set_thread_max(max_threads)
                     self.gui._sync_remote_connection_controls()
-                    self._schedule_remote_health_check()
+                    self.gui._schedule_remote_health_check()
                     if getattr(self, "remote_status_label", None) is not None:
                         self.remote_status_label.configure(foreground="#16a34a") # green
                 self.gui.root.after(0, set_success)
@@ -619,10 +615,10 @@ class PipelineController:
                 err_msg = f"Remote connection failed: {exc}"
                 def set_failed(m=err_msg):
                     self.remote_connecting = False
-                    self._connected_remote_signature = None
+                    self.gui._connected_remote_signature = None
                     self.gui.state.remote_status.set(m)
                     self.gui._set_remote_status_icon("failed")
-                    self._remote_thread_max_signature = None
+                    self.gui._remote_thread_max_signature = None
                     self.gui._set_thread_max(None)
                     self.gui._sync_remote_connection_controls()
                     if getattr(self, "remote_status_label", None) is not None:

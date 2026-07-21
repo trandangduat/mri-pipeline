@@ -258,8 +258,8 @@ class ToolsController:
         self._update_action_buttons()
 
     def _update_action_buttons(self) -> None:
-        download_button = getattr(self, "tools_download_button", None)
-        delete_button = getattr(self, "tools_delete_button", None)
+        download_button = getattr(self, "download_button", None)
+        delete_button = getattr(self, "delete_button", None)
         remote_ready = self.gui._remote_actions_enabled()
         download_enabled = remote_ready and bool(self._selected_images({"Missing", "Unknown", "Error"}))
         delete_enabled = remote_ready and bool(self._selected_images({"Installed"}))
@@ -303,7 +303,7 @@ class ToolsController:
         self.gui._validate_configuration()
 
     def _refresh_tree(self) -> None:
-        table = getattr(self, "tools_table_frame", None)
+        table = getattr(self, "table_frame", None)
         if table is None:
             return
         target = self.gui.state.run_target.get()
@@ -399,8 +399,8 @@ class ToolsController:
         self._update_download_button()
 
     def _toggle_log(self) -> None:
-        body = getattr(self, "tools_log_body", None)
-        label = getattr(self, "tools_log_toggle_text", None)
+        body = getattr(self, "log_body", None)
+        label = getattr(self, "log_toggle_text", None)
         if body is None:
             return
         self.log_visible = not self.log_visible
@@ -414,7 +414,7 @@ class ToolsController:
                 label.set("Show Image Log")
 
     def _append_log(self, line: str) -> None:
-        log = getattr(self, "tools_log_text", None)
+        log = getattr(self, "log_text", None)
         if log is None:
             return
         log.configure(state=tk.NORMAL)
@@ -428,7 +428,7 @@ class ToolsController:
     def _build_image_remote_runner(self) -> RemoteRunner | None:
         if self.gui.state.run_target.get() == "Server" and not self.gui._server_connected():
             return None
-        ssh_config = self.gui._build_ssh_config()
+        ssh_config = self.gui.jobs_ctrl._build_ssh_config()
         if ssh_config is None:
             return None
         return RemoteRunner(
@@ -624,7 +624,7 @@ class ToolsController:
         if not images:
             self._append_log("No enabled tool images to check.")
             return
-        self.gui._set_button_busy(getattr(self, "tools_refresh_button", None), True, "Refreshing")
+        self.gui._set_button_busy(getattr(self, "refresh_button", None), True, "Refreshing")
         for image in images:
             self.image_statuses.setdefault(target, {})[image] = "Checking"
         self._refresh_tree()
@@ -661,7 +661,7 @@ class ToolsController:
                     for image in images:
                         self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
             finally:
-                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_refresh_button", None), False), self._update_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "refresh_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -675,7 +675,7 @@ class ToolsController:
         if not tool_keys:
             self._append_log("No enabled tools selected.")
             return
-        self.gui._set_button_busy(getattr(self, "tools_download_button", None), True, "Downloading")
+        self.gui._set_button_busy(getattr(self, "download_button", None), True, "Downloading")
         for tool_key in tool_keys:
             self._set_image_status(target, self._tool_image(tool_key), "Downloading")
 
@@ -714,7 +714,7 @@ class ToolsController:
                     for tool_key in tool_keys:
                         self.gui.root.after(0, lambda i=self._tool_image(tool_key): self._set_image_status("Server", i, "Error"))
             finally:
-                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_download_button", None), False), self._update_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "download_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -731,7 +731,7 @@ class ToolsController:
             return
         if not messagebox.askyesno("Delete Docker images", "Delete these Docker images?\n\n" + "\n".join(images)):
             return
-        self.gui._set_button_busy(getattr(self, "tools_delete_button", None), True, "Deleting")
+        self.gui._set_button_busy(getattr(self, "delete_button", None), True, "Deleting")
         for image in images:
             self._set_image_status(target, image, "Deleting")
 
@@ -769,7 +769,7 @@ class ToolsController:
                     for image in images:
                         self.gui.root.after(0, lambda i=image: self._set_image_status("Server", i, "Error"))
             finally:
-                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "tools_delete_button", None), False), self._update_action_buttons()))
+                self.gui.root.after(0, lambda: (self.gui._set_button_busy(getattr(self, "delete_button", None), False), self._update_action_buttons()))
 
         threading.Thread(target=worker, daemon=True).start()
 

@@ -423,7 +423,7 @@ class JobsController:
             return None
         if not self._ensure_remote_auth_for_job_action("server job action"):
             return None
-        ssh_config = self.gui.pipeline_ctrl._build_ssh_config()
+        ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return None
         runner = RemoteRunner(
@@ -703,7 +703,7 @@ class JobsController:
             return None
         if not self._ensure_remote_auth_for_job_action("Resume or Attach job"):
             return None
-        ssh_config = self.gui.pipeline_ctrl._build_ssh_config()
+        ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return None
         workspace = self.gui.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
@@ -985,7 +985,7 @@ class JobsController:
         if not self.gui._require_remote_connection("running on the remote server"):
             return None
 
-        ssh_config = self.gui.pipeline_ctrl._build_ssh_config()
+        ssh_config = self._build_ssh_config()
         if ssh_config is None:
             return None
 
@@ -1138,7 +1138,7 @@ class JobsController:
                 self._finish_attach_loading()
             return
         self.job_log_offset = new_offset
-        self._handle_background_log_chunk(data)
+        self.gui.progress_ctrl._handle_background_log_chunk(data)
         state = str(status.get("state", "running"))
         if state in {"completed", "failed"}:
             ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job finished with exit code {status.get('exit_code')}")
@@ -1185,7 +1185,7 @@ class JobsController:
                 f.seek(self.job_log_offset)
                 data = f.read()
                 self.job_log_offset = f.tell()
-            self._handle_background_log_chunk(data)
+            self.gui.progress_ctrl._handle_background_log_chunk(data)
 
         status = read_json(job_dir / "job_status.json", {})
         state = str(status.get("state", "running"))

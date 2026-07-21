@@ -2,10 +2,11 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 from pathlib import Path
+import posixpath
 import threading
 import subprocess
 
-from remote.remote_api import RemoteSSHClient, list_remote_directory
+from remote.ssh_client import RemoteSSHClient
 from pipeline.config import PROJECT_ROOT
 
 def show_upload_dialog(gui):

@@ -22,6 +22,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from pipeline.config import (
     PIPELINE_MODES, PIPELINE_MODE_ALIASES, VOLUME_SKIPPED_STAGES, PRESET_CONFIGS,
+    VOLUME_STATS, THICKNESS_STATS,
     PROJECT_ROOT,
     STAGE_ORDER,
     TOOL_DEFS,
@@ -148,6 +149,8 @@ class PipelineGUI:
         self._last_input_source = self.state.input_source.get()
         self._input_source_paths: dict[str, str] = {"Local": "", "Server": "~"}
         self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
+        self._connected_remote_signature: tuple | None = None
+        self._remote_thread_max_signature: tuple | None = None
 
         self.tools_ctrl = ToolsController(self)
         self.pipeline_ctrl = PipelineController(self)
@@ -279,7 +282,7 @@ class PipelineGUI:
 
         if hasattr(self, "tools_status_icon_labels") and hasattr(self, "image_statuses"):
             for tool_key, label in self.tools_ctrl.status_icon_labels.items():
-                status = self._tool_status(tool_key)
+                status = self.tools_ctrl._tool_status(tool_key)
                 if self._is_busy_status(status):
                     try:
                         label.configure(image=frame if frame is not None else "", text=f"  {status}", compound=tk.LEFT)
@@ -290,10 +293,10 @@ class PipelineGUI:
             for stage, label in self.tools_ctrl.status_labels.items():
                 tool_var = self.state.tool_vars.get(stage)
                 tool_key = tool_key_from_display(tool_var.get()) if tool_var is not None else ""
-                status = self._tool_status(tool_key)
+                status = self.tools_ctrl._tool_status(tool_key)
                 if self._is_busy_status(status):
                     try:
-                        label.configure(image=frame if frame is not None else "", text=f" {self._status_label_text(status)}", compound=tk.LEFT)
+                        label.configure(image=frame if frame is not None else "", text=f" {self.tools_ctrl._status_label_text(status)}", compound=tk.LEFT)
                     except Exception:
                         pass
 
@@ -996,9 +999,9 @@ class PipelineGUI:
                         else:
                             self.state.tool_vars[stage].set(tool_display_name(tool))
                 stats = set(preset["stats"])
-                if stats == self.VOLUME_STATS:
+                if stats == VOLUME_STATS:
                     self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
-                elif stats == self.THICKNESS_STATS:
+                elif stats == THICKNESS_STATS:
                     suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
                     self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
                 else:
