@@ -131,9 +131,13 @@ class PipelineGUI:
         self.remote_workspace_entry: ttk.Entry | None = None
         self.input_location_label_var = tk.StringVar(value="Input Location")
         self.input_browse_button: ttk.Button | None = None
+        self.input_browse_tooltip: Tooltip | None = None
         self.upload_input_row: ttk.Frame | None = None
         self.upload_input_button: ttk.Button | None = None
+        self.upload_input_tooltip: Tooltip | None = None
         self.output_dir_row: ttk.Frame | None = None
+        self.server_output_browse_button: ttk.Button | None = None
+        self.server_output_tooltip: Tooltip | None = None
 
         self.tool_combos: dict[str, ttk.Combobox] = {}
         self.pipeline_tools_body: ttk.Frame | None = None

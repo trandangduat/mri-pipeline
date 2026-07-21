@@ -537,7 +537,7 @@ class JobsController:
         if getattr(self, "stop_button", None) is not None:
             self.gui.pipeline_ctrl.stop_button.configure(state=tk.NORMAL)
         if getattr(self, "progress", None) is not None:
-            self.gui.progress.start(10)
+            self.progress.start(10)
         self.gui.state.status_text.set("Running in background")
         ui_events.emit(EVENT_LOG_MESSAGE, title)
         self.gui._validate_configuration()

@@ -170,7 +170,7 @@ class PipelineController:
             if getattr(self, "stop_button", None) is not None:
                 self.stop_button.configure(state=tk.NORMAL)
             if getattr(self, "progress", None) is not None:
-                self.gui.progress.start(10)
+                self.progress.start(10)
             self.gui.progress_ctrl.detail_chart.reset()
             self.gui.progress_ctrl.gpu_chart.reset()
             self.gui.state.overall_progress_var.set(0)
@@ -333,7 +333,7 @@ class PipelineController:
             kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **kwargs)
         write_json(job_dir / "launcher_status.json", {"pid": proc.pid, "started_at": time.time(), "command": cmd})
-        entry = self.gui.jobs_ctrl._registry_entry_for_local_job(job_dir, run_request, proc.pid)
+        entry = self.gui.registry_ctrl._registry_entry_for_local_job(job_dir, run_request, proc.pid)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Local job"), self.gui.progress_ctrl._progress_job_identity(entry))
         ui_events.emit(EVENT_LOG_MESSAGE, f"Local background job started: {job_dir}")
@@ -357,7 +357,7 @@ class PipelineController:
         self.remote_runner = runner
         self.gui.jobs_ctrl._enter_background_monitor_state("Starting remote background job...")
         remote_dir = runner.start_remote_detached()
-        entry = self.gui.jobs_ctrl._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
+        entry = self.gui.registry_ctrl._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Remote job"), self.gui.progress_ctrl._progress_job_identity(entry))
         ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job started: {remote_dir}")
@@ -540,7 +540,7 @@ class PipelineController:
         if getattr(self, "stop_button", None) is not None:
             self.stop_button.configure(state=tk.NORMAL if enable_pause else tk.DISABLED)
         if getattr(self, "progress", None) is not None:
-            self.gui.progress.start(10)
+            self.progress.start(10)
         if clear_log:
             self.gui.progress_ctrl._clear_log()
             self.gui.progress_ctrl.detail_chart.reset()

@@ -20,7 +20,8 @@ from remote.ssh_client import RemoteSSHClient
 
 def show_attach_job_dialog(ctrl) -> None:
     target = ctrl.gui.state.run_target.get()
-    known_jobs = ctrl._known_jobs()
+    registry = ctrl.gui.registry_ctrl
+    known_jobs = registry._known_jobs()
     jobs: list[dict] = []
     load_remote_jobs = False
     ssh_config = None
@@ -38,12 +39,12 @@ def show_attach_job_dialog(ctrl) -> None:
         jobs = [
             entry for entry in known_jobs
             if entry.get("target") == "Server"
-            and ctrl._same_remote_server(entry, ssh_config, workspace)
+            and registry._same_remote_server(entry, ssh_config, workspace)
         ]
         load_remote_jobs = True
     elif target == "Local":
         jobs = [entry for entry in known_jobs if entry.get("target") == "Local"]
-        jobs = ctrl._merge_job_lists(jobs, ctrl._running_local_jobs())
+        jobs = registry._merge_job_lists(jobs, registry._running_local_jobs())
     if not jobs and not load_remote_jobs:
         ctrl._attach_manual_job_dialog()
         return
@@ -74,7 +75,7 @@ def show_attach_job_dialog(ctrl) -> None:
 
     selection_bar = ttk.Frame(dialog)
     selection_bar.pack(fill=tk.X, padx=16, pady=(0, 4))
-    ttk.Button(selection_bar, text="Select All", command=lambda: (selected_job_ids.update(ctrl._job_identity(job) for job in jobs), render_jobs())).pack(side=tk.LEFT)
+    ttk.Button(selection_bar, text="Select All", command=lambda: (selected_job_ids.update(registry._job_identity(job) for job in jobs), render_jobs())).pack(side=tk.LEFT)
     ttk.Button(selection_bar, text="Unselect All", command=lambda: (selected_job_ids.clear(), render_jobs())).pack(side=tk.LEFT, padx=(8, 0))
 
     table_outer = ttk.Frame(dialog)
@@ -119,7 +120,7 @@ def show_attach_job_dialog(ctrl) -> None:
             status_label.pack_forget()
 
     def selected_jobs() -> list[dict]:
-        return [job for job in jobs if ctrl._job_identity(job) in selected_job_ids]
+        return [job for job in jobs if registry._job_identity(job) in selected_job_ids]
 
     def selected_job() -> dict | None:
         selected = selected_jobs()
@@ -174,10 +175,10 @@ def show_attach_job_dialog(ctrl) -> None:
                     pass
         row_widgets.clear()
         if jobs and not selection_initialized:
-            selected_job_ids.add(ctrl._job_identity(jobs[0]))
+            selected_job_ids.add(registry._job_identity(jobs[0]))
             selection_initialized = True
         for idx, job in enumerate(jobs):
-            identity = ctrl._job_identity(job)
+            identity = registry._job_identity(job)
             job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
             row = 2 + idx * 2
             selected = identity in selected_job_ids
@@ -233,11 +234,11 @@ def show_attach_job_dialog(ctrl) -> None:
             return
         deleted = 0
         for job in selected:
-            if ctrl._delete_registry_job(job):
-                identity = ctrl._job_identity(job)
+            if registry._delete_registry_job(job):
+                identity = registry._job_identity(job)
                 deleted_job_ids.add(identity)
                 selected_job_ids.discard(identity)
-                jobs = [entry for entry in jobs if ctrl._job_identity(entry) != identity]
+                jobs = [entry for entry in jobs if registry._job_identity(entry) != identity]
                 deleted += 1
         set_status(f"Deleted {deleted} job(s).")
         if jobs:
@@ -276,7 +277,7 @@ def show_attach_job_dialog(ctrl) -> None:
                     str(entry.get("remote_job_dir")): entry
                     for entry in list(jobs)
                     if entry.get("target") == "Server"
-                    and ctrl._same_remote_server(entry, ssh_config, workspace)
+                    and registry._same_remote_server(entry, ssh_config, workspace)
                 }
                 for remote_job in listed_jobs:
                     remote_dir = str(remote_job.get("remote_job_dir", ""))
@@ -306,8 +307,8 @@ def show_attach_job_dialog(ctrl) -> None:
                     set_status(f"Remote job scan failed: {type(error).__name__}: {error}")
                     render_jobs()
                     return
-                filtered_remote_jobs = [job for job in remote_jobs if ctrl._job_identity(job) not in deleted_job_ids]
-                jobs = ctrl._merge_job_lists(jobs, filtered_remote_jobs)
+                filtered_remote_jobs = [job for job in remote_jobs if registry._job_identity(job) not in deleted_job_ids]
+                jobs = registry._merge_job_lists(jobs, filtered_remote_jobs)
                 set_status(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "")
                 render_jobs()
 

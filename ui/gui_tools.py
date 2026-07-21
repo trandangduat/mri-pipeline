@@ -50,6 +50,7 @@ class ToolsController:
         self.python_env_check_button = None
         self.python_env_install_button = None
         self.refresh_button = None
+        self.tools_refresh_tooltip = None
         self.select_all_button = None
         self.unselect_all_button = None
         self.select_missing_button = None

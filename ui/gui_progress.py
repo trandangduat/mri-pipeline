@@ -419,11 +419,11 @@ class ProgressController:
         self._set_detail_title("Select an input image")
         self._reset_step_summary()
         if pipeline_mode:
-            self.gui.job_preset_text.set(pipeline_mode)
+            self.job_preset_text.set(pipeline_mode)
         if threads:
-            self.gui.job_threads_text.set(str(threads))
+            self.job_threads_text.set(str(threads))
         if device:
-            self.gui.job_device_text.set(device.upper())
+            self.job_device_text.set(device.upper())
         for idx, path in enumerate(files, start=1):
             self._create_image_run(path, idx, len(files))
         if files:

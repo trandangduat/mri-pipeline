@@ -242,8 +242,8 @@ class ValidationController:
                 
         if self.gui.tools_ctrl.refresh_button:
             self.gui.tools_ctrl.refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if getattr(self.gui, "tools_refresh_tooltip", None) is not None:
-                self.gui.tools_refresh_tooltip.update_text(server_msg)
+            if getattr(self.gui.tools_ctrl, "tools_refresh_tooltip", None) is not None:
+                self.gui.tools_ctrl.tools_refresh_tooltip.update_text(server_msg)
                 
         if self.gui.input_browse_button:
             if getattr(self.gui, "input_browse_tooltip", None) is not None:
