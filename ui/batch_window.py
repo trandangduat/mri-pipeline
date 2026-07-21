@@ -6,7 +6,7 @@ import posixpath
 import stat
 from pathlib import Path
 
-from pipeline_runner import _discover_mri_files
+from pipeline.discovery import _discover_mri_files
 
 def find_mri_files(directory: str, recursive: bool = True) -> list[str]:
     return _discover_mri_files(directory, recursive=recursive)

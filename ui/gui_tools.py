@@ -14,18 +14,20 @@ from urllib.parse import quote
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from pipeline_runner import (
+from pipeline.config import (
     PROJECT_ROOT,
     STAGE_LABELS,
     TOOL_DEFS,
+    is_tool_enabled,
+    tool_display_name,
+    tool_key_from_display,
+)
+from pipeline.docker_ops import (
     ensure_image,
     format_image_size,
     image_exists,
     image_size_bytes,
-    is_tool_enabled,
     remove_image,
-    tool_display_name,
-    tool_key_from_display,
 )
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 

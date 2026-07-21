@@ -10,13 +10,15 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
 
-from pipeline_runner import (
+from pipeline.config import (
     STAGE_LABELS,
     STAGE_ORDER,
     BatchImageResult,
+    tool_display_name,
+)
+from pipeline.discovery import (
     _derive_subject_id,
     _discover_mri_files,
-    tool_display_name,
 )
 from ui.formatters import format_bytes, format_duration, format_percent, truncate_middle
 from ui.tabs.progress_tab import build_progress_tab

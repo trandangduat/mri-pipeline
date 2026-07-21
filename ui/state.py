@@ -2,35 +2,12 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, tool_key_from_display
-
-
-PIPELINE_MODES = (
-    "FreeSurfer 8 + Volume",
-    "FreeSurfer 8 + Cortical Thickness",
-    "FreeSurfer 8 + Volume + Cortical Thickness",
-    "FreeSurfer 7 + Volume",
-    "FreeSurfer 7 + Cortical Thickness",
-    "FreeSurfer 7 + Volume + Cortical Thickness",
-    "FastSurfer + Volume",
-    "FastSurfer + Cortical Thickness",
-    "FastSurfer + Volume + Cortical Thickness",
-    "Custom",
+from pipeline.config import (
+    ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, 
+    STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, 
+    tool_display_name, tool_key_from_display,
+    PIPELINE_MODES, PIPELINE_MODE_ALIASES
 )
-PIPELINE_MODE_ALIASES = {
-    "Custom Tools": "Custom",
-    "FS7": "FreeSurfer 7 + Volume",
-    "FS8": "FreeSurfer 8 + Volume",
-    "FreeSurfer7": "FreeSurfer 7 + Volume",
-    "FreeSurfer8": "FreeSurfer 8 + Volume",
-    "FreeSurfer 7": "FreeSurfer 7 + Volume",
-    "FreeSurfer 8": "FreeSurfer 8 + Volume",
-    "FreeSurfer Fixed": "FreeSurfer 7 + Volume",
-    "FreeSurfer Fixed (7 steps)": "FreeSurfer 7 + Volume",
-    "Volume": "FreeSurfer 7 + Volume",
-    "Volume & Cortical Thickness": "FreeSurfer 7 + Volume + Cortical Thickness",
-}
-
 
 def normalize_pipeline_mode(mode: str) -> str:
     normalized = PIPELINE_MODE_ALIASES.get(mode, mode)

@@ -8,7 +8,6 @@
     "/home/catcd1/adni-dicom/002_S_6066/Axial_3TE_T2_STAR/2019-11-11_12_21_07.0/I1255472"
   ],
   "output_dir": "/home/trandangduat/mri-pipeline/outputs",
-  "server_output_dir": "",
   "export_outputs": {
     "enabled": false,
     "folder": "exports",
@@ -36,16 +35,45 @@
   },
   "device": "cpu",
   "threads": 12,
-  "ram_percent": 100,
   "non_recursive": false,
   "run_target": "Server",
+  "pipeline_mode": "FreeSurfer 7 + Volume",
+  "tools": {
+    "reorientation": "mri_convert_fs7",
+    "brain_extraction": "synthstrip_fs7",
+    "segmentation": "synthseg_freesurfer_fs7",
+    "template_registration": "synthmorph_fs8",
+    "bias_correction": "ants_n4",
+    "white_matter_segmentation": "mri_binarize",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": "freesurfer_stats_fs7"
+  },
+  "stats_vectors": {
+    "enabled_stats": {
+      "cortical_thickness": false,
+      "cortical_volume": true,
+      "subcortical_volume": true
+    },
+    "atlases": {
+      "cortical_thickness": [
+        "aparc"
+      ],
+      "cortical_volume": [
+        "freesurfer_aseg"
+      ],
+      "subcortical_volume": [
+        "freesurfer_aseg"
+      ]
+    }
+  },
   "remote": {
-    "host": "10.8.0.1",
+    "host": "103.74.122.196",
     "port": 19622,
     "username": "catcd1",
     "key_path": "/mnt/c/Users/ADMIN/.ssh/duat",
     "workspace": "~/mri-remote-jobs",
     "python": "python3"
   },
-  "name": "catcd1"
+  "name": "catcd1_dicom"
 }

@@ -13,9 +13,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from pipeline.jobs import load_job_registry, read_json, save_job_registry, upsert_job_registry, write_json
-from pipeline_runner import (
+from pipeline.config import (
     PROJECT_ROOT,
     STAGE_ORDER,
+    TOOL_DEFS,
+    enabled_tools_for_stage,
+    is_tool_enabled,
+    tool_display_name,
+)
+from pipeline.discovery import (
     _derive_subject_id,
     _discover_mri_files,
     build_subject_id_map,

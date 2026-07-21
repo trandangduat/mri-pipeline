@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from ui.components.cards import create_card
 from ui.components.tooltip import Tooltip
-from pipeline_runner import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
+from pipeline.config import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, STAT_VECTOR_DEFS, STAGE_ORDER, STAGE_LABELS, enabled_tools_for_stage, tool_display_name
 
 PANEL_BG = "#ffffff"
 PANEL_BORDER = "#e5e7eb"
