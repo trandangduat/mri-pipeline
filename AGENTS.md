@@ -63,7 +63,9 @@ When writing code, agents **MUST** adhere to the following standards:
 
 When operating in this codebase, utilize your provided skills effectively:
 
+- **`tdd`**: Run this skill before adding new logic or refactoring core algorithms. It forces a Test-Driven Development loop (writing tests first, then implementing) to prevent regressions in modules like `executor.py` or `ConfigController`.
 - **`code-review`**: Run this skill after ANY major refactoring or feature addition. Instruct it to check for code smells (Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Speculative Generality).
+- **`improve-codebase-architecture`**: Use this when tasked with refactoring or reducing technical debt. It helps identify deep module boundaries and separation of concerns.
 - **`codebase-design`**: Use this when extracting a new module or deciding "where a seam goes". It provides a shared vocabulary for designing clean interfaces.
 - **`diagnosing-bugs`**: Use this for complex stack traces or performance regressions (e.g., "Why is FreeSurfer hanging?").
 - **`research`**: Delegate to this subagent when you need to read extensive documentation or do deep codebase exploration without cluttering the main conversation context.
