@@ -32,11 +32,11 @@ class JobRegistryController:
 
                 return False
 
-            self._pause_background_job(job)
+            self.gui.jobs_ctrl._pause_background_job(job)
 
     
 
-        active_identity = self._job_identity(self.active_job.get("registry_entry") or self.active_job) if self.active_job else ""
+        active_identity = self._job_identity(self.gui.jobs_ctrl.active_job.get("registry_entry") or self.gui.jobs_ctrl.active_job) if self.gui.jobs_ctrl.active_job else ""
 
         if active_identity and active_identity == self._job_identity(job):
 
@@ -62,7 +62,7 @@ class JobRegistryController:
 
                 if download_subdir and output_dir:
 
-                    self._delete_path_if_exists(Path(output_dir) / download_subdir)
+                    self.gui.jobs_ctrl._delete_path_if_exists(Path(output_dir) / download_subdir)
 
             else:
 
@@ -204,21 +204,21 @@ class JobRegistryController:
 
     def _update_registry_for_active_job(self, state: str, exit_code=None) -> None:
 
-        if not self.active_job:
+        if not self.gui.jobs_ctrl.active_job:
 
             return
 
-        entry = dict(self.active_job.get("registry_entry") or {})
+        entry = dict(self.gui.jobs_ctrl.active_job.get("registry_entry") or {})
 
         if not entry:
 
-            entry = dict(self.active_job)
+            entry = dict(self.gui.jobs_ctrl.active_job)
 
         entry.update({"state": state, "exit_code": exit_code, "updated_at": time.time()})
 
         upsert_job_registry(entry)
 
-        self.active_job["registry_entry"] = entry
+        self.gui.jobs_ctrl.active_job["registry_entry"] = entry
 
     def _pid_is_running(self, pid: int | str | None) -> bool:
 
@@ -394,7 +394,7 @@ class JobRegistryController:
 
             if entry.get("target") == "Server"
 
-            and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+            and self._same_remote_server(entry, ssh_config, workspace)
 
         }
 

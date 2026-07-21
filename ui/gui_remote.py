@@ -73,7 +73,7 @@ class RemoteController:
 
     def _server_thread_max_known(self) -> bool:
 
-        if self.max_threads is None:
+        if self.gui.max_threads is None:
 
             return False
 
@@ -95,7 +95,7 @@ class RemoteController:
 
         self._thread_max_request_id += 1
 
-        self._set_thread_max(None)
+        self.gui._set_thread_max(None)
 
         self._reset_remote_tool_image_state()
 
@@ -121,7 +121,7 @@ class RemoteController:
 
         self.gui.tools_ctrl._update_download_button()
 
-        self.validation_ctrl._validate_configuration()
+        self.gui.validation_ctrl._validate_configuration()
 
     def _handle_remote_connection_lost(self, reason: str = "") -> None:
 
@@ -133,7 +133,7 @@ class RemoteController:
 
         self._thread_max_request_id += 1
 
-        self._set_thread_max(None)
+        self.gui._set_thread_max(None)
 
         self._reset_remote_tool_image_state()
 
@@ -145,7 +145,7 @@ class RemoteController:
 
         self._sync_remote_connection_controls()
 
-        self.validation_ctrl._validate_configuration()
+        self.gui.validation_ctrl._validate_configuration()
 
         detail = f"\n\n{reason}" if reason else ""
 
@@ -159,7 +159,7 @@ class RemoteController:
 
             try:
 
-                self.root.after_cancel(after_id)
+                self.gui.root.after_cancel(after_id)
 
             except tk.TclError:
 
@@ -173,7 +173,7 @@ class RemoteController:
 
             return
 
-        self.gui.pipeline_ctrl.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
+        self.gui.pipeline_ctrl.remote_health_after_id = self.gui.root.after(delay_ms, self._remote_health_check)
 
     def _ssh_config_from_current_remote(self) -> SSHConfig | None:
 
@@ -263,7 +263,7 @@ class RemoteController:
 
     
 
-            self.root.after(0, finish)
+            self.gui.root.after(0, finish)
 
     
 
@@ -277,9 +277,9 @@ class RemoteController:
 
     
 
-        if self.run_target_combo is not None:
+        if self.gui.pipeline_ctrl.run_target_combo is not None:
 
-            self.run_target_combo.configure(state=tk.DISABLED if self.gui.pipeline_ctrl.remote_connecting else "readonly")
+            self.gui.pipeline_ctrl.run_target_combo.configure(state=tk.DISABLED if self.gui.pipeline_ctrl.remote_connecting else "readonly")
 
         for widget in (
 
@@ -293,9 +293,9 @@ class RemoteController:
 
             self.gui.pipeline_ctrl.remote_key_entry,
 
-            self.remote_key_browse_button,
+            self.gui.pipeline_ctrl.remote_key_browse_button,
 
-            self.remote_workspace_entry,
+            self.gui.pipeline_ctrl.remote_workspace_entry,
 
         ):
 
@@ -323,7 +323,7 @@ class RemoteController:
 
         self._sync_input_source_controls()
 
-        self._set_thread_max(self.max_threads)
+        self.gui._set_thread_max(self.gui.max_threads)
 
     def _sync_remote_action_buttons(self) -> None:
 
@@ -333,9 +333,9 @@ class RemoteController:
 
         for button in (
 
-            self.python_env_check_button,
+            self.gui.tools_ctrl.python_env_check_button,
 
-            self.python_env_install_button,
+            self.gui.tools_ctrl.python_env_install_button,
 
             self.gui.tools_ctrl.refresh_button,
 
