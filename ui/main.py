@@ -153,10 +153,12 @@ class PipelineGUI:
         self.pipeline_ctrl = PipelineController(self)
         self.jobs_ctrl = JobsController(self)
         self.progress_ctrl = ProgressController(self)
+        from ui.gui_validation import ValidationController
+        self.validation_ctrl = ValidationController(self)
         self._build_ui()
         self._update_python_env_hint()
         self._setup_validation_traces()
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
         self.progress_ctrl._poll_queues()
         if self._spinner_frames or self._spinner_frames_light:
             self.root.after(120, self._animate_spinner)
@@ -527,7 +529,7 @@ class PipelineGUI:
             spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self._server_thread_max_known() else tk.DISABLED
             spinbox.configure(to=max_value, state=spinbox_state)
         self._clamp_threads()
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
 
     def _current_remote_thread_signature(self) -> tuple[str, int, str, str, str] | None:
         return self._current_remote_connection_signature()
@@ -581,7 +583,7 @@ class PipelineGUI:
         self.tools_ctrl._refresh_tree()
         self.tools_ctrl._update_config_status_labels()
         self.tools_ctrl._update_download_button()
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
 
     def _handle_remote_connection_lost(self, reason: str = "") -> None:
         if self._connected_remote_signature is None and not self.pipeline_ctrl.remote_connecting:
@@ -594,7 +596,7 @@ class PipelineGUI:
         self._set_remote_status_icon("failed")
         self.tools_ctrl._set_python_env_status("Not checked")
         self._sync_remote_connection_controls()
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
         detail = f"\n\n{reason}" if reason else ""
         messagebox.showwarning("Server disconnected", "The server connection was lost. Remote actions are disabled until you connect again." + detail)
 
@@ -779,7 +781,7 @@ class PipelineGUI:
         self._sync_remote_connection_controls()
         self.tools_ctrl._refresh_tree()
         self.tools_ctrl._update_config_status_labels()
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
 
     def _switch_input_source(self, new_source: str) -> None:
         old_source = getattr(self, "_last_input_source", "Local")
@@ -1069,7 +1071,7 @@ class PipelineGUI:
             self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
             self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
             self._refresh_input_label()
-            self._validate_configuration()
+            self.validation_ctrl._validate_configuration()
             self.progress_ctrl._log(f"Loaded workspace: {path}")
         except Exception as exc:
             messagebox.showerror("Load workspace failed", str(exc))
@@ -1108,7 +1110,7 @@ class PipelineGUI:
             self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
             self._apply_pipeline_mode(apply_stats_preset=False)
             self.tools_ctrl._update_config_status_labels()
-            self._validate_configuration()
+            self.validation_ctrl._validate_configuration()
         finally:
             self._is_applying_preset = False
 
@@ -1165,247 +1167,17 @@ class PipelineGUI:
             else:
                 self.btn_config_batch.configure(state=tk.DISABLED)
                 
-        self._validate_configuration()
+        self.validation_ctrl._validate_configuration()
 
     def _configure_batch(self) -> None:
         from ui.batch_window import BatchConfigWindow
         BatchConfigWindow(self.root, self)
 
     def _setup_validation_traces(self) -> None:
-        variables = [
-            self.state.input_source,
-            self.state.input_mode,
-            self.state.input_path,
-            self.state.output_dir,
-            self.state.license_dir,
-            self.state.device,
-            self.state.threads,
-            self.state.ram_percent,
-            self.state.non_recursive,
-            self.state.run_target,
-            self.state.remote_host,
-            self.state.remote_port,
-            self.state.remote_username,
-            self.state.remote_key_path,
-            self.state.remote_workspace,
-            self.state.remote_python,
-            self.state.pipeline_mode,
-            self.state.export_outputs_enabled,
-            self.state.export_default_format,
-        ]
-        for var in variables:
-            var.trace_add("write", lambda *_args: self._validate_configuration())
-
-        self.state.run_target.trace_add("write", lambda *_args: self._update_python_env_hint())
-        self.state.remote_workspace.trace_add("write", lambda *_args: self._update_python_env_hint())
-        self.state.threads.trace_add("write", lambda *_args: self._clamp_threads())
-        for var in (
-            self.state.remote_host,
-            self.state.remote_port,
-            self.state.remote_username,
-            self.state.remote_password,
-            self.state.remote_key_path,
-            self.state.remote_workspace,
-        ):
-            var.trace_add("write", lambda *_args: self._invalidate_remote_thread_max())
-
-        self.state.input_path.trace_add("write", self._refresh_input_label)
-
-        def _on_tool_selection_changed(*_args):
-            if getattr(self, "_is_applying_preset", False):
-                self._validate_configuration()
-                self.tools_ctrl._update_config_status_labels()
-                return
-            mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
-            if mode != "Custom":
-                self._is_applying_preset = True
-                try:
-                    # Switching to Custom keeps the tool the user just picked.
-                    self.state.pipeline_mode.set("Custom")
-                finally:
-                    self._is_applying_preset = False
-            self._validate_configuration()
-            self.tools_ctrl._update_config_status_labels()
-
-        for tool_var in self.state.tool_vars.values():
-            tool_var.trace_add("write", _on_tool_selection_changed)
-
-        for var in [*self.state.export_name_vars.values(), *self.state.export_format_vars.values()]:
-            var.trace_add("write", lambda *_args: self._validate_configuration())
-
-        def _on_stat_vector_changed(*_args):
-            if getattr(self, "_is_applying_preset", False):
-                return
-            mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
-            self._is_applying_preset = True
-            try:
-                if mode != "Custom":
-                    self.state.pipeline_mode.set("Custom")
-                    # Nested apply clears the flag; restore before syncing tools.
-                    self._is_applying_preset = True
-                # Keep steps 7-8 skipped unless cortical thickness is selected.
-                self._sync_surface_stages_with_stats()
-            finally:
-                self._is_applying_preset = False
-            self._sync_tool_combo_states()
-            self.tools_ctrl._update_config_status_labels()
-            self._validate_configuration()
-
-        for var in self.state.stat_vector_enabled_vars.values():
-            var.trace_add("write", _on_stat_vector_changed)
-        for var in self.state.stat_atlas_choice_vars.values():
-            var.trace_add("write", lambda *_args: self._validate_configuration())
+        self.validation_ctrl._setup_validation_traces()
 
     def _validate_configuration(self) -> bool:
-        errors: list[str] = []
-        input_source = self.state.input_source.get()
-        if self.state.run_target.get() == "Server":
-            if not self.state.remote_host.get().strip():
-                errors.append("Remote Host/IP is required.")
-            if not self.state.remote_username.get().strip():
-                errors.append("Remote Username is required.")
-            try:
-                port = int(self.state.remote_port.get())
-                if port < 1 or port > 65535:
-                    errors.append("Remote port must be between 1 and 65535.")
-            except (tk.TclError, ValueError):
-                errors.append("Remote port must be a valid integer.")
-            if not self.state.remote_workspace.get().strip():
-                errors.append("Remote workspace is required.")
-            elif self._current_remote_connection_signature() is not None and not self._server_connected():
-                errors.append("Connect to the server before running.")
-
-        mode = self.state.input_mode.get()
-        raw_input = self.state.input_path.get().strip()
-        if not raw_input:
-            errors.append("Choose an input MRI file or folder.")
-        elif self.state.run_target.get() != "Server" and input_source != "Local":
-            errors.append("Local runs can only use local input data.")
-        elif input_source == "Server" and self.state.run_target.get() != "Server":
-            errors.append("Server input requires Run on = Server.")
-        elif input_source == "Local" and mode == "file":
-            path = self.state.selected_files[0] if self.state.selected_files else raw_input
-            if not _is_supported_mri_input(path):
-                errors.append("Input file or DICOM folder does not exist.")
-        elif input_source == "Local" and mode == "files":
-            files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
-            if not files:
-                errors.append("Choose at least one input file.")
-            elif any(not _is_supported_mri_input(p) for p in files):
-                errors.append("One or more selected input files or DICOM folders do not exist.")
-        elif input_source == "Local":
-            if not Path(raw_input).is_dir():
-                errors.append("Input folder does not exist.")
-        elif input_source == "Server":
-            files = self.state.selected_files or [p.strip() for p in raw_input.split(";") if p.strip()]
-            if mode == "file" and raw_input == "~" and not self.state.selected_files:
-                errors.append("Choose a server MRI file or upload input to server first.")
-            elif mode == "files" and (not files or files == ["~"]):
-                errors.append("Choose server MRI files or upload input to server first.")
-            elif mode == "dir" and raw_input == "~" and not self.state.selected_files:
-                errors.append("Choose a server MRI folder or upload input to server first.")
-
-        if self.state.run_target.get() != "Server" and not self.state.output_dir.get().strip():
-            errors.append("Choose an output directory.")
-        if self.state.export_outputs_enabled.get():
-            invalid_names = [name.get().strip() for name in self.state.export_name_vars.values() if not name.get().strip() or any(sep in name.get() for sep in ("/", "\\"))]
-            if invalid_names:
-                errors.append("Export file names cannot be empty or contain path separators.")
-        for stat, stat_def in STAT_VECTOR_DEFS.items():
-            if self.state.stat_vector_enabled_vars.get(stat) and self.state.stat_vector_enabled_vars[stat].get():
-                if stat_def.get("atlases") and not self.state.selected_atlases_for_stat(stat):
-                    errors.append(f"Choose at least one atlas for {stat_def['label']}.")
-        try:
-            threads = int(self.state.threads.get())
-            if threads < 1:
-                errors.append("Threads must be at least 1.")
-            elif self.state.run_target.get() == "Server" and self._server_connected() and not self._server_thread_max_known():
-                errors.append("Connect Server could not read the server CPU thread limit.")
-            elif self.max_threads is not None and threads > self.max_threads:
-                errors.append(f"Threads cannot exceed max CPU threads ({self.max_threads}).")
-        except (tk.TclError, ValueError):
-            errors.append("Threads must be a valid integer.")
-
-        try:
-            ram_percent = int(self.state.ram_percent.get())
-            if ram_percent < 1 or ram_percent > 100:
-                errors.append("RAM % must be between 1 and 100.")
-        except (tk.TclError, ValueError):
-            errors.append("RAM % must be a valid integer.")
-
-        selected_tools = self.state.get_selected_tools()
-        missing_stages = [
-            stage for stage in STAGE_ORDER
-            if stage not in VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
-        ]
-        if missing_stages:
-            errors.append("Select one tool for every pipeline stage.")
-        disabled_tools = [tool for tool in selected_tools.values() if tool and not is_tool_enabled(tool)]
-        if disabled_tools:
-            errors.append(f"Disabled tools selected: {', '.join(tool_display_name(tool) for tool in disabled_tools)}")
-
-        target = self.state.run_target.get()
-        image_statuses = self.tools_ctrl.image_statuses.setdefault(target, {})
-        required_images: list[str] = []
-        for tool in selected_tools.values():
-            image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
-            if tool and is_tool_enabled(tool) and image and image not in required_images:
-                required_images.append(image)
-        if required_images and (target != "Server" or self._server_connected()):
-            unknown = [image for image in required_images if image_statuses.get(image, "Unknown") == "Unknown"]
-            not_installed = [image for image in required_images if image_statuses.get(image, "Unknown") not in {"Installed", "Unknown"}]
-            if unknown:
-                errors.append("Check Docker images before running.")
-            elif not_installed:
-                errors.append("Install selected Docker images before running.")
-
-        needs_license = any(TOOL_DEFS.get(tool, {}).get("needs_license") for tool in selected_tools.values())
-        if needs_license and not Path(self.state.license_dir.get().strip()).exists():
-            errors.append("FreeSurfer license directory is required for selected tools.")
-
-
-
-        ok = not errors
-        can_start = self.jobs_ctrl._can_start_new_pipeline()
-        status_msg = "Configuration complete. Ready to run." if ok else errors[0]
-        if not can_start:
-            status_msg = "Pipeline is already running or busy."
-
-        if hasattr(self, "run_button"):
-            self.run_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-            if hasattr(self, "run_tooltip"):
-                self.run_tooltip.update_text(status_msg)
-        if hasattr(self, "restart_button"):
-            self.pipeline_ctrl.restart_button.configure(state=tk.NORMAL if ok and can_start else tk.DISABLED)
-            if hasattr(self, "restart_tooltip"):
-                self.pipeline_ctrl.restart_tooltip.update_text(status_msg)
-        
-        self.state.config_status.set(status_msg)
-        
-        # Check server connection state for specific buttons
-        server_ok = self.state.run_target.get() != "Server" or self._server_connected()
-        server_msg = "Please connect to the server first" if not server_ok else ""
-        
-        if self.upload_input_button:
-            self.upload_input_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "upload_input_tooltip"):
-                self.upload_input_tooltip.update_text(server_msg)
-                
-        if self.server_output_browse_button:
-            self.server_output_browse_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "server_output_tooltip"):
-                self.server_output_tooltip.update_text(server_msg)
-                
-        if self.tools_ctrl.refresh_button:
-            self.tools_ctrl.refresh_button.configure(state=tk.NORMAL if server_ok else tk.DISABLED)
-            if hasattr(self, "tools_refresh_tooltip"):
-                self.tools_refresh_tooltip.update_text(server_msg)
-                
-        if self.input_browse_button:
-            if hasattr(self, "input_browse_tooltip"):
-                self.input_browse_tooltip.update_text(server_msg)
-
-        return ok
+        return self.validation_ctrl._validate_configuration()
 
 
 def main() -> None:
