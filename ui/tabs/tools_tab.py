@@ -124,4 +124,4 @@ def build_tools_tab(parent: ttk.Frame, ctrl) -> None:
     ctrl._refresh_tree()
     ctrl._preload_docker_hub_image_sizes()
     ctrl._set_python_env_status(ctrl.python_env_status.get())
-    ctrl.gui._sync_remote_connection_controls()
+    ctrl.gui.remote_ctrl._sync_remote_connection_controls()

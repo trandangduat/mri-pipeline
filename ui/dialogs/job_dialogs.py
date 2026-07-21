@@ -26,7 +26,7 @@ def show_attach_job_dialog(ctrl) -> None:
     remote_python = ctrl.gui.state.remote_python.get().strip() or "python3"
     output_dir = ctrl.gui.state.output_dir.get().strip()
     if target == "Server":
-        if not ctrl.gui._require_remote_connection("attaching remote jobs"):
+        if not ctrl.gui.remote_ctrl._require_remote_connection("attaching remote jobs"):
             return
         if not ctrl._ensure_remote_auth_for_job_action("Attach job"):
             return

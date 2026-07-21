@@ -1,0 +1,53 @@
+    def _normalize_pipeline_mode(self, mode: str) -> str:
+    def _cortical_thickness_enabled(self) -> bool:
+    def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:
+    def _sync_surface_stages_with_stats(self) -> None:
+    def _sync_tool_combo_states(self) -> None:
+    def __init__(self, root: tk.Tk) -> None:
+    def _load_spinner_frames(self, icon_name: str, size: int = 16) -> list[tk.PhotoImage]:
+    def _spinner_frame(self, light: bool = False) -> tk.PhotoImage | None:
+    def _button_uses_light_spinner(self, button: ttk.Button) -> bool:
+    def _is_busy_status(self, status: str) -> bool:
+    def _is_button_busy(self, button: ttk.Button | None) -> bool:
+    def _set_button_busy(self, button: ttk.Button | None, busy: bool, text: str | None = None) -> None:
+    def _animate_busy_buttons(self, frame: str) -> None:
+    def _animate_spinner(self):
+    def _build_ui(self) -> None:
+    def _make_icon(self, name: str, color: str | None = None) -> tk.PhotoImage | None:
+    def _get_status_icon(self, status: str) -> tk.PhotoImage | None:
+    def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command, icon_color: str | None = None) -> ttk.Button:
+    def _build_app_toolbar(self, parent: ttk.Frame) -> None:
+    def _build_tabs(self, parent: ttk.Frame) -> None:
+    def _build_status_bar(self, parent: ttk.Frame) -> None:
+    def _set_widget_tree_state(self, widget: tk.Widget, state: str) -> None:
+    def _validate_thread_input(self, proposed: str) -> bool:
+    def _validate_ram_percent_input(self, proposed: str) -> bool:
+    def _clamp_threads(self) -> None:
+    def _set_pipeline_tools_visible(self, visible: bool) -> None:
+    def _toggle_pipeline_tools(self) -> None:
+    def _set_thread_max(self, max_threads: int | None, pending: bool = False) -> None:
+    def _refresh_thread_max_for_target(self) -> None:
+    def _update_python_env_hint(self) -> None:
+    def _on_run_target_changed(self) -> None:
+    def _switch_input_source(self, new_source: str) -> None:
+    def _sync_input_source_controls(self) -> None:
+    def _ask_upload_overwrite(self, remote_path: str) -> str:
+    def _browse_input(self) -> None:
+    def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
+    def _browse_directory(self, variable: tk.StringVar) -> None:
+    def _apply_stats_preset_for_mode(self, mode: str, force_reset: bool = False) -> None:
+    def _update_stats_vector_controls(self, mode: str) -> None:
+    def _apply_pipeline_mode(self, apply_stats_preset: bool = True, show_custom_tools: bool = True, update_tools_visibility: bool = True) -> None:
+    def _selected_tools(self) -> dict[str, str]:
+    def _save_workspace(self) -> None:
+    def _load_workspace(self) -> None:
+    def _save_config(self) -> None:
+    def _load_config(self) -> None:
+    def _collect_run_config(self) -> dict:
+    def _apply_run_config(self, config: dict) -> None:
+    def _save_run_config(self) -> None:
+    def _load_run_config(self) -> None:
+    def _refresh_input_label(self, *_args) -> None:
+    def _configure_batch(self) -> None:
+    def _setup_validation_traces(self) -> None:
+    def _validate_configuration(self) -> bool:

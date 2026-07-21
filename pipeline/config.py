@@ -162,4 +162,3 @@ class BatchImageResult:
 ProgressCallback = Callable[[str, str, float, str], None]
 BuildLogCallback = Callable[[str], None]
 MetricsCallback = Callable[[str, str, "float | None", "int | None", float, str], None]
-

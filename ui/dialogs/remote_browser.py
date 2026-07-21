@@ -13,7 +13,7 @@ from remote.ssh_client import RemoteSSHClient
 from pipeline.config import PROJECT_ROOT
 
 def show_upload_dialog(gui):
-    if not gui._server_connected():
+    if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
     ssh_config = gui.jobs_ctrl._build_ssh_config()
@@ -381,7 +381,7 @@ def show_upload_dialog(gui):
     gui.root.after(50, connect_server)
 
 def show_remote_output_browser(gui):
-    if not gui._server_connected():
+    if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
     ssh_config = gui.jobs_ctrl._build_ssh_config()
@@ -524,7 +524,7 @@ def show_remote_output_browser(gui):
         gui.state.server_output_dir.set(selected["path"])
 
 def show_remote_input_browser(gui):
-    if not gui._server_connected():
+    if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
     ssh_config = gui.jobs_ctrl._build_ssh_config()

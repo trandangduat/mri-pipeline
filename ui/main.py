@@ -35,6 +35,8 @@ from pipeline.config import (
 from pipeline.discovery import _is_supported_mri_input
 from remote.remote_runner import RemoteRunner
 from remote.ssh_client import RemoteSSHClient, SSHConfig
+from ui.gui_remote import RemoteController
+from ui.gui_config import ConfigController
 from ui.gui_jobs import JobsController
 from ui.gui_pipeline import PipelineController
 from ui.gui_progress import ProgressController
@@ -151,6 +153,7 @@ class PipelineGUI:
         self._input_source_selected_files: dict[str, list[str]] = {"Local": [], "Server": []}
         self._connected_remote_signature: tuple | None = None
         self._remote_thread_max_signature: tuple | None = None
+        self._remote_health_check_timer = None
 
         self.tools_ctrl = ToolsController(self)
         self.pipeline_ctrl = PipelineController(self)
@@ -158,6 +161,8 @@ class PipelineGUI:
         self.progress_ctrl = ProgressController(self)
         from ui.gui_validation import ValidationController
         self.validation_ctrl = ValidationController(self)
+        self.config_ctrl = ConfigController(self)
+        self.remote_ctrl = RemoteController(self)
         self._build_ui()
         self._update_python_env_hint()
         self._setup_validation_traces()
@@ -392,15 +397,6 @@ class PipelineGUI:
             pass
         return None
 
-    def _set_remote_status_icon(self, icon_name: str | None) -> None:
-        label = getattr(self, "remote_status_icon_label", None)
-        if label is None:
-            return
-        if icon_name == "running":
-            label.configure(image=self._spinner_frame() or "", text="", foreground="#2563eb")
-            return
-        icon = self._make_icon(icon_name) if icon_name else None
-        label.configure(image=icon if icon is not None else "", text="")
 
     def _toolbar_button(self, parent: ttk.Frame, key: str, label: str, command, icon_color: str | None = None) -> ttk.Button:
         icon = self._make_icon(key, icon_color)
@@ -416,8 +412,8 @@ class PipelineGUI:
         # Sửa padding để nút không bị cropped ở phía trên (thêm top padding)
         toolbar.pack(fill=tk.X, padx=8, pady=(12, 8))
 
-        self.save_button = self._toolbar_button(toolbar, "save", "Save Workspace", self._save_workspace)
-        self.load_button = self._toolbar_button(toolbar, "load", "Load Workspace", self._load_workspace)
+        self.save_button = self._toolbar_button(toolbar, "save", "Save Workspace", self.config_ctrl._save_workspace)
+        self.load_button = self._toolbar_button(toolbar, "load", "Load Workspace", self.config_ctrl._load_workspace)
         
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=4)
         
@@ -470,38 +466,8 @@ class PipelineGUI:
                 pass
             self._set_widget_tree_state(child, state)
 
-    def _validate_thread_input(self, proposed: str) -> bool:
-        if self.state.run_target.get() == "Server" and not self._server_thread_max_known():
-            return proposed == ""
-        if proposed == "":
-            return True
-        try:
-            value = int(proposed)
-        except ValueError:
-            return False
-        if value < 1:
-            return False
-        return self.max_threads is None or value <= self.max_threads
 
-    def _validate_ram_percent_input(self, proposed: str) -> bool:
-        if proposed == "":
-            return True
-        try:
-            value = int(proposed)
-        except ValueError:
-            return False
-        return 1 <= value <= 100
 
-    def _clamp_threads(self) -> None:
-        if self.max_threads is None:
-            return
-        try:
-            value = int(self.state.threads.get())
-        except (tk.TclError, ValueError):
-            return
-        clamped = min(max(value, 1), self.max_threads)
-        if clamped != value:
-            self.state.threads.set(clamped)
 
     def _set_pipeline_tools_visible(self, visible: bool) -> None:
         body = getattr(self, "pipeline_tools_body", None)
@@ -529,229 +495,45 @@ class PipelineGUI:
             self.thread_max_text.set("/ _ max")
         spinbox = getattr(self, "thread_spinbox", None)
         if spinbox is not None:
-            spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self._server_thread_max_known() else tk.DISABLED
+            spinbox_state = tk.NORMAL if self.state.run_target.get() != "Server" or self.remote_ctrl._server_thread_max_known() else tk.DISABLED
             spinbox.configure(to=max_value, state=spinbox_state)
         self._clamp_threads()
         self.validation_ctrl._validate_configuration()
 
-    def _current_remote_thread_signature(self) -> tuple[str, int, str, str, str] | None:
-        return self._current_remote_connection_signature()
 
-    def _current_remote_connection_signature(self) -> tuple[str, int, str, str, str] | None:
-        host = self.state.remote_host.get().strip()
-        username = self.state.remote_username.get().strip()
-        workspace = self.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
-        if not host or not username:
-            return None
-        try:
-            port = int(self.state.remote_port.get())
-        except (tk.TclError, ValueError):
-            return None
-        return (host, port, username, self.state.remote_key_path.get().strip(), workspace)
 
-    def _server_connected(self) -> bool:
-        return (
-            self.state.run_target.get() == "Server"
-            and self._connected_remote_signature is not None
-            and self._connected_remote_signature == self._current_remote_connection_signature()
-        )
 
-    def _remote_actions_enabled(self) -> bool:
-        return self.state.run_target.get() != "Server" or self._server_connected()
 
-    def _server_thread_max_known(self) -> bool:
-        if self.max_threads is None:
-            return False
-        return self._server_connected() and self._remote_thread_max_signature == self._current_remote_thread_signature()
 
-    def _invalidate_remote_thread_max(self) -> None:
-        if self.state.run_target.get() != "Server":
-            return
-        current_signature = self._current_remote_connection_signature()
-        if self._connected_remote_signature is not None and current_signature == self._connected_remote_signature:
-            return
-        self._cancel_remote_health_check()
-        self._thread_max_request_id += 1
-        self._set_thread_max(None)
-        self._reset_remote_tool_image_state()
-        self.state.remote_status.set("Remote: disconnected")
-        self._set_remote_status_icon("pending")
-        self.tools_ctrl._set_python_env_status("Not checked")
-        self._sync_remote_connection_controls()
 
-    def _reset_remote_tool_image_state(self) -> None:
-        self.tools_ctrl.image_statuses["Server"] = {}
-        self.tools_ctrl.image_installed_sizes["Server"] = {}
-        self.tools_ctrl.checked_tools.clear()
-        self.tools_ctrl._refresh_tree()
-        self.tools_ctrl._update_config_status_labels()
-        self.tools_ctrl._update_download_button()
-        self.validation_ctrl._validate_configuration()
 
-    def _handle_remote_connection_lost(self, reason: str = "") -> None:
-        if self._connected_remote_signature is None and not self.pipeline_ctrl.remote_connecting:
-            return
-        self._cancel_remote_health_check()
-        self._thread_max_request_id += 1
-        self._set_thread_max(None)
-        self._reset_remote_tool_image_state()
-        self.state.remote_status.set("Remote: disconnected unexpectedly")
-        self._set_remote_status_icon("failed")
-        self.tools_ctrl._set_python_env_status("Not checked")
-        self._sync_remote_connection_controls()
-        self.validation_ctrl._validate_configuration()
-        detail = f"\n\n{reason}" if reason else ""
-        messagebox.showwarning("Server disconnected", "The server connection was lost. Remote actions are disabled until you connect again." + detail)
 
-    def _cancel_remote_health_check(self) -> None:
-        after_id = self.pipeline_ctrl.remote_health_after_id
-        if after_id:
-            try:
-                self.root.after_cancel(after_id)
-            except tk.TclError:
-                pass
 
-    def _schedule_remote_health_check(self, delay_ms: int = 15000) -> None:
-        self._cancel_remote_health_check()
-        if not self._server_connected():
-            return
-        self.pipeline_ctrl.remote_health_after_id = self.root.after(delay_ms, self._remote_health_check)
 
-    def _ssh_config_from_current_remote(self) -> SSHConfig | None:
-        host = self.state.remote_host.get().strip()
-        username = self.state.remote_username.get().strip()
-        if not host or not username:
-            return None
-        try:
-            port = int(self.state.remote_port.get())
-        except (tk.TclError, ValueError):
-            return None
-        return SSHConfig(
-            host=host,
-            port=port,
-            username=username,
-            password=self.state.remote_password.get(),
-            key_path=self.state.remote_key_path.get().strip(),
-        )
 
-    def _remote_health_check(self) -> None:
-        if self.pipeline_ctrl.remote_health_in_flight or not self._server_connected():
-            return
-        signature = self._connected_remote_signature
-        ssh_config = self._ssh_config_from_current_remote()
-        if signature is None or ssh_config is None:
-            self._handle_remote_connection_lost("Remote server configuration is incomplete.")
-            return
-        self.pipeline_ctrl.remote_health_in_flight = True
 
-        def worker() -> None:
-            error = ""
-            try:
-                with RemoteSSHClient(ssh_config, lambda _line: None) as ssh:
-                    code, _text = ssh.read_text("true")
-                if code != 0:
-                    error = f"Health check exited with code {code}."
-            except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
 
-            def finish() -> None:
-                if signature != self._connected_remote_signature:
-                    return
-                if error:
-                    self._handle_remote_connection_lost(error)
-                else:
-                    self._schedule_remote_health_check()
 
-            self.root.after(0, finish)
 
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _sync_remote_connection_controls(self) -> None:
-        server_mode = self.state.run_target.get() == "Server"
-        editing_state = tk.NORMAL if server_mode and not self.pipeline_ctrl.remote_connecting else tk.DISABLED
-
-        if self.run_target_combo is not None:
-            self.run_target_combo.configure(state=tk.DISABLED if self.pipeline_ctrl.remote_connecting else "readonly")
-        for widget in (
-            self.pipeline_ctrl.remote_host_entry,
-            self.pipeline_ctrl.remote_port_entry,
-            self.pipeline_ctrl.remote_username_entry,
-            self.pipeline_ctrl.remote_password_entry,
-            self.pipeline_ctrl.remote_key_entry,
-            self.remote_key_browse_button,
-            self.remote_workspace_entry,
-        ):
-            if widget is not None:
-                widget.configure(state=editing_state)
-        if self.pipeline_ctrl.remote_connect_button is not None:
-            if self.pipeline_ctrl.remote_connecting:
-                self.pipeline_ctrl.remote_connect_button.configure(text="Connecting...", state=tk.DISABLED)
-            else:
-                self.pipeline_ctrl.remote_connect_button.configure(text="Connect Server", state=tk.NORMAL if server_mode else tk.DISABLED)
-
-        self.tools_ctrl._refresh_tree()
-        self.tools_ctrl._update_config_status_labels()
-        self._sync_remote_action_buttons()
-        self._sync_input_source_controls()
-        self._set_thread_max(self.max_threads)
-
-    def _sync_remote_action_buttons(self) -> None:
-        enabled = self._remote_actions_enabled()
-        state = tk.NORMAL if enabled else tk.DISABLED
-        for button in (
-            self.python_env_check_button,
-            self.python_env_install_button,
-            self.tools_ctrl.refresh_button,
-            self.tools_ctrl.select_all_button,
-            self.tools_ctrl.unselect_all_button,
-            self.tools_ctrl.select_missing_button,
-        ):
-            if button is not None:
-                button.configure(state=state)
-        self.tools_ctrl._update_action_buttons()
-
-    def _require_remote_connection(self, action: str) -> bool:
-        if self.state.run_target.get() != "Server" or self._server_connected():
-            return True
-        messagebox.showwarning("Server not connected", f"Connect to the server before {action}.")
-        return False
-
-    def _read_remote_thread_max(self, ssh_config) -> int | None:
-        command = "getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || python3 -c 'import os; print(os.cpu_count() or 1)'"
-        with RemoteSSHClient(ssh_config, lambda _line: None) as ssh:
-            code, text = ssh.read_text(command)
-        if code != 0:
-            return None
-        for token in text.replace("\n", " ").split():
-            try:
-                value = int(token)
-            except ValueError:
-                continue
-            if value > 0:
-                return value
-        return None
 
     def _refresh_thread_max_for_target(self) -> None:
         if self.state.run_target.get() != "Server":
             self._thread_max_request_id += 1
-            self._cancel_remote_health_check()
-            self._reset_remote_tool_image_state()
+            self.remote_ctrl._cancel_remote_health_check()
+            self.remote_ctrl._reset_remote_tool_image_state()
             self._set_thread_max(self.local_max_threads)
             return
 
         self._thread_max_request_id += 1
-        if self._server_connected():
+        if self.remote_ctrl._server_connected():
             self._set_thread_max(self.max_threads)
             return
         self._set_thread_max(None)
 
-    def _remote_venv_display_path(self) -> str:
-        workspace = (self.state.remote_workspace.get().strip() or "~/mri-remote-jobs").rstrip("/")
-        return f"{workspace}/.venv"
 
     def _update_python_env_hint(self) -> None:
         if self.state.run_target.get() == "Server":
-            self.tools_ctrl.python_env_hint.set(self._remote_venv_display_path() if self.state.remote_workspace.get().strip() else "")
+            self.tools_ctrl.python_env_hint.set(self.remote_ctrl._remote_venv_display_path() if self.state.remote_workspace.get().strip() else "")
         else:
             self.tools_ctrl.python_env_hint.set(sys.executable or "")
 
@@ -760,7 +542,7 @@ class PipelineGUI:
             return
         enabled = self.state.run_target.get() == "Server"
         if not enabled:
-            self._cancel_remote_health_check()
+            self.remote_ctrl._cancel_remote_health_check()
             if self.state.input_source.get() != "Local":
                 self._switch_input_source("Local")
         self.state.server_text.set("Server: remote" if enabled else "Server: local")
@@ -774,14 +556,14 @@ class PipelineGUI:
                 self.pipeline_ctrl.remote_frame.pack_forget()
         self._set_widget_tree_state(self.pipeline_ctrl.remote_body, tk.NORMAL if enabled else tk.DISABLED)
         if enabled:
-            self.state.remote_status.set("Remote: connected" if self._server_connected() else "Remote: disconnected")
+            self.state.remote_status.set("Remote: connected" if self.remote_ctrl._server_connected() else "Remote: disconnected")
         else:
             self.state.remote_status.set("")
         self._update_python_env_hint()
         self._refresh_thread_max_for_target()
         self.tools_ctrl._set_python_env_status("Not checked")
         self._sync_input_source_controls()
-        self._sync_remote_connection_controls()
+        self.remote_ctrl._sync_remote_connection_controls()
         self.tools_ctrl._refresh_tree()
         self.tools_ctrl._update_config_status_labels()
         self.validation_ctrl._validate_configuration()
@@ -803,7 +585,7 @@ class PipelineGUI:
 
     def _sync_input_source_controls(self) -> None:
         server_run = self.state.run_target.get() == "Server"
-        connected = self._server_connected()
+        connected = self.remote_ctrl._server_connected()
         
         if hasattr(self, "input_source_row"):
             if server_run:
@@ -863,13 +645,10 @@ class PipelineGUI:
         self.root.wait_window(dialog)
         return result["value"]
 
-    def _upload_input_to_server_placeholder(self) -> None:
-        from ui.dialogs.remote_browser import show_upload_dialog
-        show_upload_dialog(self)
 
     def _browse_input(self) -> None:
         if self.state.input_source.get() == "Server":
-            self._browse_remote_input()
+            self.remote_ctrl._browse_remote_input()
             return
         mode = self.state.input_mode.get()
         if mode == "file":
@@ -890,13 +669,7 @@ class PipelineGUI:
         self._input_source_selected_files[self.state.input_source.get()] = list(self.state.selected_files)
         self._refresh_input_label()
 
-    def _browse_server_output(self) -> None:
-        from ui.dialogs.remote_browser import show_remote_output_browser
-        show_remote_output_browser(self)
 
-    def _browse_remote_input(self) -> None:
-        from ui.dialogs.remote_browser import show_remote_input_browser
-        show_remote_input_browser(self)
 
     def _mri_filetypes(self) -> tuple[tuple[str, str], tuple[str, str]]:
         return (("MRI files", "*.nii *.nii.gz *.mgz *.mgh *.dcm *.dicom *.ima"), ("All files", "*.*"))
@@ -906,13 +679,6 @@ class PipelineGUI:
         if path:
             variable.set(path)
 
-    def _browse_remote_key(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Select SSH private key",
-            filetypes=(("SSH key", "*"), ("All files", "*.*")),
-        )
-        if path:
-            self.state.remote_key_path.set(path)
 
     def _apply_stats_preset_for_mode(self, mode: str, force_reset: bool = False) -> None:
         if mode == "Custom":
@@ -1026,136 +792,13 @@ class PipelineGUI:
             self._apply_pipeline_mode(apply_stats_preset=False)
         return self.state.get_selected_tools()
 
-    def _save_workspace(self) -> None:
-        config_dir = PROJECT_ROOT / "configs" / "workspaces"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        path = filedialog.asksaveasfilename(
-            title="Save workspace",
-            initialdir=str(config_dir),
-            defaultextension=".json",
-            filetypes=(("Workspace JSON", "*.json"), ("All files", "*.*")),
-        )
-        if not path:
-            return
 
-        workspace = self.state.collect_workspace()
-        workspace_name = Path(path).stem
-        workspace["name"] = workspace_name
-        self.state.workspace_name = workspace_name
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(workspace, f, indent=2, ensure_ascii=False)
-            self.progress_ctrl._log(f"Saved workspace: {path}")
-        except Exception as exc:
-            messagebox.showerror("Save workspace failed", str(exc))
 
-    def _load_workspace(self) -> None:
-        if self.pipeline_ctrl.remote_connecting:
-            messagebox.showwarning("Server connecting", "Wait for the current server connection attempt to finish before loading a workspace.")
-            return
-        config_dir = PROJECT_ROOT / "configs" / "workspaces"
-        path = filedialog.askopenfilename(
-            title="Load workspace",
-            initialdir=str(config_dir),
-            filetypes=(("Workspace JSON", "*.json"), ("All files", "*.*")),
-        )
-        if not path:
-            return
 
-        tools_visible = self.pipeline_tools_visible.get()
-        self._preserve_pipeline_tools_visibility = True
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                workspace = json.load(f)
-            self.state.workspace_name = Path(path).stem
-            self.state.apply_workspace(workspace)
-            self._on_run_target_changed()
-            self._last_input_source = self.state.input_source.get()
-            self._input_source_paths[self._last_input_source] = self.state.input_path.get().strip()
-            self._input_source_selected_files[self._last_input_source] = list(self.state.selected_files)
-            self._refresh_input_label()
-            self.validation_ctrl._validate_configuration()
-            self.progress_ctrl._log(f"Loaded workspace: {path}")
-        except Exception as exc:
-            messagebox.showerror("Load workspace failed", str(exc))
-        finally:
-            self._preserve_pipeline_tools_visibility = False
-            self._set_pipeline_tools_visible(tools_visible)
 
-    def _save_config(self) -> None:
-        self._save_workspace()
 
-    def _load_config(self) -> None:
-        self._load_workspace()
 
-    def _collect_run_config(self) -> dict:
-        return {
-            "version": 1,
-            "type": "mri-pipeline-preset",
-            "pipeline_mode": self.state.pipeline_mode.get(),
-            "tools": self.state.get_selected_tools(),
-            "stats_vectors": self.state.get_stats_vector_config(),
-        }
 
-    def _apply_run_config(self, config: dict) -> None:
-        self._is_applying_preset = True
-        try:
-            self.state.pipeline_mode.set(self._normalize_pipeline_mode(config.get("pipeline_mode", "Custom")))
-
-            tools = config.get("tools", {})
-            for stage, value in tools.items():
-                if stage in self.state.tool_vars:
-                    tool_key = tool_key_from_display(value)
-                    if not tool_key and value in TOOL_DEFS:
-                        tool_key = value
-                    self.state.tool_vars[stage].set(tool_display_name(tool_key) if is_tool_enabled(tool_key) else "")
-
-            self.state.apply_stats_vector_config(config.get("stats_vectors", {}))
-            self._apply_pipeline_mode(apply_stats_preset=False)
-            self.tools_ctrl._update_config_status_labels()
-            self.validation_ctrl._validate_configuration()
-        finally:
-            self._is_applying_preset = False
-
-    def _save_run_config(self) -> None:
-        config_dir = PROJECT_ROOT / "configs" / "preset"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        path = filedialog.asksaveasfilename(
-            title="Save preset",
-            initialdir=str(config_dir),
-            defaultextension=".json",
-            filetypes=(("Preset JSON", "*.json"), ("All files", "*.*")),
-        )
-        if not path:
-            return
-        data = self._collect_run_config()
-        data["name"] = Path(path).stem
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            self.progress_ctrl._log(f"Saved preset: {path}")
-        except Exception as exc:
-            messagebox.showerror("Save preset failed", str(exc))
-
-    def _load_run_config(self) -> None:
-        config_dir = PROJECT_ROOT / "configs" / "preset"
-        path = filedialog.askopenfilename(
-            title="Load preset",
-            initialdir=str(config_dir),
-            filetypes=(("Preset JSON", "*.json"), ("All files", "*.*")),
-        )
-        if not path:
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            if config.get("type") not in (None, "mri-pipeline-run-config", "mri-pipeline-preset"):
-                messagebox.showerror("Invalid preset", "Selected file is not an MRI pipeline preset.")
-                return
-            self._apply_run_config(config)
-            self.progress_ctrl._log(f"Loaded preset: {path}")
-        except Exception as exc:
-            messagebox.showerror("Load preset failed", str(exc))
 
 
     def _refresh_input_label(self, *_args) -> None:
@@ -1172,15 +815,8 @@ class PipelineGUI:
                 
         self.validation_ctrl._validate_configuration()
 
-    def _configure_batch(self) -> None:
-        from ui.batch_window import BatchConfigWindow
-        BatchConfigWindow(self.root, self)
 
-    def _setup_validation_traces(self) -> None:
-        self.validation_ctrl._setup_validation_traces()
 
-    def _validate_configuration(self) -> bool:
-        return self.validation_ctrl._validate_configuration()
 
 
 def main() -> None:

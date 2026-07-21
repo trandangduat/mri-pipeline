@@ -160,7 +160,7 @@ class ToolsController:
 
     def _selected_images(self, statuses: set[str] | None = None) -> list[str]:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._server_connected():
+        if target == "Server" and not self.gui.remote_ctrl._server_connected():
             return []
         images: list[str] = []
         for tool_key in self.checked_tools:
@@ -249,7 +249,7 @@ class ToolsController:
     def _checkbox_enabled(self, tool_key: str, status: str | None = None) -> bool:
         if not is_tool_enabled(tool_key):
             return False
-        if self.gui.state.run_target.get() == "Server" and not self.gui._server_connected():
+        if self.gui.state.run_target.get() == "Server" and not self.gui.remote_ctrl._server_connected():
             return False
         status = status or self._tool_status(tool_key)
         return status not in {"Disabled", "Skipped", "Checking", "Downloading", "Deleting"}
@@ -260,7 +260,7 @@ class ToolsController:
     def _update_action_buttons(self) -> None:
         download_button = getattr(self, "download_button", None)
         delete_button = getattr(self, "delete_button", None)
-        remote_ready = self.gui._remote_actions_enabled()
+        remote_ready = self.gui.remote_ctrl._remote_actions_enabled()
         download_enabled = remote_ready and bool(self._selected_images({"Missing", "Unknown", "Error"}))
         delete_enabled = remote_ready and bool(self._selected_images({"Installed"}))
         if download_button is not None:
@@ -426,7 +426,7 @@ class ToolsController:
         return [tool for tool in self.checked_tools if tool in TOOL_DEFS]
 
     def _build_image_remote_runner(self) -> RemoteRunner | None:
-        if self.gui.state.run_target.get() == "Server" and not self.gui._server_connected():
+        if self.gui.state.run_target.get() == "Server" and not self.gui.remote_ctrl._server_connected():
             return None
         ssh_config = self.gui.jobs_ctrl._build_ssh_config()
         if ssh_config is None:
@@ -499,7 +499,7 @@ class ToolsController:
 
     def _check_python_environment(self) -> None:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._require_remote_connection("checking the remote environment"):
+        if target == "Server" and not self.gui.remote_ctrl._require_remote_connection("checking the remote environment"):
             return
         self.gui._set_button_busy(getattr(self, "python_env_check_button", None), True, "Checking")
         self._set_python_env_status("Checking...")
@@ -560,7 +560,7 @@ class ToolsController:
 
     def _install_python_requirements(self) -> None:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._require_remote_connection("creating or updating remote packages"):
+        if target == "Server" and not self.gui.remote_ctrl._require_remote_connection("creating or updating remote packages"):
             return
         requirements = PROJECT_ROOT / "requirements.txt"
         if not requirements.exists():
@@ -570,7 +570,7 @@ class ToolsController:
         self._set_python_env_status("Installing...")
         action = "Installing Python packages from requirements.txt"
         if target == "Server":
-            action = f"Creating/updating remote venv and packages: {self.gui._remote_venv_display_path()}"
+            action = f"Creating/updating remote venv and packages: {self.gui.remote_ctrl._remote_venv_display_path()}"
         self._append_log(f"{action}: {target}")
 
         def worker() -> None:
@@ -618,7 +618,7 @@ class ToolsController:
 
     def _refresh_image_statuses(self) -> None:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._require_remote_connection("refreshing remote Docker images"):
+        if target == "Server" and not self.gui.remote_ctrl._require_remote_connection("refreshing remote Docker images"):
             return
         images = self._all_enabled_images()
         if not images:
@@ -667,7 +667,7 @@ class ToolsController:
 
     def _ensure_tool_images(self, tool_keys: list[str]) -> None:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._require_remote_connection("downloading remote Docker images"):
+        if target == "Server" and not self.gui.remote_ctrl._require_remote_connection("downloading remote Docker images"):
             return
         requested = [tool for tool in dict.fromkeys(tool_keys) if tool in TOOL_DEFS and is_tool_enabled(tool)]
         images = [self._tool_image(tool) for tool in requested if self._tool_image(tool)]
@@ -723,7 +723,7 @@ class ToolsController:
 
     def _delete_checked_images(self) -> None:
         target = self.gui.state.run_target.get()
-        if target == "Server" and not self.gui._require_remote_connection("deleting remote Docker images"):
+        if target == "Server" and not self.gui.remote_ctrl._require_remote_connection("deleting remote Docker images"):
             return
         images = self._selected_images({"Installed"})
         if not images:

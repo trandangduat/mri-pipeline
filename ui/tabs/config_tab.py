@@ -117,8 +117,8 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         state="readonly",
         width=34,
     ).grid(row=0, column=1, sticky=tk.EW, padx=(0, 12))
-    ttk.Button(mode_row, text="Load preset", style="Accent.TButton", command=gui._load_run_config).grid(row=0, column=2, sticky=tk.E, padx=(0, 8))
-    ttk.Button(mode_row, text="Save preset", command=gui._save_run_config).grid(row=0, column=3, sticky=tk.E, padx=(0, 8))
+    ttk.Button(mode_row, text="Load preset", style="Accent.TButton", command=gui.config_ctrl._load_run_config).grid(row=0, column=2, sticky=tk.E, padx=(0, 8))
+    ttk.Button(mode_row, text="Save preset", command=gui.config_ctrl._save_run_config).grid(row=0, column=3, sticky=tk.E, padx=(0, 8))
     ttk.Button(
         mode_row,
         textvariable=gui.pipeline_tools_toggle_text,
@@ -287,7 +287,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     )
     gui.input_source_combo.pack(side=tk.LEFT, padx=(0, 14))
 
-    upload_options = {"text": "Upload input to server", "command": gui._upload_input_to_server_placeholder}
+    upload_options = {"text": "Upload input to server", "command": gui.remote_ctrl._upload_input_to_server_placeholder}
     upload_icon = gui._make_icon("load") if hasattr(gui, "_make_icon") else None
     if upload_icon is not None:
         upload_options.update({"image": upload_icon, "compound": tk.LEFT})
@@ -311,7 +311,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     gui.file_count_label = ttk.Label(input_frame, text="")
     gui.file_count_label.pack(side=tk.LEFT, padx=(0, 8))
 
-    gui.btn_config_batch = ttk.Button(input_frame, text="Configure Batch", command=gui._configure_batch, state=tk.DISABLED)
+    gui.btn_config_batch = ttk.Button(input_frame, text="Configure Batch", command=gui.config_ctrl._configure_batch, state=tk.DISABLED)
     gui.btn_config_batch.pack(side=tk.LEFT, padx=(0, 8))
 
     gui.input_browse_button = ttk.Button(input_frame, text="Browse", style="Accent.TButton", command=gui._browse_input)
@@ -328,7 +328,7 @@ def _build_input_section(parent: ttk.Frame, gui) -> None:
     server_input_frame = ttk.Frame(gui.server_output_dir_row)
     server_input_frame.pack(fill=tk.X, expand=True)
     ttk.Entry(server_input_frame, textvariable=gui.state.server_output_dir).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-    gui.server_output_browse_button = ttk.Button(server_input_frame, text="Browse Server", style="Accent.TButton", command=gui._browse_server_output)
+    gui.server_output_browse_button = ttk.Button(server_input_frame, text="Browse Server", style="Accent.TButton", command=gui.remote_ctrl._browse_server_output)
     gui.server_output_browse_button.pack(side=tk.RIGHT)
     gui.server_output_tooltip = Tooltip(gui.server_output_browse_button, "")
 
@@ -378,7 +378,7 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
     ttk.Label(frame, text="RAM %", width=10).grid(row=1, column=0, sticky=tk.W, pady=(10, 4))
     ram_row = ttk.Frame(frame)
     ram_row.grid(row=1, column=1, sticky=tk.W, padx=(8, 0), pady=(10, 4))
-    ram_vcmd = (gui.root.register(gui._validate_ram_percent_input), "%P")
+    ram_vcmd = (gui.root.register(gui.validation_ctrl._validate_ram_percent_input), "%P")
     gui.ram_percent_spinbox = ttk.Spinbox(
         ram_row,
         from_=1,
@@ -396,7 +396,7 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
     ttk.Label(frame, text="Threads", width=10).grid(row=3, column=0, sticky=tk.W, pady=(10, 4))
     thread_row = ttk.Frame(frame)
     thread_row.grid(row=3, column=1, sticky=tk.W, padx=(8, 0), pady=(10, 4))
-    thread_vcmd = (gui.root.register(gui._validate_thread_input), "%P")
+    thread_vcmd = (gui.root.register(gui.validation_ctrl._validate_thread_input), "%P")
     gui.thread_spinbox = ttk.Spinbox(
         thread_row,
         from_=1,
@@ -475,7 +475,7 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     ttk.Label(frame, text="SSH Key", width=10).grid(row=2, column=0, sticky=tk.W, pady=4)
     gui.pipeline_ctrl.remote_key_entry = ttk.Entry(frame, textvariable=gui.state.remote_key_path)
     gui.pipeline_ctrl.remote_key_entry.grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=(8, 8), pady=3)
-    gui.remote_key_browse_button = ttk.Button(frame, text="Browse", style="Accent.TButton", command=gui._browse_remote_key)
+    gui.remote_key_browse_button = ttk.Button(frame, text="Browse", style="Accent.TButton", command=gui.remote_ctrl._browse_remote_key)
     gui.remote_key_browse_button.grid(row=2, column=3, sticky=tk.EW, padx=(0, 0), pady=3)
 
     ttk.Label(frame, text="Workspace", width=10).grid(row=3, column=0, sticky=tk.W, pady=4)
@@ -489,7 +489,7 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     gui.pipeline_ctrl.remote_status_icon_label = ttk.Label(buttons)
     gui.pipeline_ctrl.remote_status_icon_label.pack(side=tk.LEFT, padx=(12, 6))
     if hasattr(gui, "_set_remote_status_icon"):
-        gui._set_remote_status_icon("pending")
+        gui.remote_ctrl._set_remote_status_icon("pending")
     gui.remote_status_label = ttk.Label(buttons, textvariable=gui.state.remote_status)
     gui.remote_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 

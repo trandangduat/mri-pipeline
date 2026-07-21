@@ -49,7 +49,7 @@ class ValidationController:
             self.gui.state.remote_key_path,
             self.gui.state.remote_workspace,
         ):
-            var.trace_add("write", lambda *_args: self.gui._invalidate_remote_thread_max())
+            var.trace_add("write", lambda *_args: self.gui.remote_ctrl._invalidate_remote_thread_max())
     
         self.gui.state.input_path.trace_add("write", self.gui._refresh_input_label)
     
@@ -114,7 +114,7 @@ class ValidationController:
                 errors.append("Remote port must be a valid integer.")
             if not self.gui.state.remote_workspace.get().strip():
                 errors.append("Remote workspace is required.")
-            elif self.gui._current_remote_connection_signature() is not None and not self.gui._server_connected():
+            elif self.gui.remote_ctrl._current_remote_connection_signature() is not None and not self.gui.remote_ctrl._server_connected():
                 errors.append("Connect to the server before running.")
     
         mode = self.gui.state.input_mode.get()
@@ -161,7 +161,7 @@ class ValidationController:
             threads = int(self.gui.state.threads.get())
             if threads < 1:
                 errors.append("Threads must be at least 1.")
-            elif self.gui.state.run_target.get() == "Server" and self.gui._server_connected() and not self.gui._server_thread_max_known():
+            elif self.gui.state.run_target.get() == "Server" and self.gui.remote_ctrl._server_connected() and not self.gui.remote_ctrl._server_thread_max_known():
                 errors.append("Connect Server could not read the server CPU thread limit.")
             elif self.gui.max_threads is not None and threads > self.gui.max_threads:
                 errors.append(f"Threads cannot exceed max CPU threads ({self.gui.max_threads}).")
@@ -193,7 +193,7 @@ class ValidationController:
             image = str(TOOL_DEFS.get(tool, {}).get("image", ""))
             if tool and is_tool_enabled(tool) and image and image not in required_images:
                 required_images.append(image)
-        if required_images and (target != "Server" or self.gui._server_connected()):
+        if required_images and (target != "Server" or self.gui.remote_ctrl._server_connected()):
             unknown = [image for image in required_images if image_statuses.get(image, "Unknown") == "Unknown"]
             not_installed = [image for image in required_images if image_statuses.get(image, "Unknown") not in {"Installed", "Unknown"}]
             if unknown:
@@ -225,7 +225,7 @@ class ValidationController:
         self.gui.state.config_status.set(status_msg)
         
         # Check server connection state for specific buttons
-        server_ok = self.gui.state.run_target.get() != "Server" or self.gui._server_connected()
+        server_ok = self.gui.state.run_target.get() != "Server" or self.gui.remote_ctrl._server_connected()
         server_msg = "Please connect to the server first" if not server_ok else ""
         
         if self.gui.upload_input_button:
@@ -249,3 +249,64 @@ class ValidationController:
     
         return ok
     
+
+
+    def _validate_thread_input(self, proposed: str) -> bool:
+
+        if self.gui.state.run_target.get() == "Server" and not self.remote_ctrl._server_thread_max_known():
+
+            return proposed == ""
+
+        if proposed == "":
+
+            return True
+
+        try:
+
+            value = int(proposed)
+
+        except ValueError:
+
+            return False
+
+        if value < 1:
+
+            return False
+
+        return self.max_threads is None or value <= self.max_threads
+
+    def _validate_ram_percent_input(self, proposed: str) -> bool:
+
+        if proposed == "":
+
+            return True
+
+        try:
+
+            value = int(proposed)
+
+        except ValueError:
+
+            return False
+
+        return 1 <= value <= 100
+
+    def _clamp_threads(self) -> None:
+
+        if self.max_threads is None:
+
+            return
+
+        try:
+
+            value = int(self.gui.state.threads.get())
+
+        except (tk.TclError, ValueError):
+
+            return
+
+        clamped = min(max(value, 1), self.max_threads)
+
+        if clamped != value:
+
+            self.gui.state.threads.set(clamped)

@@ -238,7 +238,7 @@ class JobsController:
 
     def _attach_manual_job_dialog(self) -> None:
         if self.gui.state.run_target.get() == "Server":
-            if not self.gui._require_remote_connection("attaching a remote job"):
+            if not self.gui.remote_ctrl._require_remote_connection("attaching a remote job"):
                 return
             if not self._ensure_remote_auth_for_job_action("Attach job"):
                 return
@@ -412,14 +412,14 @@ class JobsController:
 
     def _remote_runner_from_job_entry(self, job: dict, read_metadata: bool = True) -> RemoteRunner | None:
         remote = dict(job.get("remote") or {})
-        if remote and not self.gui._server_connected():
+        if remote and not self.gui.remote_ctrl._server_connected():
             self.gui.state.remote_host.set(remote.get("host", self.gui.state.remote_host.get()))
             self.gui.state.remote_port.set(int(remote.get("port", self.gui.state.remote_port.get() or 22)))
             self.gui.state.remote_username.set(remote.get("username", self.gui.state.remote_username.get()))
             self.gui.state.remote_key_path.set(remote.get("key_path", self.gui.state.remote_key_path.get()))
             self.gui.state.remote_workspace.set(remote.get("workspace", self.gui.state.remote_workspace.get()))
             self.gui.state.remote_python.set(remote.get("python", self.gui.state.remote_python.get()))
-        if not self.gui._require_remote_connection("using remote job actions"):
+        if not self.gui.remote_ctrl._require_remote_connection("using remote job actions"):
             return None
         if not self._ensure_remote_auth_for_job_action("server job action"):
             return None
@@ -699,7 +699,7 @@ class JobsController:
         return None if jobs is None else [job for job in jobs if job.get("state") == "running"]
 
     def _remote_jobs_for_current_server(self) -> list[dict] | None:
-        if not self.gui._require_remote_connection("checking remote background jobs"):
+        if not self.gui.remote_ctrl._require_remote_connection("checking remote background jobs"):
             return None
         if not self._ensure_remote_auth_for_job_action("Resume or Attach job"):
             return None
@@ -982,7 +982,7 @@ class JobsController:
         req = req or self.gui.pipeline_ctrl._build_run_request()
         if req is None:
             return None
-        if not self.gui._require_remote_connection("running on the remote server"):
+        if not self.gui.remote_ctrl._require_remote_connection("running on the remote server"):
             return None
 
         ssh_config = self._build_ssh_config()
