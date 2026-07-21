@@ -1,3 +1,6 @@
+import os
+import stat
+from tkinter import simpledialog
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox

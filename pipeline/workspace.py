@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from .registry import STAGE_LABELS, tool_display_name
+from .reports import _format_bytes
 
 def _check_output_workspace(path: str, input_file: str = "") -> tuple[bool, str]:
     workspace = Path(path)
@@ -113,6 +114,29 @@ def _organize_output(subject_dir: str, preserve_dirs: set[str] | None = None) ->
                 d.rmdir()
             except OSError:
                 pass
+
+
+def _find_existing_outputs(subject_dir: str, possible_names: list[str], possible_globs: list[str] | None = None) -> list[str]:
+    found: list[str] = []
+    sd = Path(subject_dir)
+    for name in possible_names:
+        match = None
+        for candidate in [sd / "mri" / name, sd / "stats" / name, sd / name]:
+            if candidate.exists():
+                match = str(candidate)
+                break
+        if match is None:
+            matches = list(sd.rglob(name))
+            if matches:
+                match = str(matches[0])
+        if match and match not in found:
+            found.append(match)
+    for pattern in possible_globs or []:
+        for match in sorted(p for p in sd.rglob(pattern) if p.is_file()):
+            path = str(match)
+            if path not in found:
+                found.append(path)
+    return found
 
 def _find_output_file(subject_dir: str, possible_names: list[str], possible_globs: list[str] | None = None) -> str | None:
     outputs = _find_existing_outputs(subject_dir, possible_names, possible_globs)

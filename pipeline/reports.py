@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import os
+import json
+from datetime import datetime
+from .config import StepResult
+from .registry import STAGE_LABELS, tool_display_name
+from .stats import _as_number
+from .utils import _number_values, _avg, _median, _min, _max
+from .hardware import _safe_batch_config, _host_info
+from .config import PipelineConfig
 import csv
 from pathlib import Path
 from dataclasses import dataclass
@@ -7,6 +16,10 @@ from dataclasses import dataclass
 from .config import StatsVectorConfig, BatchImageResult
 from .discovery import build_subject_id_map, _derive_subject_id
 from .stats import _requested_vector_feature_map
+
+
+BENCHMARK_STEP_FIELDS = ["subject_id", "mri_name", "dataset_root", "stage", "tool", "success", "duration_sec", "build_duration_sec", "peak_ram_bytes", "avg_ram_bytes", "p95_ram_bytes", "peak_cpu_pct", "avg_cpu_pct", "p95_cpu_pct", "error"]
+BENCHMARK_SUMMARY_FIELDS = ["subject_id", "mri_name", "dataset_root", "success", "total_duration_sec", "total_build_duration_sec", "peak_ram_bytes", "peak_cpu_pct", "error"]
 
 @dataclass
 class BatchReportContext:
@@ -21,8 +34,15 @@ class BatchReportContext:
 def result_run_status(result: BatchImageResult | None) -> str:
     if result is None:
         return "not_started"
-    state = _load_pipeline_state(str(Path(result.subject_dir) / "logs"))
-    status = str(state.get("status", "")).lower()
+    path = Path(result.subject_dir) / "logs" / "pipeline_state.json"
+    status = ""
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                status = str(data.get("status", "")).lower()
+        except Exception:
+            pass
     if status == "success":
         return "completed"
     if status in {"failed", "paused", "running"}:

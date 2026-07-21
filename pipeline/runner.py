@@ -206,13 +206,12 @@ def run_pipeline(
         stage_pct = stage_idx / total_stages
 
         if config.resume:
-            resumed_output, resumed_outputs = _resume_output_for_stage(
+            resumed_output, resumed_outputs = tracker.resume_output_for_stage(
                 subject_dir,
-                state,
                 stage,
                 tool_key,
                 tool["output_files"],
-                tool.get("output_globs", []),
+                tool.get("output_globs")
             )
             if resumed_output:
                 input_for_next_step = resumed_output
@@ -312,7 +311,7 @@ def run_pipeline(
             f"Peak CPU: {peak_cpu:.0f}%" if peak_cpu is not None else "Peak CPU: n/a",
             f"Mean CPU: {metrics.avg_cpu_pct:.1f}%" if metrics.avg_cpu_pct is not None else "Mean CPU: n/a",
             f"P95 CPU: {metrics.p95_cpu_pct:.1f}%" if metrics.p95_cpu_pct is not None else "P95 CPU: n/a",
-            f"Exit code: {code}",
+            f"Exit code: {exec_result.return_code}",
         ]
         if exported_outputs:
             step_log_lines.append("Exported outputs: " + "; ".join(exported_outputs))
@@ -411,10 +410,12 @@ def run_batch_pipeline(
     benchmark_config.setdefault("recursive", recursive)
     benchmark_config.setdefault("input_file_count", total)
     report_stats_config = stats_vector_config or StatsVectorConfig()
-    ctx = BatchReportContext(output_dir=output_dir, input_files=input_files, batch_results=batch_results, subject_id_map=subject_id_map, dataset_root=dataset_root, stats_vector_config=report_stats_config, running_input_file=input_file if 'input_file' in locals() else '')
+    current_input_file = ""
+    ctx = BatchReportContext(output_dir=output_dir, input_files=input_files, batch_results=batch_results, subject_id_map=subject_id_map, dataset_root=dataset_root, stats_vector_config=report_stats_config, running_input_file=current_input_file)
     write_batch_reports(ctx)
 
     for idx, input_file in enumerate(input_files, start=1):
+        current_input_file = input_file
         if should_stop and should_stop():
             break
         subject_id = (subject_id_map or {}).get(input_file) or (subject_id_map or {}).get(str(Path(input_file).resolve()))
