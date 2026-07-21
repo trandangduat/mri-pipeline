@@ -36,6 +36,7 @@ from pipeline.discovery import _is_supported_mri_input
 from remote.remote_runner import RemoteRunner
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 from ui.gui_remote import RemoteController
+from ui.job_registry import JobRegistryController
 from ui.gui_config import ConfigController
 from ui.gui_jobs import JobsController
 from ui.gui_pipeline import PipelineController
@@ -162,6 +163,7 @@ class PipelineGUI:
         from ui.gui_validation import ValidationController
         self.validation_ctrl = ValidationController(self)
         self.config_ctrl = ConfigController(self)
+        self.registry_ctrl = JobRegistryController(self)
         self.remote_ctrl = RemoteController(self)
         self._build_ui()
         self._update_python_env_hint()
