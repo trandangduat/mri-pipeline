@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from unittest.mock import MagicMock
 from ui.job_registry import JobRegistryController
@@ -82,3 +84,17 @@ def test_config_controller_apply_run_config(mocker):
     # Verify downstream UI update methods were called
     mock_gui._apply_pipeline_mode.assert_called_with(apply_stats_preset=False)
     mock_gui.validation_ctrl._validate_configuration.assert_called_once()
+
+
+def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> None:
+    mock_gui = MagicMock()
+    active_job = {"job_id": "active", "state": "completed", "target": "Local"}
+    mock_gui.jobs_ctrl.active_job = active_job
+    ctrl = JobRegistryController(mock_gui)
+    mocker.patch("ui.job_registry.load_job_registry", return_value=[active_job])
+    mocker.patch("ui.job_registry.save_job_registry")
+
+    assert ctrl._delete_registry_job(active_job) is True
+
+    mock_gui.jobs_ctrl._stop_current_job_monitor.assert_called_once_with()
+    mock_gui.jobs_ctrl._delete_local_job_folders.assert_called_once_with(active_job)

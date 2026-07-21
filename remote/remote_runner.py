@@ -550,18 +550,20 @@ class RemoteRunner:
     def clean_remote(self) -> None:
         if not self.remote_job_dir:
             return
-        
-        # Guardrail: Prevent data loss by ensuring we only delete paths inside the remote workspace
-        import os
-        workspace_norm = os.path.normpath(self.config.remote_workspace)
-        job_dir_norm = os.path.normpath(self.remote_job_dir)
-        
-        # Ensure job_dir is inside workspace and doesn't use directory traversal to escape
-        if not job_dir_norm.startswith(workspace_norm + os.sep) and job_dir_norm != workspace_norm:
-            raise ValueError(f"Security error: Attempted to clean directory outside of designated workspace. "
-                             f"Job dir: {self.remote_job_dir}, Workspace: {self.config.remote_workspace}")
 
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            workspace_norm = posixpath.normpath(ssh.expand_path(self.config.remote_workspace).rstrip("/"))
+            job_dir_norm = posixpath.normpath(ssh.expand_path(self.remote_job_dir).rstrip("/"))
+
+            if job_dir_norm == workspace_norm:
+                raise ValueError(f"Security error: Refusing to clean workspace root: {self.remote_job_dir}")
+            if not job_dir_norm.startswith(workspace_norm + "/"):
+                raise ValueError(
+                    "Security error: Attempted to clean directory outside of designated workspace. "
+                    f"Job dir: {self.remote_job_dir}, Workspace: {self.config.remote_workspace}"
+                )
+
+            self.remote_job_dir = job_dir_norm
             code = ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
             if code != 0:
                 raise RuntimeError(f"Could not delete remote job folder: {self.remote_job_dir}")

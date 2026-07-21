@@ -40,7 +40,7 @@ class JobRegistryController:
 
         if active_identity and active_identity == self._job_identity(job):
 
-            self._stop_current_job_monitor()
+            self.gui.jobs_ctrl._stop_current_job_monitor()
 
     
 

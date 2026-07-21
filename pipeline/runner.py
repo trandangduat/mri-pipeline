@@ -34,7 +34,7 @@ from .registry import (
     tool_display_name,
 )
 from .docker_ops import ensure_image
-from .executor import LocalDockerExecutor
+from .executor import ExecutionRequest, LocalDockerExecutor
 from .state import PipelineTracker
 from .discovery import (
     _derive_subject_id,
@@ -78,6 +78,89 @@ def _docker_memory_limit_bytes(ram_percent: int) -> int | None:
     if not total:
         return None
     return max(1, int(total * pct / 100))
+
+
+def _build_execution_request(
+    *,
+    tool_key: str,
+    tool: dict,
+    config: PipelineConfig,
+    subject_dir: str,
+    logs_dir: str,
+    input_for_next_step: str | None,
+    license_mount: list[tuple[str, str]],
+    memory_limit_bytes: int | None,
+) -> ExecutionRequest:
+    if input_for_next_step is None:
+        input_abs = Path(config.input_file).expanduser().resolve()
+        dicom_files = _dicom_files_in_series(input_abs)
+        docker_input_abs = _first_dicom_file_in_series(input_abs) or input_abs
+        host_input_dir = str(input_abs.parent)
+        input_rel = docker_input_abs.relative_to(input_abs.parent).as_posix()
+        input_path = f"/input/{input_rel}"
+        dicom_list_path = ""
+        if dicom_files:
+            dicom_list_file = Path(logs_dir) / "dicom_input_files.txt"
+            dicom_list_file.write_text(
+                "\n".join(f"/input/{path.relative_to(input_abs.parent).as_posix()}" for path in dicom_files) + "\n",
+                encoding="utf-8",
+            )
+            dicom_list_path = "/work/logs/dicom_input_files.txt"
+        mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
+    else:
+        rel = os.path.relpath(input_for_next_step, subject_dir)
+        input_path = f"/work/{rel}"
+        dicom_list_path = ""
+        mounts = []
+
+    mounts.append((subject_dir, "/output"))
+    mounts.append((subject_dir, "/work"))
+    if tool.get("needs_license") and license_mount:
+        mounts.extend(license_mount)
+    for rel, container in tool.get("extra_mounts", {}).items():
+        host = os.path.join(subject_dir, "mri", rel)
+        Path(host).mkdir(parents=True, exist_ok=True)
+        mounts.append((host, container))
+    norm_vol = PROJECT_ROOT / "normalize_volumes.py"
+    if norm_vol.exists():
+        mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
+
+    args = [
+        "--input",
+        input_path,
+        "--output-dir",
+        "/output",
+        "--work-dir",
+        "/work",
+        "--subject-id",
+        config.subject_id,
+        "--threads",
+        str(config.threads),
+        "--device",
+        config.device,
+    ]
+    command = tool.get("command")
+    if "command_builder" in tool:
+        ctx = ToolContext(
+            input_path=input_path,
+            subject_id=config.subject_id,
+            threads=config.threads,
+            device=config.device,
+            dicom_list_path=dicom_list_path,
+        )
+        command = [tool.get("shell", "bash"), "-c", tool["command_builder"](ctx)]
+        args = []
+
+    return ExecutionRequest(
+        image=tool["image"],
+        args=args,
+        mounts=mounts,
+        command=command,
+        entrypoint=tool.get("entrypoint"),
+        gpus=(config.device == "gpu" or config.device == "cuda"),
+        memory_bytes=memory_limit_bytes,
+        container_name=_safe_container_name("mri", config.subject_id, tool_key),
+    )
 
 
 
@@ -240,17 +323,23 @@ def run_pipeline(
             progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {err}")
             break
 
-        executor = executor or LocalDockerExecutor()
-        exec_result = executor.execute(
+        executor_adapter = executor or LocalDockerExecutor()
+        req = _build_execution_request(
             tool_key=tool_key,
-            stage=stage,
-            input_file=input_for_next_step,
-            subject_dir=subject_dir,
+            tool=tool,
             config=config,
+            subject_dir=subject_dir,
             logs_dir=logs_dir,
+            input_for_next_step=input_for_next_step,
+            license_mount=license_mount,
             memory_limit_bytes=memory_limit_bytes,
-            on_metrics=on_metrics
         )
+
+        def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):
+            if on_metrics:
+                on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
+
+        exec_result = executor_adapter.execute(req, on_metrics=_metrics_relay if on_metrics else None)
         
         peak_ram = exec_result.metrics.peak_ram_bytes if exec_result.metrics else None
         peak_cpu = exec_result.metrics.peak_cpu_pct if exec_result.metrics else None
@@ -259,6 +348,7 @@ def run_pipeline(
         success = exec_result.success
         error = exec_result.error
         output = exec_result.output
+        _repair_host_permissions(subject_dir, tool["image"])
         
         _organize_output(subject_dir, preserve_dirs={_safe_export_stem(config.export_config.folder, "exports")})
         
