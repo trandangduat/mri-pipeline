@@ -31,30 +31,27 @@ from .config import (
     tool_display_name,
 )
 from .docker_ops import _run_docker, ensure_image
-from .utils import (
-    _append_step_log,
-    _check_output_workspace,
+from .state import PipelineTracker
+from .discovery import (
     _derive_subject_id,
-    _describe_subject_files,
     _dicom_files_in_series,
     _discover_mri_files,
     _duplicate_basenames,
     _first_dicom_file_in_series,
-    _find_existing_outputs,
+    build_subject_id_map,
+)
+from .utils import (
+    _append_step_log,
+    _check_output_workspace,
+    _describe_subject_files,
     _find_output_file,
     _format_bytes,
-    _load_pipeline_state,
-    _new_pipeline_state,
     _organize_output,
     _repair_host_permissions,
-    _resume_output_for_stage,
     _safe_container_name,
-    _set_stage_state,
     _total_ram_bytes,
     _write_batch_benchmark_reports,
     _write_pipeline_metrics_log,
-    _write_pipeline_state,
-    build_subject_id_map,
 )
 
 
@@ -296,13 +293,8 @@ def run_pipeline(
         return [result]
     log.info(workspace_msg)
 
-    state = _load_pipeline_state(logs_dir) if config.resume else {}
-    if not state:
-        state = _new_pipeline_state(config, subject_dir)
-    state["status"] = "running"
-    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    state["selected_tools"] = config.selected_tools
-    _write_pipeline_state(logs_dir, state)
+    tracker = PipelineTracker(logs_dir, config, subject_dir)
+    tracker.mark_started(config.selected_tools)
 
     license_mount: list[tuple[str, str]] = []
     if config.license_dir:
@@ -341,27 +333,27 @@ def run_pipeline(
             )
             if resumed_output:
                 input_for_next_step = resumed_output
-                _set_stage_state(
-                    logs_dir,
-                    state,
-                    stage,
-                    tool_key,
-                    "completed",
+                from .state import StageResult
+                tracker.mark_stage_completed(StageResult(
+                    stage=stage,
+                    tool=tool_key,
+                    success=True,
                     output_file=resumed_output,
-                    output_files_found=resumed_outputs,
-                    duration_sec=0.0,
-                )
+                    outputs_found=resumed_outputs,
+                    duration_sec=0.0
+                ))
                 results.append(StepResult(stage=stage, tool=tool_key, success=True, duration_sec=0.0, output_files=tool["output_files"], log_text="resumed from verified output files"))
                 progress(stage, "success", (stage_idx + 1) / total_stages, f"Resume: verified outputs and skipped {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
                 continue
 
         progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
-        _set_stage_state(logs_dir, state, stage, tool_key, "running")
+        tracker.mark_stage_running(stage, tool_key)
 
         ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
         if not ok:
             error = f"Image not available: {err}"
-            _set_stage_state(logs_dir, state, stage, tool_key, "failed", error=error)
+            from .state import StageResult
+            tracker.mark_stage_completed(StageResult(stage=stage, tool=tool_key, success=False, error=error))
             results.append(StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=build_time, error=error))
             progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {err}")
             break
@@ -474,19 +466,26 @@ def run_pipeline(
                 output_tail = " | ".join(output.strip().splitlines()[-8:]) if output.strip() else "no docker output captured"
                 error = f"missing expected output files/patterns: {expected}. Files found: {_describe_subject_files(subject_dir)}. Docker output tail: {output_tail}"
 
-        outputs_found = _find_existing_outputs(subject_dir, tool["output_files"], tool.get("output_globs", [])) if success else []
+        outputs_found = tracker.find_existing_outputs(subject_dir, tool["output_files"], tool.get("output_globs", [])) if success else []
         exported_outputs: list[str] = []
         export_error = ""
         if success:
             exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config)
             if export_error:
                 progress(stage, "running", (stage_idx + 1) / total_stages, f"Export warning: {export_error}")
-        _set_stage_state(logs_dir, state, stage, tool_key, "completed" if success else "failed", output_file=input_for_next_step if success and input_for_next_step else "", output_files_found=outputs_found, error=error, duration_sec=duration)
+        from .state import StageResult
+        result = StageResult(
+            stage=stage,
+            tool=tool_key,
+            success=success,
+            output_file=input_for_next_step if success and input_for_next_step else "",
+            outputs_found=outputs_found,
+            error=error,
+            duration_sec=duration
+        )
+        tracker.mark_stage_completed(result)
         if success and (exported_outputs or export_error):
-            state.setdefault("stages", {}).setdefault(stage, {})["exported_outputs"] = exported_outputs
-            if export_error:
-                state["stages"][stage]["export_error"] = export_error
-            _write_pipeline_state(logs_dir, state)
+            tracker.add_exported_outputs(stage, exported_outputs, export_error)
 
         step_log_lines = [
             f"Stage: {stage}",
@@ -519,10 +518,7 @@ def run_pipeline(
             progress(stage, "success", (stage_idx + 1) / total_stages, msg)
             if should_stop and should_stop():
                 paused = True
-                state["status"] = "PAUSED"
-                state["paused_after_stage"] = stage
-                state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                _write_pipeline_state(logs_dir, state)
+                tracker.mark_paused(stage)
                 progress("pipeline", "paused", (stage_idx + 1) / total_stages, f"Paused after {STAGE_LABELS[stage]}. Resume will verify outputs and continue from the next incomplete stage.")
                 break
         else:
@@ -530,24 +526,19 @@ def run_pipeline(
             break
 
     if paused:
-        state["status"] = "PAUSED"
+        tracker.mark_paused()
     else:
-        state["status"] = "SUCCESS" if results and all(r.success for r in results) else "FAILED"
+        success = bool(results and all(r.success for r in results))
+        tracker.mark_completed(success)
     generator = StatsGenerator(config.stats_vector_config)
     result = generator.generate(subject_dir, config.subject_id)
     generated_vectors, vector_warnings = result.files, result.warnings
     if generated_vectors or vector_warnings:
-        state["stats_vectors"] = {
-            "generated": generated_vectors,
-            "warnings": vector_warnings,
-        }
+        tracker.set_stats_vectors(generated_vectors, vector_warnings)
         if vector_warnings:
             _append_step_log(logs_dir, "stats_vectors", ["Stats vector warnings:", *vector_warnings])
         if generated_vectors:
             _append_step_log(logs_dir, "stats_vectors", ["Generated stats vectors:", *generated_vectors])
-    state["finished_at"] = datetime.now().isoformat(timespec="seconds")
-    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    _write_pipeline_state(logs_dir, state)
     _write_pipeline_metrics_log(logs_dir, config, subject_dir, results, started_at, time.time())
     return results
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from .config import StatsVectorConfig, STAT_VECTOR_DEFS, PROJECT_ROOT, BatchImageResult
-from .utils import build_subject_id_map, _derive_subject_id
+from .discovery import build_subject_id_map, _derive_subject_id
 
 log = logging.getLogger(__name__)
 

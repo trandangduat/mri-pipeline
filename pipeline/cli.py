@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import BatchImageResult, ExportConfig, PROJECT_ROOT, PipelineConfig, STAGE_ORDER, TOOL_DEFS, StatsVectorConfig, enabled_tools_for_stage, is_tool_enabled, tool_display_name
 from .docker_ops import ensure_image
 from .runner import run_batch_pipeline, run_pipeline
-from .utils import _derive_subject_id, _discover_mri_files, _duplicate_basenames
+from .discovery import _derive_subject_id, _discover_mri_files, _duplicate_basenames
 
 
 DEFAULT_BATCH_INPUT_DIR = "/mnt/c/Users/ADMIN/Desktop/MRI/ADNI"

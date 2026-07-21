@@ -5,7 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from .config import StatsVectorConfig, BatchImageResult
-from .utils import build_subject_id_map, _derive_subject_id
+from .discovery import build_subject_id_map, _derive_subject_id
 from .stats import _requested_vector_feature_map
 
 @dataclass

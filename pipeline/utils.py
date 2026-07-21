@@ -110,8 +110,6 @@ def _file_stem(filename: str) -> str:
     return Path(filename).stem
 
 
-def _default_subject_id(input_file: str) -> str:
-    return _file_stem(Path(input_file).name)
 
 
 _GENERIC_BASENAMES = frozenset({
@@ -119,157 +117,30 @@ _GENERIC_BASENAMES = frozenset({
 })
 
 
-def _is_generic_basename(filename: str) -> bool:
-    stem = _file_stem(filename).lower()
-    if stem in _GENERIC_BASENAMES:
-        return True
-    return bool(re.fullmatch(r"\d{1,6}", stem))
 
 
-def _sanitize_subject_id(raw: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._")
-    if not safe:
-        safe = "subject"
-    if not safe[0].isalnum():
-        safe = f"mri_{safe}"
-    return safe[:200]
 
 
-def _duplicate_basenames(files: list[str]) -> set[str]:
-    counts: dict[str, int] = {}
-    for f in files:
-        name = Path(f).name
-        counts[name] = counts.get(name, 0) + 1
-    return {name for name, n in counts.items() if n > 1}
 
 
-def _derive_subject_id(input_file: str, dataset_root: str = "", duplicate_basenames: set[str] | None = None) -> str:
-    path = Path(input_file).expanduser().resolve()
-    dup_names = duplicate_basenames or set()
-    use_path = path.name in dup_names or _is_generic_basename(path.name)
-
-    if use_path and path.parent.name:
-        if dataset_root:
-            try:
-                rel = path.relative_to(Path(dataset_root).expanduser().resolve())
-                if len(rel.parts) >= 2:
-                    return _sanitize_subject_id("__".join(rel.with_suffix("").parts))
-            except ValueError:
-                pass
-        return _sanitize_subject_id(path.parent.name)
-
-    if dataset_root:
-        try:
-            rel = path.relative_to(Path(dataset_root).expanduser().resolve())
-            if len(rel.parts) > 1:
-                return _sanitize_subject_id("__".join(rel.with_suffix("").parts))
-        except ValueError:
-            pass
-
-    return _sanitize_subject_id(_default_subject_id(str(path)))
 
 
-def build_subject_id_map(files: list[str], dataset_root: str) -> dict[str, str]:
-    dup_names = _duplicate_basenames(files)
-    used: set[str] = set()
-    out: dict[str, str] = {}
-    for f in sorted(files):
-        base = _derive_subject_id(f, dataset_root, dup_names)
-        sid = base
-        counter = 2
-        while sid in used:
-            sid = f"{base}_{counter}"
-            counter += 1
-        used.add(sid)
-        out[f] = sid
-    return out
 
 
-def _has_dicom_magic(path: Path) -> bool:
-    try:
-        with path.open("rb") as f:
-            header = f.read(132)
-        return len(header) >= 132 and header[128:132] == b"DICM"
-    except OSError:
-        return False
 
 
-def _is_dicom_file(path: Path) -> bool:
-    lower = path.name.lower()
-    if lower.endswith(DICOM_FILE_EXTENSIONS):
-        return True
-    return path.suffix == "" and _has_dicom_magic(path)
 
 
-def _is_supported_mri_file(path: Path) -> bool:
-    return path.name.lower().endswith(VOLUME_FILE_EXTENSIONS) or _is_dicom_file(path)
 
 
-def _is_dicom_series_dir(path: Path) -> bool:
-    if not path.exists() or not path.is_dir():
-        return False
-    try:
-        return any(child.is_file() and _is_dicom_file(child) for child in path.iterdir())
-    except OSError:
-        return False
 
 
-def _dicom_files_in_series(path: Path) -> list[Path]:
-    if not path.exists() or not path.is_dir():
-        return []
-    try:
-        return [child for child in sorted(path.iterdir(), key=lambda p: p.name.lower()) if child.is_file() and _is_dicom_file(child)]
-    except OSError:
-        return []
 
 
-def _first_dicom_file_in_series(path: Path) -> Path | None:
-    files = _dicom_files_in_series(path)
-    return files[0] if files else None
 
 
-def _is_supported_mri_input(path: str | Path) -> bool:
-    p = Path(path).expanduser()
-    if p.is_file():
-        return _is_supported_mri_file(p)
-    return _is_dicom_series_dir(p)
 
 
-def _discover_mri_files(input_dir: str, recursive: bool = True) -> list[str]:
-    root = Path(input_dir).expanduser()
-    if not root.exists() or not root.is_dir():
-        return []
-    results: list[str] = []
-
-    def scan_dir(directory: Path) -> None:
-        if _is_dicom_series_dir(directory):
-            results.append(str(directory))
-            return
-        try:
-            children = sorted(directory.iterdir(), key=lambda p: p.as_posix().lower())
-        except OSError:
-            return
-        for child in children:
-            if child.is_file() and _is_supported_mri_file(child):
-                results.append(str(child))
-            elif recursive and child.is_dir():
-                scan_dir(child)
-
-    if recursive:
-        scan_dir(root)
-    else:
-        if _is_dicom_series_dir(root):
-            return [str(root)]
-        try:
-            children = sorted(root.iterdir(), key=lambda p: p.as_posix().lower())
-        except OSError:
-            return []
-        for child in children:
-            if child.is_file() and _is_supported_mri_file(child):
-                results.append(str(child))
-            elif child.is_dir() and _is_dicom_series_dir(child):
-                results.append(str(child))
-    return results
 
 
 def _safe_container_name(*parts: str) -> str:
@@ -789,100 +660,15 @@ def _write_batch_benchmark_reports(output_dir: str, batch_results: list[BatchIma
     return str(benchmark_dir)
 
 
-def _pipeline_state_path(logs_dir: str) -> Path:
-    return Path(logs_dir) / "pipeline_state.json"
 
 
-def _load_pipeline_state(logs_dir: str) -> dict:
-    path = _pipeline_state_path(logs_dir)
-    if not path.exists():
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
 
 
-def _write_pipeline_state(logs_dir: str, state: dict) -> None:
-    path = _pipeline_state_path(logs_dir)
-    Path(logs_dir).mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
 
 
-def _new_pipeline_state(config: PipelineConfig, subject_dir: str) -> dict:
-    return {
-        "version": 2,
-        "input_file": os.path.abspath(config.input_file),
-        "subject_id": config.subject_id,
-        "subject_dir": subject_dir,
-        "status": "running",
-        "current_stage": "",
-        "started_at": datetime.now().isoformat(timespec="seconds"),
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-        "selected_tools": config.selected_tools,
-        "ram_percent": config.ram_percent,
-        "export_config": config.export_config.to_dict(),
-        "stats_vector_config": config.stats_vector_config.to_dict(),
-        "stages": {},
-    }
 
 
-def _set_stage_state(logs_dir: str, state: dict, stage: str, tool: str, status: str, output_file: str = "", output_files_found: list[str] | None = None, error: str = "", duration_sec: float = 0.0) -> None:
-    state.setdefault("stages", {})[stage] = {
-        "tool": tool,
-        "status": status,
-        "output_file": output_file,
-        "output_files_found": output_files_found or ([output_file] if output_file else []),
-        "error": error,
-        "duration_sec": duration_sec,
-        "updated_at": datetime.now().isoformat(timespec="seconds"),
-    }
-    state["current_stage"] = stage
-    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    if status == "failed":
-        state["status"] = "failed"
-    elif status == "running":
-        state["status"] = "running"
-    _write_pipeline_state(logs_dir, state)
 
 
-def _find_existing_outputs(subject_dir: str, possible_names: list[str], possible_globs: list[str] | None = None) -> list[str]:
-    found: list[str] = []
-    sd = Path(subject_dir)
-    for name in possible_names:
-        match = None
-        for candidate in [sd / "mri" / name, sd / "stats" / name, sd / name]:
-            if candidate.exists():
-                match = str(candidate)
-                break
-        if match is None:
-            matches = list(sd.rglob(name))
-            if matches:
-                match = str(matches[0])
-        if match and match not in found:
-            found.append(match)
-    for pattern in possible_globs or []:
-        for match in sorted(p for p in sd.rglob(pattern) if p.is_file()):
-            path = str(match)
-            if path not in found:
-                found.append(path)
-    return found
 
 
-def _resume_output_for_stage(subject_dir: str, state: dict, stage: str, tool_key: str, output_files: list[str], output_globs: list[str] | None = None) -> tuple[str | None, list[str]]:
-    stage_state = state.get("stages", {}).get(stage, {})
-    recorded_outputs = [p for p in stage_state.get("output_files_found", []) if p]
-    if stage_state.get("status") == "completed" and stage_state.get("tool") == tool_key and recorded_outputs and all(Path(p).exists() for p in recorded_outputs):
-        saved_output = stage_state.get("output_file")
-        if saved_output and Path(saved_output).exists():
-            return saved_output, recorded_outputs
-        return recorded_outputs[0], recorded_outputs
-
-    # Resume after interruption: trust verified files on disk, not only JSON state.
-    found_outputs = _find_existing_outputs(subject_dir, output_files, output_globs)
-    return (found_outputs[0], found_outputs) if found_outputs else (None, [])
