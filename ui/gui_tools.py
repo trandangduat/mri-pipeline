@@ -15,8 +15,8 @@ from urllib.parse import quote
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from pipeline.config import (
-    PROJECT_ROOT,
+from pipeline.config import PROJECT_ROOT
+from pipeline.registry import (
     STAGE_LABELS,
     TOOL_DEFS,
     is_tool_enabled,

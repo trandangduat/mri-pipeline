@@ -252,60 +252,35 @@ class ValidationController:
 
 
     def _validate_thread_input(self, proposed: str) -> bool:
-
-        if self.gui.state.run_target.get() == "Server" and not self.remote_ctrl._server_thread_max_known():
-
+        if self.gui.state.run_target.get() == "Server" and not self.gui.remote_ctrl._server_thread_max_known():
             return proposed == ""
-
         if proposed == "":
-
             return True
-
         try:
-
             value = int(proposed)
-
         except ValueError:
-
             return False
-
         if value < 1:
-
             return False
-
-        return self.max_threads is None or value <= self.max_threads
+        return self.gui.max_threads is None or value <= self.gui.max_threads
 
     def _validate_ram_percent_input(self, proposed: str) -> bool:
-
         if proposed == "":
-
             return True
-
         try:
-
             value = int(proposed)
-
         except ValueError:
-
             return False
-
         return 1 <= value <= 100
 
     def _clamp_threads(self) -> None:
-
-        if self.max_threads is None:
-
+        if self.gui.max_threads is None:
             return
-
         try:
-
             value = int(self.gui.state.threads.get())
-
         except (tk.TclError, ValueError):
-
             return
-
-        clamped = min(max(value, 1), self.max_threads)
+        clamped = min(max(value, 1), self.gui.max_threads)
 
         if clamped != value:
 

@@ -14,8 +14,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from pipeline.jobs import load_job_registry, read_json, save_job_registry, upsert_job_registry, write_json
-from pipeline.config import (
-    PROJECT_ROOT,
+from pipeline.config import PROJECT_ROOT
+from pipeline.registry import (
     STAGE_ORDER,
     TOOL_DEFS,
     enabled_tools_for_stage,
@@ -72,7 +72,7 @@ class JobsController:
 
         if key_path:
             self.gui.state.remote_key_path.set("")
-        if getattr(self, "notebook", None) is not None and getattr(self, "config_tab", None) is not None:
+        if getattr(self.gui, "notebook", None) is not None and getattr(self.gui, "config_tab", None) is not None:
             self.gui.notebook.select(self.gui.config_tab)
         messagebox.showwarning(
             "Missing SSH authentication",

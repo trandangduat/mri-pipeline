@@ -16,10 +16,8 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from pipeline.jobs import create_local_job_dir, upsert_job_registry, write_json
-from pipeline.config import (
-    PROJECT_ROOT,
-    STAGE_ORDER,
-)
+from pipeline.config import PROJECT_ROOT
+from pipeline.registry import STAGE_ORDER
 from pipeline.discovery import _is_supported_mri_input, _is_dicom_series_dir, _discover_mri_files
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
