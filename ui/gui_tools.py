@@ -428,7 +428,7 @@ class ToolsController:
     def _build_image_remote_runner(self) -> RemoteRunner | None:
         if self.gui.state.run_target.get() == "Server" and not self.gui.remote_ctrl._server_connected():
             return None
-        ssh_config = self.gui.jobs_ctrl._build_ssh_config()
+        ssh_config = self.gui.jobs_ctrl.build_ssh_config()
         if ssh_config is None:
             return None
         return RemoteRunner(

@@ -18,7 +18,7 @@ def show_upload_dialog(gui):
     if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
-    ssh_config = gui.jobs_ctrl._build_ssh_config()
+    ssh_config = gui.jobs_ctrl.build_ssh_config()
     if ssh_config is None:
         return
 
@@ -404,7 +404,7 @@ def show_remote_output_browser(gui):
     if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
-    ssh_config = gui.jobs_ctrl._build_ssh_config()
+    ssh_config = gui.jobs_ctrl.build_ssh_config()
     if ssh_config is None:
         return
         
@@ -547,7 +547,7 @@ def show_remote_input_browser(gui):
     if not gui.remote_ctrl._server_connected():
         messagebox.showwarning("Connect Server", "Please connect to the server first.")
         return
-    ssh_config = gui.jobs_ctrl._build_ssh_config()
+    ssh_config = gui.jobs_ctrl.build_ssh_config()
     if ssh_config is None:
         return
     mode = gui.state.input_mode.get()

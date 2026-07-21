@@ -30,9 +30,9 @@ def show_attach_job_dialog(ctrl) -> None:
     if target == "Server":
         if not ctrl.gui.remote_ctrl._require_remote_connection("attaching remote jobs"):
             return
-        if not ctrl._ensure_remote_auth_for_job_action("Attach job"):
+        if not ctrl.ensure_remote_auth_for_job_action("Attach job"):
             return
-        ssh_config = ctrl._build_ssh_config()
+        ssh_config = ctrl.build_ssh_config()
         if ssh_config is None:
             return
         jobs = [
