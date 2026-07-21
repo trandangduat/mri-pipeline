@@ -12,7 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .config import PipelineConfig, StepResult, BatchImageResult, STAGE_LABELS, tool_display_name
+from .config import PipelineConfig, StepResult, BatchImageResult
+from .registry import STAGE_LABELS, tool_display_name
 
 
 def _read_cpuinfo() -> dict[str, str | int | None]:

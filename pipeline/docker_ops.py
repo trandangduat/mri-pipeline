@@ -9,7 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback, TOOL_DEFS, is_tool_enabled, tool_display_name
+from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback
+from .registry import TOOL_DEFS, is_tool_enabled, tool_display_name
 
 
 log = logging.getLogger(__name__)

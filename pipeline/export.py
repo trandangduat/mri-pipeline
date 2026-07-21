@@ -1,7 +1,8 @@
 import shutil
 from pathlib import Path
 from typing import Tuple, List
-from .config import EXPORT_OUTPUT_ITEMS, ExportConfig, TOOL_DEFS
+from .config import EXPORT_OUTPUT_ITEMS, ExportConfig
+from .registry import TOOL_DEFS
 from .docker_ops import ensure_image
 from .executor import LocalDockerExecutor, ExecutionRequest
 from .utils import _repair_host_permissions, _safe_container_name

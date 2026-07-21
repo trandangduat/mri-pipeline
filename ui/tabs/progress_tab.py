@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from pipeline.config import STAGE_LABELS, STAGE_ORDER
+from pipeline.registry import STAGE_LABELS, STAGE_ORDER
 from ui.components.cards import create_card
 from ui.components.charts import MetricsCharts, LineChart
 

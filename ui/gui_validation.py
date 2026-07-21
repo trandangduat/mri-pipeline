@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 
 # Imports for validation
-from pipeline.config import STAT_VECTOR_DEFS, STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name, VOLUME_SKIPPED_STAGES
+from pipeline.config import STAT_VECTOR_DEFS
+from pipeline.registry import STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name
+from pipeline.presets import VOLUME_SKIPPED_STAGES
 from pipeline.discovery import _is_supported_mri_input
 
 class ValidationController:

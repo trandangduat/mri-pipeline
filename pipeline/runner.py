@@ -23,11 +23,13 @@ from .config import (
     PipelineConfig,
     ProgressCallback,
     PROJECT_ROOT,
+    StepResult,
+    ToolContext,
+)
+from .registry import (
     STAGE_LABELS,
     STAGE_ORDER,
-    StepResult,
     TOOL_DEFS,
-    ToolContext,
     is_tool_enabled,
     tool_display_name,
 )
