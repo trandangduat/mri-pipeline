@@ -277,9 +277,9 @@ class RemoteController:
 
     
 
-        if self.gui.pipeline_ctrl.run_target_combo is not None:
+        if self.gui.run_target_combo is not None:
 
-            self.gui.pipeline_ctrl.run_target_combo.configure(state=tk.DISABLED if self.gui.pipeline_ctrl.remote_connecting else "readonly")
+            self.gui.run_target_combo.configure(state=tk.DISABLED if self.gui.pipeline_ctrl.remote_connecting else "readonly")
 
         for widget in (
 
@@ -293,9 +293,9 @@ class RemoteController:
 
             self.gui.pipeline_ctrl.remote_key_entry,
 
-            self.gui.pipeline_ctrl.remote_key_browse_button,
+            self.gui.remote_key_browse_button,
 
-            self.gui.pipeline_ctrl.remote_workspace_entry,
+            self.gui.remote_workspace_entry,
 
         ):
 
