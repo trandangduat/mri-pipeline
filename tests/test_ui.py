@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 from ui.job_registry import JobRegistryController
 from ui.gui_config import ConfigController
+from ui.gui_pipeline import PipelineController
 
 def test_job_registry_identity_and_merge():
     # JobRegistryController just needs a mock gui
@@ -94,6 +95,17 @@ def test_configure_batch_opens_batch_window_with_gui_root(mocker) -> None:
     ctrl._configure_batch()
 
     batch_window.assert_called_once_with(mock_gui.root, mock_gui)
+
+
+def test_upload_remote_job_dialog_receives_runner(mocker) -> None:
+    mock_gui = MagicMock()
+    ctrl = PipelineController(mock_gui)
+    runner = MagicMock()
+    dialog = mocker.patch("ui.dialogs.job_dialogs.show_upload_remote_job_dialog", return_value=True)
+
+    assert ctrl._upload_remote_job_with_dialog(runner) is True
+
+    dialog.assert_called_once_with(ctrl, runner)
 
 
 def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> None:

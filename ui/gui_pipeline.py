@@ -90,9 +90,9 @@ class PipelineController:
             return False
         return False
 
-    def _upload_remote_job_with_dialog(self) -> None:
+    def _upload_remote_job_with_dialog(self, runner) -> bool:
         from ui.dialogs.job_dialogs import show_upload_remote_job_dialog
-        show_upload_remote_job_dialog(self)
+        return show_upload_remote_job_dialog(self, runner)
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
         if not self.gui.jobs_ctrl._can_start_new_pipeline():
