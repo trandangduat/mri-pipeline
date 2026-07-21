@@ -110,6 +110,28 @@ def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> Non
     mock_gui.jobs_ctrl.delete_local_job_folders.assert_called_once_with(active_job)
 
 
+def test_remote_jobs_for_current_server_uses_jobs_controller_auth(mocker) -> None:
+    mock_gui = MagicMock()
+    mock_gui.remote_ctrl._require_remote_connection.return_value = True
+    mock_gui.jobs_ctrl.ensure_remote_auth_for_job_action.return_value = True
+    ssh_config = MagicMock(host="host", port=22, username="user", key_path="")
+    mock_gui.jobs_ctrl.build_ssh_config.return_value = ssh_config
+    mock_gui.state.remote_workspace.get.return_value = "~/mri-remote-jobs"
+    mock_gui.state.remote_python.get.return_value = "python3"
+    mock_gui.state.output_dir.get.return_value = "/tmp/out"
+    runner = MagicMock()
+    runner.list_background_jobs.return_value = []
+    remote_runner = mocker.patch("ui.job_registry.RemoteRunner", return_value=runner)
+    mocker.patch("ui.job_registry.load_job_registry", return_value=[])
+    ctrl = JobRegistryController(mock_gui)
+
+    assert ctrl._remote_jobs_for_current_server() == []
+
+    mock_gui.jobs_ctrl.ensure_remote_auth_for_job_action.assert_called_once_with("Resume or Attach job")
+    mock_gui.jobs_ctrl.build_ssh_config.assert_called_once_with()
+    remote_runner.assert_called_once()
+
+
 def test_pipeline_gui_validate_configuration_facade(mocker) -> None:
     mocker.patch.dict("sys.modules", {"sv_ttk": MagicMock()})
     from ui.main import PipelineGUI

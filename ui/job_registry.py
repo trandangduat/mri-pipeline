@@ -344,11 +344,11 @@ class JobRegistryController:
 
             return None
 
-        if not self._ensure_remote_auth_for_job_action("Resume or Attach job"):
+        if not self.gui.jobs_ctrl.ensure_remote_auth_for_job_action("Resume or Attach job"):
 
             return None
 
-        ssh_config = self._build_ssh_config()
+        ssh_config = self.gui.jobs_ctrl.build_ssh_config()
 
         if ssh_config is None:
 

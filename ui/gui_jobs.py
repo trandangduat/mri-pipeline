@@ -80,6 +80,9 @@ class JobsController:
         )
         return False
 
+    def ensure_remote_auth_for_job_action(self, action: str) -> bool:
+        return self._ensure_remote_auth_for_job_action(action)
+
 
     def _delete_path_if_exists(self, path: Path) -> None:
         if not path.exists():
@@ -768,6 +771,9 @@ class JobsController:
             password=self.gui.state.remote_password.get(),
             key_path=self.gui.state.remote_key_path.get().strip(),
         )
+
+    def build_ssh_config(self) -> SSHConfig | None:
+        return self._build_ssh_config()
 
     def _build_remote_runner(self, resume: bool = False, req: dict | None = None) -> RemoteRunner | None:
         req = req or self.gui.pipeline_ctrl._build_run_request()
