@@ -28,6 +28,29 @@ class RecordingExecutor:
         )
 
 
+class MultiStageExecutor:
+    def __init__(self) -> None:
+        self.requests: list[ExecutionRequest] = []
+
+    def execute(self, req: ExecutionRequest, on_metrics=None) -> ExecutionResult:
+        self.requests.append(req)
+        output_names = ["01_reoriented.nii.gz"] if len(self.requests) == 1 else ["02_synthstrip_brain.nii.gz", "02_synthstrip_brain_mask.nii.gz"]
+        for host_path, container_path in req.mounts:
+            if container_path == "/work":
+                for name in output_names:
+                    Path(host_path, name).write_text("ok", encoding="utf-8")
+                break
+        return ExecutionResult(
+            success=True,
+            error="",
+            output="completed",
+            duration_sec=0.1,
+            metrics=DockerResourceMetrics(),
+            container_name=req.container_name,
+            return_code=0,
+        )
+
+
 def test_run_pipeline_executes_tool_with_execution_request(tmp_path, mocker) -> None:
     input_file = tmp_path / "input.nii.gz"
     input_file.write_text("input", encoding="utf-8")
@@ -62,3 +85,38 @@ def test_run_pipeline_executes_tool_with_execution_request(tmp_path, mocker) -> 
     assert (str(input_file.parent), "/input") in req.mounts
     assert (str(output_dir / "sub-01"), "/work") in req.mounts
     assert results[0].success is True
+
+
+def test_run_pipeline_passes_prior_stage_output_to_next_stage(tmp_path, mocker) -> None:
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input", encoding="utf-8")
+    output_dir = tmp_path / "outputs"
+    executor = MultiStageExecutor()
+    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+
+    config = PipelineConfig(
+        input_file=str(input_file),
+        output_dir=str(output_dir),
+        subject_id="sub-01",
+        selected_tools={
+            "reorientation": "mri_convert_fs7",
+            "brain_extraction": "synthstrip_fs7",
+            "segmentation": "",
+            "template_registration": "",
+            "bias_correction": "",
+            "white_matter_segmentation": "",
+            "surface_reconstruction": "",
+            "surface_registration": "",
+            "stats_extraction": "",
+        },
+    )
+
+    results = run_pipeline(config, executor=executor)
+
+    assert [result.stage for result in results] == ["reorientation", "brain_extraction"]
+    assert len(executor.requests) == 2
+    assert executor.requests[1].command == [
+        "bash",
+        "-c",
+        "mri_synthstrip -i /work/mri/01_reoriented.nii.gz -o /work/02_synthstrip_brain.nii.gz -m /work/02_synthstrip_brain_mask.nii.gz ",
+    ]

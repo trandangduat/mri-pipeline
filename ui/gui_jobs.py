@@ -89,6 +89,9 @@ class JobsController:
         else:
             path.unlink()
 
+    def delete_download_subdir(self, output_dir: str, download_subdir: str) -> None:
+        self._delete_path_if_exists(Path(output_dir) / download_subdir)
+
     def _local_job_config_for_delete(self, job: dict) -> dict:
         job_dir = Path(str(job.get("job_dir", ""))) if job.get("job_dir") else None
         config = read_json(job_dir / "job_config.json", {}) if job_dir else {}
@@ -138,6 +141,9 @@ class JobsController:
         if raw_job_dir:
             self._delete_path_if_exists(Path(raw_job_dir))
 
+    def delete_local_job_folders(self, job: dict) -> None:
+        self._delete_local_job_folders(job)
+
 
 
     def _is_background_monitor_active(self) -> bool:
@@ -159,6 +165,9 @@ class JobsController:
         self.job_log_offset = 0
         if was_monitoring:
             self.gui.pipeline_ctrl.running = False
+
+    def stop_current_job_monitor(self) -> None:
+        self._stop_current_job_monitor()
 
     def _register_job_monitor_for_active_context(self) -> None:
         context_id = getattr(self, "active_progress_context_id", "")
@@ -405,6 +414,9 @@ class JobsController:
                 runner.config.download_subdir = str(metadata.get("download_subdir"))
         return runner
 
+    def remote_runner_from_job_entry(self, job: dict, read_metadata: bool = True) -> RemoteRunner | None:
+        return self._remote_runner_from_job_entry(job, read_metadata=read_metadata)
+
     def _load_local_progress_state(self, job_dir: Path, config: dict) -> None:
         if not config or not self.gui.progress_ctrl.image_runs:
             return
@@ -570,6 +582,9 @@ class JobsController:
         except Exception as exc:
             messagebox.showerror("Local pause failed", f"Could not pause local job:\n\n{type(exc).__name__}: {exc}")
             return False
+
+    def pause_background_job(self, job: dict) -> bool:
+        return self._pause_background_job(job)
 
     def _confirm_start_with_existing_jobs(self) -> bool:
         candidates = self.gui.registry_ctrl._running_jobs_for_current_target()

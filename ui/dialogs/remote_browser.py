@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import stat
 from tkinter import simpledialog
@@ -129,6 +131,20 @@ def show_upload_dialog(gui):
                 pass
         return posixpath.normpath(path) if path.startswith("/") else path
 
+    def require_workspace_child(path_text: str, label: str) -> str:
+        ssh = ssh_holder.get("ssh")
+        if ssh is None:
+            raise RuntimeError("SSH server is not connected")
+        workspace = posixpath.normpath(ssh.expand_path(gui.state.remote_workspace.get().strip() or "~/mri-remote-jobs").rstrip("/"))
+        path = normalize_server_path(path_text)
+        if path in {"", ".", "/"}:
+            raise ValueError(f"Invalid {label}: {path_text}")
+        if path == workspace:
+            raise ValueError(f"Refusing to use workspace root for {label}: {path_text}")
+        if not path.startswith(workspace + "/"):
+            raise ValueError(f"{label} must be inside remote workspace: {workspace}")
+        return path
+
     def refresh_server(path_text: str | None = None) -> None:
         nonlocal server_entries
         ssh = ssh_holder.get("ssh")
@@ -170,8 +186,8 @@ def show_upload_dialog(gui):
         if not name or "/" in name or name in {".", ".."}:
             messagebox.showerror("Invalid folder name", "Folder name cannot be empty, '.', '..', or contain '/'.", parent=dialog)
             return
-        new_path = posixpath.join(current, name)
         try:
+            new_path = require_workspace_child(posixpath.join(current, name), "server folder")
             ssh.mkdir_p(new_path)
             refresh_server(new_path)
             status_text.set(f"Created folder: {new_path}")
@@ -310,7 +326,11 @@ def show_upload_dialog(gui):
         if not inputs:
             messagebox.showwarning("No files selected", "Select one or more local files or DICOM folders to upload.", parent=dialog)
             return
-        dest_dir = normalize_server_path(server_path.get())
+        try:
+            dest_dir = require_workspace_child(server_path.get(), "upload destination")
+        except Exception as exc:
+            messagebox.showerror("Invalid upload destination", str(exc), parent=dialog)
+            return
         pairs, remote_paths = upload_file_pairs(inputs, dest_dir)
         uploaded_dirs = any(path.is_dir() for path in inputs)
         if not pairs:
@@ -693,4 +713,3 @@ def show_remote_input_browser(gui):
     gui._input_source_paths[gui.state.input_source.get()] = gui.state.input_path.get().strip()
     gui._input_source_selected_files[gui.state.input_source.get()] = list(gui.state.selected_files)
     gui._refresh_input_label()
-

@@ -32,9 +32,15 @@ Toàn bộ quá trình làm việc trên nhánh `refactor/improve-architecture` 
     *   *Import Errors:* Phát hiện và sửa lỗi các file UI import các biến tĩnh (`STAGE_ORDER`, `TOOL_DEFS`) sai địa chỉ (vẫn trỏ về `pipeline.config` trong khi chúng đã ở `pipeline.registry`).
     *   *Bug Logic & Formatters:* Fix thuật toán `truncate_middle` trong `formatters.py` bị lỗi cắt chữ kỳ dị khi giới hạn độ dài quá thấp (<= 4 ký tự).
 *   **Lưới an toàn (Safety Net):** Viết bộ Test Suite toàn diện, bao phủ cả Backend (`test_config.py`, `test_executor.py`, `test_remote_runner.py`, `test_utils.py`) lẫn UI Controllers (`test_ui.py`, `test_ui_jobs.py`, `test_ui_validation.py`, `test_ui_formatters.py`, `test_ui_progress.py`, `test_ui_remote.py`). 
-*   **Kết quả:** 27/27 bài test đều **PASSED 100%**.
+*   **Kết quả cập nhật:** Sau vòng review/fix bổ sung, test suite hiện có 37 bài test và đã **PASSED 100%** trong virtualenv tạm. Các regression tests mới bao phủ luồng `run_pipeline` gọi `ExecutionRequest`, parse requirements, guardrail remote cleanup, server output path ngoài workspace, và xoá active job trong registry.
+
+## 5. Vòng ổn định sau Code Review
+*   **Sửa blocker executor:** `run_pipeline` đã được nối lại với interface mới của `LocalDockerExecutor` bằng `ExecutionRequest`, tránh lỗi runtime khi gọi keyword cũ (`tool_key`, `stage`, `input_file`, ...).
+*   **Sửa dependency runtime/dev:** `requirements.txt` chỉ còn dependency runtime (`pandas`, `sv-ttk`, `Pillow`, `paramiko`, `psutil`), còn `pytest` và `pytest-mock` được chuyển sang `requirements-dev.txt`.
+*   **Tăng an toàn remote:** `RemoteRunner` có guard chung để chuẩn hóa path remote, chặn workspace rỗng/root, chặn job/output/code/license/config path ngoài workspace, và không cho xóa workspace root.
+*   **Giảm coupling UI:** `JobRegistryController` không còn gọi trực tiếp các private method delete/pause/monitor của `JobsController`; thay vào đó đi qua interface public nhỏ.
 
 ## Đánh giá Tổng quan
-Nhánh `refactor/improve-architecture` đã thành công thay máu hoàn toàn kiến trúc của dự án `mri-pipeline`. Codebase hiện tại đã được module hoá sâu sắc, giảm thiểu sự liên kết cứng (tight-coupling), có cẩm nang hướng dẫn định dạng chuẩn (`AGENTS.md`), và quan trọng nhất: sở hữu một bộ Unit/Integration Test cực kỳ vững chắc.
+Nhánh `refactor/improve-architecture` đã cải thiện đáng kể kiến trúc của dự án `mri-pipeline`: backend được tách module rõ hơn, UI đã chuyển dần sang controller, có cẩm nang hướng dẫn chuẩn (`AGENTS.md`), và có test suite tự động làm lưới an toàn.
 
-Người kế nhiệm (con người hay AI Agent) giờ đây hoàn toàn có thể bổ sung tính năng mới một cách tự tin mà không lo sợ làm vỡ (break) một tính năng nào đó ở nơi khác trong Codebase.
+Các nợ còn lại cần theo dõi: một số UI controller vẫn còn lớn và còn gọi private methods lẫn nhau ở các flow ngoài registry delete; `EventEmitter` hiện là synchronous event bus chứ chưa phải async/thread-safe bus; remote path guard đã tốt hơn nhưng mọi thao tác SSH mới trong tương lai vẫn phải đi qua guard trước khi ghi/xóa/chạy lệnh trên path.

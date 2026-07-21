@@ -96,5 +96,5 @@ def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> Non
 
     assert ctrl._delete_registry_job(active_job) is True
 
-    mock_gui.jobs_ctrl._stop_current_job_monitor.assert_called_once_with()
-    mock_gui.jobs_ctrl._delete_local_job_folders.assert_called_once_with(active_job)
+    mock_gui.jobs_ctrl.stop_current_job_monitor.assert_called_once_with()
+    mock_gui.jobs_ctrl.delete_local_job_folders.assert_called_once_with(active_job)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from ui.formatters import truncate_middle, format_duration, format_bytes, format_percent
 

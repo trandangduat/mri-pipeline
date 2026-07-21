@@ -30,6 +30,9 @@ class FakeRemoteSSHClient:
         self.commands.append(command)
         return 0
 
+    def mkdir_p(self, remote_path: str) -> None:
+        self.commands.append(f"mkdir -p {remote_path}")
+
 def test_remote_runner_clean_guardrail(dummy_ssh_server):
     ssh_config = SSHConfig(
         host=dummy_ssh_server["host"], 
@@ -101,3 +104,29 @@ def test_remote_runner_clean_rejects_workspace_root(mocker) -> None:
 
     with pytest.raises(ValueError, match="workspace root"):
         runner.clean_remote()
+
+
+def test_remote_runner_upload_rejects_output_outside_workspace(mocker) -> None:
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        server_output_dir="/tmp/outside",
+    )
+    runner = RemoteRunner(run_config)
+
+    with pytest.raises(ValueError, match="remote output directory is outside"):
+        runner.upload_job()
+
+
+def test_remote_runner_write_config_rejects_attached_job_outside_workspace(mocker) -> None:
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+    )
+    runner = RemoteRunner(run_config)
+    runner.attach_job("/tmp/job_123")
+
+    with pytest.raises(ValueError, match="remote job directory is outside"):
+        runner.write_remote_job_config({})

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pipeline.config import ExportConfig, StatsVectorConfig
 
 def test_export_config_from_dict_defaults():

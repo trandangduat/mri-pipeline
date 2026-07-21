@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ui.events import ui_events, EVENT_LOG_MESSAGE
 import tkinter as tk
 import os

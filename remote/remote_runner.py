@@ -56,12 +56,41 @@ class RemoteRunner:
 
     def _remote_code_dir(self, ssh: RemoteSSHClient | None = None) -> str:
         if ssh is not None:
-            workspace = ssh.expand_path(self.config.remote_workspace)
+            workspace = self._remote_workspace(ssh)
         elif self.remote_job_dir:
             workspace = posixpath.dirname(self.remote_job_dir.rstrip("/"))
         else:
             workspace = (self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/")
         return posixpath.join(workspace, "code")
+
+    def _remote_workspace(self, ssh: RemoteSSHClient) -> str:
+        workspace = posixpath.normpath(ssh.expand_path(self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"))
+        if workspace in {"", ".", "/"}:
+            raise ValueError(f"Security error: Invalid remote workspace: {self.config.remote_workspace}")
+        return workspace
+
+    def _remote_path(self, ssh: RemoteSSHClient, remote_path: str) -> str:
+        path = posixpath.normpath(ssh.expand_path(str(remote_path or "").strip()).rstrip("/"))
+        if path in {"", ".", "/"}:
+            raise ValueError(f"Security error: Invalid remote path: {remote_path}")
+        return path
+
+    def _require_workspace_child(self, ssh: RemoteSSHClient, remote_path: str, label: str) -> str:
+        workspace = self._remote_workspace(ssh)
+        path = self._remote_path(ssh, remote_path)
+        if path == workspace:
+            raise ValueError(f"Security error: Refusing to use workspace root for {label}: {remote_path}")
+        if not path.startswith(workspace + "/"):
+            raise ValueError(
+                f"Security error: {label} is outside of designated workspace. "
+                f"Path: {remote_path}, Workspace: {self.config.remote_workspace}"
+            )
+        return path
+
+    def _job_child_path(self, ssh: RemoteSSHClient, *parts: str) -> str:
+        job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
+        self.remote_job_dir = job_dir
+        return self._require_workspace_child(ssh, posixpath.join(job_dir, *parts), "remote job file")
 
     def _local_code_signature(self) -> str:
         hasher = hashlib.sha256()
@@ -117,7 +146,7 @@ class RemoteRunner:
         }
 
     def _remote_venv_dir(self, ssh: RemoteSSHClient) -> str:
-        workspace = ssh.expand_path(self.config.remote_workspace)
+        workspace = self._remote_workspace(ssh)
         return posixpath.join(workspace, ".venv")
 
     def _remote_venv_python(self, ssh: RemoteSSHClient) -> str:
@@ -136,6 +165,7 @@ class RemoteRunner:
             return True
 
         self.on_log("Recreating remote venv because pip is unavailable...")
+        venv_dir = self._require_workspace_child(ssh, venv_dir, "remote venv")
         ssh.run(f"rm -rf {shlex.quote(venv_dir)}", stream=True, check=False)
         code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
         if code != 0:
@@ -161,7 +191,7 @@ class RemoteRunner:
         )
 
     def ensure_remote_venv(self, ssh: RemoteSSHClient) -> str:
-        workspace = ssh.expand_path(self.config.remote_workspace)
+        workspace = self._remote_workspace(ssh)
         ssh.mkdir_p(workspace)
         venv_dir = posixpath.join(workspace, ".venv")
         venv_python = posixpath.join(venv_dir, "bin", "python")
@@ -263,12 +293,12 @@ class RemoteRunner:
 
     def upload_job(self) -> str:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            workspace = ssh.expand_path(self.config.remote_workspace)
-            self.remote_job_dir = posixpath.join(workspace, self.job_id)
+            workspace = self._remote_workspace(ssh)
+            self.remote_job_dir = self._require_workspace_child(ssh, posixpath.join(workspace, self.job_id), "remote job directory")
             if self.config.server_output_dir:
-                self.remote_output_dir = ssh.expand_path(self.config.server_output_dir)
+                self.remote_output_dir = self._require_workspace_child(ssh, self.config.server_output_dir, "remote output directory")
             else:
-                self.remote_output_dir = posixpath.join(self.remote_job_dir, "outputs")
+                self.remote_output_dir = self._require_workspace_child(ssh, posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
             ssh.mkdir_p(workspace)
             ssh.mkdir_p(self.remote_output_dir)
             for sub in ("license",):
@@ -295,8 +325,8 @@ class RemoteRunner:
     def read_remote_metadata(self) -> dict:
         if not self.remote_job_dir:
             return {}
-        metadata_path = posixpath.join(self.remote_job_dir, "job_metadata.json")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            metadata_path = self._job_child_path(ssh, "job_metadata.json")
             try:
                 with ssh.sftp.open(metadata_path, "r") as f:
                     data = f.read().decode(errors="replace")
@@ -308,8 +338,8 @@ class RemoteRunner:
     def read_remote_job_config(self) -> dict:
         if not self.remote_job_dir:
             return {}
-        config_path = posixpath.join(self.remote_job_dir, "job_config.json")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            config_path = self._job_child_path(ssh, "job_config.json")
             try:
                 with ssh.sftp.open(config_path, "r") as f:
                     data = f.read().decode(errors="replace")
@@ -321,13 +351,13 @@ class RemoteRunner:
     def write_remote_job_config(self, config: dict) -> None:
         if not self.remote_job_dir:
             raise RuntimeError("No remote job is attached")
-        config_path = posixpath.join(self.remote_job_dir, "job_config.json")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            config_path = self._job_child_path(ssh, "job_config.json")
             with ssh.sftp.open(config_path, "w") as f:
                 f.write(json.dumps(config, indent=2))
 
     def _write_job_metadata(self, ssh: RemoteSSHClient) -> None:
-        remote_path = posixpath.join(self.remote_job_dir, "job_metadata.json")
+        remote_path = self._job_child_path(ssh, "job_metadata.json")
         metadata = {
             "job_id": self.job_id,
             "remote_job_dir": self.remote_job_dir,
@@ -370,7 +400,7 @@ class RemoteRunner:
         }
 
     def _write_job_config(self, ssh: RemoteSSHClient) -> None:
-        remote_path = posixpath.join(self.remote_job_dir, "job_config.json")
+        remote_path = self._job_child_path(ssh, "job_config.json")
         remote_request = {
             **self._remote_input_request(),
             "job_dir": self.remote_job_dir,
@@ -391,18 +421,18 @@ class RemoteRunner:
             f.write(json.dumps(remote_request, indent=2))
 
     def _upload_export_config(self, ssh: RemoteSSHClient) -> None:
-        remote_path = posixpath.join(self.remote_job_dir, "export_config.json")
+        remote_path = self._job_child_path(ssh, "export_config.json")
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(self.config.export_config or {}, indent=2))
 
     def _upload_stats_vector_config(self, ssh: RemoteSSHClient) -> None:
-        remote_path = posixpath.join(self.remote_job_dir, "stats_vector_config.json")
+        remote_path = self._job_child_path(ssh, "stats_vector_config.json")
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
 
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
         mapping = self._remote_input_request().get("subject_id_map", {})
-        remote_path = posixpath.join(self.remote_job_dir, "subject_ids.json")
+        remote_path = self._job_child_path(ssh, "subject_ids.json")
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(mapping, indent=2))
 
@@ -410,6 +440,9 @@ class RemoteRunner:
         if not self.remote_job_dir:
             self.upload_job()
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            self.remote_job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
+            if self.remote_output_dir:
+                self.remote_output_dir = self._require_workspace_child(ssh, self.remote_output_dir, "remote output directory")
             if self.config.input_file or self.config.input_files or self.config.input_dir:
                 self._write_job_config(ssh)
             remote_code = self._remote_code_dir(ssh)
@@ -465,8 +498,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             return {"state": "not_started"}
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
-            exit_path = posixpath.join(self.remote_job_dir, "exit_code.txt")
-            pid_path = posixpath.join(self.remote_job_dir, "pid.txt")
+            exit_path = self._job_child_path(ssh, "exit_code.txt")
+            pid_path = self._job_child_path(ssh, "pid.txt")
             exit_code, exit_text = ssh.read_text(f"cat {shlex.quote(exit_path)} 2>/dev/null")
             pid_code, pid_text = ssh.read_text(f"cat {shlex.quote(pid_path)} 2>/dev/null")
             pid = pid_text.strip()
@@ -482,7 +515,7 @@ class RemoteRunner:
 
     def list_background_jobs(self) -> list[dict[str, str]]:
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
-            workspace = ssh.expand_path(self.config.remote_workspace)
+            workspace = self._remote_workspace(ssh)
             cmd = (
                 f"for d in {shlex.quote(workspace)}/job_*; do "
                 "[ -d \"$d\" ] || continue; "
@@ -511,9 +544,9 @@ class RemoteRunner:
     def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
         if not self.remote_job_dir:
             return "", offset
-        remote_log = posixpath.join(self.remote_job_dir, "run.log")
-        launcher_log = posixpath.join(self.remote_job_dir, "launcher.log")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            remote_log = self._job_child_path(ssh, "run.log")
+            launcher_log = self._job_child_path(ssh, "launcher.log")
             try:
                 with ssh.sftp.open(remote_log, "r") as f:
                     f.seek(offset)
@@ -532,7 +565,8 @@ class RemoteRunner:
         if not self.remote_job_dir:
             raise RuntimeError("No remote job is running")
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            stop_file = posixpath.join(self.remote_job_dir, "stop_requested")
+            self.remote_job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
+            stop_file = self._job_child_path(ssh, "stop_requested")
             ssh.run(f"mkdir -p {shlex.quote(self.remote_job_dir)} && touch {shlex.quote(stop_file)}", stream=False, check=False)
             self.on_log(f"Remote pause requested via stop file: {stop_file}")
 
@@ -543,7 +577,7 @@ class RemoteRunner:
         if self.config.download_subdir:
             local_target = local_target / self.config.download_subdir
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_outputs = self.remote_output_dir or posixpath.join(self.remote_job_dir, "outputs")
+            remote_outputs = self._require_workspace_child(ssh, self.remote_output_dir or posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
             ssh.download_dir(remote_outputs, local_target)
         return local_target
 
@@ -552,24 +586,13 @@ class RemoteRunner:
             return
 
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            workspace_norm = posixpath.normpath(ssh.expand_path(self.config.remote_workspace).rstrip("/"))
-            job_dir_norm = posixpath.normpath(ssh.expand_path(self.remote_job_dir).rstrip("/"))
-
-            if job_dir_norm == workspace_norm:
-                raise ValueError(f"Security error: Refusing to clean workspace root: {self.remote_job_dir}")
-            if not job_dir_norm.startswith(workspace_norm + "/"):
-                raise ValueError(
-                    "Security error: Attempted to clean directory outside of designated workspace. "
-                    f"Job dir: {self.remote_job_dir}, Workspace: {self.config.remote_workspace}"
-                )
-
-            self.remote_job_dir = job_dir_norm
+            self.remote_job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
             code = ssh.run(f"rm -rf {shlex.quote(self.remote_job_dir)}", check=False)
             if code != 0:
                 raise RuntimeError(f"Could not delete remote job folder: {self.remote_job_dir}")
 
     def _ensure_shared_code(self, ssh: RemoteSSHClient) -> str:
-        remote_code = self._remote_code_dir(ssh)
+        remote_code = self._require_workspace_child(ssh, self._remote_code_dir(ssh), "remote code directory")
         signature = self._local_code_signature()
         manifest_path = posixpath.join(remote_code, "code_manifest.json")
         manifest_probe = 'import json,sys; print(json.load(open(sys.argv[1])).get("signature", ""))'
@@ -591,6 +614,7 @@ class RemoteRunner:
         return remote_code
 
     def _upload_code(self, ssh: RemoteSSHClient, remote_code: str) -> None:
+        remote_code = self._require_workspace_child(ssh, remote_code, "remote code directory")
         ssh.mkdir_p(remote_code)
         ssh.upload_file(PROJECT_ROOT / "pipeline_runner.py", posixpath.join(remote_code, "pipeline_runner.py"))
         pipeline_pkg = PROJECT_ROOT / "pipeline"
@@ -615,6 +639,7 @@ class RemoteRunner:
             return
             
         remote_license_dir = posixpath.join(self.remote_job_dir, "license")
+        remote_license_dir = self._require_workspace_child(ssh, remote_license_dir, "remote license directory")
         if local_license.is_file():
             self.on_log(f"Uploading license file: {local_license.name}")
             ssh.upload_file(local_license, posixpath.join(remote_license_dir, "license.txt"))

@@ -32,7 +32,7 @@ class JobRegistryController:
 
                 return False
 
-            self.gui.jobs_ctrl._pause_background_job(job)
+            self.gui.jobs_ctrl.pause_background_job(job)
 
     
 
@@ -40,7 +40,7 @@ class JobRegistryController:
 
         if active_identity and active_identity == self._job_identity(job):
 
-            self.gui.jobs_ctrl._stop_current_job_monitor()
+            self.gui.jobs_ctrl.stop_current_job_monitor()
 
     
 
@@ -48,7 +48,7 @@ class JobRegistryController:
 
             if job.get("target") == "Server":
 
-                runner = self.gui.jobs_ctrl._remote_runner_from_job_entry(job, read_metadata=False)
+                runner = self.gui.jobs_ctrl.remote_runner_from_job_entry(job, read_metadata=False)
 
                 if runner is None:
 
@@ -62,11 +62,11 @@ class JobRegistryController:
 
                 if download_subdir and output_dir:
 
-                    self.gui.jobs_ctrl._delete_path_if_exists(Path(output_dir) / download_subdir)
+                    self.gui.jobs_ctrl.delete_download_subdir(output_dir, download_subdir)
 
             else:
 
-                self.gui.jobs_ctrl._delete_local_job_folders(job)
+                self.gui.jobs_ctrl.delete_local_job_folders(job)
 
             self._remove_job_registry_entry(job)
 

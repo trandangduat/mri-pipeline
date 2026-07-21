@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from remote.remote_runner import RemoteRunner, RemoteRunConfig
 from ui.formatters import truncate_middle
 import tkinter as tk
@@ -440,4 +442,3 @@ def show_upload_remote_job_dialog(ctrl, runner: RemoteRunner) -> bool:
     threading.Thread(target=worker, daemon=True).start()
     ctrl.gui.root.wait_window(dialog)
     return state["ok"]
-
