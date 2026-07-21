@@ -5,7 +5,8 @@ from .config import EXPORT_OUTPUT_ITEMS, ExportConfig
 from .registry import TOOL_DEFS
 from .docker_ops import ensure_image
 from .executor import LocalDockerExecutor, ExecutionRequest
-from .utils import _repair_host_permissions, _safe_container_name
+from .utils import _safe_container_name
+from .workspace import _repair_host_permissions
 
 def _volume_extension(path: Path) -> str:
     name = path.name.lower()

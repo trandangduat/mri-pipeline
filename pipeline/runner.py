@@ -45,17 +45,23 @@ from .discovery import (
     build_subject_id_map,
 )
 from .utils import (
-    _append_step_log,
+    _safe_container_name,
+)
+from .workspace import (
     _check_output_workspace,
     _describe_subject_files,
     _find_output_file,
-    _format_bytes,
     _organize_output,
     _repair_host_permissions,
-    _safe_container_name,
-    _total_ram_bytes,
+)
+from .reports import (
+    _append_step_log,
+    _format_bytes,
     _write_batch_benchmark_reports,
     _write_pipeline_metrics_log,
+)
+from .hardware import (
+    _total_ram_bytes,
 )
 
 

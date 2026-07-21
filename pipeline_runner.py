@@ -23,7 +23,8 @@ from pipeline.discovery import (
     _is_supported_mri_input,
     build_subject_id_map,
 )
-from pipeline.utils import _file_stem, _format_bytes
+from pipeline.utils import _file_stem
+from pipeline.reports import _format_bytes
 # Note: state functions are now encapsulated in PipelineTracker
 
 
