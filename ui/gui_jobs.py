@@ -1,7 +1,7 @@
+from __future__ import annotations
 from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Background job and remote-runner mixin for the MRI Pipeline GUI."""
 
-from __future__ import annotations
 
 import os
 import shutil
@@ -677,7 +677,8 @@ class JobsController:
     def _running_local_jobs(self) -> list[dict]:
         return [entry for entry in self._known_jobs() if entry.get("target") == "Local" and entry.get("state") == "running"]
 
-    def _same_remote_server(self, entry: dict, host: str, port: int, username: str, workspace: str | None = None) -> bool:
+    def _same_remote_server(self, entry: dict, ssh_config, workspace: str | None = None) -> bool:
+        host, port, username = ssh_config.host, int(ssh_config.port), ssh_config.username
         remote = dict(entry.get("remote") or {})
         if not remote:
             return False

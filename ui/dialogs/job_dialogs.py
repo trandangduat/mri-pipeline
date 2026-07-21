@@ -34,7 +34,7 @@ def show_attach_job_dialog(ctrl) -> None:
         jobs = [
             entry for entry in known_jobs
             if entry.get("target") == "Server"
-            and ctrl._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+            and ctrl._same_remote_server(entry, ssh_config, workspace)
         ]
         load_remote_jobs = True
     elif target == "Local":
@@ -272,7 +272,7 @@ def show_attach_job_dialog(ctrl) -> None:
                     str(entry.get("remote_job_dir")): entry
                     for entry in list(jobs)
                     if entry.get("target") == "Server"
-                    and ctrl._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
+                    and ctrl._same_remote_server(entry, ssh_config, workspace)
                 }
                 for remote_job in listed_jobs:
                     remote_dir = str(remote_job.get("remote_job_dir", ""))
@@ -386,7 +386,7 @@ def show_upload_remote_job_dialog(ctrl, runner: RemoteRunner) -> bool:
     progress.pack(fill=tk.X, padx=14, pady=(0, 10))
     progress.start(10)
 
-    log = tk.Text(dialog, wrap=tk.WORD, height=15, font=("JetBrains Mono", 10), state=tk.DISABLED)
+    log = tk.Text(dialog, wrap=tk.WORD, height=15, font=("Inter", 10), state=tk.DISABLED)
     scroll = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=log.yview)
     log.configure(yscrollcommand=scroll.set)
     log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(14, 0), pady=(0, 14))

@@ -1,7 +1,7 @@
+from __future__ import annotations
 from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Progress rendering and event handling mixin for the MRI Pipeline GUI."""
 
-from __future__ import annotations
 
 import json
 import queue

@@ -1,7 +1,7 @@
+from __future__ import annotations
 from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Pipeline startup, execution, and utility-task mixin for the MRI Pipeline GUI."""
 
-from __future__ import annotations
 
 import os
 import posixpath
@@ -27,6 +27,22 @@ from ui.formatters import truncate_middle
 
 
 class PipelineController:
+
+    def register_remote_host_entry(self, entry):
+        self.remote_host_entry = entry
+
+    def register_remote_username_entry(self, entry):
+        self.remote_username_entry = entry
+
+    def register_remote_port_entry(self, entry):
+        self.remote_port_entry = entry
+
+    def register_remote_workspace_entry(self, entry):
+        self.remote_workspace_entry = entry
+
+    def register_remote_password_entry(self, entry):
+        self.remote_password_entry = entry
+
     def __init__(self, gui):
         self.gui = gui
         

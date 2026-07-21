@@ -447,17 +447,23 @@ def _build_remote_section(parent: ttk.Frame, gui) -> None:
     gui.pipeline_ctrl.remote_body = frame
 
     ttk.Label(frame, text="Host/IP", width=10).grid(row=0, column=0, sticky=tk.W, pady=4)
-    gui.pipeline_ctrl.remote_host_entry = ttk.Entry(frame, textvariable=gui.state.remote_host)
+    host_entry = ttk.Entry(frame, textvariable=gui.state.remote_host)
+    gui.pipeline_ctrl.register_remote_host_entry(host_entry)
+    host_entry
     gui.pipeline_ctrl.remote_host_entry.grid(row=0, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
     ttk.Label(frame, text="Port", width=8).grid(row=0, column=2, sticky=tk.W, pady=4)
     gui.pipeline_ctrl.remote_port_entry = ttk.Entry(frame, textvariable=gui.state.remote_port, width=8)
     gui.pipeline_ctrl.remote_port_entry.grid(row=0, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
     ttk.Label(frame, text="Username", width=10).grid(row=1, column=0, sticky=tk.W, pady=4)
-    gui.pipeline_ctrl.remote_username_entry = ttk.Entry(frame, textvariable=gui.state.remote_username)
+    user_entry = ttk.Entry(frame, textvariable=gui.state.remote_username)
+    gui.pipeline_ctrl.register_remote_username_entry(user_entry)
+    user_entry
     gui.pipeline_ctrl.remote_username_entry.grid(row=1, column=1, sticky=tk.EW, padx=(8, 16), pady=3)
     ttk.Label(frame, text="Password", width=8).grid(row=1, column=2, sticky=tk.W, pady=4)
-    gui.pipeline_ctrl.remote_password_entry = ttk.Entry(frame, textvariable=gui.state.remote_password, show="*")
+    password_entry = ttk.Entry(frame, textvariable=gui.state.remote_password, show="*")
+    gui.pipeline_ctrl.register_remote_password_entry(password_entry)
+    password_entry
     gui.pipeline_ctrl.remote_password_entry.grid(row=1, column=3, sticky=tk.EW, padx=(8, 0), pady=3)
 
     ttk.Label(frame, text="SSH Key", width=10).grid(row=2, column=0, sticky=tk.W, pady=4)
