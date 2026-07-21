@@ -11,10 +11,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
 
-from pipeline.config import (
+from pipeline.config import BatchImageResult
+from pipeline.registry import (
     STAGE_LABELS,
     STAGE_ORDER,
-    BatchImageResult,
     tool_display_name,
 )
 from pipeline.discovery import (

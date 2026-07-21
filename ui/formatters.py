@@ -5,8 +5,12 @@ from __future__ import annotations
 def truncate_middle(text: str, max_len: int = 30) -> str:
     if len(text) <= max_len:
         return text
-    half = (max_len - 3) // 2
-    return text[:half] + "..." + text[-half:]
+    if max_len <= 3:
+        return "." * max_len
+    half_left = (max_len - 3) // 2 + (max_len - 3) % 2
+    half_right = (max_len - 3) // 2
+    right_part = text[-half_right:] if half_right > 0 else ""
+    return text[:half_left] + "..." + right_part
 
 def format_duration(seconds: float | int | None) -> str:
     if seconds is None:
