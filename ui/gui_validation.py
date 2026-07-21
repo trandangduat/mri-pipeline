@@ -1,3 +1,4 @@
+from ui.events import ui_events, EVENT_LOG_MESSAGE
 import tkinter as tk
 import os
 from pathlib import Path

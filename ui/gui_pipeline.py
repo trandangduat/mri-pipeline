@@ -1,3 +1,4 @@
+from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Pipeline startup, execution, and utility-task mixin for the MRI Pipeline GUI."""
 
 from __future__ import annotations
@@ -75,87 +76,9 @@ class PipelineController:
             return False
         return False
 
-    def _upload_remote_job_with_dialog(self, runner: RemoteRunner) -> bool:
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("Copy files to remote server")
-        dialog.geometry("760x500")
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-
-        header = ttk.Frame(dialog, padding=(14, 14, 14, 8))
-        header.pack(fill=tk.X)
-        ttk.Label(header, text="Copying files to remote server", font=("Inter", 12, "bold")).pack(anchor=tk.W)
-        ttk.Label(
-            header,
-            text="Shared pipeline code is reused from the remote workspace when available. This job copies run configuration and license files; MRI inputs must already be selected from server paths.",
-            wraplength=720,
-        ).pack(anchor=tk.W, pady=(4, 0))
-
-        current_var = tk.StringVar(value="Preparing remote connection...")
-        count_var = tk.StringVar(value="Files copied: 0")
-        current_row = ttk.Frame(dialog)
-        current_row.pack(fill=tk.X, padx=14, pady=(4, 2))
-        self._remote_upload_spinner_label = ttk.Label(current_row, image=self.gui._spinner_frame() or "", width=2)
-        self._remote_upload_spinner_label.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Label(current_row, textvariable=current_var, font=("Inter", 10, "bold")).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(dialog, textvariable=count_var).pack(anchor=tk.W, padx=14, pady=(0, 8))
-
-        progress = ttk.Progressbar(dialog, mode="indeterminate")
-        progress.pack(fill=tk.X, padx=14, pady=(0, 10))
-        progress.start(10)
-
-        log = tk.Text(dialog, wrap=tk.WORD, height=15, font=("JetBrains Mono", 10), state=tk.DISABLED)
-        scroll = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=log.yview)
-        log.configure(yscrollcommand=scroll.set)
-        log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(14, 0), pady=(0, 14))
-        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 14), pady=(0, 14))
-
-        state = {"ok": False, "done": False, "files": 0}
-        old_log = runner.on_log
-
-        def append_line(line: str) -> None:
-            if line.startswith("Uploading file:"):
-                state["files"] += 1
-                count_var.set(f"Files copied: {state['files']}")
-                current_var.set("Copying " + truncate_middle(line.split("->", 1)[0].replace("Uploading file:", "").strip(), 70))
-            elif line.startswith("Remote job:"):
-                current_var.set("Creating remote job workspace...")
-            elif line.startswith("Using shared remote pipeline code:"):
-                current_var.set("Using shared remote pipeline code.")
-            elif line.startswith("Uploading shared pipeline code once:"):
-                current_var.set("Copying shared pipeline code for first use...")
-            elif line.endswith("...") or line.endswith("complete."):
-                current_var.set(line)
-            log.configure(state=tk.NORMAL)
-            log.insert(tk.END, line + "\n")
-            log.see(tk.END)
-            log.configure(state=tk.DISABLED)
-
-        def worker() -> None:
-            ok = True
-            try:
-                runner.on_log = lambda line: self.gui.root.after(0, lambda l=line: append_line(l))
-                runner.upload_job()
-            except Exception as exc:
-                ok = False
-                err_msg = f"REMOTE UPLOAD ERROR: {type(exc).__name__}: {exc}"
-                self.gui.root.after(0, lambda m=err_msg: append_line(m))
-                self.gui.root.after(0, lambda: current_var.set("Copy failed. Check the log below."))
-            finally:
-                runner.on_log = old_log
-                state["ok"] = ok
-                state["done"] = True
-                self.gui.root.after(0, lambda: setattr(self, "_remote_upload_spinner_label", None))
-                self.gui.root.after(0, progress.stop)
-                if ok:
-                    self.gui.root.after(0, lambda: current_var.set("Copy complete. Starting remote job..."))
-                    self.gui.root.after(250, dialog.destroy)
-                else:
-                    self.gui.root.after(0, lambda: ttk.Button(dialog, text="Close", command=dialog.destroy).pack(anchor=tk.E, padx=14, pady=(0, 14)))
-
-        threading.Thread(target=worker, daemon=True).start()
-        self.gui.root.wait_window(dialog)
-        return state["ok"]
+    def _upload_remote_job_with_dialog(self) -> None:
+        from ui.dialogs.job_dialogs import show_upload_remote_job_dialog
+        show_upload_remote_job_dialog(self)
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
         if not self.gui.jobs_ctrl._can_start_new_pipeline():
@@ -243,12 +166,12 @@ class PipelineController:
                 if getattr(self, "_set_step_status", None) is not None:
                     self.gui._set_step_status(stage, "Ready", 0)
             self.gui.progress_ctrl._clear_log()
-            self.gui.progress_ctrl._log("=" * 80)
+            ui_events.emit(EVENT_LOG_MESSAGE, "=" * 80)
             if restart:
-                self.gui.progress_ctrl._log("Restart mode: existing subject outputs will be removed before running.")
+                ui_events.emit(EVENT_LOG_MESSAGE, "Restart mode: existing subject outputs will be removed before running.")
             elif resume:
-                self.gui.progress_ctrl._log("Resume mode: completed stages in pipeline_state.json will be skipped.")
-            self.gui.progress_ctrl._log("Starting pipeline...")
+                ui_events.emit(EVENT_LOG_MESSAGE, "Resume mode: completed stages in pipeline_state.json will be skipped.")
+            ui_events.emit(EVENT_LOG_MESSAGE, "Starting pipeline...")
             self._start_local_background_pipeline(run_request)
             started = True
             if starter_button is not None:
@@ -354,7 +277,7 @@ class PipelineController:
                         return True
 
                     for idx, local_file in enumerate(local_files):
-                        self.gui.progress_ctrl._log(f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
+                        ui_events.emit(EVENT_LOG_MESSAGE, f"Lazy Upload: Copying {local_file.name} ({idx+1}/{len(local_files)})...")
                         
                         if common_parent:
                             try:
@@ -365,14 +288,14 @@ class PipelineController:
                             rel_path = local_file.name
                             
                         if not upload_item(local_file, rel_path):
-                            self.gui.progress_ctrl._log("Lazy Upload: Stopped early by user.")
+                            ui_events.emit(EVENT_LOG_MESSAGE, "Lazy Upload: Stopped early by user.")
                             break
-                        self.gui.progress_ctrl._log(f"Lazy Upload: {local_file.name} ready on server.")
+                        ui_events.emit(EVENT_LOG_MESSAGE, f"Lazy Upload: {local_file.name} ready on server.")
                     else:
                         ssh.run(f"touch {shlex.quote(remote_lazy_dir + '/.upload_done')}", stream=False, check=False)
-                        self.gui.progress_ctrl._log("Lazy Upload: All files uploaded. Waiting for server to finish processing...")
+                        ui_events.emit(EVENT_LOG_MESSAGE, "Lazy Upload: All files uploaded. Waiting for server to finish processing...")
             except Exception as e:
-                self.gui.progress_ctrl._log(f"Lazy Upload Error: {e}")
+                ui_events.emit(EVENT_LOG_MESSAGE, f"Lazy Upload Error: {e}")
                 
         threading.Thread(target=upload_worker, daemon=True).start()
 
@@ -400,8 +323,8 @@ class PipelineController:
         entry = self.gui._registry_entry_for_local_job(job_dir, run_request, proc.pid)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Local job"), self.gui.progress_ctrl._progress_job_identity(entry))
-        self.gui.progress_ctrl._log(f"Local background job started: {job_dir}")
-        self.gui.progress_ctrl._log("You can close the GUI. The local worker process will keep running.")
+        ui_events.emit(EVENT_LOG_MESSAGE, f"Local background job started: {job_dir}")
+        ui_events.emit(EVENT_LOG_MESSAGE, "You can close the GUI. The local worker process will keep running.")
         self.gui.jobs_ctrl.active_job = {"target": "Local", "job_dir": str(job_dir), "pid": proc.pid, "done": False, "registry_entry": entry}
         self.gui.jobs_ctrl.job_log_offset = 0
         self.gui.jobs_ctrl._register_job_monitor_for_active_context()
@@ -413,7 +336,7 @@ class PipelineController:
         if not runner:
             return
         if resume and self.remote_runner is None:
-            self.gui.progress_ctrl._log("No previous remote job is loaded in this GUI session; creating a new remote job instead.")
+            ui_events.emit(EVENT_LOG_MESSAGE, "No previous remote job is loaded in this GUI session; creating a new remote job instead.")
         if restart:
             self.remote_runner = None
         runner.config.resume = resume
@@ -424,8 +347,8 @@ class PipelineController:
         entry = self.gui._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Remote job"), self.gui.progress_ctrl._progress_job_identity(entry))
-        self.gui.progress_ctrl._log(f"Remote background job started: {remote_dir}")
-        self.gui.progress_ctrl._log("You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
+        ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job started: {remote_dir}")
+        ui_events.emit(EVENT_LOG_MESSAGE, "You can close the GUI. Reopen and attach this remote job to monitor or download outputs.")
         self.gui.jobs_ctrl.active_job = {"target": "Server", "remote_job_dir": remote_dir, "done": False, "registry_entry": entry}
         self.gui.jobs_ctrl.job_log_offset = 0
         self.gui.jobs_ctrl._register_job_monitor_for_active_context()
@@ -695,10 +618,10 @@ class PipelineController:
     def _remote_download_outputs(self) -> None:
         def task():
             if not self.remote_runner:
-                self.gui.progress_ctrl._log("No remote job is available. Run or attach a remote job first.")
+                ui_events.emit(EVENT_LOG_MESSAGE, "No remote job is available. Run or attach a remote job first.")
                 return
             local_path = self.remote_runner.download_outputs(self.gui.state.output_dir.get())
-            self.gui.progress_ctrl._log(f"Downloaded outputs to: {local_path}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Downloaded outputs to: {local_path}")
         self._run_remote_task("Download Outputs", task)
 
     def _common_input_root(self, files: list[str]) -> str:

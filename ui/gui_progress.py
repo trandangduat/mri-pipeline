@@ -1,3 +1,4 @@
+from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Progress rendering and event handling mixin for the MRI Pipeline GUI."""
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from ui.tabs.progress_tab import build_progress_tab
 class ProgressController:
     def __init__(self, gui):
         self.gui = gui
+        ui_events.on(EVENT_LOG_MESSAGE, self._log)
         
         # Progress state
         self.progress_tab = None

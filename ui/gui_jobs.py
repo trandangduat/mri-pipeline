@@ -1,3 +1,4 @@
+from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Background job and remote-runner mixin for the MRI Pipeline GUI."""
 
 from __future__ import annotations
@@ -47,301 +48,8 @@ class JobsController:
         self._attach_loading_spinner_label = None
         self._attach_busy_button_states = {}
     def _attach_job_dialog(self) -> None:
-        target = self.gui.state.run_target.get()
-        known_jobs = self._known_jobs()
-        jobs: list[dict] = []
-        load_remote_jobs = False
-        ssh_config = None
-        workspace = self.gui.state.remote_workspace.get().strip() or "~/mri-remote-jobs"
-        remote_python = self.gui.state.remote_python.get().strip() or "python3"
-        output_dir = self.gui.state.output_dir.get().strip()
-        if target == "Server":
-            if not self.gui._require_remote_connection("attaching remote jobs"):
-                return
-            if not self._ensure_remote_auth_for_job_action("Attach job"):
-                return
-            ssh_config = self.gui.pipeline_ctrl._build_ssh_config()
-            if ssh_config is None:
-                return
-            jobs = [
-                entry for entry in known_jobs
-                if entry.get("target") == "Server"
-                and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
-            ]
-            load_remote_jobs = True
-        elif target == "Local":
-            jobs = [entry for entry in known_jobs if entry.get("target") == "Local"]
-            jobs = self._merge_job_lists(jobs, self._running_local_jobs())
-        if not jobs and not load_remote_jobs:
-            self._attach_manual_job_dialog()
-            return
-
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("Background Jobs")
-        dialog.geometry("980x560")
-        dialog.minsize(900, 520)
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-
-        if target == "Server" and ssh_config is not None:
-            server_label = f"Remote server: {ssh_config.username}@{ssh_config.host}:{int(ssh_config.port)} | workspace: {workspace}"
-            server_icon = self.gui._make_icon("success") if getattr(self, "_make_icon", None) is not None else None
-        else:
-            server_label = "Current target: Local jobs"
-            server_icon = self.gui._make_icon("pending") if getattr(self, "_make_icon", None) is not None else None
-        server_row = ttk.Frame(dialog)
-        server_row.pack(anchor=tk.W, fill=tk.X, padx=12, pady=(12, 6))
-        if server_icon is not None:
-            ttk.Label(server_row, image=server_icon).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Label(server_row, text=server_label, foreground="#1e293b", font=("Inter", 10, "bold")).pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        selected_job_ids: set[str] = set()
-        selection_initialized = False
-        row_widgets: list[dict] = []
-        deleted_job_ids: set[str] = set()
-
-        selection_bar = ttk.Frame(dialog)
-        selection_bar.pack(fill=tk.X, padx=16, pady=(0, 4))
-        ttk.Button(selection_bar, text="Select All", command=lambda: (selected_job_ids.update(self._job_identity(job) for job in jobs), render_jobs())).pack(side=tk.LEFT)
-        ttk.Button(selection_bar, text="Unselect All", command=lambda: (selected_job_ids.clear(), render_jobs())).pack(side=tk.LEFT, padx=(8, 0))
-
-        table_outer = ttk.Frame(dialog)
-        table_outer.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 8))
-        table_canvas = tk.Canvas(table_outer, highlightthickness=0, bg="#ffffff")
-        table_scroll = ttk.Scrollbar(table_outer, orient=tk.VERTICAL, command=table_canvas.yview)
-        table = ttk.Frame(table_canvas)
-        table_window = table_canvas.create_window((0, 0), window=table, anchor=tk.NW)
-
-        def sync_table_region(_event=None) -> None:
-            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
-
-        def sync_table_width(event) -> None:
-            table_canvas.itemconfigure(table_window, width=event.width)
-
-        table.bind("<Configure>", sync_table_region)
-        table_canvas.bind("<Configure>", sync_table_width)
-        table_canvas.configure(yscrollcommand=table_scroll.set)
-        table_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        table_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        table.columnconfigure(1, minsize=110)
-        table.columnconfigure(2, weight=3, minsize=420)
-        table.columnconfigure(3, weight=2, minsize=330)
-        ttk.Label(table, text="", width=4).grid(row=0, column=0, sticky=tk.W, padx=(0, 8), pady=(0, 6))
-        ttk.Label(table, text="State", font=("Inter", 9, "bold")).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(0, 6))
-        ttk.Label(table, text="Job", font=("Inter", 9, "bold")).grid(row=0, column=2, sticky=tk.W, padx=8, pady=(0, 6))
-        ttk.Label(table, text="Output", font=("Inter", 9, "bold")).grid(row=0, column=3, sticky=tk.W, padx=8, pady=(0, 6))
-        ttk.Separator(table, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=4, sticky=tk.EW, pady=(0, 4))
-
-        status_text = tk.StringVar(value="Loading remote jobs..." if load_remote_jobs else "")
-        status_label = ttk.Label(dialog, textvariable=status_text, foreground="#64748b")
-        if status_text.get():
-            status_label.pack(anchor=tk.W, padx=16, pady=(0, 4))
-
-        def set_status(text: str) -> None:
-            status_text.set(text)
-            if text:
-                if not status_label.winfo_ismapped():
-                    status_label.pack(anchor=tk.W, padx=16, pady=(0, 4))
-            else:
-                status_label.pack_forget()
-
-        def selected_jobs() -> list[dict]:
-            return [job for job in jobs if self._job_identity(job) in selected_job_ids]
-
-        def selected_job() -> dict | None:
-            selected = selected_jobs()
-            return selected[0] if selected else None
-
-        def set_selected(identity: str, selected: bool) -> None:
-            if selected:
-                selected_job_ids.add(identity)
-            else:
-                selected_job_ids.discard(identity)
-            render_jobs()
-
-        def select_one(identity: str) -> None:
-            selected_job_ids.clear()
-            selected_job_ids.add(identity)
-            render_jobs()
-
-        def attach_selected() -> None:
-            job = selected_job()
-            if not job:
-                return
-            dialog.destroy()
-            self._attach_registry_job(job)
-
-        def state_color(state: str) -> str:
-            return {
-                "running": "#2563eb",
-                "completed": "#16a34a",
-                "success": "#16a34a",
-                "failed": "#dc2626",
-                "missing": "#dc2626",
-                "paused": "#f97316",
-                "unknown": "#64748b",
-            }.get(state.lower(), "#475569")
-
-        def draw_checkbox(canvas: tk.Canvas, selected: bool, bg: str) -> None:
-            canvas.configure(bg=bg)
-            canvas.delete("all")
-            fill = "#0f73d1" if selected else bg
-            outline = "#0f73d1" if selected else "#94a3b8"
-            canvas.create_rectangle(3, 3, 21, 21, outline=outline, fill=fill, width=1)
-            if selected:
-                canvas.create_text(12, 12, text="✓", fill="#ffffff", font=("Inter", 11, "bold"))
-
-        def render_jobs() -> None:
-            nonlocal selection_initialized
-            for widgets in row_widgets:
-                for widget in reversed(widgets.get("widgets", [])):
-                    try:
-                        widget.destroy()
-                    except tk.TclError:
-                        pass
-            row_widgets.clear()
-            if jobs and not selection_initialized:
-                selected_job_ids.add(self._job_identity(jobs[0]))
-                selection_initialized = True
-            for idx, job in enumerate(jobs):
-                identity = self._job_identity(job)
-                job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
-                row = 2 + idx * 2
-                selected = identity in selected_job_ids
-                bg = "#cbd5e1" if selected else "#fafafa"
-                cells = []
-                for col in range(4):
-                    cell = tk.Frame(table, padx=6, pady=5, bg=bg)
-                    cell.grid(row=row, column=col, sticky=tk.NSEW, padx=0, pady=1)
-                    cell.bind("<Button-1>", lambda _event, ident=identity: select_one(ident))
-                    cell.bind("<Double-1>", lambda _event, ident=identity: (select_one(ident), attach_selected()))
-                    cells.append(cell)
-                check = tk.Canvas(cells[0], width=24, height=24, bg=bg, highlightthickness=0, bd=0)
-                draw_checkbox(check, selected, bg)
-                check.bind("<Button-1>", lambda _event, ident=identity, is_selected=selected: set_selected(ident, not is_selected))
-                check.pack(anchor=tk.W)
-                raw_state = str(job.get("state", ""))
-                state_label = tk.Label(cells[1], text=raw_state, anchor=tk.W, bg=bg, fg=state_color(raw_state), font=("Inter", 9, "bold"))
-                state_label.pack(fill=tk.BOTH, expand=True)
-                job_label_widget = tk.Label(cells[2], text=str(job_label), anchor=tk.W, bg=bg, fg="#475569")
-                job_label_widget.pack(fill=tk.BOTH, expand=True)
-                output_label = tk.Label(cells[3], text=str(job.get("effective_output_dir") or job.get("output_dir", "")), anchor=tk.W, bg=bg, fg="#475569")
-                output_label.pack(fill=tk.BOTH, expand=True)
-                for label in (state_label, job_label_widget, output_label):
-                    label.bind("<Button-1>", lambda _event, ident=identity: select_one(ident))
-                    label.bind("<Double-1>", lambda _event, ident=identity: (select_one(ident), attach_selected()))
-                sep = ttk.Separator(table, orient=tk.HORIZONTAL)
-                sep.grid(row=row + 1, column=0, columnspan=4, sticky=tk.EW, pady=(2, 2))
-                row_widgets.append({"widgets": [*cells, check, state_label, job_label_widget, output_label, sep]})
-
-        render_jobs()
-
-        buttons = ttk.Frame(dialog)
-        buttons.pack(fill=tk.X, padx=16, pady=(6, 14))
-
-        def action_button(parent: ttk.Frame, text: str, command, icon_name: str, style: str | None = None, side: str = tk.LEFT, padx=0, icon_color: str | None = None) -> ttk.Button:
-            icon = self.gui._make_icon(icon_name, icon_color) if getattr(self, "_make_icon", None) is not None else None
-            options = {"text": f" {text}" if icon is not None else text, "command": command}
-            if style:
-                options["style"] = style
-            if icon is not None:
-                options.update({"image": icon, "compound": tk.LEFT})
-            button = ttk.Button(parent, **options)
-            button.pack(side=side, padx=padx)
-            return button
-
-        def delete_selected() -> None:
-            nonlocal jobs
-            selected = selected_jobs()
-            if not selected:
-                return
-            labels = [job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "selected job") for job in selected]
-            if not messagebox.askyesno("Delete jobs", f"Delete {len(selected)} selected job(s) and their folders?\n\n" + "\n".join(labels)):
-                return
-            deleted = 0
-            for job in selected:
-                if self._delete_registry_job(job):
-                    identity = self._job_identity(job)
-                    deleted_job_ids.add(identity)
-                    selected_job_ids.discard(identity)
-                    jobs = [entry for entry in jobs if self._job_identity(entry) != identity]
-                    deleted += 1
-            set_status(f"Deleted {deleted} job(s).")
-            if jobs:
-                render_jobs()
-            else:
-                dialog.destroy()
-
-        def download_selected() -> None:
-            selected = selected_jobs()
-            if not selected:
-                return
-            dialog.destroy()
-            self._download_registry_jobs(selected)
-
-        action_button(buttons, "Attach", attach_selected, "pin", style="Accent.TButton", icon_color="#ffffff")
-        action_button(buttons, "Download Outputs", download_selected, "download", padx=(8, 0))
-        action_button(buttons, "Delete", delete_selected, "trash", padx=(8, 0))
-        action_button(buttons, "Manual Attach", lambda: (dialog.destroy(), self._attach_manual_job_dialog()), "load", padx=(8, 0))
-
-        if load_remote_jobs and ssh_config is not None:
-            def worker() -> None:
-                remote_jobs: list[dict] = []
-                error: Exception | None = None
-                try:
-                    runner = RemoteRunner(
-                        RemoteRunConfig(
-                            ssh=ssh_config,
-                            remote_workspace=workspace,
-                            remote_python=remote_python,
-                            output_dir=output_dir,
-                        ),
-                        on_log=lambda _line: None,
-                    )
-                    listed_jobs = [job for job in runner.list_background_jobs() if job.get("state") == "running"]
-                    registry_by_dir = {
-                        str(entry.get("remote_job_dir")): entry
-                        for entry in list(jobs)
-                        if entry.get("target") == "Server"
-                        and self._same_remote_server(entry, ssh_config.host, int(ssh_config.port), ssh_config.username, workspace)
-                    }
-                    for remote_job in listed_jobs:
-                        remote_dir = str(remote_job.get("remote_job_dir", ""))
-                        entry = dict(registry_by_dir.get(remote_dir, {}))
-                        entry.update(remote_job)
-                        entry["target"] = "Server"
-                        entry["remote_job_dir"] = remote_dir
-                        entry.setdefault("output_dir", output_dir)
-                        entry["remote"] = {
-                            "host": ssh_config.host,
-                            "port": int(ssh_config.port),
-                            "username": ssh_config.username,
-                            "key_path": ssh_config.key_path,
-                            "workspace": workspace,
-                            "python": remote_python,
-                        }
-                        remote_jobs.append(entry)
-                except Exception as exc:
-                    error = exc
-
-                def finish() -> None:
-                    nonlocal jobs, load_remote_jobs
-                    if not dialog.winfo_exists():
-                        return
-                    load_remote_jobs = False
-                    if error is not None:
-                        set_status(f"Remote job scan failed: {type(error).__name__}: {error}")
-                        render_jobs()
-                        return
-                    filtered_remote_jobs = [job for job in remote_jobs if self._job_identity(job) not in deleted_job_ids]
-                    jobs = self._merge_job_lists(jobs, filtered_remote_jobs)
-                    set_status(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "")
-                    render_jobs()
-
-                self.gui.root.after(0, finish)
-
-            threading.Thread(target=worker, daemon=True).start()
+        from ui.dialogs.job_dialogs import show_attach_job_dialog
+        show_attach_job_dialog(self)
 
     def _job_identity(self, job: dict) -> str:
         return str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or id(job))
@@ -458,7 +166,7 @@ class JobsController:
             else:
                 self._delete_local_job_folders(job)
             self._remove_job_registry_entry(job)
-            self.gui.progress_ctrl._log(f"Deleted job: {self._job_identity(job)}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Deleted job: {self._job_identity(job)}")
             return True
         except Exception as exc:
             messagebox.showerror("Delete job failed", f"Could not delete selected job:\n\n{type(exc).__name__}: {exc}")
@@ -811,13 +519,13 @@ class JobsController:
                 self.gui.pipeline_ctrl._remote_download_outputs()
                 return
             output_dir = job.get("effective_output_dir") or job.get("output_dir")
-            self.gui.progress_ctrl._log(f"Local outputs are already available in: {output_dir}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Local outputs are already available in: {output_dir}")
             return
 
         local_jobs = [job for job in jobs if job.get("target") != "Server"]
         for job in local_jobs:
             output_dir = job.get("effective_output_dir") or job.get("output_dir")
-            self.gui.progress_ctrl._log(f"Local outputs are already available in: {output_dir}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Local outputs are already available in: {output_dir}")
 
         remote_jobs = [job for job in jobs if job.get("target") == "Server"]
         if not remote_jobs:
@@ -837,13 +545,13 @@ class JobsController:
             total = len(runners)
             for idx, (job, runner) in enumerate(runners, start=1):
                 label = job.get("remote_job_dir") or job.get("job_id") or f"job {idx}"
-                self.gui.progress_ctrl._log(f"Downloading outputs ({idx}/{total}): {label}")
+                ui_events.emit(EVENT_LOG_MESSAGE, f"Downloading outputs ({idx}/{total}): {label}")
                 if not runner.config.download_subdir:
                     metadata = runner.read_remote_metadata()
                     if metadata.get("download_subdir"):
                         runner.config.download_subdir = str(metadata.get("download_subdir"))
                 local_path = runner.download_outputs(job.get("output_dir") or self.gui.state.output_dir.get())
-                self.gui.progress_ctrl._log(f"Downloaded outputs to: {local_path}")
+                ui_events.emit(EVENT_LOG_MESSAGE, f"Downloaded outputs to: {local_path}")
 
         self.gui.pipeline_ctrl._run_remote_task(f"Download Outputs ({len(runners)} jobs)", task)
 
@@ -859,7 +567,7 @@ class JobsController:
         if getattr(self, "progress", None) is not None:
             self.gui.progress.start(10)
         self.gui.state.status_text.set("Running in background")
-        self.gui.progress_ctrl._log(title)
+        ui_events.emit(EVENT_LOG_MESSAGE, title)
         self.gui._validate_configuration()
 
     def _registry_entry_for_local_job(self, job_dir: Path, req: dict, pid: int | None = None, state: str = "running") -> dict:
@@ -1054,51 +762,9 @@ class JobsController:
             if job.get("target") == "Local" and job.get("state") != "running" and job.get("job_dir")
         ]
 
-    def _resume_job_dialog(self, jobs: list[dict]) -> None:
-        dialog = tk.Toplevel(self.gui.root)
-        dialog.title("Resume Background Job")
-        dialog.geometry("900x420")
-        dialog.transient(self.gui.root)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text="Select a previous job to resume in the same job/output directory.").pack(anchor=tk.W, padx=12, pady=(12, 6))
-        columns = ("target", "state", "job", "output")
-        tree = ttk.Treeview(dialog, columns=columns, show="headings", height=12)
-        for col, text, width in (
-            ("target", "Target", 80),
-            ("state", "State", 90),
-            ("job", "Job", 360),
-            ("output", "Output", 300),
-        ):
-            tree.heading(col, text=text)
-            tree.column(col, width=width, anchor=tk.W)
-        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
-
-        item_to_job: dict[str, dict] = {}
-        for idx, job in enumerate(jobs):
-            job_label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id", "")
-            item = tree.insert("", tk.END, values=(job.get("target", ""), job.get("state", ""), job_label, job.get("effective_output_dir") or job.get("output_dir", "")))
-            item_to_job[item] = job
-            if idx == 0:
-                tree.selection_set(item)
-
-        def selected_job() -> dict | None:
-            selection = tree.selection()
-            return item_to_job.get(selection[0]) if selection else None
-
-        def resume_selected() -> None:
-            job = selected_job()
-            if not job:
-                return
-            dialog.destroy()
-            self._resume_registry_job(job)
-
-        buttons = ttk.Frame(dialog)
-        buttons.pack(fill=tk.X, padx=12, pady=(4, 12))
-        ttk.Button(buttons, text="Resume Selected", style="Accent.TButton", command=resume_selected).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="View / Attach", command=lambda: (dialog.destroy(), self._attach_registry_job(selected_job())) if selected_job() else None).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
-        tree.bind("<Double-1>", lambda _event: resume_selected())
+    def _resume_job_dialog(self, job: dict) -> None:
+        from ui.dialogs.job_dialogs import show_resume_job_dialog
+        show_resume_job_dialog(self, job)
 
     def _pause_background_job(self, job: dict) -> bool:
         target = job.get("target")
@@ -1108,7 +774,7 @@ class JobsController:
                 return False
             try:
                 runner.request_pause()
-                self.gui.progress_ctrl._log(f"Remote pause requested: {runner.remote_job_dir}")
+                ui_events.emit(EVENT_LOG_MESSAGE, f"Remote pause requested: {runner.remote_job_dir}")
                 return True
             except Exception as exc:
                 messagebox.showerror("Remote pause failed", f"Could not pause remote job:\n\n{type(exc).__name__}: {exc}")
@@ -1122,7 +788,7 @@ class JobsController:
             stop_file = job_dir / "stop_requested"
             stop_file.parent.mkdir(parents=True, exist_ok=True)
             stop_file.touch()
-            self.gui.progress_ctrl._log(f"Local pause requested: {stop_file}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Local pause requested: {stop_file}")
             return True
         except Exception as exc:
             messagebox.showerror("Local pause failed", f"Could not pause local job:\n\n{type(exc).__name__}: {exc}")
@@ -1255,7 +921,7 @@ class JobsController:
         self._load_local_progress_state(job_dir, config)
         self._register_job_monitor_for_active_context()
         self._enter_background_monitor_state("Resuming local background job...")
-        self.gui.progress_ctrl._log(f"Local background job resumed: {job_dir}")
+        ui_events.emit(EVENT_LOG_MESSAGE, f"Local background job resumed: {job_dir}")
         self._schedule_job_poll(delay_ms=0)
 
     def _resume_remote_registry_job(self, job: dict) -> None:
@@ -1293,7 +959,7 @@ class JobsController:
         self._register_job_monitor_for_active_context()
         self._enter_background_monitor_state("Resuming remote background job...")
         self.gui._validate_configuration()
-        self.gui.progress_ctrl._log(f"Remote background job resumed: {remote_dir}")
+        ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job resumed: {remote_dir}")
         self._schedule_job_poll(delay_ms=0)
 
     def _build_ssh_config(self) -> SSHConfig | None:
@@ -1389,7 +1055,7 @@ class JobsController:
             else:
                 done = self._poll_local_background_job()
         except Exception as exc:
-            self.gui.progress_ctrl._log(f"BACKGROUND POLL ERROR: {type(exc).__name__}: {exc}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"BACKGROUND POLL ERROR: {type(exc).__name__}: {exc}")
             done = False
 
         if done:
@@ -1463,7 +1129,7 @@ class JobsController:
                 self._finish_attach_loading()
             return
         if error is not None:
-            self.gui.progress_ctrl._log(f"BACKGROUND POLL ERROR: {type(error).__name__}: {error}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"BACKGROUND POLL ERROR: {type(error).__name__}: {error}")
             if monitor is not None:
                 self._save_job_monitor(monitor)
             self._schedule_job_poll(context_id=context_id)
@@ -1474,9 +1140,9 @@ class JobsController:
         self._handle_background_log_chunk(data)
         state = str(status.get("state", "running"))
         if state in {"completed", "failed"}:
-            self.gui.progress_ctrl._log(f"Remote background job finished with exit code {status.get('exit_code')}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job finished with exit code {status.get('exit_code')}")
             if status.get("error"):
-                self.gui.progress_ctrl._log(f"Remote background job error: {status.get('error')}")
+                ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job error: {status.get('error')}")
             if state == "failed":
                 for key, run in self.gui.progress_ctrl.image_runs.items():
                     for stage, step in (run.get("steps") or {}).items():
@@ -1489,7 +1155,7 @@ class JobsController:
                 failed_count = sum(1 for run in self.gui.progress_ctrl.image_runs.values() if run.get("status") == "Failed")
                 self.gui.progress_ctrl._set_progress_count("current_failed_images", failed_count)
                 self.gui.progress_ctrl._update_batch_summary()
-            self.gui.progress_ctrl._log("Use Download Outputs to copy remote outputs to the local output folder.")
+            ui_events.emit(EVENT_LOG_MESSAGE, "Use Download Outputs to copy remote outputs to the local output folder.")
             self._update_registry_for_active_job(state, status.get("exit_code"))
             self.active_job["done"] = True
             if monitor is not None:
@@ -1527,7 +1193,7 @@ class JobsController:
             code = status.get("exit_code")
             if code is None and exit_path.exists():
                 code = exit_path.read_text(encoding="utf-8", errors="replace").strip()
-            self.gui.progress_ctrl._log(f"Local background job finished with exit code {code}")
+            ui_events.emit(EVENT_LOG_MESSAGE, f"Local background job finished with exit code {code}")
             self._update_registry_for_active_job("completed" if str(code) == "0" else "failed", code)
             return True
         self.gui.state.status_text.set("Running in background")

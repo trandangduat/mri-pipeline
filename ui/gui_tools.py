@@ -1,3 +1,4 @@
+from ui.events import ui_events, EVENT_LOG_MESSAGE
 """Tool/image management mixin for the MRI Pipeline GUI."""
 
 from __future__ import annotations
