@@ -54,6 +54,7 @@ class ProgressController:
         self.image_list_canvas = None
         self.image_list_frame = None
         self.progress_log_card = None
+
     def _progress_job_identity(self, job: dict | None) -> str:
         if not job:
             return ""
@@ -117,7 +118,7 @@ class ProgressController:
         self.progress_contexts[context_id] = context
         if job_identity:
             self.progress_context_by_job[job_identity] = context_id
-        self.gui.notebook.add(context["tab"], text=title + "  ✕")
+        self.gui.notebook.add(context["tab"], text=title)
         return context
 
     def _save_active_progress_context(self) -> None:
@@ -252,30 +253,6 @@ class ProgressController:
         if getattr(self, "_validate_configuration", None) is not None:
             self.gui._validate_configuration()
 
-    def _on_notebook_click(self, event) -> None:
-        if self.gui.notebook is None:
-            return
-        try:
-            index = self.gui.notebook.index(f"@{event.x},{event.y}")
-        except tk.TclError:
-            return
-        tab_id = self.gui.notebook.tabs()[index]
-        is_progress_tab = False
-        context_id = None
-        for cid, context in self.progress_contexts.items():
-            if str(context.get("tab")) == tab_id:
-                is_progress_tab = True
-                context_id = cid
-                break
-        if not is_progress_tab:
-            return
-        bbox = self.gui.notebook.bbox(index)
-        if not bbox:
-            return
-        x, y, w, h = bbox
-        if event.x > x + w - 24:
-            self._close_progress_tab(context_id)
-
     def _close_progress_tab(self, context_id: str) -> None:
         context = self.progress_contexts.get(context_id)
         if not context or self.gui.notebook is None:
@@ -328,7 +305,7 @@ class ProgressController:
             context["title"] = title
             context["tab_title"].set(title)
             if self.gui.notebook is not None:
-                self.gui.notebook.tab(context["tab"], text=title + "  ✕")
+                self.gui.notebook.tab(context["tab"], text=title)
         self._activate_progress_context(context["id"])
         return context
 
@@ -345,7 +322,7 @@ class ProgressController:
         context["job_identity"] = job_identity
         if job_identity:
             self.progress_context_by_job[job_identity] = context["id"]
-        self.gui.notebook.tab(context["tab"], text=title + "  ✕")
+        self.gui.notebook.tab(context["tab"], text=title)
 
     def _toggle_progress_log(self) -> None:
         body = getattr(self, "progress_log_body", None)

@@ -447,7 +447,6 @@ class PipelineGUI:
         self.tools_ctrl.tab_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.tools_ctrl.tab_frame, text="Tools / Docker Images")
         self.notebook.bind("<<NotebookTabChanged>>", self.progress_ctrl._on_notebook_tab_changed)
-        self.notebook.bind("<Button-1>", self.progress_ctrl._on_notebook_click)
 
         build_configuration_tab(self.config_tab, self)
         build_tools_tab(self.tools_ctrl.tab_frame, self.tools_ctrl)
