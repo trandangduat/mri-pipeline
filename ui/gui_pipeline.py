@@ -95,10 +95,13 @@ class PipelineController:
         return show_upload_remote_job_dialog(self, runner)
 
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
-        if not self.gui.jobs_ctrl._can_start_new_pipeline():
-            return
+        if not resume:
+            from ui.dialogs.before_run import show_before_run_dialog
 
-        if not self.gui._validate_configuration():
+            if not show_before_run_dialog(self.gui):
+                self.gui._validate_configuration()
+                return
+        elif not self.gui._validate_configuration():
             messagebox.showerror("Configuration incomplete", self.gui.state.config_status.get())
             return
 

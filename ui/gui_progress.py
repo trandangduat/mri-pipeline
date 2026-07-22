@@ -968,8 +968,9 @@ class ProgressController:
             btn = getattr(self, btn_name, None)
             if btn is not None:
                 self.gui._set_button_busy(btn, False)
-        if getattr(self, "run_button", None) is not None:
-            self.gui.run_button.configure(text="Run", state=tk.NORMAL if self.gui._validate_configuration() else tk.DISABLED)
+        if getattr(self.gui, "run_button", None) is not None:
+            self.gui._validate_configuration()
+            self.gui.run_button.configure(text="Run", state=tk.NORMAL)
         if getattr(self, "resume_button", None) is not None:
             self.gui.pipeline_ctrl.resume_button.configure(text="Resume", state=tk.NORMAL)
         if getattr(self, "restart_button", None) is not None:
