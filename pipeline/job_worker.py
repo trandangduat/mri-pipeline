@@ -10,8 +10,9 @@ from pathlib import Path
 
 from .config import BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .jobs import read_json, write_json
-from .runner import _write_stats_vector_reports, run_batch_pipeline, run_pipeline
-from .utils import _derive_subject_id, _discover_mri_files, build_subject_id_map
+from .discovery import _derive_subject_id, _discover_mri_files, build_subject_id_map
+from .reports import BatchReportContext, write_batch_reports
+from .runner import run_batch_pipeline, run_pipeline
 
 
 def _append_line(path: Path, line: str) -> None:
@@ -194,7 +195,16 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         results = run_pipeline(config, on_progress=progress_cb, on_build_log=build_log_cb, on_metrics=metrics_cb, should_stop=should_stop)
         success = bool(results) and all(step.success for step in results)
         image_result = BatchImageResult(input_file, subject_id, str(Path(output_dir) / subject_id), success, 0.0, results)
-        _write_stats_vector_reports(output_dir, [input_file], [image_result], {input_file: subject_id}, dataset_root, stats_vector_config)
+        write_batch_reports(
+            BatchReportContext(
+                output_dir=output_dir,
+                input_files=[input_file],
+                batch_results=[image_result],
+                subject_id_map={input_file: subject_id},
+                dataset_root=dataset_root,
+                stats_vector_config=stats_vector_config,
+            )
+        )
         image_done_cb(image_result, 1, 1)
         return 0 if success else 1
 

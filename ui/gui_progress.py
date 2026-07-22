@@ -633,13 +633,20 @@ class ProgressController:
         for gpu in run["gpu"]:
             self.gpu_chart.add(gpu, f"{gpu:.1f}%")
         self._render_step_summary(run)
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        self.log_text.insert(tk.END, "\n".join(run["logs"][-2000:]))
-        if run["logs"]:
-            self.log_text.insert(tk.END, "\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state=tk.DISABLED)
+        log_text = getattr(self, "log_text", None)
+        if not self._tk_widget_exists(log_text):
+            self._clear_stale_log_widget(log_text)
+            return
+        try:
+            log_text.configure(state=tk.NORMAL)
+            log_text.delete("1.0", tk.END)
+            log_text.insert(tk.END, "\n".join(run["logs"][-2000:]))
+            if run["logs"]:
+                log_text.insert(tk.END, "\n")
+            log_text.see(tk.END)
+            log_text.configure(state=tk.DISABLED)
+        except tk.TclError:
+            self._clear_stale_log_widget(log_text)
 
     def _update_image_run(
         self,
@@ -1043,30 +1050,59 @@ class ProgressController:
     def _log(self, line: str) -> None:
         self.gui.log_queue.put((getattr(self, "active_progress_context_id", ""), getattr(self, "active_image_key", ""), line))
 
+    def _tk_widget_exists(self, widget) -> bool:
+        if widget is None:
+            return False
+        try:
+            return bool(widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _clear_stale_log_widget(self, widget) -> None:
+        for context in self.progress_contexts.values():
+            if context.get("log_text") is widget:
+                context["log_text"] = None
+        if getattr(self, "log_text", None) is widget:
+            self.log_text = None
+
     def _append_log_to_context(self, context: dict, line: str) -> None:
         log_text = context.get("log_text")
-        if log_text is None:
+        if not self._tk_widget_exists(log_text):
+            self._clear_stale_log_widget(log_text)
             return
-        log_text.configure(state=tk.NORMAL)
-        log_text.insert(tk.END, line + "\n")
-        log_text.see(tk.END)
-        log_text.configure(state=tk.DISABLED)
+        try:
+            log_text.configure(state=tk.NORMAL)
+            log_text.insert(tk.END, line + "\n")
+            log_text.see(tk.END)
+            log_text.configure(state=tk.DISABLED)
+        except tk.TclError:
+            self._clear_stale_log_widget(log_text)
 
     def _append_log(self, line: str) -> None:
         context = self._current_progress_context()
         if context is not None:
             self._append_log_to_context(context, line)
             return
-        if getattr(self, "log_text", None) is None:
+        log_text = getattr(self, "log_text", None)
+        if not self._tk_widget_exists(log_text):
+            self._clear_stale_log_widget(log_text)
             return
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.insert(tk.END, line + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state=tk.DISABLED)
+        try:
+            log_text.configure(state=tk.NORMAL)
+            log_text.insert(tk.END, line + "\n")
+            log_text.see(tk.END)
+            log_text.configure(state=tk.DISABLED)
+        except tk.TclError:
+            self._clear_stale_log_widget(log_text)
 
     def _clear_log(self) -> None:
-        if getattr(self, "log_text", None) is None:
+        log_text = getattr(self, "log_text", None)
+        if not self._tk_widget_exists(log_text):
+            self._clear_stale_log_widget(log_text)
             return
-        self.log_text.configure(state=tk.NORMAL)
-        self.log_text.delete("1.0", tk.END)
-        self.log_text.configure(state=tk.DISABLED)
+        try:
+            log_text.configure(state=tk.NORMAL)
+            log_text.delete("1.0", tk.END)
+            log_text.configure(state=tk.DISABLED)
+        except tk.TclError:
+            self._clear_stale_log_widget(log_text)
