@@ -29,6 +29,7 @@ PIPELINE_MODE_ALIASES = {
 
 VOLUME_SKIPPED_STAGES = {
     "brain_extraction",
+    "template_registration",
     "bias_correction",
     "white_matter_segmentation",
     "surface_reconstruction",
@@ -38,7 +39,7 @@ VOLUME_SKIPPED_STAGES = {
 _BASE_FS7_TOOLS = {
     "reorientation": "mri_convert_fs7",
     "brain_extraction": "synthstrip_fs7",
-    "template_registration": "synthmorph_fs8",
+    "template_registration": "",
     "bias_correction": "ants_n4",
     "white_matter_segmentation": "mri_binarize",
     "surface_reconstruction": "",
@@ -47,33 +48,32 @@ _BASE_FS7_TOOLS = {
 }
 
 FREESURFER_7_TOOLS = {
-    **_BASE_FS7_TOOLS,
-    "segmentation": "synthseg_freesurfer_fs7",
+    "reorientation": "fs7_recon_style_reorientation",
+    "brain_extraction": "fs7_recon_style_brain_extraction",
+    "segmentation": "fs7_recon_style_segmentation",
+    "template_registration": "fs7_recon_style_template_registration",
+    "bias_correction": "fs7_recon_style_bias_correction",
+    "white_matter_segmentation": "fs7_recon_style_wm_segmentation",
+    "surface_reconstruction": "fs7_recon_style_surface_reconstruction",
+    "surface_registration": "fs7_recon_style_surface_registration",
+    "stats_extraction": "fs7_recon_style_stats",
 }
 
-FREESURFER_7_SURFACE_TOOLS = {
-    **FREESURFER_7_TOOLS,
-    "surface_reconstruction": "recon_all_fs7",
-    "surface_registration": "surface_stats_fs7",
-}
-
-FREESURFER_8_TOOLS = {
-    "reorientation": "mri_convert_fs8",
-    "brain_extraction": "synthstrip_fs8",
-    "segmentation": "synthseg_freesurfer_fs8",
-    "template_registration": "synthmorph_fs8",
-    "bias_correction": "ants_n4",
-    "white_matter_segmentation": "mri_binarize",
-    "surface_reconstruction": "",
-    "surface_registration": "",
-    "stats_extraction": "freesurfer_stats_fs8",
-}
+FREESURFER_7_SURFACE_TOOLS = FREESURFER_7_TOOLS
 
 FREESURFER_8_SURFACE_TOOLS = {
-    **FREESURFER_8_TOOLS,
-    "surface_reconstruction": "recon_all_fs8",
-    "surface_registration": "surface_stats_fs8",
+    "reorientation": "fs8_reduced54_reorientation",
+    "brain_extraction": "fs8_reduced54_brain_extraction",
+    "segmentation": "synthseg_freesurfer_fs8",
+    "template_registration": "fs8_reduced54_template_registration",
+    "bias_correction": "fs8_reduced54_bias_correction",
+    "white_matter_segmentation": "fs8_reduced54_wm_segmentation",
+    "surface_reconstruction": "fs8_reduced54_surface_reconstruction",
+    "surface_registration": "fs8_reduced54_surface_registration",
+    "stats_extraction": "fs8_reduced54_stats",
 }
+
+FREESURFER_8_TOOLS = FREESURFER_8_SURFACE_TOOLS
 
 FASTSURFER_TOOLS = {
     **_BASE_FS7_TOOLS,
@@ -101,4 +101,3 @@ PRESET_CONFIGS = {
     "FastSurfer + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": THICKNESS_STATS},
     "FastSurfer + Volume + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
 }
-

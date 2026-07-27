@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock
 from ui.job_registry import JobRegistryController
 from ui.gui_config import ConfigController
@@ -106,6 +105,29 @@ def test_upload_remote_job_dialog_receives_runner(mocker) -> None:
     assert ctrl._upload_remote_job_with_dialog(runner) is True
 
     dialog.assert_called_once_with(ctrl, runner)
+
+
+def test_neuroflow_server_local_input_is_blocked_before_lazy_upload(mocker) -> None:
+    mock_gui = MagicMock()
+    mock_gui.state.neuroflow_enabled.get.return_value = True
+    mock_gui.state.run_target.get.return_value = "Server"
+    mock_gui.state.input_source.get.return_value = "Local"
+    messagebox = mocker.patch("ui.gui_pipeline.messagebox.showerror")
+    ctrl = PipelineController(mock_gui)
+
+    assert ctrl._neuroflow_server_local_input_blocked() is True
+    messagebox.assert_called_once()
+
+
+def test_neuroflow_rejects_custom_pipeline_mode(mocker) -> None:
+    mock_gui = MagicMock()
+    mock_gui.state.neuroflow_enabled.get.return_value = True
+    mock_gui.state.pipeline_mode.get.return_value = "Custom"
+    messagebox = mocker.patch("ui.gui_pipeline.messagebox.showerror")
+    ctrl = PipelineController(mock_gui)
+
+    assert ctrl._neuroflow_pipeline_mode_supported() is False
+    messagebox.assert_called_once()
 
 
 def test_delete_active_registry_job_stops_jobs_controller_monitor(mocker) -> None:

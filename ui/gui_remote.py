@@ -13,7 +13,7 @@ class RemoteController:
         
     def _set_remote_status_icon(self, icon_name: str | None) -> None:
 
-        label = getattr(self, "remote_status_icon_label", None)
+        label = getattr(self.gui.pipeline_ctrl, "remote_status_icon_label", None)
 
         if label is None:
 
@@ -28,6 +28,25 @@ class RemoteController:
         icon = self.gui._make_icon(icon_name) if icon_name else None
 
         label.configure(image=icon if icon is not None else "", text="")
+
+        self._style_remote_status(icon_name)
+
+    def _style_remote_status(self, status: str | None = None) -> None:
+        label = getattr(self.gui, "remote_status_label", None)
+        if label is None:
+            return
+        status_text = (status or self.gui.state.remote_status.get()).lower()
+        if "success" in status_text or "connected" in status_text:
+            color = "#16a34a"
+        elif "running" in status_text or "connecting" in status_text:
+            color = "#2563eb"
+        elif "failed" in status_text or "error" in status_text or "disconnected" in status_text:
+            color = "#dc2626"
+        elif "pending" in status_text or "idle" in status_text:
+            color = "#64748b"
+        else:
+            color = "#475569"
+        label.configure(foreground=color)
 
     def _current_remote_thread_signature(self) -> tuple[str, int, str, str, str] | None:
 
@@ -103,6 +122,8 @@ class RemoteController:
 
         self._set_remote_status_icon("pending")
 
+        self._style_remote_status("disconnected")
+
         self.gui.tools_ctrl._set_python_env_status("Not checked")
 
         self._sync_remote_connection_controls()
@@ -140,6 +161,8 @@ class RemoteController:
         self.gui.state.remote_status.set("Remote: disconnected unexpectedly")
 
         self._set_remote_status_icon("failed")
+
+        self._style_remote_status("failed")
 
         self.gui.tools_ctrl._set_python_env_status("Not checked")
 
@@ -401,13 +424,13 @@ class RemoteController:
 
         from ui.dialogs.remote_browser import show_upload_dialog
 
-        show_upload_dialog(self)
+        show_upload_dialog(self.gui)
 
     def _browse_server_output(self) -> None:
 
         from ui.dialogs.remote_browser import show_remote_output_browser
 
-        show_remote_output_browser(self)
+        show_remote_output_browser(self.gui)
 
     def _browse_remote_input(self) -> None:
 

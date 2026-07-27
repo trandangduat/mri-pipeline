@@ -6,7 +6,7 @@
     "reorientation": "nibabel",
     "brain_extraction": "hdbet",
     "segmentation": "fastsurfervinn",
-    "template_registration": "synthmorph_fs8",
+    "template_registration": "",
     "bias_correction": "ants_n4",
     "white_matter_segmentation": "mri_binarize",
     "surface_reconstruction": "",

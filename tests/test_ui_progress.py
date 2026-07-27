@@ -3,7 +3,14 @@ from __future__ import annotations
 import tkinter as tk
 import pytest
 from unittest.mock import MagicMock
-from ui.gui_progress import ProgressController
+from ui.gui_progress import ProgressController, step_status_from_result
+
+
+def test_step_status_from_result_keeps_skipped_steps_skipped() -> None:
+    assert step_status_from_result(True, tool="", error="") == "Skipped"
+    assert step_status_from_result(True, tool="", error="skipped") == "Skipped"
+    assert step_status_from_result(True, tool="fs8_reduced54_stats", error="") == "Done"
+    assert step_status_from_result(False, tool="fs8_reduced54_stats", error="boom") == "Failed"
 
 def test_progress_title_for_job(mocker):
     mocker.patch("tkinter.StringVar")

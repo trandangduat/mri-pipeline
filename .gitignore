@@ -69,3 +69,4 @@ license/*
 models/
 
 configs/*.json
+configs/workspaces/*.json

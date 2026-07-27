@@ -6,6 +6,7 @@ import os
 import glob
 import posixpath
 import stat
+import threading
 from pathlib import Path
 
 from pipeline.discovery import _discover_mri_files
@@ -33,26 +34,13 @@ class BatchConfigWindow(tk.Toplevel):
         self.files_data = [] # List of dict: {"path": str, "size": str, "selected": bool}
         self.server_mode = self.gui.state.input_source.get() == "Server"
         self.ssh = None
+        self._scan_token = 0
         
         self.recursive_var = tk.BooleanVar(value=not self.gui.state.non_recursive.get())
         
-        if self.server_mode:
-            try:
-                from remote.ssh_client import RemoteSSHClient
-                ssh_config = self.gui.jobs_ctrl.build_ssh_config()
-                if ssh_config is None:
-                    self.destroy()
-                    return
-                self.ssh = RemoteSSHClient(ssh_config, lambda _line: None)
-                self.ssh.connect()
-            except Exception as exc:
-                messagebox.showerror("Server batch failed", f"Could not connect to server:\n\n{type(exc).__name__}: {exc}", parent=self)
-                self.destroy()
-                return
-
         self.protocol("WM_DELETE_WINDOW", self._close)
         self._build_ui()
-        self._scan_folder()
+        self.after(50, self._start_scan_folder)
         
     def _build_ui(self):
         main_frame = ttk.Frame(self, padding=16)
@@ -62,7 +50,9 @@ class BatchConfigWindow(tk.Toplevel):
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill=tk.X, pady=(0, 10))
         ttk.Checkbutton(top_frame, text="Scan recursively for MRI/DICOM inputs",
-                        variable=self.recursive_var, command=self._scan_folder).pack(side=tk.LEFT)
+                        variable=self.recursive_var, command=self._start_scan_folder).pack(side=tk.LEFT)
+        self.status_var = tk.StringVar(value="Ready")
+        ttk.Label(top_frame, textvariable=self.status_var).pack(side=tk.RIGHT)
                         
         # Buttons
         btn_frame = ttk.Frame(main_frame)
@@ -98,23 +88,71 @@ class BatchConfigWindow(tk.Toplevel):
         ttk.Button(bottom_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
         
     def _scan_folder(self):
+        self._start_scan_folder()
+
+    def _start_scan_folder(self):
         directory = self.gui.state.input_path.get().strip()
-        if self.server_mode:
-            self._scan_server_folder(directory)
-            return
-        if not os.path.isdir(directory):
-            self.files_data = []
-            self._refresh_tree()
-            return
-            
-        files = find_mri_files(directory, self.recursive_var.get())
-        # Preserve selection if path already exists
+        self._scan_token += 1
+        token = self._scan_token
+        recursive = self.recursive_var.get()
         old_selected = {f["path"] for f in self.files_data if f["selected"]}
-        # Also check gui.state.selected_files if this is first load
         if not self.files_data and self.gui.state.selected_files:
             old_selected.update(self.gui.state.selected_files)
-            
-        self.files_data = []
+        default_selected = not old_selected and not self.gui.state.selected_files
+        ssh_config = None
+        if self.server_mode:
+            ssh_config = self.gui.jobs_ctrl.build_ssh_config()
+            if ssh_config is None:
+                self.status_var.set("Missing remote server")
+                return
+        self.status_var.set("Scanning...")
+
+        def worker() -> None:
+            try:
+                if self.server_mode:
+                    data = self._scan_server_folder_data(directory, recursive, old_selected, default_selected, ssh_config)
+                else:
+                    data = self._scan_local_folder_data(directory, recursive, old_selected, default_selected)
+            except Exception as exc:
+                self._after_scan_error(token, exc)
+                return
+            self._after_scan_success(token, data)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _after_scan_success(self, token: int, data: list[dict]) -> None:
+        def apply() -> None:
+            if token != self._scan_token:
+                return
+            self.files_data = data
+            self._refresh_tree()
+            self.status_var.set(f"Found {len(data)} input(s)")
+
+        try:
+            self.after(0, apply)
+        except tk.TclError:
+            return
+
+    def _after_scan_error(self, token: int, exc: Exception) -> None:
+        def apply() -> None:
+            if token != self._scan_token:
+                return
+            title = "Server scan failed" if self.server_mode else "Batch scan failed"
+            messagebox.showerror(title, f"Could not scan batch folder:\n\n{type(exc).__name__}: {exc}", parent=self)
+            self.files_data = []
+            self._refresh_tree()
+            self.status_var.set("Scan failed")
+
+        try:
+            self.after(0, apply)
+        except tk.TclError:
+            return
+
+    def _scan_local_folder_data(self, directory: str, recursive: bool, old_selected: set[str], default_selected: bool) -> list[dict]:
+        if not os.path.isdir(directory):
+            return []
+        files = find_mri_files(directory, recursive)
+        files_data = []
         for f in files:
             size_str = "Unknown"
             try:
@@ -125,15 +163,14 @@ class BatchConfigWindow(tk.Toplevel):
                     size_str = format_size(os.path.getsize(f))
             except Exception:
                 pass
-                
-            selected = (f in old_selected) or (not old_selected and not self.gui.state.selected_files) # Default all true if no old selection
-            self.files_data.append({
+
+            selected = (f in old_selected) or default_selected
+            files_data.append({
                 "path": f,
                 "size": size_str,
                 "selected": selected
             })
-            
-        self._refresh_tree()
+        return files_data
 
     def _is_mri_name(self, name: str) -> bool:
         return name.lower().endswith(('.mgz', '.nii', '.nii.gz', '.mgh', '.dcm', '.dicom', '.ima'))
@@ -155,27 +192,22 @@ class BatchConfigWindow(tk.Toplevel):
         return name.lower().endswith(('.dcm', '.dicom', '.ima'))
 
     def _scan_server_folder(self, directory: str):
-        if self.ssh is None or not directory:
-            self.files_data = []
-            self._refresh_tree()
-            return
-        try:
-            root = self.ssh.expand_path(directory)
-            files = self._find_server_mri_files(root, self.recursive_var.get())
-        except Exception as exc:
-            messagebox.showerror("Server scan failed", f"Could not scan server folder:\n\n{type(exc).__name__}: {exc}", parent=self)
-            self.files_data = []
-            self._refresh_tree()
-            return
+        self._start_scan_folder()
 
-        old_selected = {f["path"] for f in self.files_data if f["selected"]}
-        if not self.files_data and self.gui.state.selected_files:
-            old_selected.update(self.gui.state.selected_files)
-        self.files_data = []
+    def _scan_server_folder_data(self, directory: str, recursive: bool, old_selected: set[str], default_selected: bool, ssh_config) -> list[dict]:
+        if self.ssh is None:
+            from remote.ssh_client import RemoteSSHClient
+            self.ssh = RemoteSSHClient(ssh_config, lambda _line: None)
+            self.ssh.connect()
+        if self.ssh is None or not directory:
+            return []
+        root = self.ssh.expand_path(directory)
+        files = self._find_server_mri_files(root, recursive)
+        files_data = []
         for path, size in files:
-            selected = (path in old_selected) or (not old_selected and not self.gui.state.selected_files)
-            self.files_data.append({"path": path, "size": format_size(size), "selected": selected})
-        self._refresh_tree()
+            selected = (path in old_selected) or default_selected
+            files_data.append({"path": path, "size": format_size(size), "selected": selected})
+        return files_data
 
     def _find_server_mri_files(self, directory: str, recursive: bool) -> list[tuple[str, int]]:
         assert self.ssh is not None
@@ -245,6 +277,7 @@ class BatchConfigWindow(tk.Toplevel):
         self._close()
 
     def _close(self):
+        self._scan_token += 1
         if self.ssh is not None:
             self.ssh.close()
             self.ssh = None

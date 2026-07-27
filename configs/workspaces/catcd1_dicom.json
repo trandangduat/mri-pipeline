@@ -1,13 +1,13 @@
 {
   "version": 1,
   "type": "mri-pipeline-workspace",
-  "input_source": "Local",
-  "input_mode": "file",
-  "input_path": "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20090708092208124_S65164_I148227/001.mgz",
+  "input_source": "Server",
+  "input_mode": "dir",
+  "input_path": "/home/catcd1/adni-dicom",
   "selected_files": [
-    "/home/magicianfrog/mri-pipeline/data/ADNI_127_S_0259_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20090708092208124_S65164_I148227/001.mgz"
+    "/home/catcd1/adni-dicom/002_S_6066/Axial_3TE_T2_STAR/2019-11-11_12_21_07.0/I1255472"
   ],
-  "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "output_dir": "/home/trandangduat/mri-pipeline/outputs",
   "export_outputs": {
     "enabled": false,
     "folder": "exports",
@@ -34,10 +34,10 @@
     }
   },
   "device": "cpu",
-  "threads": 4,
+  "threads": 12,
   "non_recursive": false,
   "run_target": "Server",
-  "pipeline_mode": "Custom",
+  "pipeline_mode": "FreeSurfer 7 + Volume",
   "tools": {
     "reorientation": "mri_convert_fs7",
     "brain_extraction": "synthstrip_fs7",
@@ -52,25 +52,28 @@
   "stats_vectors": {
     "enabled_stats": {
       "cortical_thickness": false,
-      "cortical_volume": false,
-      "subcortical_volume": false
+      "cortical_volume": true,
+      "subcortical_volume": true
     },
     "atlases": {
       "cortical_thickness": [
         "aparc"
       ],
-      "cortical_volume": [],
-      "subcortical_volume": []
+      "cortical_volume": [
+        "freesurfer_aseg"
+      ],
+      "subcortical_volume": [
+        "freesurfer_aseg"
+      ]
     }
   },
   "remote": {
     "host": "103.74.122.196",
     "port": 19622,
     "username": "catcd1",
-    "key_path": "",
+    "key_path": "/mnt/c/Users/ADMIN/.ssh/duat",
     "workspace": "~/mri-remote-jobs",
-    "input_upload_dir": "",
     "python": "python3"
   },
-  "name": "new1"
+  "name": "catcd1_dicom"
 }

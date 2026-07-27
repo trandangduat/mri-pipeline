@@ -1,10 +1,12 @@
 {
   "version": 1,
   "type": "mri-pipeline-workspace",
-  "input_source": "Local",
+  "input_source": "Server",
   "input_mode": "file",
-  "input_path": "",
-  "selected_files": [],
+  "input_path": "/home/catcd1/move/ADNI/002_S_2073/MPRAGE_SENSE2/2016-10-03_06_58_19.0/I780965/ADNI_002_S_2073_MR_MPRAGE_SENSE2__br_raw_20161003151826299_55_S503310_I780965.nii",
+  "selected_files": [
+    "/home/catcd1/move/ADNI/002_S_2073/MPRAGE_SENSE2/2016-10-03_06_58_19.0/I780965/ADNI_002_S_2073_MR_MPRAGE_SENSE2__br_raw_20161003151826299_55_S503310_I780965.nii"
+  ],
   "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
   "server_output_dir": "",
   "export_outputs": {
@@ -33,41 +35,12 @@
     }
   },
   "device": "cpu",
-  "threads": 8,
+  "threads": 12,
+  "ram_percent": 90,
   "non_recursive": false,
   "run_target": "Server",
-  "pipeline_mode": "FreeSurfer 8 + Volume",
-  "tools": {
-    "reorientation": "mri_convert_fs8",
-    "brain_extraction": "synthstrip_fs8",
-    "segmentation": "synthseg_freesurfer_fs8",
-    "template_registration": "synthmorph_fs8",
-    "bias_correction": "ants_n4",
-    "white_matter_segmentation": "mri_binarize_fs8",
-    "surface_reconstruction": "",
-    "surface_registration": "",
-    "stats_extraction": "freesurfer_stats_fs8"
-  },
-  "stats_vectors": {
-    "enabled_stats": {
-      "cortical_thickness": false,
-      "cortical_volume": true,
-      "subcortical_volume": true
-    },
-    "atlases": {
-      "cortical_thickness": [
-        "aparc"
-      ],
-      "cortical_volume": [
-        "freesurfer_aseg"
-      ],
-      "subcortical_volume": [
-        "freesurfer_aseg"
-      ]
-    }
-  },
   "remote": {
-    "host": "103.74.122.196",
+    "host": "10.8.0.1",
     "port": 19622,
     "username": "catcd1",
     "key_path": "/home/magicianfrog/mri-pipeline/data/id_rsa",

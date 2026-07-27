@@ -21,6 +21,24 @@ from remote.ssh_client import RemoteSSHClient
 def show_attach_job_dialog(ctrl) -> None:
     target = ctrl.gui.state.run_target.get()
     registry = ctrl.gui.registry_ctrl
+
+    def job_order_value(job: dict) -> float:
+        try:
+            return float(job.get("started_at") or 0)
+        except (TypeError, ValueError):
+            pass
+        label = Path(str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "")).name
+        parts = label.split("_")
+        if len(parts) >= 3 and parts[-2].isdigit() and parts[-1].isdigit():
+            try:
+                return float(parts[-2] + parts[-1])
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    def stable_job_order(items: list[dict]) -> list[dict]:
+        return sorted(items, key=lambda job: (-job_order_value(job), registry._job_identity(job)))
+
     known_jobs = registry._known_jobs()
     jobs: list[dict] = []
     load_remote_jobs = False
@@ -41,10 +59,12 @@ def show_attach_job_dialog(ctrl) -> None:
             if entry.get("target") == "Server"
             and registry._same_remote_server(entry, ssh_config, workspace)
         ]
+        jobs = stable_job_order(jobs)
         load_remote_jobs = True
     elif target == "Local":
         jobs = [entry for entry in known_jobs if entry.get("target") == "Local"]
         jobs = registry._merge_job_lists(jobs, registry._running_local_jobs())
+        jobs = stable_job_order(jobs)
     if not jobs and not load_remote_jobs:
         ctrl._attach_manual_job_dialog()
         return
@@ -57,16 +77,22 @@ def show_attach_job_dialog(ctrl) -> None:
     dialog.grab_set()
 
     if target == "Server" and ssh_config is not None:
-        server_label = f"Remote server: {ssh_config.username}@{ssh_config.host}:{int(ssh_config.port)} | workspace: {workspace}"
-        server_icon = ctrl.gui._make_icon("success") if getattr(ctrl, "_make_icon", None) is not None else None
+        server_label = f"Remote server: {ssh_config.username}@{ssh_config.host}:{int(ssh_config.port)}"
+        workspace_label = f"Workspace: {workspace}"
+        server_icon = ctrl.gui._make_icon("success") if getattr(ctrl.gui, "_make_icon", None) is not None else None
     else:
         server_label = "Current target: Local jobs"
-        server_icon = ctrl.gui._make_icon("pending") if getattr(ctrl, "_make_icon", None) is not None else None
+        workspace_label = ""
+        server_icon = ctrl.gui._make_icon("pending") if getattr(ctrl.gui, "_make_icon", None) is not None else None
     server_row = ttk.Frame(dialog)
     server_row.pack(anchor=tk.W, fill=tk.X, padx=12, pady=(12, 6))
     if server_icon is not None:
         ttk.Label(server_row, image=server_icon).pack(side=tk.LEFT, padx=(0, 6))
-    ttk.Label(server_row, text=server_label, foreground="#1e293b", font=("Inter", 10, "bold")).pack(side=tk.LEFT, fill=tk.X, expand=True)
+    server_text = ttk.Frame(server_row)
+    server_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    ttk.Label(server_text, text=server_label, foreground="#1e293b", font=("Inter", 10, "bold")).pack(anchor=tk.W)
+    if workspace_label:
+        ttk.Label(server_text, text=workspace_label, foreground="#64748b").pack(anchor=tk.W, pady=(2, 0))
 
     selected_job_ids: set[str] = set()
     selection_initialized = False
@@ -214,7 +240,7 @@ def show_attach_job_dialog(ctrl) -> None:
     buttons.pack(fill=tk.X, padx=16, pady=(6, 14))
 
     def action_button(parent: ttk.Frame, text: str, command, icon_name: str, style: str | None = None, side: str = tk.LEFT, padx=0, icon_color: str | None = None) -> ttk.Button:
-        icon = ctrl.gui._make_icon(icon_name, icon_color) if getattr(ctrl, "_make_icon", None) is not None else None
+        icon = ctrl.gui._make_icon(icon_name, icon_color) if getattr(ctrl.gui, "_make_icon", None) is not None else None
         options = {"text": f" {text}" if icon is not None else text, "command": command}
         if style:
             options["style"] = style
@@ -308,7 +334,7 @@ def show_attach_job_dialog(ctrl) -> None:
                     render_jobs()
                     return
                 filtered_remote_jobs = [job for job in remote_jobs if registry._job_identity(job) not in deleted_job_ids]
-                jobs = registry._merge_job_lists(jobs, filtered_remote_jobs)
+                jobs = stable_job_order(registry._merge_job_lists(jobs, filtered_remote_jobs))
                 set_status(f"Loaded {len(filtered_remote_jobs)} running remote job(s)." if filtered_remote_jobs else "")
                 render_jobs()
 

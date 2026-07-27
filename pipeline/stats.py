@@ -1,5 +1,21 @@
 from __future__ import annotations
 
+import csv
+import re
+import logging
+from pathlib import Path
+from dataclasses import dataclass
+
+from .config import (
+    BatchImageResult,
+    KONG2022_ATLAS_VARIANTS,
+    PROJECT_ROOT,
+    SCHAEFER2018_ATLAS_VARIANTS,
+    STAT_VECTOR_DEFS,
+    StatsVectorConfig,
+)
+from .discovery import build_subject_id_map, _derive_subject_id
+
 VECTOR_SPECS = {
     "subcortical_volume": {
         "column": "subcortical_volume",
@@ -23,35 +39,32 @@ VECTOR_SPECS = {
         "value": "thickness_mm",
         "stats_stem": "aparc.a2009s",
     },
-    "schaefer2018": {
-        "column": "schaefer200_7network",
-        "features": "schaefer200_7network_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "schaefer200_7network",
-    },
-    "kong": {
-        "column": "200Parcels_Kong2022_17Networks",
-        "features": "200Parcels_Kong2022_17Networks_feats.txt",
-        "value": "thickness_mm",
-        "stats_stem": "200Parcels_Kong2022_17Networks",
-    },
     "yale": {
         "column": "YBA_696parcels",
         "features": "YBA_696parcels_feats.txt",
         "value": "thickness_mm",
         "stats_stem": "YBA_696parcels",
     },
+    **{
+        key: {
+            "column": stem,
+            "features": f"{stem}_feats.txt",
+            "value": "thickness_mm",
+            "stats_stem": stem,
+        }
+        for key, _parcels, _networks, stem in KONG2022_ATLAS_VARIANTS
+    },
+    **{
+        key: {
+            "column": stem,
+            "features": f"{stem}_feats.txt",
+            "value": "thickness_mm",
+            "stats_stem": stem,
+        }
+        for key, _parcels, _networks, stem in SCHAEFER2018_ATLAS_VARIANTS
+    },
 }
 
-
-import csv
-import re
-import logging
-from pathlib import Path
-from dataclasses import dataclass
-
-from .config import StatsVectorConfig, STAT_VECTOR_DEFS, PROJECT_ROOT, BatchImageResult
-from .discovery import build_subject_id_map, _derive_subject_id
 
 log = logging.getLogger(__name__)
 
@@ -447,7 +460,6 @@ def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[s
             continue
         out[str(spec["column"])] = _load_vector_features(str(spec["features"]))
     return out
-
 
 
 

@@ -141,6 +141,10 @@ class ConfigController:
 
             "stats_vectors": self.gui.state.get_stats_vector_config(),
 
+            "neuroflow_enabled": self.gui.state.neuroflow_enabled.get(),
+
+            "neuroflow_max_concurrent_tasks": int(self.gui.state.neuroflow_max_concurrent_tasks.get()),
+
         }
 
     def _apply_run_config(self, config: dict) -> None:
@@ -170,6 +174,10 @@ class ConfigController:
     
 
             self.gui.state.apply_stats_vector_config(config.get("stats_vectors", {}))
+
+            self.gui.state.neuroflow_enabled.set(bool(config.get("neuroflow_enabled", False)))
+
+            self.gui.state.neuroflow_max_concurrent_tasks.set(int(config.get("neuroflow_max_concurrent_tasks", 1)))
 
             self.gui._apply_pipeline_mode(apply_stats_preset=False)
 

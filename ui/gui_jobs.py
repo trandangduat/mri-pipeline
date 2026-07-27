@@ -47,6 +47,7 @@ class JobsController:
         self._attach_loading_dialog = None
         self._attach_loading_spinner_label = None
         self._attach_busy_button_states = {}
+        self._attach_loading_started_at = 0.0
     def _attach_job_dialog(self) -> None:
         from ui.dialogs.job_dialogs import show_attach_job_dialog
         show_attach_job_dialog(self)
@@ -267,15 +268,52 @@ class JobsController:
         self._attach_loading_dialog = None
         self._attach_loading_spinner_label = None
         self._attach_loading_active = False
+        self._attach_loading_started_at = 0.0
         self._set_attach_buttons_busy(False)
         self._sync_attach_toolbar_state()
 
+    def _attach_progress_ready(self) -> bool:
+        if not getattr(self, "_attach_loading_active", False):
+            return True
+        started_at = float(getattr(self, "_attach_loading_started_at", 0.0) or 0.0)
+        if started_at and time.monotonic() - started_at > 10.0:
+            return True
+        context = self.gui.progress_ctrl._current_progress_context()
+        if not context:
+            return False
+        if self.active_job and self.active_job.get("done"):
+            return True
+        if int(getattr(self, "job_log_offset", 0) or 0) > 0:
+            return True
+        for run in context.get("image_runs", {}).values():
+            if run.get("logs") or run.get("cpu") or run.get("ram") or run.get("gpu"):
+                return True
+            if run.get("status") not in {"Pending", "Queued", ""}:
+                return True
+            for step in (run.get("steps") or {}).values():
+                if step.get("status") not in {"Pending", "Skipped", ""}:
+                    return True
+        return False
+
+    def _finish_attach_loading_if_ready(self) -> None:
+        if getattr(self, "_attach_loading_active", False) and self._attach_progress_ready():
+            self._finish_attach_loading()
+
     def _show_attach_loading(self, job: dict) -> tuple[tk.Toplevel, ttk.Label]:
         label = job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "selected job"
+        parent = self.gui.root
+        focus_widget = self.gui.root.focus_get()
+        if focus_widget is not None:
+            try:
+                focus_top = focus_widget.winfo_toplevel()
+                if focus_top.winfo_exists():
+                    parent = focus_top
+            except tk.TclError:
+                pass
         dialog = tk.Toplevel(self.gui.root)
         dialog.withdraw()
         dialog.title("Attaching job")
-        dialog.transient(self.gui.root)
+        dialog.transient(parent)
         dialog.resizable(False, False)
         dialog.protocol("WM_DELETE_WINDOW", lambda: None)
 
@@ -288,12 +326,17 @@ class JobsController:
         ttk.Label(header, text="Attaching job...", font=("Inter", 11, "bold")).pack(side=tk.LEFT)
         ttk.Label(body, text=str(label), foreground="#64748b", wraplength=460).pack(anchor=tk.W, pady=(4, 12))
 
+        self.gui.root.update_idletasks()
         dialog.update_idletasks()
-        x = self.gui.root.winfo_rootx() + max(0, (self.gui.root.winfo_width() - dialog.winfo_width()) // 2)
-        y = self.gui.root.winfo_rooty() + max(0, (self.gui.root.winfo_height() - dialog.winfo_height()) // 2)
+        parent_width = max(parent.winfo_width(), parent.winfo_reqwidth(), 1)
+        parent_height = max(parent.winfo_height(), parent.winfo_reqheight(), 1)
+        dialog_width = max(dialog.winfo_width(), dialog.winfo_reqwidth(), 1)
+        dialog_height = max(dialog.winfo_height(), dialog.winfo_reqheight(), 1)
+        x = parent.winfo_rootx() + max(0, (parent_width - dialog_width) // 2)
+        y = parent.winfo_rooty() + max(0, (parent_height - dialog_height) // 2)
         dialog.geometry(f"+{x}+{y}")
         dialog.deiconify()
-        dialog.lift(self.gui.root)
+        dialog.lift(parent)
         dialog.wait_visibility()
         dialog.grab_set()
         dialog.focus_set()
@@ -308,6 +351,7 @@ class JobsController:
             self._attach_loading_dialog = dialog
             self._attach_loading_spinner_label = spinner
             self._attach_loading_active = True
+            self._attach_loading_started_at = time.monotonic()
             shown_at = time.monotonic()
             self.gui.root.update()
             attached = self._attach_registry_job_loaded(job)
@@ -322,7 +366,8 @@ class JobsController:
                     except tk.TclError:
                         break
                     time.sleep(0.02)
-            self._finish_attach_loading()
+            if not attached:
+                self._finish_attach_loading()
 
     def _attach_registry_job_loaded(self, job: dict) -> bool:
         target = job.get("target")
@@ -335,7 +380,9 @@ class JobsController:
             self.gui.pipeline_ctrl.remote_runner = runner
             self.gui.state.run_target.set("Server")
             self.gui._on_run_target_changed()
-            input_files = list(job.get("input_files") or [])
+            config = runner.read_remote_job_config()
+            selected_tools = dict(config.get("selected_tools") or selected_tools)
+            input_files = list(job.get("input_files") or []) or (self.gui.progress_ctrl._input_files_for_progress(config) if config else [])
             self.active_job = {"target": "Server", "remote_job_dir": runner.remote_job_dir, "done": False, "registry_entry": job}
         else:
             job_dir = Path(str(job.get("job_dir", "")))
@@ -358,6 +405,7 @@ class JobsController:
             self._register_job_monitor_for_active_context()
             if target != "Server":
                 self._load_local_progress_state(Path(str(job.get("job_dir", ""))), config)
+            self.gui.progress_ctrl._set_job_timing((job.get("run_request") or config or job).get("started_at") or job.get("started_at"))
             self._enter_background_monitor_state("Attaching background job...")
             self._schedule_job_poll(delay_ms=0)
             return True
@@ -370,6 +418,7 @@ class JobsController:
             pipeline_mode=run_req.get("pipeline_mode", ""),
             threads=int(run_req.get("threads", 0) or 0),
             device=run_req.get("device", ""),
+            started_at=run_req.get("started_at") or job.get("started_at"),
         )
         self.gui.progress_ctrl._show_progress_tab()
         self._register_job_monitor_for_active_context()
@@ -711,6 +760,7 @@ class JobsController:
             pipeline_mode=config.get("pipeline_mode", ""),
             threads=int(config.get("threads", 0) or 0),
             device=config.get("device", ""),
+            started_at=entry.get("started_at"),
         )
         self.gui.progress_ctrl._show_progress_tab()
         self._load_local_progress_state(job_dir, config)
@@ -749,6 +799,7 @@ class JobsController:
             pipeline_mode=config.get("pipeline_mode", ""),
             threads=int(config.get("threads", 0) or 0),
             device=config.get("device", ""),
+            started_at=entry.get("started_at"),
         )
         self.gui.progress_ctrl._show_progress_tab()
         self._register_job_monitor_for_active_context()
@@ -807,6 +858,10 @@ class JobsController:
             download_subdir=req.get("batch_output_name", "") if req.get("is_batch") else "",
             resume=resume,
             lazy_watch=req.get("lazy_watch", False),
+            pipeline_mode=req.get("pipeline_mode", "Custom"),
+            neuroflow_enabled=bool(req.get("neuroflow_enabled", False)),
+            neuroflow_max_concurrent_tasks=int(req.get("neuroflow_max_concurrent_tasks", 1)),
+            neuroflow_machine_profile_id=req.get("neuroflow_machine_profile_id", "application_default"),
         )
         return RemoteRunner(remote_config, on_log=self.gui.tools_ctrl._remote_log_event)
 
@@ -864,13 +919,13 @@ class JobsController:
             self.job_poll_after_id = None
             self.gui.progress_ctrl._set_idle_state()
             if getattr(self, "_attach_loading_active", False):
-                self._finish_attach_loading()
+                self._finish_attach_loading_if_ready()
             return
         if monitor is not None:
             self._save_job_monitor(monitor)
         self._schedule_job_poll(context_id=context_id)
-        if getattr(self, "_attach_loading_active", False):
-            self._finish_attach_loading()
+        if getattr(self, "_attach_loading_active", False) and self.active_job.get("target") != "Server":
+            self._finish_attach_loading_if_ready()
 
     def _start_remote_poll_worker(self, context_id: str | None = None) -> None:
         monitor = self.job_monitors.get(context_id) if context_id else None
@@ -932,11 +987,13 @@ class JobsController:
                 self._save_job_monitor(monitor)
             self._schedule_job_poll(context_id=context_id)
             if finish_attach_loading:
-                self._finish_attach_loading()
+                self._finish_attach_loading_if_ready()
             return
         self.job_log_offset = new_offset
         self.gui.progress_ctrl._handle_background_log_chunk(data)
         state = str(status.get("state", "running"))
+        self.active_job["state"] = state
+        self.gui.progress_ctrl._set_job_timing(status.get("started_at"), status.get("duration_sec"), status.get("finished_at"))
         if state in {"completed", "failed"}:
             ui_events.emit(EVENT_LOG_MESSAGE, f"Remote background job finished with exit code {status.get('exit_code')}")
             if status.get("error"):
@@ -962,7 +1019,7 @@ class JobsController:
             self.job_poll_after_id = None
             self.gui.progress_ctrl._set_idle_state()
             if finish_attach_loading:
-                self._finish_attach_loading()
+                self._finish_attach_loading_if_ready()
             return
         self.gui.state.status_text.set("Running in background")
         self.gui.state.remote_status.set(f"Remote: {state}")
@@ -970,7 +1027,7 @@ class JobsController:
             self._save_job_monitor(monitor)
         self._schedule_job_poll(context_id=context_id)
         if finish_attach_loading:
-            self._finish_attach_loading()
+            self._finish_attach_loading_if_ready()
 
     def _poll_local_background_job(self) -> bool:
         if not self.active_job:
@@ -985,7 +1042,13 @@ class JobsController:
             self.gui.progress_ctrl._handle_background_log_chunk(data)
 
         status = read_json(job_dir / "job_status.json", {})
+        self.gui.progress_ctrl._set_job_timing(
+            status.get("started_at") or (self.active_job.get("registry_entry") or {}).get("started_at"),
+            status.get("duration_sec"),
+            status.get("finished_at"),
+        )
         state = str(status.get("state", "running"))
+        self.active_job["state"] = state
         exit_path = job_dir / "exit_code.txt"
         if exit_path.exists() or state in {"completed", "failed"}:
             code = status.get("exit_code")

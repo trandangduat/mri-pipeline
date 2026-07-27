@@ -20,6 +20,7 @@ from pipeline.registry import (
     STAGE_LABELS,
     TOOL_DEFS,
     is_tool_enabled,
+    is_tool_visible,
     tool_display_name,
     tool_key_from_display,
 )
@@ -40,6 +41,7 @@ class ToolsController:
         # Tools state
         self.tab_frame = None
         self.table_frame = None
+        self.tree = None
         self.log_text = None
         self.log_body = None
         self.log_toggle_text = None
@@ -66,13 +68,16 @@ class ToolsController:
         self.image_installed_sizes = {"Local": {}, "Server": {}}
         self.hub_size_loading = False
         self.status_labels = {}
+        self._tree_refresh_after_id = None
+        self._config_validation_after_id = None
+        self._tree_styles_initialized = False
     def _tool_image(self, tool_key: str) -> str:
         return str(TOOL_DEFS.get(tool_key, {}).get("image", ""))
 
     def _all_enabled_images(self) -> list[str]:
         images: list[str] = []
         for tool_key, tool in TOOL_DEFS.items():
-            if not is_tool_enabled(tool_key):
+            if not is_tool_enabled(tool_key) or not is_tool_visible(tool_key):
                 continue
             image = str(tool.get("image", ""))
             if image and image not in images:
@@ -125,10 +130,10 @@ class ToolsController:
             sizes = self.image_sizes.setdefault(target, {})
             if sizes.get(image, "-") in {"-", "Loading..."}:
                 sizes[image] = size
-        self._refresh_tree()
+        self._schedule_refresh_tree()
 
     def _preload_docker_hub_image_sizes(self) -> None:
-        if getattr(self, "tools_hub_size_loading", False):
+        if self.hub_size_loading:
             return
         images = self._all_enabled_images()
         missing = [
@@ -149,14 +154,14 @@ class ToolsController:
                     size = self._fetch_docker_hub_image_size(image)
                     self.gui.root.after(0, lambda i=image, s=size: self._set_hub_image_size(i, s))
             finally:
-                self.gui.root.after(0, lambda: setattr(self, "tools_hub_size_loading", False))
+                self.gui.root.after(0, lambda: setattr(self, "hub_size_loading", False))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _tools_for_image(self, image: str) -> list[str]:
         return [
             tool_key for tool_key, tool in TOOL_DEFS.items()
-            if is_tool_enabled(tool_key) and str(tool.get("image", "")) == image
+            if is_tool_enabled(tool_key) and is_tool_visible(tool_key) and str(tool.get("image", "")) == image
         ]
 
     def _selected_images(self, statuses: set[str] | None = None) -> list[str]:
@@ -177,7 +182,7 @@ class ToolsController:
         tools: list[str] = []
         for image in dict.fromkeys(images):
             for tool_key, tool in TOOL_DEFS.items():
-                if is_tool_enabled(tool_key) and str(tool.get("image", "")) == image:
+                if is_tool_enabled(tool_key) and is_tool_visible(tool_key) and str(tool.get("image", "")) == image:
                     tools.append(tool_key)
                     break
         return tools
@@ -293,22 +298,135 @@ class ToolsController:
         if not image:
             return
         self.image_installed_sizes.setdefault(target, {})[image] = size
-        self._refresh_tree()
+        self._schedule_refresh_tree()
 
     def _set_image_status(self, target: str, image: str, status: str) -> None:
         if not image:
             return
         self.image_statuses.setdefault(target, {})[image] = status
-        self._refresh_tree()
+        self._schedule_refresh_tree()
         self._update_config_status_labels()
-        self.gui.validation_ctrl._validate_configuration()
+        self._schedule_config_validation()
+
+    def _schedule_refresh_tree(self) -> None:
+        if self._tree_refresh_after_id is not None:
+            return
+
+        def refresh() -> None:
+            self._tree_refresh_after_id = None
+            self._refresh_tree()
+
+        self._tree_refresh_after_id = self.gui.root.after_idle(refresh)
+
+    def _schedule_config_validation(self) -> None:
+        if self._config_validation_after_id is not None:
+            return
+
+        def validate() -> None:
+            self._config_validation_after_id = None
+            self.gui.validation_ctrl._validate_configuration()
+
+        self._config_validation_after_id = self.gui.root.after_idle(validate)
+
+    def _ensure_tree_styles(self) -> None:
+        if self._tree_styles_initialized:
+            return
+        style = ttk.Style()
+        style.configure("Selected.TCheckbutton", background="#cbd5e1")
+        style.configure("Unselected.TCheckbutton", background="#fafafa")
+        tree = getattr(self, "tree", None)
+        if tree is not None:
+            tree.tag_configure("checked", background="#e2e8f0")
+            tree.tag_configure("installed", foreground="#166534")
+            tree.tag_configure("missing", foreground="#b91c1c")
+            tree.tag_configure("busy", foreground="#1d4ed8")
+            tree.tag_configure("error", foreground="#b91c1c")
+            tree.tag_configure("unknown", foreground="#475569")
+            tree.tag_configure("disabled", foreground="#94a3b8")
+        self._tree_styles_initialized = True
+
+    def _on_tree_click(self, event: tk.Event) -> str | None:
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return None
+        if tree.identify("region", event.x, event.y) != "cell" or tree.identify_column(event.x) != "#1":
+            return None
+        tool_key = tree.identify_row(event.y)
+        if not tool_key:
+            return "break"
+        status = self._tool_status(tool_key, self.gui.state.run_target.get())
+        if not self._checkbox_enabled(tool_key, status):
+            return "break"
+        group = self._tools_for_image(self._tool_image(tool_key))
+        if tool_key in self.checked_tools:
+            self.checked_tools.difference_update(group)
+        else:
+            self.checked_tools.update(group)
+        self._refresh_tree()
+        self._update_download_button()
+        return "break"
+
+    def _refresh_treeview(self) -> None:
+        tree = getattr(self, "tree", None)
+        if tree is None:
+            return
+        self._ensure_tree_styles()
+        target = self.gui.state.run_target.get()
+        visible_tools = [(key, value) for key, value in TOOL_DEFS.items() if is_tool_visible(key)]
+        visible_keys = {key for key, _value in visible_tools}
+        for stale_key in set(tree.get_children()) - visible_keys:
+            tree.delete(stale_key)
+        for tool_key, tool in visible_tools:
+            stage = str(tool.get("stage", ""))
+            image = str(tool.get("image", ""))
+            status = self._tool_status(tool_key, target)
+            enabled = self._checkbox_enabled(tool_key, status)
+            if not enabled:
+                self.checked_tools.discard(tool_key)
+            row_selected = tool_key in self.checked_tools
+            checkbox = "☑" if row_selected else "☐"
+            status_text = f"{self._tool_status_icon(status)} {self._status_label_text(status)}".strip()
+            values = (
+                checkbox,
+                STAGE_LABELS.get(stage, stage),
+                tool_display_name(tool_key),
+                image,
+                self._compressed_image_size_text(target, image),
+                self._installed_image_size_text(target, image),
+                status_text,
+            )
+            status_tag = {
+                "Installed": "installed",
+                "Missing": "missing",
+                "Downloading": "busy",
+                "Checking": "busy",
+                "Deleting": "busy",
+                "Error": "error",
+                "Disabled": "disabled",
+                "Skipped": "disabled",
+                "Unknown": "unknown",
+            }.get(status, "unknown")
+            tags = tuple(tag for tag in (("checked" if row_selected else ""), status_tag) if tag)
+            if tree.exists(tool_key):
+                tree.item(tool_key, values=values, tags=tags)
+            else:
+                tree.insert("", tk.END, iid=tool_key, values=values, tags=tags)
+        self.status_icon_labels.clear()
+        self._update_download_button()
 
     def _refresh_tree(self) -> None:
+        if getattr(self, "tree", None) is not None:
+            self._refresh_treeview()
+            return
         table = getattr(self, "table_frame", None)
         if table is None:
             return
         target = self.gui.state.run_target.get()
-        for idx, (tool_key, tool) in enumerate(TOOL_DEFS.items(), start=0):
+        self._ensure_tree_styles()
+        for idx, (tool_key, tool) in enumerate(
+            ((key, value) for key, value in TOOL_DEFS.items() if is_tool_visible(key)),
+            start=0,
+        ):
             row = 2 + idx * 2
             stage = str(tool.get("stage", ""))
             image = str(tool.get("image", ""))
@@ -378,9 +496,6 @@ class ToolsController:
             for cell in widgets["cells"]:
                 cell.configure(bg=bg)
                 
-            style = ttk.Style()
-            style.configure("Selected.TCheckbutton", background="#cbd5e1")
-            style.configure("Unselected.TCheckbutton", background="#fafafa")
             check_style = "Selected.TCheckbutton" if row_selected else "Unselected.TCheckbutton"
             
             widgets["check"].configure(state=tk.NORMAL if enabled else tk.DISABLED, style=check_style)
@@ -424,7 +539,7 @@ class ToolsController:
         log.configure(state=tk.DISABLED)
 
     def _selected_rows(self) -> list[str]:
-        return [tool for tool in self.checked_tools if tool in TOOL_DEFS]
+        return [tool for tool in self.checked_tools if tool in TOOL_DEFS and is_tool_visible(tool)]
 
     def _build_image_remote_runner(self) -> RemoteRunner | None:
         if self.gui.state.run_target.get() == "Server" and not self.gui.remote_ctrl._server_connected():
@@ -443,6 +558,10 @@ class ToolsController:
                 export_config=self.gui.state.get_export_config(),
                 stats_vector_config=self.gui.state.get_stats_vector_config(),
                 selected_tools={},
+                pipeline_mode=self.gui.state.pipeline_mode.get(),
+                neuroflow_enabled=bool(self.gui.state.neuroflow_enabled.get()),
+                neuroflow_max_concurrent_tasks=int(self.gui.state.neuroflow_max_concurrent_tasks.get()),
+                neuroflow_machine_profile_id="application_default",
             ),
             on_log=self._remote_log_event,
         )
@@ -451,6 +570,7 @@ class ToolsController:
         keep = (
             "Connecting SSH", "SSH connected", "Base Python", "Remote venv:", "Venv Python", "Venv pip",
             "Creating remote venv", "Using remote venv", "Installing", "Installed:", "Missing:", "Downloading:", "Deleting:", "Deleted:", "Failed:",
+            "NeuroFLOW Python", "NeuroFLOW deps", "Python 3.11",
             "Requirement", "Collecting", "Using cached", "Downloading ", "Successfully", "ERROR:", "WARNING:", "Docker:"
         )
         if line.startswith(keep):
@@ -512,13 +632,31 @@ class ToolsController:
                     try:
                         version = subprocess.run([sys.executable, "--version"], capture_output=True, text=True, timeout=30)
                         pip = subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, timeout=30)
+                        neuroflow_enabled = bool(self.gui.state.neuroflow_enabled.get())
+                        neuroflow_code = (
+                            "import sys; from pathlib import Path; "
+                            f"src = Path({str(PROJECT_ROOT)!r}) / 'NeuroFLOW-private' / 'src'; "
+                            "sys.path.insert(0, str(src)) if src.exists() else None; "
+                            "import yaml, jsonschema, neuroflow"
+                        )
+                        neuroflow_check = subprocess.run([sys.executable, "-c", neuroflow_code], capture_output=True, text=True, timeout=30) if neuroflow_enabled else None
                         py_text = (version.stdout or version.stderr).strip() or "Python not found"
                         pip_text = (pip.stdout or pip.stderr).strip() or "pip not found"
                         python_ok = version.returncode == 0
                         pip_ok = pip.returncode == 0
+                        neuroflow_python_ok = sys.version_info >= (3, 11)
+                        neuroflow_dependency_ok = neuroflow_check is None or neuroflow_check.returncode == 0
                         self.gui.root.after(0, lambda t=py_text, ok=python_ok: self._append_log(("Python OK: " if ok else "Python missing: ") + t))
                         self.gui.root.after(0, lambda t=pip_text, ok=pip_ok: self._append_log(("pip OK: " if ok else "pip missing: ") + t))
-                        if python_ok and pip_ok:
+                        if neuroflow_enabled:
+                            dep_text = "PyYAML/jsonschema/NeuroFLOW OK" if neuroflow_dependency_ok else ((neuroflow_check.stderr or neuroflow_check.stdout).strip() or "NeuroFLOW dependencies missing")
+                            self.gui.root.after(0, lambda ok=neuroflow_python_ok: self._append_log("NeuroFLOW Python OK" if ok else "NeuroFLOW Python missing: Python 3.11+ required"))
+                            self.gui.root.after(0, lambda t=dep_text, ok=neuroflow_dependency_ok: self._append_log(("NeuroFLOW deps OK: " if ok else "NeuroFLOW deps missing: ") + t))
+                        if neuroflow_enabled and not neuroflow_python_ok:
+                            status = "Local: NeuroFLOW Python missing"
+                        elif neuroflow_enabled and not neuroflow_dependency_ok:
+                            status = "Local: NeuroFLOW deps missing"
+                        elif python_ok and pip_ok:
                             status = "Local: Python OK, pip OK"
                         elif python_ok:
                             status = "Local: Python OK, pip missing"
@@ -541,7 +679,14 @@ class ToolsController:
                     venv_exists = bool(details.get("venv_exists"))
                     python_ok = bool(details.get("venv_python_ok"))
                     pip_ok = bool(details.get("venv_pip_ok"))
-                    if python_ok and pip_ok:
+                    neuroflow_enabled = bool(self.gui.state.neuroflow_enabled.get())
+                    neuroflow_python_ok = bool(details.get("neuroflow_python_ok", True))
+                    neuroflow_dependency_ok = bool(details.get("neuroflow_dependency_ok", True))
+                    if neuroflow_enabled and not neuroflow_python_ok:
+                        status = "Server: NeuroFLOW Python missing"
+                    elif neuroflow_enabled and not neuroflow_dependency_ok:
+                        status = "Server: NeuroFLOW deps missing"
+                    elif python_ok and pip_ok:
                         status = "Server: venv ready"
                     elif not base_ok:
                         status = "Server: base Python missing"
@@ -572,6 +717,8 @@ class ToolsController:
         action = "Installing Python packages from requirements.txt"
         if target == "Server":
             action = f"Creating/updating remote venv and packages: {self.gui.remote_ctrl._remote_venv_display_path()}"
+            if bool(self.gui.state.neuroflow_enabled.get()):
+                action = f"Creating/updating remote Python 3.11 environment: {self.gui.remote_ctrl._remote_venv_display_path()}"
         self._append_log(f"{action}: {target}")
 
         def worker() -> None:
@@ -608,7 +755,14 @@ class ToolsController:
                     ok = runner.install_python_requirements()
                     msg = "Remote venv packages installed: Server" if ok else "Remote venv package install failed: Server"
                     self.gui.root.after(0, lambda m=msg: self._append_log(m))
-                    self.gui.root.after(0, lambda: self._set_python_env_status("Server: venv ready" if ok else "Server: venv package install failed"))
+                    neuroflow_enabled = bool(self.gui.state.neuroflow_enabled.get())
+                    if ok and neuroflow_enabled:
+                        status = "Server: NeuroFLOW env ready"
+                    elif ok:
+                        status = "Server: venv ready"
+                    else:
+                        status = "Server: venv package install failed"
+                    self.gui.root.after(0, lambda s=status: self._set_python_env_status(s))
                 except Exception as exc:
                     self.gui.root.after(0, lambda e=exc: self._append_log(f"Install failed: {type(e).__name__}: {e}"))
                     self.gui.root.after(0, lambda: self._set_python_env_status("Server: Package install failed"))
@@ -778,7 +932,7 @@ class ToolsController:
         target = self.gui.state.run_target.get()
         self.checked_tools = {
             tool for tool in TOOL_DEFS
-            if self._checkbox_enabled(tool, self._tool_status(tool, target))
+            if is_tool_visible(tool) and self._checkbox_enabled(tool, self._tool_status(tool, target))
         }
         self._refresh_tree()
         self._update_download_button()
@@ -792,7 +946,8 @@ class ToolsController:
         target = self.gui.state.run_target.get()
         self.checked_tools = {
             tool for tool in TOOL_DEFS
-            if self._checkbox_enabled(tool, self._tool_status(tool, target))
+            if is_tool_visible(tool)
+            and self._checkbox_enabled(tool, self._tool_status(tool, target))
             and self._tool_status(tool, target) in ("Missing", "Unknown", "Error")
         }
         self._refresh_tree()
@@ -800,7 +955,10 @@ class ToolsController:
 
     def _ensure_missing_images(self) -> None:
         target = self.gui.state.run_target.get()
-        missing = [tool for tool in TOOL_DEFS if self._tool_status(tool, target) in ("Missing", "Unknown") and is_tool_enabled(tool)]
+        missing = [
+            tool for tool in TOOL_DEFS
+            if is_tool_visible(tool) and self._tool_status(tool, target) in ("Missing", "Unknown") and is_tool_enabled(tool)
+        ]
         images = [self._tool_image(tool) for tool in missing if self._tool_image(tool)]
         self._ensure_tool_images(self._representative_tools_for_images(images))
 
@@ -816,16 +974,20 @@ class ToolsController:
                 if tool_val == "Not available":
                     label.configure(image="", text="-  Not used", compound=tk.LEFT, foreground="#94a3b8")
                     if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
-                        self.tool_step_labels[stage].configure(fg="#94a3b8")
+                        self.tool_step_labels[stage].configure(foreground="#94a3b8")
+                elif tool_val == "Skipped":
+                    label.configure(image="", text="-  Skipped", compound=tk.LEFT, foreground="#94a3b8")
+                    if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
+                        self.tool_step_labels[stage].configure(foreground="#94a3b8")
                 else:
                     optional = stage in getattr(self, "OPTIONAL_STAGES", set())
                     label.configure(image="", text="-  Optional" if optional else "", compound=tk.LEFT, foreground=self._status_color(status))
                     if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
-                        self.tool_step_labels[stage].configure(fg="#111827")
+                        self.tool_step_labels[stage].configure(foreground="#111827")
                 continue
             
             if hasattr(self, "tool_step_labels") and stage in self.tool_step_labels:
-                self.tool_step_labels[stage].configure(fg="#111827")
+                self.tool_step_labels[stage].configure(foreground="#111827")
                 
             icon = self._tool_status_icon_image(status, small=True)
             text = self._status_label_text(status)

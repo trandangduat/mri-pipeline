@@ -35,7 +35,7 @@ from .registry import (
 )
 from .docker_ops import ensure_image
 from .executor import ExecutionRequest, LocalDockerExecutor
-from .state import PipelineTracker
+from .state import PipelineTracker, StageResult
 from .discovery import (
     _derive_subject_id,
     _dicom_files_in_series,
@@ -147,6 +147,7 @@ def _build_execution_request(
             threads=config.threads,
             device=config.device,
             dicom_list_path=dicom_list_path,
+            enabled_stats=dict(config.stats_vector_config.enabled_stats),
         )
         command = [tool.get("shell", "bash"), "-c", tool["command_builder"](ctx)]
         args = []
@@ -161,6 +162,220 @@ def _build_execution_request(
         memory_bytes=memory_limit_bytes,
         container_name=_safe_container_name("mri", config.subject_id, tool_key),
     )
+
+
+def _subject_workspace(config: PipelineConfig) -> tuple[str, str, str, str]:
+    subject_dir = os.path.join(os.path.abspath(config.output_dir), config.subject_id)
+    mri_dir = os.path.join(subject_dir, "mri")
+    stats_dir = os.path.join(subject_dir, "stats")
+    logs_dir = os.path.join(subject_dir, "logs")
+    for directory in (mri_dir, stats_dir, logs_dir):
+        Path(directory).mkdir(parents=True, exist_ok=True)
+    return subject_dir, mri_dir, stats_dir, logs_dir
+
+
+def run_pipeline_stage(
+    config: PipelineConfig,
+    stage: str,
+    input_for_stage: str | None = None,
+    on_progress: ProgressCallback | None = None,
+    on_build_log: Callable[[str], None] | None = None,
+    on_metrics: MetricsCallback | None = None,
+    executor: LocalDockerExecutor | None = None,
+    tracker: PipelineTracker | None = None,
+    stage_idx: int | None = None,
+    total_stages: int | None = None,
+) -> tuple[StepResult, str | None]:
+    """Run one configured pipeline stage and return its next-stage input."""
+
+    def progress(stage_name: str, status: str, pct: float, msg: str) -> None:
+        if on_progress:
+            on_progress(stage_name, status, pct, msg)
+        log.info("[%s] %s (%.0f%%) %s", stage_name, status, pct * 100, msg)
+
+    if stage not in STAGE_ORDER:
+        return StepResult(stage=stage, tool="", success=False, duration_sec=0.0, error="unknown stage"), input_for_stage
+    tool_key = config.selected_tools.get(stage)
+    if not tool_key:
+        return StepResult(stage=stage, tool="", success=True, duration_sec=0.0, error="skipped"), input_for_stage
+    if tool_key not in TOOL_DEFS:
+        return StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0.0, error="unknown tool"), input_for_stage
+    if not is_tool_enabled(tool_key):
+        return StepResult(stage=stage, tool=tool_key, success=True, duration_sec=0.0, error="tool disabled"), input_for_stage
+
+    subject_dir, _mri_dir, _stats_dir, logs_dir = _subject_workspace(config)
+    workspace_ok, workspace_msg = _check_output_workspace(subject_dir, config.input_file)
+    if not workspace_ok:
+        progress("preflight", "failed", 0, workspace_msg)
+        result = StepResult(stage="preflight", tool="output_workspace", success=False, duration_sec=0.0, error=workspace_msg)
+        _write_pipeline_metrics_log(logs_dir, config, subject_dir, [result], time.time(), time.time())
+        return result, input_for_stage
+
+    tracker = tracker or PipelineTracker(logs_dir, config, subject_dir)
+    tool = TOOL_DEFS[tool_key]
+    license_mount: list[tuple[str, str]] = []
+    if config.license_dir:
+        lic_path = Path(config.license_dir).absolute()
+        license_mount.append((str(lic_path), "/license/license.txt" if lic_path.is_file() else "/license"))
+
+    total = total_stages or len(STAGE_ORDER)
+    index = stage_idx if stage_idx is not None else STAGE_ORDER.index(stage)
+    stage_pct = index / total if total else 0.0
+    if config.resume:
+        resumed_output, resumed_outputs = tracker.resume_output_for_stage(
+            subject_dir,
+            stage,
+            tool_key,
+            tool["output_files"],
+            tool.get("output_globs"),
+        )
+        if resumed_output:
+            tracker.mark_stage_completed(
+                StageResult(
+                    stage=stage,
+                    tool=tool_key,
+                    success=True,
+                    output_file=resumed_output,
+                    outputs_found=resumed_outputs,
+                    duration_sec=0.0,
+                )
+            )
+            result = StepResult(
+                stage=stage,
+                tool=tool_key,
+                success=True,
+                duration_sec=0.0,
+                output_file=resumed_output,
+                output_files=tool["output_files"],
+                log_text="resumed from verified output files",
+            )
+            progress(stage, "success", (index + 1) / total if total else 1.0, f"Resume: verified outputs and skipped {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
+            return result, resumed_output
+
+    progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
+    tracker.mark_stage_running(stage, tool_key)
+
+    ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
+    if not ok:
+        error = f"Image not available: {err}"
+        tracker.mark_stage_completed(StageResult(stage=stage, tool=tool_key, success=False, error=error))
+        result = StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=build_time, error=error)
+        progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {err}")
+        return result, input_for_stage
+
+    memory_limit_bytes = _docker_memory_limit_bytes(max(1, min(int(config.ram_percent), 100)))
+    req = _build_execution_request(
+        tool_key=tool_key,
+        tool=tool,
+        config=config,
+        subject_dir=subject_dir,
+        logs_dir=logs_dir,
+        input_for_next_step=input_for_stage,
+        license_mount=license_mount,
+        memory_limit_bytes=memory_limit_bytes,
+    )
+
+    def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):
+        if on_metrics:
+            on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
+
+    executor_adapter = executor or LocalDockerExecutor()
+    exec_result = executor_adapter.execute(req, on_metrics=_metrics_relay if on_metrics else None)
+    metrics = exec_result.metrics
+    peak_ram = metrics.peak_ram_bytes if metrics else None
+    peak_cpu = metrics.peak_cpu_pct if metrics else None
+    duration = exec_result.duration_sec
+    success = exec_result.success
+    error = exec_result.error
+    output = exec_result.output
+    _repair_host_permissions(subject_dir, tool["image"])
+    _organize_output(subject_dir, preserve_dirs={_safe_export_stem(config.export_config.folder, "exports")})
+
+    if not success and output.strip():
+        print(f"\n--- DOCKER ERROR LOG ({tool_key}) ---", flush=True)
+        for line in output.strip().splitlines()[-20:]:
+            print(line, flush=True)
+        print("-" * 40, flush=True)
+
+    output_for_next = input_for_stage
+    if success:
+        found = _find_output_file(subject_dir, tool["output_files"], tool.get("output_globs", []))
+        if found:
+            output_for_next = found
+        else:
+            success = False
+            expected = ", ".join(tool["output_files"] + tool.get("output_globs", []))
+            output_tail = " | ".join(output.strip().splitlines()[-8:]) if output.strip() else "no docker output captured"
+            error = f"missing expected output files/patterns: {expected}. Files found: {_describe_subject_files(subject_dir)}. Docker output tail: {output_tail}"
+
+    outputs_found = tracker.find_existing_outputs(subject_dir, tool["output_files"], tool.get("output_globs", [])) if success else []
+    exported_outputs: list[str] = []
+    export_error = ""
+    if success:
+        exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config)
+        if export_error:
+            progress(stage, "running", (index + 1) / total if total else 1.0, f"Export warning: {export_error}")
+
+    tracker.mark_stage_completed(StageResult(
+        stage=stage,
+        tool=tool_key,
+        success=success,
+        output_file=output_for_next if success and output_for_next else "",
+        outputs_found=outputs_found,
+        error=error,
+        duration_sec=duration,
+    ))
+    if success and (exported_outputs or export_error):
+        tracker.add_exported_outputs(stage, exported_outputs, export_error)
+
+    metric_lines = [
+        f"Stage: {stage}",
+        f"Tool: {tool_display_name(tool_key)}",
+        f"Duration: {duration:.1f}s",
+        f"Build: {build_time:.1f}s",
+        f"RAM limit: {_format_bytes(memory_limit_bytes)} ({config.ram_percent}%)" if memory_limit_bytes else f"RAM limit: unlimited ({config.ram_percent}%)",
+        f"Peak RAM: {_format_bytes(peak_ram)}",
+        f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes) if metrics else 'n/a'}",
+        f"P95 RAM: {_format_bytes(metrics.p95_ram_bytes) if metrics else 'n/a'}",
+        f"Peak CPU: {peak_cpu:.0f}%" if peak_cpu is not None else "Peak CPU: n/a",
+        f"Mean CPU: {metrics.avg_cpu_pct:.1f}%" if metrics and metrics.avg_cpu_pct is not None else "Mean CPU: n/a",
+        f"P95 CPU: {metrics.p95_cpu_pct:.1f}%" if metrics and metrics.p95_cpu_pct is not None else "P95 CPU: n/a",
+        f"Exit code: {exec_result.return_code}",
+    ]
+    if exported_outputs:
+        metric_lines.append("Exported outputs: " + "; ".join(exported_outputs))
+    if export_error:
+        metric_lines.append("Export warning: " + export_error)
+    if output.strip():
+        metric_lines.append(f"\n--- Output ---\n{output[-3000:]}")
+    _append_step_log(logs_dir, tool_key, metric_lines)
+
+    result = StepResult(
+        stage=stage,
+        tool=tool_key,
+        success=success,
+        duration_sec=duration,
+        output_file=output_for_next if success and output_for_next else "",
+        build_duration_sec=build_time,
+        peak_ram_bytes=peak_ram,
+        avg_ram_bytes=metrics.avg_ram_bytes if metrics else None,
+        p95_ram_bytes=metrics.p95_ram_bytes if metrics else None,
+        peak_cpu_pct=peak_cpu,
+        avg_cpu_pct=metrics.avg_cpu_pct if metrics else None,
+        p95_cpu_pct=metrics.p95_cpu_pct if metrics else None,
+        log_text=output[-2000:] if output else "",
+        output_files=tool["output_files"],
+        error=error,
+        return_code=exec_result.return_code,
+    )
+    if success:
+        msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
+        if build_time > 0:
+            msg += f" (build: {build_time:.0f}s)"
+        progress(stage, "success", (index + 1) / total if total else 1.0, msg)
+    else:
+        progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {error}")
+    return result, output_for_next
 
 
 

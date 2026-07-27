@@ -13,6 +13,7 @@ class ToolContext:
     threads: int
     device: str
     dicom_list_path: str = ""
+    enabled_stats: dict[str, bool] = field(default_factory=dict)
 
 @dataclass
 class ExportConfig:
@@ -53,11 +54,53 @@ EXPORT_OUTPUT_ITEMS: dict[str, dict[str, str]] = {
     "white_matter_segmentation.primary": {"stage": "white_matter_segmentation", "label": "White matter mask", "default_name": "06_white_matter_mask"},
 }
 
+
+def _schaefer2018_key(parcels: int, networks: int) -> str:
+    if parcels == 200 and networks == 7:
+        return "schaefer2018"
+    return f"schaefer2018_{parcels}parcels_{networks}networks"
+
+
+SCHAEFER2018_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
+    (
+        _schaefer2018_key(parcels, networks),
+        parcels,
+        networks,
+        f"schaefer{parcels}_{networks}network",
+    )
+    for parcels in range(100, 1001, 100)
+    for networks in (7, 17)
+)
+
+KONG2022_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
+    (
+        "kong" if parcels == 200 else f"kong2022_{parcels}parcels_17networks",
+        parcels,
+        17,
+        f"{parcels}Parcels_Kong2022_17Networks",
+    )
+    for parcels in (100, 200, 300, 400)
+)
+
+SURFACE_ATLAS_STEMS: tuple[str, ...] = (
+    "YBA_696parcels",
+    *(stem for _key, _parcels, _networks, stem in KONG2022_ATLAS_VARIANTS),
+    *(stem for _key, _parcels, _networks, stem in SCHAEFER2018_ATLAS_VARIANTS),
+)
+
+CORTICAL_THICKNESS_ATLASES: tuple[str, ...] = (
+    "aparc",
+    "aparc_a2009s",
+    "yale",
+    *(key for key, _parcels, _networks, _stem in KONG2022_ATLAS_VARIANTS),
+    *(key for key, _parcels, _networks, _stem in SCHAEFER2018_ATLAS_VARIANTS),
+)
+
 STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_thickness": {
         "label": "Cortical thickness",
         "value_column": "thickness_mm",
-        "atlases": ("aparc", "aparc_a2009s", "yale", "kong", "schaefer2018"),
+        "atlases": CORTICAL_THICKNESS_ATLASES,
     },
     "cortical_volume": {
         "label": "Cortical volume",
@@ -75,9 +118,15 @@ ATLAS_DEFS: dict[str, str] = {
     "aparc": "Desikan-Killiany (aparc)",
     "aparc_a2009s": "Destrieux (aparc.a2009s)",
     "freesurfer_aseg": "FreeSurfer Aseg Atlas",
-    "yale": "Yale",
-    "kong": "Kong",
-    "schaefer2018": "Schaefer 2018",
+    "yale": "Yale Brain Atlas - 696 parcels",
+    **{
+        key: f"Kong 2022 - {parcels} parcels / {networks} networks"
+        for key, parcels, networks, _stem in KONG2022_ATLAS_VARIANTS
+    },
+    **{
+        key: f"Schaefer 2018 - {parcels} parcels / {networks} networks"
+        for key, parcels, networks, _stem in SCHAEFER2018_ATLAS_VARIANTS
+    },
 }
 
 @dataclass
@@ -119,15 +168,15 @@ class PipelineConfig:
     ram_percent: int = 100
     resume: bool = False
     selected_tools: dict[str, str] = field(default_factory=lambda: {
-        "reorientation": "mri_convert_fs7",
-        "brain_extraction": "synthstrip_fs7",
-        "segmentation": "synthseg_freesurfer_fs7",
-        "template_registration": "synthmorph_fs8",
-        "bias_correction": "ants_n4",
-        "white_matter_segmentation": "mri_binarize",
-        "surface_reconstruction": "",
-        "surface_registration": "",
-        "stats_extraction": "freesurfer_stats_fs7",
+        "reorientation": "fs7_recon_style_reorientation",
+        "brain_extraction": "fs7_recon_style_brain_extraction",
+        "segmentation": "fs7_recon_style_segmentation",
+        "template_registration": "fs7_recon_style_template_registration",
+        "bias_correction": "fs7_recon_style_bias_correction",
+        "white_matter_segmentation": "fs7_recon_style_wm_segmentation",
+        "surface_reconstruction": "fs7_recon_style_surface_reconstruction",
+        "surface_registration": "fs7_recon_style_surface_registration",
+        "stats_extraction": "fs7_recon_style_stats",
     })
     export_config: ExportConfig = field(default_factory=ExportConfig)
     stats_vector_config: StatsVectorConfig = field(default_factory=StatsVectorConfig)
@@ -138,6 +187,7 @@ class StepResult:
     tool: str
     success: bool
     duration_sec: float
+    output_file: str = ""
     build_duration_sec: float = 0.0
     peak_ram_bytes: int | None = None
     avg_ram_bytes: int | None = None
@@ -148,6 +198,7 @@ class StepResult:
     log_text: str = ""
     output_files: list[str] = field(default_factory=list)
     error: str = ""
+    return_code: int = 0
 
 @dataclass
 class BatchImageResult:

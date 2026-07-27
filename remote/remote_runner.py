@@ -41,6 +41,10 @@ class RemoteRunConfig:
     resume: bool = False
     restart: bool = False
     lazy_watch: bool = False
+    pipeline_mode: str = "Custom"
+    neuroflow_enabled: bool = False
+    neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_machine_profile_id: str = "application_default"
 
 
 class RemoteRunner:
@@ -103,6 +107,18 @@ class RemoteRunner:
                         path = Path(root) / name
                         if path.suffix in extensions:
                             roots.append(path)
+        neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
+        for folder, extensions in ((neuroflow / "src", {".py", ".typed"}), (neuroflow / "config", {".yaml", ".yml", ".json"})):
+            if folder.exists():
+                for root, dirs, files in os.walk(folder):
+                    dirs[:] = [d for d in dirs if d not in {"__pycache__", ".pytest_cache"}]
+                    for name in sorted(files):
+                        path = Path(root) / name
+                        if path.suffix in extensions:
+                            roots.append(path)
+        neuroflow_pyproject = neuroflow / "pyproject.toml"
+        if neuroflow_pyproject.exists():
+            roots.append(neuroflow_pyproject)
         for path in sorted((p for p in roots if p.exists()), key=lambda p: p.relative_to(PROJECT_ROOT).as_posix()):
             rel = path.relative_to(PROJECT_ROOT).as_posix()
             hasher.update(rel.encode("utf-8"))
@@ -120,11 +136,48 @@ class RemoteRunner:
     def _check_python_details(self, ssh: RemoteSSHClient) -> dict[str, str | bool]:
         venv_dir = self._remote_venv_dir(ssh)
         venv_python = self._remote_venv_python(ssh)
-        py_cmd = f"{shlex.quote(self.config.remote_python)} --version 2>&1"
+        py_cmd = self._python_shell_command(self.config.remote_python, "--version") + " 2>&1"
         py_code, py_text = ssh.read_text(py_cmd)
         venv_code, _venv_text = ssh.read_text(f"test -x {shlex.quote(venv_python)}")
-        venv_py_code, venv_py_text = ssh.read_text(f"{shlex.quote(venv_python)} --version 2>&1") if venv_code == 0 else (1, "Virtual environment not created")
-        pip_code, pip_text = ssh.read_text(f"{shlex.quote(venv_python)} -m pip --version 2>&1") if venv_code == 0 else (1, "pip not available because venv is missing")
+        venv_py_code, venv_py_text = ssh.read_text(
+            self._python_shell_command(venv_python, "--version") + " 2>&1"
+        ) if venv_code == 0 else (1, "Virtual environment not created")
+        pip_code, pip_text = ssh.read_text(
+            self._python_shell_command(venv_python, "-m", "pip", "--version") + " 2>&1"
+        ) if venv_code == 0 else (1, "pip not available because venv is missing")
+        neuroflow_python_ok = True
+        neuroflow_dependency_ok = True
+        neuroflow_python_text = "Not required"
+        neuroflow_dependency_text = "Not required"
+        if self.config.neuroflow_enabled:
+            base_version = self._remote_python_version(ssh, self.config.remote_python)
+            fallback_version = None
+            fallback_name = ""
+            for candidate in ("python3.12", "python3.11", self._managed_python(ssh), "python3"):
+                fallback_version = self._remote_python_version(ssh, candidate)
+                if fallback_version is not None and fallback_version >= (3, 11):
+                    fallback_name = candidate
+                    break
+            venv_version = self._remote_python_version(ssh, venv_python) if venv_code == 0 else None
+            neuroflow_python_ok = (
+                (base_version is not None and base_version >= (3, 11))
+                or (fallback_version is not None and fallback_version >= (3, 11))
+                or (venv_version is not None and venv_version >= (3, 11))
+            )
+            sources = []
+            if base_version is not None:
+                sources.append(f"Remote Python={base_version[0]}.{base_version[1]}")
+            if fallback_name and fallback_version is not None:
+                sources.append(f"{fallback_name}={fallback_version[0]}.{fallback_version[1]}")
+            if venv_version is not None:
+                sources.append(f"venv={venv_version[0]}.{venv_version[1]}")
+            neuroflow_python_text = ", ".join(sources) or "Python 3.11+ not found; Create / Update Environment can install a managed Python 3.11"
+            dep_check = "import yaml, jsonschema"
+            dep_code, dep_text = ssh.read_text(
+                self._python_shell_command(venv_python, "-c", dep_check) + " 2>&1"
+            ) if venv_code == 0 else (1, "Virtual environment not created")
+            neuroflow_dependency_ok = dep_code == 0
+            neuroflow_dependency_text = "PyYAML/jsonschema OK" if dep_code == 0 else (dep_text.strip() or "PyYAML/jsonschema missing")
         python_text = py_text.strip() or "Python not found"
         venv_python_text = venv_py_text.strip() or "Venv Python not found"
         pip_text = pip_text.strip() or "pip not found"
@@ -132,6 +185,9 @@ class RemoteRunner:
         self.on_log(f"Remote venv: {venv_dir}")
         self.on_log(("Venv Python OK: " if venv_py_code == 0 else "Venv Python missing: ") + venv_python_text)
         self.on_log(("Venv pip OK: " if pip_code == 0 else "Venv pip missing: ") + pip_text)
+        if self.config.neuroflow_enabled:
+            self.on_log(("NeuroFLOW Python OK: " if neuroflow_python_ok else "NeuroFLOW Python missing: ") + neuroflow_python_text)
+            self.on_log(("NeuroFLOW deps OK: " if neuroflow_dependency_ok else "NeuroFLOW deps missing: ") + neuroflow_dependency_text)
         return {
             "python_ok": venv_py_code == 0,
             "pip_ok": pip_code == 0,
@@ -139,6 +195,10 @@ class RemoteRunner:
             "venv_exists": venv_code == 0,
             "venv_python_ok": venv_py_code == 0,
             "venv_pip_ok": pip_code == 0,
+            "neuroflow_python_ok": neuroflow_python_ok,
+            "neuroflow_dependency_ok": neuroflow_dependency_ok,
+            "neuroflow_python_text": neuroflow_python_text,
+            "neuroflow_dependency_text": neuroflow_dependency_text,
             "python_text": venv_python_text,
             "base_python_text": python_text,
             "venv_path": venv_dir,
@@ -151,6 +211,71 @@ class RemoteRunner:
 
     def _remote_venv_python(self, ssh: RemoteSSHClient) -> str:
         return posixpath.join(self._remote_venv_dir(ssh), "bin", "python")
+
+    def _managed_python_dir(self, ssh: RemoteSSHClient) -> str:
+        workspace = self._remote_workspace(ssh)
+        return self._require_workspace_child(ssh, posixpath.join(workspace, "python311"), "managed Python")
+
+    def _managed_python(self, ssh: RemoteSSHClient) -> str:
+        return posixpath.join(self._managed_python_dir(ssh), "bin", "python")
+
+    def _managed_micromamba_dir(self, ssh: RemoteSSHClient) -> str:
+        workspace = self._remote_workspace(ssh)
+        return self._require_workspace_child(ssh, posixpath.join(workspace, "micromamba"), "managed micromamba")
+
+    def _python_shell_command(self, python_cmd: str, *args: str) -> str:
+        command = " ".join([python_cmd, *(shlex.quote(arg) for arg in args)]).strip()
+        return f"bash -lc {shlex.quote(command)}"
+
+    def _remote_python_version(self, ssh: RemoteSSHClient, python_cmd: str) -> tuple[int, int] | None:
+        probe = "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+        code, text = ssh.read_text(self._python_shell_command(python_cmd, "-c", probe) + " 2>/dev/null")
+        if code != 0:
+            return None
+        try:
+            major, minor = text.strip().splitlines()[-1].split(".", 1)
+            return int(major), int(minor)
+        except (IndexError, ValueError):
+            return None
+
+    def _ensure_managed_python311(self, ssh: RemoteSSHClient) -> str:
+        python_dir = self._managed_python_dir(ssh)
+        python_bin = posixpath.join(python_dir, "bin", "python")
+        version = self._remote_python_version(ssh, python_bin)
+        if version is not None and version >= (3, 11):
+            return python_bin
+
+        micromamba_dir = self._managed_micromamba_dir(ssh)
+        micromamba_bin = posixpath.join(micromamba_dir, "bin", "micromamba")
+        self.on_log(f"Installing managed Python 3.11 in remote workspace: {python_dir}")
+        safe_python_dir = self._require_workspace_child(ssh, python_dir, "managed Python")
+        safe_micromamba_dir = self._require_workspace_child(ssh, micromamba_dir, "managed micromamba")
+        ssh.run(f"rm -rf {shlex.quote(safe_python_dir)}", stream=True, check=False)
+        script = (
+            "set -e; "
+            f"mkdir -p {shlex.quote(safe_micromamba_dir)}; "
+            f"if [ ! -x {shlex.quote(micromamba_bin)} ]; then "
+            "command -v curl >/dev/null 2>&1 || { echo 'curl is required to install managed Python 3.11' >&2; exit 10; }; "
+            f"curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C {shlex.quote(safe_micromamba_dir)} bin/micromamba; "
+            "fi; "
+            f"{shlex.quote(micromamba_bin)} create -y -p {shlex.quote(safe_python_dir)} python=3.11 pip; "
+            f"{shlex.quote(python_bin)} --version"
+        )
+        code = ssh.run(f"bash -lc {shlex.quote(script)}", stream=True, check=False)
+        if code != 0:
+            raise RuntimeError("Could not install managed Python 3.11 in the remote workspace. Ensure the server has internet access, curl, tar, and bzip2 support.")
+        version = self._remote_python_version(ssh, python_bin)
+        if version is None or version < (3, 11):
+            raise RuntimeError("Managed Python 3.11 installation completed but the interpreter could not be verified.")
+        return python_bin
+
+    def _neuroflow_base_python(self, ssh: RemoteSSHClient) -> str:
+        candidates = [self.config.remote_python, "python3.12", "python3.11", self._managed_python(ssh), "python3"]
+        for candidate in dict.fromkeys(candidate for candidate in candidates if candidate):
+            version = self._remote_python_version(ssh, candidate)
+            if version is not None and version >= (3, 11):
+                return candidate
+        return self._ensure_managed_python311(ssh)
 
     def _remote_venv_has_pip(self, ssh: RemoteSSHClient, venv_python: str) -> bool:
         return ssh.run(f"{shlex.quote(venv_python)} -m pip --version >/dev/null 2>&1", stream=False, check=False) == 0
@@ -167,7 +292,8 @@ class RemoteRunner:
         self.on_log("Recreating remote venv because pip is unavailable...")
         venv_dir = self._require_workspace_child(ssh, venv_dir, "remote venv")
         ssh.run(f"rm -rf {shlex.quote(venv_dir)}", stream=True, check=False)
-        code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
+        base_python = self._neuroflow_base_python(ssh) if self.config.neuroflow_enabled else self.config.remote_python
+        code = ssh.run(self._python_shell_command(base_python, "-m", "venv", venv_dir), stream=True, check=False)
         if code != 0:
             return False
         if self._remote_venv_has_pip(ssh, venv_python):
@@ -195,11 +321,26 @@ class RemoteRunner:
         ssh.mkdir_p(workspace)
         venv_dir = posixpath.join(workspace, ".venv")
         venv_python = posixpath.join(venv_dir, "bin", "python")
+        base_python = self._neuroflow_base_python(ssh) if self.config.neuroflow_enabled else self.config.remote_python
         if ssh.run(f"test -x {shlex.quote(venv_python)}", stream=False, check=False) != 0:
             self.on_log(f"Creating remote venv: {venv_dir}")
-            code = ssh.run(f"{shlex.quote(self.config.remote_python)} -m venv {shlex.quote(venv_dir)}", stream=True, check=False)
+            code = ssh.run(self._python_shell_command(base_python, "-m", "venv", venv_dir), stream=True, check=False)
             if code != 0:
                 raise RuntimeError("Could not create remote venv. Install python3-venv on the server or set a valid base Python.")
+        elif self.config.neuroflow_enabled:
+            venv_version = self._remote_python_version(ssh, venv_python)
+            if venv_version is None or venv_version < (3, 11):
+                self.on_log(
+                    "Recreating remote venv with Python 3.11+ because NeuroFLOW is enabled."
+                )
+                safe_venv_dir = self._require_workspace_child(ssh, venv_dir, "remote venv")
+                ssh.run(f"rm -rf {shlex.quote(safe_venv_dir)}", stream=True, check=False)
+                code = ssh.run(self._python_shell_command(base_python, "-m", "venv", safe_venv_dir), stream=True, check=False)
+                if code != 0:
+                    raise RuntimeError(
+                        "Could not create a Python 3.11+ remote venv for NeuroFLOW. "
+                        "Install python3.11-venv on the server or set Remote Python to a valid Python 3.11+ executable."
+                    )
         if not self._bootstrap_remote_venv_pip(ssh, venv_dir, venv_python):
             raise RuntimeError(self._remote_venv_fix_hint(venv_dir))
         self.on_log(f"Using remote venv Python: {venv_python}")
@@ -214,7 +355,7 @@ class RemoteRunner:
             remote_code = self._remote_code_dir(ssh)
             self._ensure_shared_code(ssh)
             details = self._check_python_details(ssh)
-            if not details["base_python_ok"]:
+            if not details["base_python_ok"] and not self.config.neuroflow_enabled:
                 self.on_log("Failed: Base Python is not installed or remote_python is invalid. Install Python on the server first.")
                 return False
             venv_python = self.ensure_remote_venv(ssh)
@@ -224,8 +365,28 @@ class RemoteRunner:
             )
             self.on_log("Installing packages into remote venv from requirements.txt...")
             code = ssh.run(cmd, stream=True, check=False)
-            self.on_log("Installed: Python packages into remote venv" if code == 0 else "Failed: Python package install in remote venv.")
-            return code == 0
+            if code != 0:
+                self.on_log("Failed: Python package install in remote venv.")
+                return False
+            self.on_log("Installed: Python packages into remote venv")
+            self._ensure_neuroflow_dependencies(ssh, venv_python)
+            return True
+
+    def _ensure_neuroflow_dependencies(self, ssh: RemoteSSHClient, venv_python: str) -> None:
+        if not self.config.neuroflow_enabled:
+            return
+        check = "import yaml, jsonschema"
+        if ssh.run(f"{shlex.quote(venv_python)} -c {shlex.quote(check)} >/dev/null 2>&1", stream=False, check=False) == 0:
+            return
+        self.on_log("Installing NeuroFLOW configuration dependencies into remote venv...")
+        packages = " ".join(shlex.quote(package) for package in ("PyYAML>=6", "jsonschema>=4"))
+        code = ssh.run(
+            f"{shlex.quote(venv_python)} -m pip install --disable-pip-version-check {packages}",
+            stream=True,
+            check=False,
+        )
+        if code != 0:
+            raise RuntimeError("Could not install NeuroFLOW dependencies on the remote server.")
 
     def check_image_statuses(self, images: list[str]) -> dict[str, bool]:
         statuses: dict[str, bool] = {}
@@ -416,6 +577,10 @@ class RemoteRunner:
             "stats_vector_config": self.config.stats_vector_config or {},
             "resume": bool(self.config.resume),
             "restart": bool(self.config.restart),
+            "pipeline_mode": self.config.pipeline_mode,
+            "neuroflow_enabled": bool(self.config.neuroflow_enabled),
+            "neuroflow_max_concurrent_tasks": int(self.config.neuroflow_max_concurrent_tasks),
+            "neuroflow_machine_profile_id": self.config.neuroflow_machine_profile_id,
         }
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(remote_request, indent=2))
@@ -448,6 +613,7 @@ class RemoteRunner:
             remote_code = self._remote_code_dir(ssh)
             self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
+            self._ensure_neuroflow_dependencies(ssh, venv_python)
             run_log = posixpath.join(self.remote_job_dir, "run.log")
             exit_code = posixpath.join(self.remote_job_dir, "exit_code.txt")
             pid_file = posixpath.join(self.remote_job_dir, "pid.txt")
@@ -465,7 +631,8 @@ class RemoteRunner:
             if getattr(self.config, "lazy_watch", False):
                 cmd_args.append("--lazy-watch")
             command = (
-                f"cd {shlex.quote(remote_code)} && PYTHONPATH={shlex.quote(remote_code)}:$PYTHONPATH PYTHONUNBUFFERED=1 "
+                f"cd {shlex.quote(remote_code)} && PYTHONPATH={shlex.quote(remote_code)}:"
+                f"{shlex.quote(posixpath.join(remote_code, 'NeuroFLOW-private', 'src'))}:$PYTHONPATH PYTHONUNBUFFERED=1 "
                 f"{shlex.quote(venv_python)} -m pipeline.job_worker {' '.join(cmd_args)}"
             )
             worker_script = (
@@ -494,24 +661,42 @@ class RemoteRunner:
             self.on_log(f"Remote background job started: {self.remote_job_dir}")
             return self.remote_job_dir
 
-    def remote_status(self) -> dict[str, str | int | bool]:
+    def remote_status(self) -> dict[str, str | int | float | bool | None]:
         if not self.remote_job_dir:
             return {"state": "not_started"}
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             exit_path = self._job_child_path(ssh, "exit_code.txt")
             pid_path = self._job_child_path(ssh, "pid.txt")
+            status_path = self._job_child_path(ssh, "job_status.json")
             exit_code, exit_text = ssh.read_text(f"cat {shlex.quote(exit_path)} 2>/dev/null")
             pid_code, pid_text = ssh.read_text(f"cat {shlex.quote(pid_path)} 2>/dev/null")
+            status_code, status_text = ssh.read_text(f"cat {shlex.quote(status_path)} 2>/dev/null")
+            status_data: dict = {}
+            if status_code == 0 and status_text.strip():
+                try:
+                    parsed = json.loads(status_text)
+                    status_data = parsed if isinstance(parsed, dict) else {}
+                except json.JSONDecodeError:
+                    status_data = {}
             pid = pid_text.strip()
+            base_status = {
+                "pid": pid or status_data.get("pid"),
+                "remote_job_dir": self.remote_job_dir,
+                "started_at": status_data.get("started_at"),
+                "finished_at": status_data.get("finished_at"),
+                "duration_sec": status_data.get("duration_sec"),
+                "error": status_data.get("error"),
+            }
             if exit_code == 0 and exit_text.strip() != "":
                 code = int(exit_text.strip().splitlines()[-1])
-                return {"state": "completed" if code == 0 else "failed", "exit_code": code, "pid": pid, "remote_job_dir": self.remote_job_dir}
+                return {**base_status, "state": "completed" if code == 0 else "failed", "exit_code": code}
             if pid_code == 0 and pid:
                 ps_code = ssh.run(f"kill -0 {shlex.quote(pid)} >/dev/null 2>&1", stream=False, check=False)
                 if ps_code == 0:
-                    return {"state": "running", "pid": pid, "remote_job_dir": self.remote_job_dir}
-                return {"state": "failed", "exit_code": None, "pid": pid, "remote_job_dir": self.remote_job_dir, "error": "process exited before writing exit_code.txt"}
-            return {"state": "uploaded", "remote_job_dir": self.remote_job_dir}
+                    return {**base_status, "state": "running", "pid": pid}
+                return {**base_status, "state": "failed", "exit_code": None, "pid": pid, "error": "process exited before writing exit_code.txt"}
+            state = str(status_data.get("state") or "uploaded")
+            return {**base_status, "state": state}
 
     def list_background_jobs(self) -> list[dict[str, str]]:
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
@@ -579,7 +764,26 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_outputs = self._require_workspace_child(ssh, self.remote_output_dir or posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
             ssh.download_dir(remote_outputs, local_target)
+            self._download_job_artifacts(ssh, local_target)
         return local_target
+
+    def _download_job_artifacts(self, ssh: RemoteSSHClient, local_target: Path) -> None:
+        artifact_names = (
+            "neuroflow_observations.tsv",
+            "neuroflow_observations.jsonl",
+            "neuroflow_workspace.sqlite",
+            "job_config.json",
+            "job_metadata.json",
+            "job_status.json",
+            "events.jsonl",
+            "run.log",
+            "launcher.log",
+            "exit_code.txt",
+            "finished_at.txt",
+        )
+        for name in artifact_names:
+            remote_file = self._job_child_path(ssh, name)
+            ssh.download_file_if_exists(remote_file, local_target / name)
 
     def clean_remote(self) -> None:
         if not self.remote_job_dir:
@@ -600,7 +804,7 @@ class RemoteRunner:
             f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline_runner.py'))} && "
             f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline', 'job_worker.py'))} && "
             f"test -f {shlex.quote(manifest_path)} && "
-            f"{shlex.quote(self.config.remote_python)} -c {shlex.quote(manifest_probe)} {shlex.quote(manifest_path)}"
+            f"{self._python_shell_command(self.config.remote_python, '-c', manifest_probe, manifest_path)}"
         )
         ready_code, ready_text = ssh.read_text(ready_cmd)
         if ready_code == 0 and ready_text.strip().splitlines()[-1:] == [signature]:
@@ -629,6 +833,28 @@ class RemoteRunner:
         info_dir = PROJECT_ROOT / "info"
         if info_dir.exists():
             ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
+        neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
+        if neuroflow.exists():
+            remote_neuroflow = posixpath.join(remote_code, "NeuroFLOW-private")
+            pyproject = neuroflow / "pyproject.toml"
+            if pyproject.exists():
+                ssh.upload_file(pyproject, posixpath.join(remote_neuroflow, "pyproject.toml"))
+            src_dir = neuroflow / "src"
+            if src_dir.exists():
+                ssh.upload_dir(
+                    src_dir,
+                    posixpath.join(remote_neuroflow, "src"),
+                    skip_dirs={"__pycache__", ".pytest_cache"},
+                    allowed_extensions={".py", ".typed"},
+                )
+            config_dir = neuroflow / "config"
+            if config_dir.exists():
+                ssh.upload_dir(
+                    config_dir,
+                    posixpath.join(remote_neuroflow, "config"),
+                    skip_dirs={"__pycache__", ".pytest_cache"},
+                    allowed_extensions={".yaml", ".yml", ".json"},
+                )
 
     def _upload_license(self, ssh: RemoteSSHClient) -> None:
         if not self.config.license_dir:

@@ -83,7 +83,7 @@ def _organize_output(subject_dir: str, preserve_dirs: set[str] | None = None) ->
     mri_dir = sd / "mri"
     stats_dir = sd / "stats"
     logs_dir = sd / "logs"
-    preserved = {sd / name for name in (preserve_dirs or set()) if name}
+    preserved = {sd / "freesurfer", *(sd / name for name in (preserve_dirs or set()) if name)}
     standard_dirs = {mri_dir, stats_dir, logs_dir, *preserved}
     mri_dir.mkdir(parents=True, exist_ok=True)
     stats_dir.mkdir(parents=True, exist_ok=True)

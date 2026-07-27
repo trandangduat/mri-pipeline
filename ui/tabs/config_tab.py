@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from difflib import SequenceMatcher
 from tkinter import ttk
 from ui.components.cards import create_card
 from ui.components.tooltip import Tooltip
@@ -49,64 +50,244 @@ def _rounded_panel(parent: tk.Widget, row: int, pady=0, radius: int = 12, paddin
     body.bind("<Configure>", lambda _event: canvas.after_idle(redraw))
     return body
 
+
+def _enable_combobox_type_search(combo: ttk.Combobox, gui) -> None:
+    all_values = [str(value) for value in combo.cget("values")]
+    popdown_listbox = ""
+    popdown_query = ""
+    popdown_reset_after: str | None = None
+
+    def tokens(value: str) -> list[str]:
+        normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in value)
+        return [part for part in normalized.split() if part]
+
+    def compact(value: str) -> str:
+        return "".join(tokens(value))
+
+    def fuzzy_score(query: str, value: str) -> float:
+        query_tokens = tokens(query)
+        if not query_tokens:
+            return 1.0
+        value_tokens = tokens(value)
+        value_compact = compact(value)
+        score = 0.0
+        for query_token in query_tokens:
+            token_scores = []
+            for value_token in value_tokens:
+                if value_token == query_token:
+                    token_scores.append(4.0)
+                elif value_token.startswith(query_token):
+                    token_scores.append(3.0)
+                elif query_token in value_token:
+                    token_scores.append(2.0)
+                else:
+                    token_scores.append(SequenceMatcher(None, query_token, value_token).ratio())
+            if query_token in value_compact:
+                token_scores.append(2.5)
+            best = max(token_scores, default=0.0)
+            if best < 0.55:
+                return 0.0
+            score += best
+        return score + SequenceMatcher(None, compact(query), value_compact).ratio()
+
+    def ranked_values(query: str) -> list[str]:
+        query = query.strip()
+        if not query:
+            return all_values
+        scored = [(fuzzy_score(query, value), idx, value) for idx, value in enumerate(all_values)]
+        matches = [(score, idx, value) for score, idx, value in scored if score > 0]
+        matches.sort(key=lambda item: (-item[0], item[1]))
+        return [value for _score, _idx, value in matches]
+
+    def update_popdown_values(values: list[str]) -> None:
+        if not popdown_listbox:
+            return
+        try:
+            combo.tk.call(popdown_listbox, "delete", 0, "end")
+            for value in values:
+                combo.tk.call(popdown_listbox, "insert", "end", value)
+        except tk.TclError:
+            pass
+
+    def refresh_values(query: str) -> list[str]:
+        matches = ranked_values(query)
+        values = matches or all_values
+        combo.configure(values=values)
+        update_popdown_values(values)
+        return matches
+
+    def select_first_match() -> None:
+        current = combo.get().strip()
+        if current in all_values:
+            combo.configure(values=all_values)
+            return
+        matches = ranked_values(current)
+        if matches:
+            combo.set(matches[0])
+        combo.configure(values=all_values)
+
+    def select_entry_text() -> None:
+        try:
+            combo.selection_range(0, tk.END)
+            combo.icursor(tk.END)
+        except tk.TclError:
+            pass
+
+    def on_focus_in(_event: tk.Event) -> None:
+        combo.configure(values=all_values)
+        combo.after_idle(select_entry_text)
+
+    def on_keyrelease(event: tk.Event) -> None:
+        if event.keysym in {"Return", "Tab", "Escape", "Up", "Down", "Left", "Right"}:
+            return
+        refresh_values(combo.get())
+
+    def on_return(_event: tk.Event) -> str:
+        select_first_match()
+        return "break"
+
+    def reset_popdown_query() -> None:
+        nonlocal popdown_query, popdown_reset_after
+        popdown_query = ""
+        popdown_reset_after = None
+
+    def highlight_popdown(index: int) -> None:
+        if index < 0 or not popdown_listbox:
+            return
+        try:
+            combo.tk.call(popdown_listbox, "selection", "clear", 0, "end")
+            combo.tk.call(popdown_listbox, "selection", "set", index)
+            combo.tk.call(popdown_listbox, "activate", index)
+            combo.tk.call(popdown_listbox, "see", index)
+        except tk.TclError:
+            pass
+
+    def on_popdown_keypress(keysym: str, char: str) -> str:
+        nonlocal popdown_query, popdown_reset_after
+        if keysym in {"Escape", "Return", "Tab", "Up", "Down"}:
+            return ""
+        if keysym in {"BackSpace", "Delete"}:
+            popdown_query = popdown_query[:-1]
+        elif char and char.isprintable():
+            popdown_query += char
+        else:
+            return ""
+        matches = refresh_values(popdown_query)
+        combo.set(popdown_query)
+        if matches:
+            highlight_popdown(0)
+        if popdown_reset_after is not None:
+            combo.after_cancel(popdown_reset_after)
+        popdown_reset_after = combo.after(1500, reset_popdown_query)
+        return "break"
+
+    popdown_keypress_cmd = combo.register(on_popdown_keypress)
+
+    def bind_popdown_listbox() -> None:
+        nonlocal popdown_listbox
+        reset_popdown_query()
+        combo.configure(values=all_values)
+        try:
+            popdown = combo.tk.call("ttk::combobox::PopdownWindow", str(combo))
+            popdown_listbox = f"{popdown}.f.l"
+            script = f'if {{[{popdown_keypress_cmd} %K {{%A}}] eq "break"}} break'
+            combo.tk.call("bind", popdown_listbox, "<KeyPress>", script)
+        except tk.TclError:
+            popdown_listbox = ""
+
+    combo.bind("<FocusIn>", on_focus_in, add="+")
+    combo.bind("<KeyRelease>", on_keyrelease, add="+")
+    combo.bind("<Return>", on_return, add="+")
+    combo.bind("<FocusOut>", lambda _event: select_first_match(), add="+")
+    combo.bind("<<ComboboxSelected>>", lambda _event: combo.configure(values=all_values), add="+")
+    combo.configure(postcommand=bind_popdown_listbox)
+
 def build_configuration_tab(parent: ttk.Frame, gui) -> None:
-    canvas = tk.Canvas(parent, highlightthickness=0)
-    scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
-    scroll_frame = ttk.Frame(canvas)
+    parent.rowconfigure(0, weight=1)
+    parent.columnconfigure(0, weight=1)
+
+    panes = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
+    panes.grid(row=0, column=0, sticky=tk.NSEW, padx=8, pady=8)
+
+    left_outer, left = _scrollable_column(panes)
+    right_outer, right = _scrollable_column(panes)
+    panes.add(left_outer, weight=1)
+    panes.add(right_outer, weight=1)
+
+    _build_tools_section(left, gui)
+    _build_input_section(right, gui)
+    _build_settings_section(right, gui)
+    _build_remote_section(right, gui)
+
+    gui._on_run_target_changed()
+
+
+def _scrollable_column(parent: ttk.PanedWindow) -> tuple[ttk.Frame, ttk.Frame]:
+    outer = ttk.Frame(parent)
+    outer.rowconfigure(0, weight=1)
+    outer.columnconfigure(0, weight=1)
+
+    canvas = tk.Canvas(outer, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+    scroll_frame = ttk.Frame(canvas, padding=8)
     window_id = canvas.create_window((0, 0), window=scroll_frame, anchor=tk.NW)
+    is_scrollable = False
 
-    def _sync_scroll_region(_event=None):
+    def update_scrollbar_visibility() -> None:
+        nonlocal is_scrollable
+        bbox = canvas.bbox("all")
+        content_height = bbox[3] - bbox[1] if bbox else 0
+        is_scrollable = content_height > canvas.winfo_height() + 1
+        if is_scrollable:
+            scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        else:
+            canvas.yview_moveto(0)
+            scrollbar.grid_remove()
+
+    def sync_scroll_region(_event=None) -> None:
         canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.after_idle(update_scrollbar_visibility)
 
-    def _sync_window_width(event):
+    def sync_window_width(event: tk.Event) -> None:
         canvas.itemconfigure(window_id, width=event.width)
+        canvas.after_idle(update_scrollbar_visibility)
 
-    def _on_mousewheel(event):
+    def on_mousewheel(event: tk.Event) -> str:
+        if not is_scrollable:
+            return ""
         if event.num == 4:
             canvas.yview_scroll(-3, "units")
         elif event.num == 5:
             canvas.yview_scroll(3, "units")
         else:
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        return "break"
 
-    def _bind_mousewheel(_event=None):
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        canvas.bind_all("<Button-4>", _on_mousewheel)
-        canvas.bind_all("<Button-5>", _on_mousewheel)
+    def bind_mousewheel(_event=None) -> None:
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        canvas.bind_all("<Button-4>", on_mousewheel)
+        canvas.bind_all("<Button-5>", on_mousewheel)
 
-    def _unbind_mousewheel(_event=None):
+    def unbind_mousewheel(_event=None) -> None:
         canvas.unbind_all("<MouseWheel>")
         canvas.unbind_all("<Button-4>")
         canvas.unbind_all("<Button-5>")
 
-    scroll_frame.bind("<Configure>", _sync_scroll_region)
-    canvas.bind("<Configure>", _sync_window_width)
-    canvas.bind("<MouseWheel>", _on_mousewheel)
-    canvas.bind("<Button-4>", _on_mousewheel)
-    canvas.bind("<Button-5>", _on_mousewheel)
-    canvas.bind("<Enter>", _bind_mousewheel)
-    canvas.bind("<Leave>", _unbind_mousewheel)
+    scroll_frame.bind("<Configure>", sync_scroll_region)
+    canvas.bind("<Configure>", sync_window_width)
+    canvas.bind("<MouseWheel>", on_mousewheel)
+    canvas.bind("<Button-4>", on_mousewheel)
+    canvas.bind("<Button-5>", on_mousewheel)
+    canvas.bind("<Enter>", bind_mousewheel)
+    canvas.bind("<Leave>", unbind_mousewheel)
     canvas.configure(yscrollcommand=scrollbar.set)
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-    panes = ttk.PanedWindow(scroll_frame, orient=tk.HORIZONTAL)
-    panes.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-
-    left = ttk.Frame(panes, padding=8)
-    right = ttk.Frame(panes, padding=8)
-    panes.add(left, weight=1)
-    panes.add(right, weight=1)
-
-    _build_tools_section(left, gui)
-    _build_input_section(right, gui)
-    _build_settings_section(right, gui)
-    _build_remote_section(right, gui)
-    
-    gui._on_run_target_changed()
+    canvas.grid(row=0, column=0, sticky=tk.NSEW)
+    scrollbar.grid(row=0, column=1, sticky=tk.NS)
+    scrollbar.grid_remove()
+    return outer, scroll_frame
 
 def _build_tools_section(parent: ttk.Frame, gui) -> None:
-    frame = create_card(parent, "01", "Pipeline Tools", "Nine-step MRI processing pipeline", {"fill": tk.BOTH, "expand": True})
+    frame = create_card(parent, "01", "Pipeline Tools", "Nine-step MRI processing pipeline", {"fill": tk.X})
     frame.columnconfigure(0, weight=1)
 
     mode_row = ttk.Frame(frame)
@@ -133,16 +314,17 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     gui.pipeline_tools_body.grid(row=1, column=0, sticky=tk.EW, pady=(0, 14))
     gui.pipeline_tools_body.columnconfigure(0, weight=1)
 
-    tools_table = _rounded_panel(gui.pipeline_tools_body, row=0, radius=12)
+    tools_table = ttk.Frame(gui.pipeline_tools_body, padding=(0, 4))
+    tools_table.grid(row=0, column=0, sticky=tk.EW)
     tools_table.columnconfigure(0, weight=3, minsize=220)
     tools_table.columnconfigure(1, weight=2, minsize=250)
     tools_table.columnconfigure(2, weight=0, minsize=135)
     tools_table.rowconfigure(0, minsize=42)
 
-    tk.Label(tools_table, text="Step", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=0, sticky=tk.EW, padx=(14, 10))
-    tk.Label(tools_table, text="Tool", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=1, sticky=tk.EW, padx=(10, 10))
-    tk.Label(tools_table, text="Status", bg=PANEL_BG, fg="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=2, sticky=tk.EW, padx=(10, 14))
-    tk.Frame(tools_table, bg=PANEL_BORDER, height=1).grid(row=1, column=0, columnspan=3, sticky=tk.EW)
+    ttk.Label(tools_table, text="Step", foreground="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=0, sticky=tk.EW, padx=(4, 10))
+    ttk.Label(tools_table, text="Tool", foreground="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=1, sticky=tk.EW, padx=(10, 10))
+    ttk.Label(tools_table, text="Status", foreground="#64748b", font=("Inter", 9, "bold"), anchor=tk.W).grid(row=0, column=2, sticky=tk.EW, padx=(10, 4))
+    ttk.Separator(tools_table, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=3, sticky=tk.EW)
 
     for idx, stage in enumerate(STAGE_ORDER):
         row = 2 + idx * 2
@@ -152,31 +334,30 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
         tools_table.rowconfigure(row, minsize=46)
         gui.tool_step_labels = getattr(gui, "tool_step_labels", {})
-        step_label = tk.Label(
+        step_label = ttk.Label(
             tools_table,
             text=f"{idx + 1}. {STAGE_LABELS.get(stage, stage)}",
-            bg=PANEL_BG,
-            fg="#111827",
+            foreground="#111827",
             font=("Inter", 10),
             anchor=tk.W,
         )
-        step_label.grid(row=row, column=0, sticky=tk.EW, padx=(14, 10))
+        step_label.grid(row=row, column=0, sticky=tk.EW, padx=(4, 10))
         gui.tool_step_labels[stage] = step_label
 
         combo = ttk.Combobox(tools_table, textvariable=var, values=tool_labels, state="readonly", width=30)
         combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 10))
         gui.tool_combos[stage] = combo
-        status = tk.Label(tools_table, text="Not checked", bg=PANEL_BG, fg="#64748b", font=("Inter", 10), anchor=tk.W)
-        status.grid(row=row, column=2, sticky=tk.EW, padx=(10, 14))
+        status = ttk.Label(tools_table, text="Not checked", foreground="#64748b", font=("Inter", 10), anchor=tk.W)
+        status.grid(row=row, column=2, sticky=tk.EW, padx=(10, 4))
         gui.tools_ctrl.status_labels[stage] = status
         if idx < len(STAGE_ORDER) - 1:
-            tk.Frame(tools_table, bg=PANEL_BORDER, height=1).grid(row=row + 1, column=0, columnspan=3, sticky=tk.EW)
+            ttk.Separator(tools_table, orient=tk.HORIZONTAL).grid(row=row + 1, column=0, columnspan=3, sticky=tk.EW)
 
     stats_row = 2
 
-    stats_frame = _rounded_panel(frame, row=stats_row, pady=(0, 14), radius=12, padding=(12, 10))
+    stats_frame = ttk.LabelFrame(frame, text=" Stats vectors ", padding=(12, 10))
+    stats_frame.grid(row=stats_row, column=0, sticky=tk.EW, pady=(0, 14))
     stats_frame.columnconfigure(1, weight=1)
-    tk.Label(stats_frame, text="Stats vectors", bg=PANEL_BG, fg="#111827", font=("Inter", 10, "bold"), anchor=tk.W).grid(row=0, column=0, columnspan=2, sticky=tk.EW, pady=(0, 8))
 
     gui.stat_vector_checkbuttons = getattr(gui, "stat_vector_checkbuttons", {})
     gui.stat_atlas_combos = getattr(gui, "stat_atlas_combos", {})
@@ -189,10 +370,10 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
                 first_atlas = next(iter(gui.state.stat_atlas_vars[stat]), "")
                 if first_atlas:
                     gui.state.set_stat_atlas_choice(stat, first_atlas)
-            atlas_combo.configure(state="readonly" if gui.state.stat_vector_enabled_vars[stat].get() else tk.DISABLED)
+            atlas_combo.configure(state=tk.NORMAL if gui.state.stat_vector_enabled_vars[stat].get() else tk.DISABLED)
 
     for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items()):
-        row = idx + 1
+        row = idx
         check = ttk.Checkbutton(
             stats_frame,
             text=stat_def["label"],
@@ -208,10 +389,11 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
                 stats_frame,
                 textvariable=gui.state.stat_atlas_choice_vars[stat],
                 values=atlas_values,
-                state="readonly",
+                state=tk.NORMAL,
                 width=28,
             )
             combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 6), pady=4)
+            _enable_combobox_type_search(combo, gui)
             stat_option_widgets[stat] = combo
             gui.stat_atlas_combos[stat] = combo
             first_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
@@ -257,6 +439,21 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         state="readonly", 
         width=25
     ).grid(row=0, column=1, sticky=tk.W, padx=8, pady=(8, 3))
+
+    ttk.Checkbutton(
+        adv_options,
+        text="Use NeuroFLOW scheduler",
+        variable=gui.state.neuroflow_enabled,
+    ).grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=8, pady=(8, 3))
+
+    ttk.Label(adv_options, text="NeuroFLOW max concurrent tasks").grid(row=2, column=0, sticky=tk.W, padx=8, pady=(8, 3))
+    ttk.Spinbox(
+        adv_options,
+        from_=1,
+        to=16,
+        textvariable=gui.state.neuroflow_max_concurrent_tasks,
+        width=6,
+    ).grid(row=2, column=1, sticky=tk.W, padx=8, pady=(8, 3))
 
     gui.state.show_advanced_settings.trace_add("write", sync_adv_options)
     sync_adv_options()
@@ -420,8 +617,8 @@ def _build_settings_section(parent: ttk.Frame, gui) -> None:
             threads = int(gui.state.threads.get())
             ram = int(gui.state.ram_percent.get())
             max_t = gui.max_threads or gui.local_max_threads
-            if threads >= max_t or ram == 100:
-                gui.runtime_warning_label.configure(text="Warning: Using 100% RAM or Threads may freeze your system. Consider leaving at least 10%.")
+            if threads >= max_t or ram > 90:
+                gui.runtime_warning_label.configure(text="Warning: Using more than 90% RAM or all Threads may freeze your system. Consider leaving at least 10%.")
                 gui.runtime_warning_label.grid()
             else:
                 gui.runtime_warning_label.grid_remove()

@@ -44,6 +44,8 @@ class AppState:
         self.pipeline_mode = tk.StringVar(value="Custom")
         self.allow_custom_tools = tk.BooleanVar(value=True)
         self.optimization_mode = tk.StringVar(value="Use default options")
+        self.neuroflow_enabled = tk.BooleanVar(value=False)
+        self.neuroflow_max_concurrent_tasks = tk.IntVar(value=1)
         self.show_advanced_settings = tk.BooleanVar(value=False)
         self.workspace_name = ""
 
@@ -63,7 +65,7 @@ class AppState:
             "reorientation": "mri_convert_fs7",
             "brain_extraction": "synthstrip_fs7",
             "segmentation": "synthseg_freesurfer_fs7",
-            "template_registration": "synthmorph_fs8",
+            "template_registration": "",
             "bias_correction": "ants_n4",
             "white_matter_segmentation": "mri_binarize",
             "surface_reconstruction": "",
@@ -185,6 +187,8 @@ class AppState:
             "ram_percent": int(self.ram_percent.get()),
             "non_recursive": self.non_recursive.get(),
             "run_target": self.run_target.get(),
+            "neuroflow_enabled": self.neuroflow_enabled.get(),
+            "neuroflow_max_concurrent_tasks": int(self.neuroflow_max_concurrent_tasks.get()),
         }
         if self.run_target.get() == "Server":
             workspace["remote"] = {
@@ -222,6 +226,8 @@ class AppState:
         self.ram_percent.set(int(workspace.get("ram_percent", 100)))
         self.non_recursive.set(bool(workspace.get("non_recursive", False)))
         self.run_target.set(workspace.get("run_target", "Local"))
+        self.neuroflow_enabled.set(bool(workspace.get("neuroflow_enabled", False)))
+        self.neuroflow_max_concurrent_tasks.set(int(workspace.get("neuroflow_max_concurrent_tasks", 1)))
 
         self.input_source.set("Server" if self.run_target.get() == "Server" else "Local")
 

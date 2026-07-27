@@ -8,6 +8,12 @@ from remote.ssh_client import SSHConfig
 
 class FakeRemoteSSHClient:
     commands: list[str] = []
+    versions: dict[str, tuple[int, str]] = {}
+    dependency_check: tuple[int, str] = (0, "")
+    downloaded_dirs: list[tuple[str, Path]] = []
+    downloaded_files: list[tuple[str, Path]] = []
+    existing_download_files: set[str] = set()
+    managed_python_installed: bool = False
 
     def __init__(self, _config, _on_log=None) -> None:
         pass
@@ -24,14 +30,34 @@ class FakeRemoteSSHClient:
     def read_text(self, command: str) -> tuple[int, str]:
         if command == 'printf %s "$HOME"':
             return 0, "/home/tester"
+        if "import yaml, jsonschema" in command:
+            return self.dependency_check
+        if "test -x /home/tester/mri-remote-jobs/.venv/bin/python" in command:
+            return 0, ""
+        if "/home/tester/mri-remote-jobs/python311/bin/python -c " in command:
+            return (0, "3.11\n") if self.managed_python_installed else (1, "")
+        for python_cmd, response in self.versions.items():
+            if f"{python_cmd} -c " in command:
+                return response
         return 0, ""
 
     def run(self, command: str, stream: bool = True, check: bool = False) -> int:
         self.commands.append(command)
+        if "micro.mamba.pm" in command and "python=3.11" in command:
+            self.managed_python_installed = True
         return 0
 
     def mkdir_p(self, remote_path: str) -> None:
         self.commands.append(f"mkdir -p {remote_path}")
+
+    def download_dir(self, remote_dir: str, local_dir: str | Path) -> None:
+        self.downloaded_dirs.append((remote_dir, Path(local_dir)))
+
+    def download_file_if_exists(self, remote_file: str, local_file: str | Path) -> bool:
+        if remote_file not in self.existing_download_files:
+            return False
+        self.downloaded_files.append((remote_file, Path(local_file)))
+        return True
 
 def test_remote_runner_clean_guardrail(dummy_ssh_server):
     ssh_config = SSHConfig(
@@ -119,6 +145,41 @@ def test_remote_runner_upload_rejects_output_outside_workspace(mocker) -> None:
         runner.upload_job()
 
 
+def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path) -> None:
+    FakeRemoteSSHClient.downloaded_dirs = []
+    FakeRemoteSSHClient.downloaded_files = []
+    FakeRemoteSSHClient.existing_download_files = {
+        "/home/tester/mri-remote-jobs/job_123/neuroflow_observations.tsv",
+        "/home/tester/mri-remote-jobs/job_123/run.log",
+    }
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        output_dir=str(tmp_path),
+        download_subdir="batch_123",
+    )
+    runner = RemoteRunner(run_config)
+    runner.remote_job_dir = "/home/tester/mri-remote-jobs/job_123"
+    runner.remote_output_dir = "/home/tester/mri-remote-jobs/job_123/outputs"
+
+    local_path = runner.download_outputs()
+
+    assert local_path == tmp_path / "batch_123"
+    assert FakeRemoteSSHClient.downloaded_dirs == [
+        ("/home/tester/mri-remote-jobs/job_123/outputs", tmp_path / "batch_123")
+    ]
+    assert (
+        "/home/tester/mri-remote-jobs/job_123/neuroflow_observations.tsv",
+        tmp_path / "batch_123" / "neuroflow_observations.tsv",
+    ) in FakeRemoteSSHClient.downloaded_files
+    assert (
+        "/home/tester/mri-remote-jobs/job_123/run.log",
+        tmp_path / "batch_123" / "run.log",
+    ) in FakeRemoteSSHClient.downloaded_files
+    FakeRemoteSSHClient.existing_download_files = set()
+
+
 def test_remote_runner_write_config_rejects_attached_job_outside_workspace(mocker) -> None:
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
     run_config = RemoteRunConfig(
@@ -130,3 +191,120 @@ def test_remote_runner_write_config_rejects_attached_job_outside_workspace(mocke
 
     with pytest.raises(ValueError, match="remote job directory is outside"):
         runner.write_remote_job_config({})
+
+
+def test_remote_runner_adds_neuroflow_src_to_worker_pythonpath(mocker) -> None:
+    FakeRemoteSSHClient.commands = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        neuroflow_enabled=True,
+    )
+    runner = RemoteRunner(run_config)
+    runner.remote_job_dir = "/home/tester/mri-remote-jobs/job_123"
+    runner.remote_output_dir = "/home/tester/mri-remote-jobs/job_123/outputs"
+    mocker.patch.object(runner, "_ensure_shared_code", return_value="/home/tester/mri-remote-jobs/code")
+    mocker.patch.object(runner, "ensure_remote_venv", return_value="/home/tester/mri-remote-jobs/.venv/bin/python")
+    mocker.patch.object(runner, "_ensure_neuroflow_dependencies")
+
+    runner.start_remote_detached()
+
+    commands = "\n".join(FakeRemoteSSHClient.commands)
+    assert "/home/tester/mri-remote-jobs/code/NeuroFLOW-private/src" in commands
+
+
+def test_remote_runner_recreates_old_venv_for_neuroflow(mocker) -> None:
+    FakeRemoteSSHClient.commands = []
+    FakeRemoteSSHClient.versions = {
+        "python3": (0, "3.8\n"),
+        "python3.12": (1, ""),
+        "python3.11": (0, "3.11\n"),
+        "/home/tester/mri-remote-jobs/.venv/bin/python": (0, "3.8\n"),
+    }
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        neuroflow_enabled=True,
+    )
+    runner = RemoteRunner(run_config)
+
+    with FakeRemoteSSHClient(None) as ssh:
+        python_path = runner.ensure_remote_venv(ssh)
+
+    assert python_path == "/home/tester/mri-remote-jobs/.venv/bin/python"
+    commands = "\n".join(FakeRemoteSSHClient.commands)
+    assert "rm -rf /home/tester/mri-remote-jobs/.venv" in commands
+    assert "python3.11 -m venv /home/tester/mri-remote-jobs/.venv" in commands
+    FakeRemoteSSHClient.versions = {}
+
+
+def test_remote_runner_bootstraps_python311_for_neuroflow_when_missing(mocker) -> None:
+    FakeRemoteSSHClient.commands = []
+    FakeRemoteSSHClient.managed_python_installed = False
+    FakeRemoteSSHClient.versions = {
+        "python3": (0, "3.8\n"),
+        "python3.12": (1, ""),
+        "python3.11": (1, ""),
+        "/home/tester/mri-remote-jobs/.venv/bin/python": (0, "3.8\n"),
+    }
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        neuroflow_enabled=True,
+    )
+    runner = RemoteRunner(run_config)
+
+    with FakeRemoteSSHClient(None) as ssh:
+        python_path = runner.ensure_remote_venv(ssh)
+
+    assert python_path == "/home/tester/mri-remote-jobs/.venv/bin/python"
+    commands = "\n".join(FakeRemoteSSHClient.commands)
+    assert "micro.mamba.pm/api/micromamba/linux-64/latest" in commands
+    assert "python=3.11" in commands
+    assert "/home/tester/mri-remote-jobs/python311/bin/python -m venv" in commands
+    FakeRemoteSSHClient.versions = {}
+    FakeRemoteSSHClient.managed_python_installed = False
+
+
+def test_remote_python_version_supports_shell_command() -> None:
+    FakeRemoteSSHClient.commands = []
+    FakeRemoteSSHClient.versions = {
+        "source ~/.bashrc && conda activate nf && python": (0, "3.11\n"),
+    }
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_python="source ~/.bashrc && conda activate nf && python",
+        )
+    )
+    with FakeRemoteSSHClient(None) as ssh:
+        assert runner._remote_python_version(ssh, runner.config.remote_python) == (3, 11)
+    FakeRemoteSSHClient.versions = {}
+
+
+def test_remote_python_details_report_neuroflow_requirements() -> None:
+    FakeRemoteSSHClient.versions = {
+        "python3": (0, "3.8\n"),
+        "python3.12": (1, ""),
+        "python3.11": (1, ""),
+        "/home/tester/mri-remote-jobs/.venv/bin/python": (0, "3.8\n"),
+    }
+    FakeRemoteSSHClient.dependency_check = (1, "No module named yaml")
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace="~/mri-remote-jobs",
+            neuroflow_enabled=True,
+        )
+    )
+    with FakeRemoteSSHClient(None) as ssh:
+        details = runner._check_python_details(ssh)
+
+    assert details["neuroflow_python_ok"] is False
+    assert details["neuroflow_dependency_ok"] is False
+    assert "Remote Python=3.8" in str(details["neuroflow_python_text"])
+    FakeRemoteSSHClient.versions = {}
+    FakeRemoteSSHClient.dependency_check = (0, "")

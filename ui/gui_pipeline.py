@@ -17,6 +17,7 @@ from tkinter import messagebox, ttk
 
 from pipeline.jobs import create_local_job_dir, upsert_job_registry, write_json
 from pipeline.config import PROJECT_ROOT
+from pipeline.neuroflow_adapter import PIPELINE_MODE_TO_PRESET
 from pipeline.registry import STAGE_ORDER
 from pipeline.discovery import _is_supported_mri_input, _is_dicom_series_dir, _discover_mri_files
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
@@ -94,6 +95,29 @@ class PipelineController:
         from ui.dialogs.job_dialogs import show_upload_remote_job_dialog
         return show_upload_remote_job_dialog(self, runner)
 
+    def _neuroflow_server_local_input_blocked(self) -> bool:
+        if not bool(self.gui.state.neuroflow_enabled.get()):
+            return False
+        if self.gui.state.run_target.get() != "Server" or self.gui.state.input_source.get() != "Local":
+            return False
+        messagebox.showerror(
+            "NeuroFLOW server input required",
+            "NeuroFLOW remote runs currently require MRI input paths already on the server. Upload the input first, then select it with Server input.",
+        )
+        return True
+
+    def _neuroflow_pipeline_mode_supported(self) -> bool:
+        if not bool(self.gui.state.neuroflow_enabled.get()):
+            return True
+        mode = self.gui.state.pipeline_mode.get()
+        if mode in PIPELINE_MODE_TO_PRESET:
+            return True
+        messagebox.showerror(
+            "Unsupported NeuroFLOW mode",
+            "NeuroFLOW currently requires one of the FreeSurfer/FastSurfer preset pipeline modes, not Custom/default tool selections.",
+        )
+        return False
+
     def _start_pipeline(self, resume: bool = False, restart: bool = False) -> None:
         if not resume:
             from ui.dialogs.before_run import show_before_run_dialog
@@ -106,6 +130,8 @@ class PipelineController:
             return
 
         if not self.gui.jobs_ctrl._confirm_start_with_existing_jobs():
+            return
+        if self._neuroflow_server_local_input_blocked() or not self._neuroflow_pipeline_mode_supported():
             return
 
         starter_button = getattr(self, "restart_button" if restart else "resume_button", None) if (restart or resume) else None
@@ -132,6 +158,7 @@ class PipelineController:
                     messagebox.showerror("Remote upload failed", "Could not copy files to the remote server. Pipeline was not started.")
                     return
                 self.remote_runner = runner
+                start_time = time.time()
                 self.gui.progress_ctrl._prepare_progress_tab(
                     self.gui.progress_ctrl._input_files_for_progress(run_request),
                     run_request.get("selected_tools"),
@@ -139,6 +166,7 @@ class PipelineController:
                     pipeline_mode=run_request.get("pipeline_mode", ""),
                     threads=int(run_request.get("threads", 0) or 0),
                     device=run_request.get("device", ""),
+                    started_at=start_time,
                 )
                 self.gui.progress_ctrl._show_progress_tab()
                 self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
@@ -154,6 +182,7 @@ class PipelineController:
             run_request["resume"] = resume
             run_request["restart"] = restart
 
+            start_time = time.time()
             self.gui.progress_ctrl._prepare_progress_tab(
                 self.gui.progress_ctrl._input_files_for_progress(run_request),
                 run_request.get("selected_tools"),
@@ -161,6 +190,7 @@ class PipelineController:
                 pipeline_mode=run_request.get("pipeline_mode", ""),
                 threads=int(run_request.get("threads", 0) or 0),
                 device=run_request.get("device", ""),
+                started_at=start_time,
             )
             self.gui.progress_ctrl._show_progress_tab()
 
@@ -244,6 +274,7 @@ class PipelineController:
         runner.config.restart = restart
         
         self.remote_runner = runner
+        start_time = time.time()
         self.gui.progress_ctrl._prepare_progress_tab(
             self.gui.progress_ctrl._input_files_for_progress(run_request),
             run_request.get("selected_tools"),
@@ -251,6 +282,7 @@ class PipelineController:
             pipeline_mode=run_request.get("pipeline_mode", ""),
             threads=int(run_request.get("threads", 0) or 0),
             device=run_request.get("device", ""),
+            started_at=start_time,
         )
         self.gui.progress_ctrl._show_progress_tab()
         self._start_remote_pipeline(resume=resume, restart=restart, runner=runner, run_request=run_request)
@@ -359,7 +391,13 @@ class PipelineController:
         runner.config.restart = restart
         self.remote_runner = runner
         self.gui.jobs_ctrl._enter_background_monitor_state("Starting remote background job...")
-        remote_dir = runner.start_remote_detached()
+        try:
+            remote_dir = runner.start_remote_detached()
+        except Exception as exc:
+            self.gui.progress_ctrl._log(f"REMOTE START ERROR: {type(exc).__name__}: {exc}")
+            messagebox.showerror("Remote start failed", f"Could not start the remote job:\n\n{type(exc).__name__}: {exc}")
+            self.gui.progress_ctrl._set_idle_state()
+            return
         entry = self.gui.registry_ctrl._registry_entry_for_remote_job(runner, remote_dir, run_request=run_request)
         upsert_job_registry(entry)
         self.gui.progress_ctrl._rename_active_progress_tab(self.gui.progress_ctrl._progress_title_for_job(entry, fallback="Remote job"), self.gui.progress_ctrl._progress_job_identity(entry))
@@ -386,6 +424,11 @@ class PipelineController:
         is_batch = mode == "dir"
         output_dir = self.gui.state.output_dir.get().strip()
         batch_output_name = f"batch_{time.strftime('%Y%m%d_%H%M%S')}" if is_batch else ""
+        try:
+            neuroflow_max_concurrent = max(1, int(self.gui.state.neuroflow_max_concurrent_tasks.get()))
+        except (TypeError, ValueError, tk.TclError):
+            neuroflow_max_concurrent = 1
+
         base = {
             "mode": mode,
             "output_dir": output_dir,
@@ -402,10 +445,27 @@ class PipelineController:
             "stats_vector_config": self.gui.state.get_stats_vector_config(),
             "input_source": input_source,
             "pipeline_mode": self.gui.state.pipeline_mode.get(),
+            "neuroflow_enabled": bool(self.gui.state.neuroflow_enabled.get()),
+            "neuroflow_max_concurrent_tasks": neuroflow_max_concurrent,
+            "neuroflow_machine_profile_id": "application_default",
         }
 
         if self.gui.state.run_target.get() != "Server" and input_source != "Local":
             messagebox.showerror("Invalid input", "Local runs can only use local input data.")
+            return None
+
+        if base["neuroflow_enabled"] and self.gui.state.run_target.get() == "Server" and input_source == "Local":
+            messagebox.showerror(
+                "NeuroFLOW server input required",
+                "NeuroFLOW remote runs currently require MRI input paths already on the server. Upload the input first, then select it with Server input.",
+            )
+            return None
+
+        if base["neuroflow_enabled"] and base["pipeline_mode"] not in PIPELINE_MODE_TO_PRESET:
+            messagebox.showerror(
+                "Unsupported NeuroFLOW mode",
+                "NeuroFLOW currently requires one of the FreeSurfer/FastSurfer preset pipeline modes, not Custom/default tool selections.",
+            )
             return None
 
         if input_source == "Server":
@@ -588,8 +648,7 @@ class PipelineController:
                     self.gui._remote_thread_max_signature = None
                     self.gui._set_thread_max(None, pending=True)
                     self.gui.remote_ctrl._reset_remote_tool_image_state()
-                    if getattr(self, "remote_status_label", None) is not None:
-                        self.remote_status_label.configure(foreground="")
+                    self.gui.remote_ctrl._style_remote_status("connecting")
                 self.gui.root.after(0, set_testing)
                 runner = RemoteRunner(RemoteRunConfig(ssh=ssh_config), on_log=lambda x: None)
                 runner.test_ssh()
@@ -609,8 +668,7 @@ class PipelineController:
                     self.gui._set_thread_max(max_threads)
                     self.gui.remote_ctrl._sync_remote_connection_controls()
                     self.gui.remote_ctrl._schedule_remote_health_check()
-                    if getattr(self, "remote_status_label", None) is not None:
-                        self.remote_status_label.configure(foreground="#16a34a") # green
+                    self.gui.remote_ctrl._style_remote_status("connected")
                 self.gui.root.after(0, set_success)
             except Exception as exc:
                 err_msg = f"Remote connection failed: {exc}"
@@ -622,8 +680,7 @@ class PipelineController:
                     self.gui._remote_thread_max_signature = None
                     self.gui._set_thread_max(None)
                     self.gui.remote_ctrl._sync_remote_connection_controls()
-                    if getattr(self, "remote_status_label", None) is not None:
-                        self.remote_status_label.configure(foreground="#dc2626") # red
+                    self.gui.remote_ctrl._style_remote_status("failed")
                 self.gui.root.after(0, set_failed)
 
         threading.Thread(target=task, daemon=True).start()

@@ -25,6 +25,12 @@ from ui.formatters import format_bytes, format_duration, format_percent, truncat
 from ui.tabs.progress_tab import build_progress_tab
 
 
+def step_status_from_result(success: bool, tool: str = "", error: str = "") -> str:
+    if not tool or error == "skipped":
+        return "Skipped"
+    return "Done" if success else "Failed"
+
+
 class ProgressController:
     def __init__(self, gui):
         self.gui = gui
@@ -94,6 +100,10 @@ class ProgressController:
             "id": context_id,
             "title": title,
             "tab_title": tk.StringVar(value=title),
+            "start_time": time.time(),
+            "duration_sec": None,
+            "job_started_text": tk.StringVar(value=time.strftime("%H:%M:%S")),
+            "job_elapsed_text": tk.StringVar(value="0s"),
             "job_identity": job_identity,
             "tab": ttk.Frame(self.gui.notebook),
             "image_runs": {},
@@ -138,9 +148,15 @@ class ProgressController:
             "image_list_frame",
             "detail_chart",
             "gpu_chart",
+            "progress_preset_label",
+            "progress_threads_label",
+            "progress_device_label",
             "progress_log_toggle_text",
             "progress_log_body",
             "log_text",
+            "job_started_text",
+            "job_elapsed_text",
+            "duration_sec",
             "job_preset_text",
             "job_threads_text",
             "job_device_text",
@@ -169,9 +185,14 @@ class ProgressController:
             "image_list_frame",
             "detail_chart",
             "gpu_chart",
+            "progress_preset_label",
+            "progress_threads_label",
+            "progress_device_label",
             "progress_log_toggle_text",
             "progress_log_body",
             "log_text",
+            "job_started_text",
+            "job_elapsed_text",
             "job_preset_text",
             "job_threads_text",
             "job_device_text",
@@ -185,6 +206,7 @@ class ProgressController:
             self.gui.jobs_ctrl.job_log_offset = int(monitor.get("job_log_offset", 0) or 0)
             self.gui.jobs_ctrl.remote_poll_in_flight = bool(monitor.get("remote_poll_in_flight", False))
             self.gui.jobs_ctrl.job_poll_after_id = monitor.get("after_id")
+        self._sync_runtime_settings_panel()
         return context
 
     def _sync_progress_context_to_state(self, context: dict) -> None:
@@ -196,6 +218,40 @@ class ProgressController:
         self.gui.state.batch_running_text.set(context["batch_running_text"].get())
         self.gui.state.batch_failed_text.set(context["batch_failed_text"].get())
         self.gui.state.detail_title.set(context["detail_title"].get())
+
+    def _set_job_timing(self, started_at=None, duration_sec=None, finished_at=None) -> None:
+        context = self._current_progress_context()
+        if context is None:
+            return
+        try:
+            started = float(started_at) if started_at not in (None, "") else None
+        except (TypeError, ValueError):
+            started = None
+        if started is not None and started > 0:
+            context["start_time"] = started
+            context["job_started_text"].set(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started)))
+        try:
+            duration = float(duration_sec) if duration_sec not in (None, "") else None
+        except (TypeError, ValueError):
+            duration = None
+        if duration is None and finished_at not in (None, ""):
+            try:
+                duration = float(finished_at) - float(context.get("start_time", time.time()) or time.time())
+            except (TypeError, ValueError):
+                duration = None
+        context["duration_sec"] = max(duration, 0.0) if duration is not None else None
+        self._update_elapsed_text()
+
+    def _sync_runtime_settings_panel(self) -> None:
+        preset = self.job_preset_text.get() if getattr(self, "job_preset_text", None) is not None else ""
+        threads = self.job_threads_text.get() if getattr(self, "job_threads_text", None) is not None else ""
+        device = self.job_device_text.get() if getattr(self, "job_device_text", None) is not None else ""
+        if hasattr(self, "progress_preset_label"):
+            self.progress_preset_label.configure(text=f"Preset: {preset or 'n/a'}")
+        if hasattr(self, "progress_threads_label"):
+            self.progress_threads_label.configure(text=f"Threads: {threads or 'n/a'}")
+        if hasattr(self, "progress_device_label"):
+            self.progress_device_label.configure(text=f"Device: {device or 'n/a'}")
 
     def _current_progress_context(self) -> dict | None:
         return self.progress_contexts.get(getattr(self, "active_progress_context_id", ""))
@@ -234,10 +290,13 @@ class ProgressController:
         if self.gui.notebook is None:
             return
         selected = str(self.gui.notebook.select())
+        if selected == getattr(self, "_last_notebook_selection", ""):
+            return
+        self._last_notebook_selection = selected
         for context_id, context in self.progress_contexts.items():
             if str(context.get("tab")) == selected:
                 self._activate_progress_context(context_id)
-                if hasattr(self, "_sync_attach_toolbar_state"):
+                if hasattr(self.gui.jobs_ctrl, "_sync_attach_toolbar_state"):
                     self.gui.jobs_ctrl._sync_attach_toolbar_state()
                 return
                 
@@ -250,8 +309,8 @@ class ProgressController:
             self.gui.pipeline_ctrl.restart_button.configure(state=tk.DISABLED)
         if getattr(self, "stop_button", None) is not None:
             self.gui.pipeline_ctrl.stop_button.configure(state=tk.DISABLED)
-        if getattr(self, "_validate_configuration", None) is not None:
-            self.gui._validate_configuration()
+        if hasattr(self.gui.jobs_ctrl, "_sync_attach_toolbar_state"):
+            self.gui.jobs_ctrl._sync_attach_toolbar_state()
 
     def _close_progress_tab(self, context_id: str) -> None:
         context = self.progress_contexts.get(context_id)
@@ -367,7 +426,7 @@ class ProgressController:
             return [req["input_file"]]
         if req["mode"] == "files":
             return list(req["input_files"])
-        if req.get("input_source") == "Server":
+        if req.get("input_source") == "Server" or req.get("run_target") == "Server":
             return [req["input_dir"]]
         return _discover_mri_files(req["input_dir"], recursive=req.get("recursive", True))
 
@@ -376,7 +435,41 @@ class ProgressController:
             return
         self.gui.notebook.select(self.progress_tab)
 
-    def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None, title: str = "Run progress", job_identity: str = "", pipeline_mode: str = "", threads: int = 0, device: str = "") -> None:
+    def _show_active_job_info(self) -> None:
+        context = self._current_progress_context()
+        monitor = getattr(self.gui.jobs_ctrl, "job_monitors", {}).get(context.get("id") if context else "") if context else None
+        job = (monitor or {}).get("active_job") or getattr(self.gui.jobs_ctrl, "active_job", None) or {}
+        lines = [
+            f"Title: {(context or {}).get('title', 'Run progress')}",
+            f"Job: {(context or {}).get('job_identity', '') or job.get('job_id', '') or 'n/a'}",
+            f"Target: {job.get('target', self.gui.state.run_target.get())}",
+            f"State: {job.get('state', 'n/a')}",
+            f"Preset: {self.job_preset_text.get() if getattr(self, 'job_preset_text', None) else 'n/a'}",
+            f"Threads: {self.job_threads_text.get() if getattr(self, 'job_threads_text', None) else 'n/a'}",
+            f"Device: {self.job_device_text.get() if getattr(self, 'job_device_text', None) else 'n/a'}",
+        ]
+        messagebox.showinfo("Job Info", "\n".join(lines))
+
+    def _update_elapsed_text(self) -> None:
+        now = time.time()
+        for context in self.progress_contexts.values():
+            started = float(context.get("start_time", now) or now)
+            duration = context.get("duration_sec")
+            context["job_elapsed_text"].set(format_duration(float(duration) if duration is not None else now - started))
+
+    def _download_active_job_outputs(self) -> None:
+        context = self._current_progress_context()
+        monitor = getattr(self.gui.jobs_ctrl, "job_monitors", {}).get(context.get("id") if context else "") if context else None
+        job = (monitor or {}).get("active_job") or getattr(self.gui.jobs_ctrl, "active_job", None)
+        if job:
+            self.gui.jobs_ctrl._download_registry_job(job.get("registry_entry") or job)
+            return
+        if self.gui.pipeline_ctrl.remote_runner is not None:
+            self.gui.pipeline_ctrl._remote_download_outputs()
+            return
+        messagebox.showinfo("Download outputs", "No attached job outputs are available for this tab yet.")
+
+    def _prepare_progress_tab(self, files: list[str], selected_tools: dict[str, str] | None = None, title: str = "Run progress", job_identity: str = "", pipeline_mode: str = "", threads: int = 0, device: str = "", started_at=None) -> None:
         self._ensure_progress_context(title, job_identity)
         self.image_runs.clear()
         self.image_rows.clear()
@@ -395,12 +488,11 @@ class ProgressController:
         self.gpu_chart.reset()
         self._set_detail_title("Select an input image")
         self._reset_step_summary()
-        if pipeline_mode:
-            self.job_preset_text.set(pipeline_mode)
-        if threads:
-            self.job_threads_text.set(str(threads))
-        if device:
-            self.job_device_text.set(device.upper())
+        self.job_preset_text.set(pipeline_mode or "")
+        self.job_threads_text.set(str(threads) if threads else "")
+        self.job_device_text.set(device.upper() if device else "")
+        self._set_job_timing(started_at)
+        self._sync_runtime_settings_panel()
         for idx, path in enumerate(files, start=1):
             self._create_image_run(path, idx, len(files))
         if files:
@@ -532,7 +624,7 @@ class ProgressController:
         
         center = ttk.Frame(top)
         center.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
-        
+
         display_name = truncate_middle(name, 25)
         title = ttk.Label(center, text=display_name, anchor=tk.W, font=("Inter", 9, "bold"))
         title.pack(fill=tk.X)
@@ -757,9 +849,10 @@ class ProgressController:
                 stage_text = f"{stage_name} - {status.capitalize()}"
                 image_pct = None if stage == "batch" else pct
                 if stage in STAGE_ORDER:
+                    current_tool = self.progress_selected_tools.get(stage, "")
                     step_status = {
                         "running": "Running",
-                        "success": "Done",
+                        "success": "Skipped" if not current_tool else "Done",
                         "failed": "Failed",
                         "paused": "Paused",
                     }.get(status, status.capitalize())
@@ -789,16 +882,18 @@ class ProgressController:
             key = self._match_progress_input_key(event)
             stage = str(event.get("stage", ""))
             success = bool(event.get("success"))
-            status = "Done" if success else "Failed"
+            tool = str(event.get("tool", ""))
+            error = str(event.get("error", ""))
+            status = step_status_from_result(success, tool, error)
             self._update_run_step(
                 key,
                 stage,
-                tool=str(event.get("tool", "")),
+                tool=tool,
                 status=status,
                 duration_sec=float(event.get("duration_sec", 0.0) or 0.0),
                 peak_ram_bytes=event.get("peak_ram_bytes"),
                 peak_cpu_pct=event.get("peak_cpu_pct"),
-                error=str(event.get("error", "")),
+                error=error,
             )
         elif kind == "metrics":
             cpu_pct = event.get("cpu_pct")
@@ -838,9 +933,10 @@ class ProgressController:
             stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
             stage_text = f"{stage_name} - {status.capitalize()}"
             if stage in STAGE_ORDER:
+                current_tool = self.progress_selected_tools.get(stage, "")
                 step_status = {
                     "running": "Running",
-                    "success": "Done",
+                    "success": "Skipped" if not current_tool else "Done",
                     "failed": "Failed",
                     "paused": "Paused",
                 }.get(status, status.capitalize())
@@ -869,11 +965,12 @@ class ProgressController:
         status = "OK" if result.success else "FAILED"
         self._log(f"Done image {idx}/{total}: {result.subject_id} | {status}")
         for step in result.steps:
+            step_status = step_status_from_result(step.success, step.tool, step.error)
             self._update_run_step(
                 result.input_file,
                 step.stage,
                 tool=step.tool,
-                status="Done" if step.success else "Failed",
+                status=step_status,
                 duration_sec=step.duration_sec,
                 peak_ram_bytes=step.peak_ram_bytes,
                 peak_cpu_pct=step.peak_cpu_pct,
@@ -1023,6 +1120,7 @@ class ProgressController:
                 self.gui.state.cpu_text.set(f"CPU {cpu:.0f}%")
                 self.gui.state.ram_text.set(f"RAM {ram_mib / 1024:.2f} GB" if ram_mib >= 1024 else f"RAM {ram_mib:.0f} MB")
 
+        self._update_elapsed_text()
         self.gui.root.after(100, self._poll_queues)
 
     def _log(self, line: str) -> None:

@@ -163,12 +163,26 @@ class RemoteSSHClient:
         local_root.mkdir(parents=True, exist_ok=True)
         self._download_dir_recursive(remote_dir, local_root)
 
+    def download_file_if_exists(self, remote_file: str, local_file: str | Path) -> bool:
+        remote_file = self.expand_path(remote_file)
+        try:
+            self.sftp.stat(remote_file)
+        except OSError:
+            return False
+        local_path = Path(local_file)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.on_log(f"Downloading file: {remote_file} -> {local_path}")
+        self.sftp.get(remote_file, str(local_path))
+        return True
+
     def _download_dir_recursive(self, remote_dir: str, local_dir: Path) -> None:
         local_dir.mkdir(parents=True, exist_ok=True)
         for item in self.sftp.listdir_attr(remote_dir):
             remote_path = posixpath.join(remote_dir, item.filename)
             local_path = local_dir / item.filename
-            if stat.S_ISDIR(item.st_mode):
+            if stat.S_ISLNK(item.st_mode):
+                self.on_log(f"Skipping symlink: {remote_path}")
+            elif stat.S_ISDIR(item.st_mode):
                 self._download_dir_recursive(remote_path, local_path)
             else:
                 self.on_log(f"Downloading file: {remote_path} -> {local_path}")

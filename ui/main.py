@@ -64,6 +64,10 @@ class PipelineGUI:
         var = self.state.stat_vector_enabled_vars.get("cortical_thickness")
         return bool(var is not None and var.get())
 
+    def _volume_skipped_stages_enabled(self) -> bool:
+        mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+        return not mode.startswith("FreeSurfer 7")
+
     def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:
         thickness_on = self._cortical_thickness_enabled()
         for stage in STAGE_ORDER:
@@ -72,7 +76,7 @@ class PipelineGUI:
             if not force_reset and current:
                 continue
             tools = enabled_tools_for_stage(stage)
-            if stage in VOLUME_SKIPPED_STAGES and not thickness_on:
+            if self._volume_skipped_stages_enabled() and stage in VOLUME_SKIPPED_STAGES and not thickness_on:
                 self.state.tool_vars[stage].set("Not available")
             elif tools:
                 self.state.tool_vars[stage].set(tool_display_name(tools[0]))
@@ -81,6 +85,8 @@ class PipelineGUI:
 
     def _sync_surface_stages_with_stats(self) -> None:
         """Steps 7-8 track cortical thickness: off => skipped, on => restore a tool if needed."""
+        if not self._volume_skipped_stages_enabled():
+            return
         thickness_on = self._cortical_thickness_enabled()
         for stage in VOLUME_SKIPPED_STAGES:
             if stage not in self.state.tool_vars:
@@ -99,15 +105,106 @@ class PipelineGUI:
         for stage, combo in getattr(self, "tool_combos", {}).items():
             tools = enabled_tools_for_stage(stage)
             value = self.state.tool_vars[stage].get() if stage in self.state.tool_vars else ""
-            surface_skipped = stage in VOLUME_SKIPPED_STAGES and not thickness_on
+            surface_skipped = self._volume_skipped_stages_enabled() and stage in VOLUME_SKIPPED_STAGES and not thickness_on
             if not tools or value == "Not available" or surface_skipped:
                 combo.configure(state=tk.DISABLED, style="Skipped.TCombobox")
             else:
                 combo.configure(state="readonly", style="TCombobox")
 
+    def _install_input_focus_guards(self) -> None:
+        input_classes = {"Entry", "TEntry", "Spinbox", "TSpinbox", "Text", "Combobox", "TCombobox"}
+
+        def resolve_widget(widget: tk.Widget | str | None) -> tk.Widget | None:
+            if widget is None:
+                return None
+            if isinstance(widget, str):
+                try:
+                    return self.root.nametowidget(widget)
+                except (KeyError, tk.TclError):
+                    return None
+            return widget
+
+        def widget_class(widget: tk.Widget | str | None) -> str:
+            resolved = resolve_widget(widget)
+            if resolved is None:
+                return ""
+            try:
+                return resolved.winfo_class()
+            except tk.TclError:
+                return ""
+
+        def is_input_widget(widget: tk.Widget | str | None) -> bool:
+            return widget_class(widget) in input_classes
+
+        def is_descendant(widget: tk.Widget | str | None, parent: tk.Widget | str | None) -> bool:
+            widget = resolve_widget(widget)
+            parent = resolve_widget(parent)
+            if parent is None:
+                return False
+            while widget is not None:
+                if widget == parent:
+                    return True
+                try:
+                    widget = widget.nametowidget(widget.winfo_parent())
+                except (KeyError, tk.TclError):
+                    return False
+            return False
+
+        def containing_widget(event: tk.Event) -> tk.Widget | None:
+            try:
+                return self.root.winfo_containing(event.x_root, event.y_root)
+            except tk.TclError:
+                return None
+
+        def nearest_canvas(widget: tk.Widget | None) -> tk.Canvas | None:
+            while widget is not None:
+                if isinstance(widget, tk.Canvas):
+                    return widget
+                try:
+                    widget = widget.nametowidget(widget.winfo_parent())
+                except (KeyError, tk.TclError):
+                    return None
+            return None
+
+        def wheel_units(event: tk.Event) -> int:
+            if getattr(event, "num", None) == 4:
+                return -3
+            if getattr(event, "num", None) == 5:
+                return 3
+            return int(-1 * (event.delta / 120))
+
+        def clear_focus_on_background_click(event: tk.Event) -> None:
+            widget = resolve_widget(event.widget)
+            if widget is None:
+                return
+            try:
+                if widget.winfo_toplevel() is not self.root:
+                    return
+            except tk.TclError:
+                return
+            if is_input_widget(widget) or widget_class(widget) == "Listbox":
+                return
+            self.root.after_idle(self.root.focus_set)
+
+        def block_spinbox_wheel(event: tk.Event) -> str:
+            pointer_widget = containing_widget(event)
+            event_widget = event.widget
+            if isinstance(event_widget, tk.Widget) and not is_descendant(pointer_widget, event_widget):
+                canvas = nearest_canvas(pointer_widget)
+                if canvas is not None:
+                    canvas.yview_scroll(wheel_units(event), "units")
+                self.root.focus_set()
+            return "break"
+
+        self.root.bind_all("<Button-1>", clear_focus_on_background_click, add="+")
+        for spinbox_class in ("Spinbox", "TSpinbox"):
+            self.root.bind_class(spinbox_class, "<MouseWheel>", block_spinbox_wheel)
+            self.root.bind_class(spinbox_class, "<Button-4>", block_spinbox_wheel)
+            self.root.bind_class(spinbox_class, "<Button-5>", block_spinbox_wheel)
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("MRI Pipeline GUI")
+        self.root.title("NeuroFlow")
         self.root.geometry("1200x800+80+60")
         self.root.minsize(1180, 760)
 
@@ -175,6 +272,7 @@ class PipelineGUI:
         self.registry_ctrl = JobRegistryController(self)
         self.remote_ctrl = RemoteController(self)
         self._build_ui()
+        self._install_input_focus_guards()
         self._update_python_env_hint()
         self.validation_ctrl._setup_validation_traces()
         self.validation_ctrl._validate_configuration()
@@ -267,20 +365,21 @@ class PipelineGUI:
         frame = self._spinner_frame()
         self._animate_busy_buttons(frame)
 
-        if getattr(self, "remote_connecting", False) and getattr(self, "remote_status_icon_label", None) is not None:
+        if getattr(self.pipeline_ctrl, "remote_connecting", False) and getattr(self.pipeline_ctrl, "remote_status_icon_label", None) is not None:
             try:
                 self.pipeline_ctrl.remote_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
             except Exception:
                 pass
 
-        py_status = getattr(getattr(self, "python_env_status", None), "get", lambda: "")()
-        if ("checking" in py_status.lower() or "installing" in py_status.lower()) and getattr(self, "python_env_status_icon_label", None) is not None:
+        py_status = self.tools_ctrl.python_env_status.get()
+        py_spinner = getattr(self.tools_ctrl, "python_env_status_icon_label", None)
+        if ("checking" in py_status.lower() or "installing" in py_status.lower()) and py_spinner is not None:
             try:
-                self.python_env_status_icon_label.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
+                py_spinner.configure(image=frame if frame is not None else "", text="", foreground="#2563eb")
             except Exception:
                 pass
 
-        attach_spinner = getattr(self, "_attach_loading_spinner_label", None)
+        attach_spinner = getattr(self.jobs_ctrl, "_attach_loading_spinner_label", None)
         if attach_spinner is not None:
             try:
                 if attach_spinner.winfo_exists():
@@ -288,7 +387,7 @@ class PipelineGUI:
             except Exception:
                 pass
 
-        remote_upload_spinner = getattr(self, "_remote_upload_spinner_label", None)
+        remote_upload_spinner = getattr(self.pipeline_ctrl, "_remote_upload_spinner_label", None)
         if remote_upload_spinner is not None:
             try:
                 if remote_upload_spinner.winfo_exists():
@@ -296,7 +395,7 @@ class PipelineGUI:
             except Exception:
                 pass
 
-        if hasattr(self, "tools_status_icon_labels") and hasattr(self, "image_statuses"):
+        if hasattr(self, "tools_ctrl") and getattr(self.tools_ctrl, "status_icon_labels", None):
             for tool_key, label in self.tools_ctrl.status_icon_labels.items():
                 status = self.tools_ctrl._tool_status(tool_key)
                 if self._is_busy_status(status):
@@ -316,9 +415,9 @@ class PipelineGUI:
                     except Exception:
                         pass
 
-        if hasattr(self, "image_rows"):
+        if getattr(self.progress_ctrl, "image_rows", None):
             for key, row in self.progress_ctrl.image_rows.items():
-                run_state = getattr(self, "image_runs", {}).get(key, {})
+                run_state = getattr(self.progress_ctrl, "image_runs", {}).get(key, {})
                 if row.get("status") and run_state.get("status") == "Running":
                     try:
                         if row.get("icon"):
@@ -326,8 +425,8 @@ class PipelineGUI:
                     except Exception:
                         pass
 
-        run = getattr(self, "image_runs", {}).get(getattr(self, "current_image_key", ""))
-        if run and hasattr(self, "step_summary_rows"):
+        run = getattr(self.progress_ctrl, "image_runs", {}).get(getattr(self.progress_ctrl, "current_image_key", ""))
+        if run and getattr(self.progress_ctrl, "step_summary_rows", None):
             for stage, step in run.get("steps", {}).items():
                 if step.get("status") == "Running" and stage in self.progress_ctrl.step_summary_rows:
                     try:
@@ -572,6 +671,7 @@ class PipelineGUI:
             self.state.remote_status.set("Remote: connected" if self.remote_ctrl._server_connected() else "Remote: disconnected")
         else:
             self.state.remote_status.set("")
+        self.remote_ctrl._style_remote_status()
         self._update_python_env_hint()
         self._refresh_thread_max_for_target()
         self.tools_ctrl._set_python_env_status("Not checked")
@@ -736,7 +836,7 @@ class PipelineGUI:
                 is_enabled = var is not None and var.get()
                 
                 if is_enabled:
-                    combo.configure(state="readonly")
+                    combo.configure(state=tk.NORMAL)
                     if choice_var and choice_var.get() == "Not available":
                         first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
                         if first_atlas:
@@ -771,15 +871,18 @@ class PipelineGUI:
         try:
             if preset is not None:
                 fixed_tools = preset["tools"]
+                stats = set(preset["stats"])
                 for stage, tool in fixed_tools.items():
                     if stage in self.state.tool_vars:
                         if not tool:
                             self.state.tool_vars[stage].set("Not available")
                         else:
                             self.state.tool_vars[stage].set(tool_display_name(tool))
-                stats = set(preset["stats"])
                 if stats == VOLUME_STATS:
-                    self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Surface steps 7-8 are skipped.")
+                    if mode.startswith("FreeSurfer 7"):
+                        self.state.pipeline_note.set(f"{mode}: volume vectors are selected. The FreeSurfer 7 recon-style workflow runs all 9 dependent stages.")
+                    else:
+                        self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Unneeded stages are skipped.")
                 elif stats == THICKNESS_STATS:
                     suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
                     self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))
@@ -849,7 +952,7 @@ def main() -> None:
 
     if "--probe-window" in sys.argv:
         probe = tk.Toplevel(root)
-        probe.title("MRI Pipeline Probe Window")
+        probe.title("NeuroFlow Probe Window")
         probe.geometry("640x360+120+90")
         probe.minsize(640, 360)
         probe.configure(bg="#dc2626")
@@ -862,15 +965,15 @@ def main() -> None:
         probe.lift()
         print(f"Probe window is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
 
-    root.title("MRI Pipeline GUI - Tkinter")
+    root.title("NeuroFlow")
     root.geometry("1200x800+80+60")
     root.minsize(1180, 700)
     PipelineGUI(root)
     root.update_idletasks()
     root.deiconify()
-    root.title("MRI Pipeline GUI")
+    root.title("NeuroFlow")
     root.lift()
-    print(f"MRI Pipeline GUI is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
+    print(f"NeuroFlow is running on DISPLAY={os.environ.get('DISPLAY', '')}.", flush=True)
     root.mainloop()
 
 if __name__ == "__main__":

@@ -283,9 +283,10 @@ class ValidationController:
         )
     
         selected_tools = self.gui.state.get_selected_tools()
+        volume_skipped = VOLUME_SKIPPED_STAGES if self.gui._volume_skipped_stages_enabled() else set()
         missing_stages = [
             stage for stage in STAGE_ORDER
-            if stage not in VOLUME_SKIPPED_STAGES and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
+            if stage not in volume_skipped and enabled_tools_for_stage(stage) and not selected_tools.get(stage)
         ]
         tool_errors: list[str] = []
         if missing_stages:

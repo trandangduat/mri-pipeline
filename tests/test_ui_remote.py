@@ -4,6 +4,31 @@ import pytest
 from unittest.mock import MagicMock
 from ui.gui_remote import RemoteController
 
+
+@pytest.mark.parametrize(
+    ("method_name", "dialog_name"),
+    [
+        ("_upload_input_to_server_placeholder", "show_upload_dialog"),
+        ("_browse_server_output", "show_remote_output_browser"),
+        ("_browse_remote_input", "show_remote_input_browser"),
+    ],
+)
+def test_remote_browser_callbacks_pass_gui(monkeypatch, method_name: str, dialog_name: str) -> None:
+    gui_mock = MagicMock()
+    ctrl = RemoteController(gui_mock)
+    received = []
+
+    def dialog_spy(arg) -> None:
+        received.append(arg)
+
+    import ui.dialogs.remote_browser as remote_browser
+
+    monkeypatch.setattr(remote_browser, dialog_name, dialog_spy)
+
+    getattr(ctrl, method_name)()
+
+    assert received == [gui_mock]
+
 def test_current_remote_connection_signature():
     gui_mock = MagicMock()
     
