@@ -76,14 +76,21 @@ FREESURFER_8_SURFACE_TOOLS = {
 FREESURFER_8_TOOLS = FREESURFER_8_SURFACE_TOOLS
 
 FASTSURFER_TOOLS = {
-    **_BASE_FS7_TOOLS,
-    "segmentation": "fastsurfervinn",
+    "reorientation": "fastsurfer_reorientation",
+    "brain_extraction": "",
+    "segmentation": "fastsurfer_segmentation",
+    "template_registration": "fastsurfer_template_registration",
+    "bias_correction": "fastsurfer_standardization",
+    "white_matter_segmentation": "fastsurfer_wm_segmentation",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": "fastsurfer_stats_extraction",
 }
 
 FASTSURFER_SURFACE_TOOLS = {
     **FASTSURFER_TOOLS,
-    "surface_reconstruction": "recon_all_fs7",
-    "surface_registration": "surface_stats_fs7",
+    "surface_reconstruction": "fastsurfer_surface_reconstruction",
+    "surface_registration": "fastsurfer_surface_registration",
 }
 
 VOLUME_STATS = {"cortical_volume", "subcortical_volume"}

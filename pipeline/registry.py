@@ -121,7 +121,9 @@ def _fs8r_stage5(ctx: ToolContext) -> str:
         "mri_normalize -g 1 -seed 1234 -mprage nu.mgz T1.mgz; "
         "mri_mask T1.mgz synthstrip.mgz brainmask.mgz; "
         "mri_em_register -uns 3 -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta; "
-        "mri_ca_normalize -c ctrl_pts.mgz -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
+        "CTRL_FLAG=\"\"; if [ -f ctrl_pts.mgz ]; then CTRL_FLAG=\"-c ctrl_pts.mgz\"; fi; "
+        "mri_ca_normalize $CTRL_FLAG -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
+        "mri_ca_register -nobigventricles -T transforms/talairach.lta -align-after -mask brainmask.mgz norm.mgz \"$GCA\" transforms/talairach.m3z; "
         "mri_normalize -seed 1234 -mprage -aseg aseg.presurf.mgz -mask brainmask.mgz norm.mgz brain.mgz; "
         "AntsDenoiseImageFs -i brain.mgz -o antsdn.brain.mgz; "
         "mri_mask -T 5 brain.mgz brainmask.mgz brain.finalsurfs.mgz; "
@@ -231,8 +233,8 @@ def _fs7r_common(ctx: ToolContext) -> str:
         "mkdir -p \"$SD\"/mri \"$SD\"/surf \"$SD\"/label \"$SD\"/stats \"$SD\"/tmp \"$SD\"/scripts \"$SD/mri/transforms\" /output/stats; "
         "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
         "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
-        "GCA=\"$FREESURFER_HOME/average/RB_all_2020-01-02.gca\"; "
-        "GCA_WITH_SKULL=\"$FREESURFER_HOME/average/RB_all_withskull_2020_01_02.gca\"; "
+        "GCA=\"$FREESURFER_HOME/average/RB_all_2016-05-10.vc70.gca\"; if [ ! -f \"$GCA\" ]; then GCA=\"$FREESURFER_HOME/average/RB_all_2020-01-02.gca\"; fi; "
+        "GCA_WITH_SKULL=\"$FREESURFER_HOME/average/RB_all_withskull_2016-05-10.vc70.gca\"; if [ ! -f \"$GCA_WITH_SKULL\" ]; then GCA_WITH_SKULL=\"$FREESURFER_HOME/average/RB_all_withskull_2020_01_02.gca\"; fi; "
         "SUBCORT_LUT=\"$FREESURFER_HOME/SubCorticalMassLUT.txt\"; "
         "MNI305=\"$FREESURFER_HOME/average/mni305.cor.mgz\"; "
         "if [ -f \"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\" ]; then MNI305=\"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\"; fi; "
@@ -284,7 +286,8 @@ def _fs7r_stage3(ctx: ToolContext) -> str:
     return (
         _fs7r_common(ctx)
         + "mri_em_register -uns 3 -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta; "
-        "mri_ca_normalize -c ctrl_pts.mgz -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
+        "CTRL_FLAG=\"\"; if [ -f ctrl_pts.mgz ]; then CTRL_FLAG=\"-c ctrl_pts.mgz\"; fi; "
+        "mri_ca_normalize $CTRL_FLAG -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
         "mri_ca_register -nobigventricles -T transforms/talairach.lta -align-after -mask brainmask.mgz norm.mgz \"$GCA\" transforms/talairach.m3z; "
         "mri_ca_label -relabel_unlikely 9 .3 -prior 0.5 -align norm.mgz transforms/talairach.m3z \"$GCA\" aseg.auto_noCCseg.mgz; "
         "mri_cc -aseg aseg.auto_noCCseg.mgz -o aseg.auto.mgz -lta transforms/cc_up.lta \"$SUBJ\"; "
@@ -409,7 +412,208 @@ def _fs7r_stage9(ctx: ToolContext) -> str:
         "test -s stats/lh.aparc.stats; test -s stats/rh.aparc.stats; test -s stats/aseg.stats"
     )
 
+
+
+def _fastsurfer_common(ctx: ToolContext) -> str:
+    subject = _q(ctx.subject_id)
+    return (
+        "set -e; "
+        "export SUBJECTS_DIR=/output/freesurfer; "
+        "export FS_LICENSE=/license/license.txt; "
+        f"SUBJ={subject}; "
+        "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
+        "FASTSURFER_HOME=/fastsurfer; "
+        "export PYTHONPATH=\"$FASTSURFER_HOME:$PYTHONPATH\"; "
+        "mkdir -p \"$SD\"/mri \"$SD\"/surf \"$SD\"/label \"$SD\"/stats \"$SD\"/tmp \"$SD\"/scripts \"$SD/mri/transforms\" /output/stats; "
+        "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
+        "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
+        "cd \"$SD/mri\"; "
+    )
+
+def _fastsurfer_stage1(ctx: ToolContext) -> str:
+    dicom_flags = ""
+    if ctx.dicom_list_path:
+        dicom_flags = f"-no-dcm2niix -dicomread2 --sdcmlist {_q(ctx.dicom_list_path)} "
+    return (
+        _fastsurfer_common(ctx)
+        + f"mri_convert {dicom_flags}{_q(ctx.input_path)} 001.mgz; "
+        "python3 $FASTSURFER_HOME/FastSurferCNN/data_loader/conform.py -i 001.mgz -o orig.mgz; "
+        "test -s orig.mgz"
+    )
+
+def _fastsurfer_stage3(ctx: ToolContext) -> str:
+    cpu_flag = "--device cpu " if ctx.device == "cpu" else ""
+    return (
+        _fastsurfer_common(ctx)
+        + f"python3 $FASTSURFER_HOME/FastSurferCNN/run_prediction.py {cpu_flag}--t1 \"$SD/mri/orig.mgz\" --sid \"$SUBJ\" --sd \"$SUBJECTS_DIR\" --asegdkt_segfile \"$SD/mri/aparc.DKTatlas+aseg.deep.mgz\" --conformed_name \"$SD/mri/orig.mgz\" --brainmask_name \"$SD/mri/mask.mgz\" --aseg_name \"$SD/mri/aseg.auto_noCCseg.mgz\" --threads {ctx.threads}; "
+        "test -s aparc.DKTatlas+aseg.deep.mgz; test -s mask.mgz"
+    )
+
+def _fastsurfer_stage4(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + f"python3 $FASTSURFER_HOME/recon_surf/N4_bias_correct.py --in orig.mgz --rescale orig_nu.mgz --aseg aparc.DKTatlas+aseg.deep.mgz --threads {ctx.threads}; "
+        "bash $FASTSURFER_HOME/recon_surf/talairach-reg.sh /dev/null --dir . --conformed_name orig.mgz --norm_name orig_nu.mgz --py python3 --asegdkt_segfile aparc.DKTatlas+aseg.deep.mgz --edits; "
+        "test -s transforms/talairach.xfm"
+    )
+
+def _fastsurfer_stage5(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + "ln -sf orig_nu.mgz nu.mgz; "
+        "mri_mask nu.mgz mask.mgz norm.mgz; "
+        "mri_mask -T 5 norm.mgz mask.mgz brain.finalsurfs.mgz; "
+        "ln -sf norm.mgz brainmask.mgz; "
+        "test -s brain.finalsurfs.mgz"
+    )
+
+def _fastsurfer_stage6(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + f"python3 $FASTSURFER_HOME/CorpusCallosum/fastsurfer_cc.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\" --threads {ctx.threads} --conformed_name orig.mgz --aseg_name aseg.auto_noCCseg.mgz --segmentation_in_orig cc.mgz; "
+        "python3 $FASTSURFER_HOME/CorpusCallosum/paint_cc_into_pred.py -in_cc cc.mgz -in_pred aparc.DKTatlas+aseg.deep.mgz -out aparc.DKTatlas+aseg.deep.withCC.mgz -aseg aseg.auto.mgz; "
+        f"recon-all -s \"$SUBJ\" -asegmerge -normalization2 -maskbfs -segmentation -fill -umask 0022 -threads {ctx.threads}; "
+        "test -s filled.mgz"
+    )
+
+def _fastsurfer_stage7(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + "mri_pretess filled.mgz 255 brain.mgz filled-pretess255.mgz; "
+        "mri_mc filled-pretess255.mgz 255 ../surf/lh.orig.nofix; "
+        "mris_extract_main_component ../surf/lh.orig.nofix ../surf/lh.orig.nofix; "
+        "mris_smooth -n 10 -nw -seed 1234 ../surf/lh.orig.nofix ../surf/lh.smoothwm.nofix; "
+        "mris_inflate -no-save-sulc ../surf/lh.smoothwm.nofix ../surf/lh.inflated.nofix; "
+        "python3 $FASTSURFER_HOME/recon_surf/spherically_project.py -i ../surf/lh.inflated.nofix -o ../surf/lh.qsphere.nofix; "
+        "cp ../surf/lh.orig.nofix ../surf/lh.orig; "
+        "mris_autodet_gwstats --o ../surf/autodet.gw.stats.lh.dat --i brain.finalsurfs.mgz --wm wm.mgz --surf ../surf/lh.orig; "
+        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.lh.dat --wm wm.mgz --threads 1 --invol brain.finalsurfs.mgz --lh --i ../surf/lh.orig --o ../surf/lh.white --white --seg aseg.presurf.mgz --max-cbv-dist 3.5; "
+        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.lh.dat --seg aseg.presurf.mgz --threads 1 --wm wm.mgz --invol brain.finalsurfs.mgz --lh --i ../surf/lh.white --o ../surf/lh.pial --pial --nsmooth 0 --repulse-surf ../surf/lh.white --white-surf ../surf/lh.white; "
+        "mris_place_surface --thickness ../surf/lh.white ../surf/lh.pial 20 5 ../surf/lh.thickness; "
+        "mri_pretess filled.mgz 127 brain.mgz filled-pretess127.mgz; "
+        "mri_mc filled-pretess127.mgz 127 ../surf/rh.orig.nofix; "
+        "mris_extract_main_component ../surf/rh.orig.nofix ../surf/rh.orig.nofix; "
+        "mris_smooth -n 10 -nw -seed 1234 ../surf/rh.orig.nofix ../surf/rh.smoothwm.nofix; "
+        "mris_inflate -no-save-sulc ../surf/rh.smoothwm.nofix ../surf/rh.inflated.nofix; "
+        "python3 $FASTSURFER_HOME/recon_surf/spherically_project.py -i ../surf/rh.inflated.nofix -o ../surf/rh.qsphere.nofix; "
+        "cp ../surf/rh.orig.nofix ../surf/rh.orig; "
+        "mris_autodet_gwstats --o ../surf/autodet.gw.stats.rh.dat --i brain.finalsurfs.mgz --wm wm.mgz --surf ../surf/rh.orig; "
+        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.rh.dat --wm wm.mgz --threads 1 --invol brain.finalsurfs.mgz --rh --i ../surf/rh.orig --o ../surf/rh.white --white --seg aseg.presurf.mgz --max-cbv-dist 3.5; "
+        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.rh.dat --seg aseg.presurf.mgz --threads 1 --wm wm.mgz --invol brain.finalsurfs.mgz --rh --i ../surf/rh.white --o ../surf/rh.pial --pial --nsmooth 0 --repulse-surf ../surf/rh.white --white-surf ../surf/rh.white; "
+        "mris_place_surface --thickness ../surf/rh.white ../surf/rh.pial 20 5 ../surf/rh.thickness; "
+        "test -s ../surf/lh.thickness; test -s ../surf/rh.thickness"
+    )
+
+def _fastsurfer_stage8(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + _fs7r_atlas_lookup()
+        + "ln -sf ../surf/lh.white ../surf/lh.white.preaparc; "
+        "ln -sf ../surf/rh.white ../surf/rh.white.preaparc; "
+        f"recon-all -subject \"$SUBJ\" -hemi lh -cortex-label -smooth2 -inflate2 -curvHK -sphere -no-isrunning; "
+        f"recon-all -subject \"$SUBJ\" -hemi rh -cortex-label -smooth2 -inflate2 -curvHK -sphere -no-isrunning; "
+        "mris_register -curv -norot ../surf/lh.qsphere.nofix \"$LH_FOLDING_ATLAS\" ../surf/lh.sphere.reg; "
+        "mris_jacobian ../surf/lh.white ../surf/lh.sphere.reg ../surf/lh.jacobian_white; "
+        "mris_register -curv -norot ../surf/rh.qsphere.nofix \"$RH_FOLDING_ATLAS\" ../surf/rh.sphere.reg; "
+        "mris_jacobian ../surf/rh.white ../surf/rh.sphere.reg ../surf/rh.jacobian_white; "
+        "test -s ../surf/lh.sphere.reg; test -s ../surf/rh.sphere.reg"
+    )
+
+def _fastsurfer_stage9(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + _fs7r_atlas_lookup()
+        + "mris_ca_label -aseg aseg.presurf.mgz -seed 1234 \"$SUBJ\" lh ../surf/lh.sphere.reg \"$LH_DK_ATLAS\" ../label/lh.aparc.annot; "
+        "mris_anatomical_stats -th3 -mgz -f ../stats/lh.aparc.stats -b -a ../label/lh.aparc.annot -c ../label/aparc.annot.ctab \"$SUBJ\" lh white; "
+        "mris_ca_label -aseg aseg.presurf.mgz -seed 1234 \"$SUBJ\" rh ../surf/rh.sphere.reg \"$RH_DK_ATLAS\" ../label/rh.aparc.annot; "
+        "mris_anatomical_stats -th3 -mgz -f ../stats/rh.aparc.stats -b -a ../label/rh.aparc.annot -c ../label/aparc.annot.ctab \"$SUBJ\" rh white; "
+        "cp ../stats/*.stats /output/stats/ 2>/dev/null || true; "
+        "python3 /app/normalize_volumes.py --subject-id \"$SUBJ\" --stats-dir /output/stats --output-subcortical /output/stats/subcortical_volume.tsv --output-cortical /output/stats/cortical_volume.tsv; "
+        "test -s ../stats/lh.aparc.stats; test -s ../stats/rh.aparc.stats"
+    )
+
+
 TOOL_DEFS: dict[str, dict] = {
+    "fastsurfer_reorientation": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Reorientation",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "reorientation",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage1,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/mri/orig.mgz"],
+    },
+    "fastsurfer_segmentation": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Segmentation",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "segmentation",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage3,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/mri/aparc.DKTatlas+aseg.deep.mgz"],
+    },
+    "fastsurfer_template_registration": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Template Registration",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "template_registration",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage4,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/mri/transforms/talairach.xfm"],
+    },
+    "fastsurfer_standardization": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Standardization",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "bias_correction",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage5,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/mri/norm.mgz"],
+    },
+    "fastsurfer_wm_segmentation": {
+        "entrypoint": "",
+        "display_name": "FastSurfer WM Segmentation",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "white_matter_segmentation",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage6,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/mri/wm.mgz"],
+    },
+    "fastsurfer_surface_reconstruction": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Surface Reconstruction",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "surface_reconstruction",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage7,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/surf/?h.thickness"],
+    },
+    "fastsurfer_surface_registration": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Surface Registration",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "surface_registration",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage8,
+        "output_files": [],
+        "output_globs": ["freesurfer/*/surf/?h.sphere.reg"],
+    },
+    "fastsurfer_stats_extraction": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Stats Extraction",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "command_builder": _fastsurfer_stage9,
+        "output_files": ["cortical_volume.tsv", "subcortical_volume.tsv"],
+        "output_globs": ["freesurfer/*/stats/*.stats", "stats/*.tsv"],
+    },
     "fs8_reduced54_reorientation": {
         "display_name": "FreeSurfer 8 Reorientation",
         "image": FS8_REDUCED54_IMAGE,

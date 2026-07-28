@@ -80,16 +80,12 @@ class AppState:
         # Downloadable stats vectors
         self.stat_vector_enabled_vars: dict[str, tk.BooleanVar] = {}
         self.stat_atlas_vars: dict[str, dict[str, tk.BooleanVar]] = {}
-        self.stat_atlas_choice_vars: dict[str, tk.StringVar] = {}
         for stat, stat_def in STAT_VECTOR_DEFS.items():
             self.stat_vector_enabled_vars[stat] = tk.BooleanVar(value=False)
             self.stat_atlas_vars[stat] = {}
-            default_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
             for atlas in stat_def.get("atlases", ()):
                 if atlas in ATLAS_DEFS:
-                    self.stat_atlas_vars[stat][atlas] = tk.BooleanVar(value=atlas == default_atlas)
-            if self.stat_atlas_vars[stat]:
-                self.stat_atlas_choice_vars[stat] = tk.StringVar(value=self._atlas_label(default_atlas))
+                    self.stat_atlas_vars[stat][atlas] = tk.BooleanVar(value=False)
 
         # UI state variables
         self.pipeline_note = tk.StringVar(value="Standard pipeline with editable tools.")
@@ -132,17 +128,7 @@ class AppState:
         return ATLAS_DEFS.get(atlas, atlas)
 
     def selected_atlases_for_stat(self, stat: str) -> list[str]:
-        choice_var = self.stat_atlas_choice_vars.get(stat)
-        if choice_var is not None:
-            atlas = self._atlas_key_from_choice(choice_var.get())
-            return [atlas] if atlas else []
         return [atlas for atlas, var in self.stat_atlas_vars.get(stat, {}).items() if var.get()]
-
-    def set_stat_atlas_choice(self, stat: str, atlas: str) -> None:
-        if stat in self.stat_atlas_choice_vars:
-            self.stat_atlas_choice_vars[stat].set(self._atlas_label(atlas) if atlas else "")
-        for atlas_key, var in self.stat_atlas_vars.get(stat, {}).items():
-            var.set(atlas_key == atlas)
 
     def default_atlas_for_stat(self, stat: str) -> str:
         return next(iter(self.stat_atlas_vars.get(stat, {})), "")
@@ -164,12 +150,8 @@ class AppState:
             var.set(bool(enabled_stats.get(stat, False)))
         for stat, atlas_vars in self.stat_atlas_vars.items():
             selected = set(atlases.get(stat, []))
-            selected_atlas = next((atlas for atlas in atlas_vars if atlas in selected), "")
-            if not selected_atlas:
-                selected_atlas = self.default_atlas_for_stat(stat)
-            self.set_stat_atlas_choice(stat, selected_atlas)
             for atlas, var in atlas_vars.items():
-                var.set(atlas == selected_atlas)
+                var.set(atlas in selected)
 
     def collect_workspace(self) -> dict:
         workspace = {

@@ -803,7 +803,8 @@ class PipelineGUI:
                     var.set(False)
                     first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
                     if first_atlas:
-                        self.state.set_stat_atlas_choice(stat, first_atlas)
+                        for a, avar in self.state.stat_atlas_vars.get(stat, {}).items():
+                            avar.set(a == first_atlas)
             finally:
                 self._is_applying_preset = False
             return
@@ -821,7 +822,8 @@ class PipelineGUI:
                 if not self.state.selected_atlases_for_stat(stat):
                     first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
                     if first_atlas:
-                        self.state.set_stat_atlas_choice(stat, first_atlas)
+                        for a, avar in self.state.stat_atlas_vars.get(stat, {}).items():
+                            avar.set(a == first_atlas)
         finally:
             self._is_applying_preset = False
 
@@ -830,27 +832,16 @@ class PipelineGUI:
         try:
             for stat, check in getattr(self, "stat_vector_checkbuttons", {}).items():
                 check.configure(state=tk.NORMAL)
-            for stat, combo in getattr(self, "stat_atlas_combos", {}).items():
-                var = self.state.stat_vector_enabled_vars.get(stat)
-                choice_var = self.state.stat_atlas_choice_vars.get(stat)
-                is_enabled = var is not None and var.get()
-                
-                if is_enabled:
-                    combo.configure(state=tk.NORMAL)
-                    if choice_var and choice_var.get() == "Not available":
-                        first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
-                        if first_atlas:
-                            self.state.set_stat_atlas_choice(stat, first_atlas)
-                else:
-                    combo.configure(state=tk.DISABLED)
-                    if choice_var:
-                        if mode == "Custom":
-                            if choice_var.get() == "Not available" or not choice_var.get():
-                                first_atlas = next(iter(self.state.stat_atlas_vars.get(stat, {})), "")
-                                if first_atlas:
-                                    self.state.set_stat_atlas_choice(stat, first_atlas)
-                        else:
-                            choice_var.set("Not available")
+            
+            # Re-render dynamic atlas frames if they exist
+            if hasattr(self, "stat_atlas_frames"):
+                for stat, frame in self.stat_atlas_frames.items():
+                    if hasattr(frame, "master") and hasattr(frame.master, "master"):
+                        # Just force a sync to update buttons state
+                        is_enabled = self.state.stat_vector_enabled_vars[stat].get()
+                        st = tk.NORMAL if is_enabled else tk.DISABLED
+                        if hasattr(self, "stat_add_buttons") and stat in self.stat_add_buttons:
+                            self.stat_add_buttons[stat].configure(state=st)
         finally:
             self._is_applying_preset = False
 

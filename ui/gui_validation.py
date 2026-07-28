@@ -119,8 +119,9 @@ class ValidationController:
     
         for var in self.gui.state.stat_vector_enabled_vars.values():
             var.trace_add("write", _on_stat_vector_changed)
-        for var in self.gui.state.stat_atlas_choice_vars.values():
-            var.trace_add("write", lambda *_args: self._validate_configuration())
+        for stat, atlas_vars in self.gui.state.stat_atlas_vars.items():
+            for atlas, var in atlas_vars.items():
+                var.trace_add("write", lambda *_args: self._validate_configuration())
     
     def run_readiness_conditions(self) -> list[RunReadinessCondition]:
         conditions: list[RunReadinessCondition] = []

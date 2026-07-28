@@ -360,46 +360,156 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
     stats_frame.columnconfigure(1, weight=1)
 
     gui.stat_vector_checkbuttons = getattr(gui, "stat_vector_checkbuttons", {})
-    gui.stat_atlas_combos = getattr(gui, "stat_atlas_combos", {})
-    stat_option_widgets: dict[str, ttk.Combobox] = {}
+    gui.stat_atlas_frames = getattr(gui, "stat_atlas_frames", {})
+    gui.stat_add_buttons = getattr(gui, "stat_add_buttons", {})
+
+    def render_atlases_for_stat(stat: str, container: ttk.Frame) -> None:
+        for child in container.winfo_children():
+            child.destroy()
+        
+        is_enabled = gui.state.stat_vector_enabled_vars[stat].get()
+        selected_atlases = gui.state.selected_atlases_for_stat(stat)
+
+        if not is_enabled or not selected_atlases:
+            container.grid_remove()
+            return
+
+        container.grid()
+        
+        chips_frame = ttk.Frame(container)
+        chips_frame.pack(fill=tk.X, padx=(28, 5), pady=(2, 6))
+
+        for atlas in selected_atlases:
+            atlas_label = ATLAS_DEFS.get(atlas, atlas)
+            
+            chip = ttk.Frame(chips_frame)
+            chip.pack(side=tk.LEFT, padx=(0, 8), pady=2)
+
+            lbl = ttk.Label(chip, text=f"• {atlas_label}")
+            lbl.pack(side=tk.LEFT)
+            
+            def remove_atlas(s=stat, a=atlas):
+                import tkinter.messagebox as messagebox
+                if messagebox.askyesno("Remove Atlas", f"Are you sure you want to remove '{ATLAS_DEFS.get(a, a)}'?"):
+                    gui.state.stat_atlas_vars[s][a].set(False)
+                    if not gui.state.selected_atlases_for_stat(s):
+                        gui.state.stat_vector_enabled_vars[s].set(False)
+                    else:
+                        render_atlases_for_stat(s, container)
+
+            btn = ttk.Button(chip, text="✕", width=2, command=remove_atlas)
+            btn.pack(side=tk.LEFT, padx=(4, 0))
 
     def sync_stats_options(*_args) -> None:
-        for stat, atlas_combo in stat_option_widgets.items():
-            choice_var = gui.state.stat_atlas_choice_vars.get(stat)
-            if choice_var is not None and not choice_var.get():
-                first_atlas = next(iter(gui.state.stat_atlas_vars[stat]), "")
+        for stat in STAT_VECTOR_DEFS:
+            is_enabled = gui.state.stat_vector_enabled_vars[stat].get()
+            
+            if is_enabled and not gui.state.selected_atlases_for_stat(stat):
+                first_atlas = next(iter(gui.state.stat_atlas_vars.get(stat, {})), "")
                 if first_atlas:
-                    gui.state.set_stat_atlas_choice(stat, first_atlas)
-            atlas_combo.configure(state=tk.NORMAL if gui.state.stat_vector_enabled_vars[stat].get() else tk.DISABLED)
+                    gui.state.stat_atlas_vars[stat][first_atlas].set(True)
+
+            state = tk.NORMAL if is_enabled else tk.DISABLED
+            if stat in gui.stat_add_buttons:
+                gui.stat_add_buttons[stat].configure(state=state)
+            if stat in gui.stat_atlas_frames:
+                render_atlases_for_stat(stat, gui.stat_atlas_frames[stat])
+
+    def open_add_atlas_dialog(stat: str, stat_def: dict) -> None:
+        dialog = tk.Toplevel(gui.root)
+        dialog.title(f"Add Atlases - {stat_def['label']}")
+        dialog.geometry("450x520")
+        dialog.transient(gui.root)
+        dialog.grab_set()
+
+        dialog.geometry(f"+{gui.root.winfo_x() + 50}+{gui.root.winfo_y() + 50}")
+
+        # Search bar frame
+        search_frame = ttk.Frame(dialog)
+        search_frame.pack(fill=tk.X, padx=12, pady=(12, 6))
+        
+        ttk.Label(search_frame, text="🔍 Search:").pack(side=tk.LEFT, padx=(0, 6))
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        search_entry.focus_set()
+
+        # Content frame
+        container = ttk.Frame(dialog)
+        container.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        canvas = tk.Canvas(container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        available_atlases = stat_def.get("atlases", ())
+
+        def filter_atlases(*_args):
+            query = search_var.get().strip().lower()
+            for child in scrollable_frame.winfo_children():
+                child.destroy()
+            
+            row_idx = 0
+            for atlas in available_atlases:
+                if atlas in ATLAS_DEFS:
+                    label_text = ATLAS_DEFS[atlas]
+                    if not query or query in label_text.lower() or query in atlas.lower():
+                        ttk.Checkbutton(
+                            scrollable_frame,
+                            text=label_text,
+                            variable=gui.state.stat_atlas_vars[stat][atlas]
+                        ).grid(row=row_idx, column=0, sticky=tk.W, pady=3, padx=4)
+                        row_idx += 1
+
+        search_var.trace_add("write", filter_atlases)
+        filter_atlases()
+
+        def on_ok():
+            if gui.state.stat_vector_enabled_vars[stat].get() and not gui.state.selected_atlases_for_stat(stat):
+                gui.state.stat_vector_enabled_vars[stat].set(False)
+            if stat in gui.stat_atlas_frames:
+                render_atlases_for_stat(stat, gui.stat_atlas_frames[stat])
+            dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=12, pady=(6, 12))
+        ttk.Button(btn_frame, text="OK", command=on_ok, style="Accent.TButton").pack(side=tk.RIGHT)
 
     for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items()):
-        row = idx
+        row = idx * 2
+        
+        header_frame = ttk.Frame(stats_frame)
+        header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.EW, pady=(4, 0))
+        
         check = ttk.Checkbutton(
-            stats_frame,
+            header_frame,
             text=stat_def["label"],
             variable=gui.state.stat_vector_enabled_vars[stat],
-            command=sync_stats_options,
         )
-        check.grid(row=row, column=0, sticky=tk.W, padx=(6, 18), pady=4)
+        check.pack(side=tk.LEFT, padx=(6, 10))
         gui.stat_vector_checkbuttons[stat] = check
+        
+        if stat_def.get("atlases"):
+            add_btn = ttk.Button(header_frame, text="+ Add Atlas", command=lambda s=stat, sd=stat_def: open_add_atlas_dialog(s, sd))
+            add_btn.pack(side=tk.LEFT)
+            gui.stat_add_buttons[stat] = add_btn
 
-        atlas_values = [ATLAS_DEFS[atlas] for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS]
-        if atlas_values:
-            combo = ttk.Combobox(
-                stats_frame,
-                textvariable=gui.state.stat_atlas_choice_vars[stat],
-                values=atlas_values,
-                state=tk.NORMAL,
-                width=28,
-            )
-            combo.grid(row=row, column=1, sticky=tk.EW, padx=(10, 6), pady=4)
-            _enable_combobox_type_search(combo, gui)
-            stat_option_widgets[stat] = combo
-            gui.stat_atlas_combos[stat] = combo
-            first_atlas = next((atlas for atlas in stat_def.get("atlases", ()) if atlas in ATLAS_DEFS), "")
-            if first_atlas:
-                gui.state.set_stat_atlas_choice(stat, first_atlas)
+        atlases_container = ttk.Frame(stats_frame)
+        atlases_container.grid(row=row+1, column=0, columnspan=2, sticky=tk.EW)
+        gui.stat_atlas_frames[stat] = atlases_container
+        
         gui.state.stat_vector_enabled_vars[stat].trace_add("write", sync_stats_options)
+        
     sync_stats_options()
 
     lic_row = ttk.Frame(frame)
