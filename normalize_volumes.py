@@ -138,6 +138,8 @@ def _write_from_stats_dir(stats_dir: str, out_sub: str, out_cort: str, subject_i
         ("rh", stats_path / "rh.aparc.stats"),
         ("lh", stats_path / "lh.aparc.DKTatlas.stats"),
         ("rh", stats_path / "rh.aparc.DKTatlas.stats"),
+        ("lh", stats_path / "lh.aparc.DKTatlas.mapped.stats"),
+        ("rh", stats_path / "rh.aparc.DKTatlas.mapped.stats"),
     ]
 
     sub_rows: List[List[str]] = []

@@ -419,18 +419,38 @@ def _fs7r_stage9(ctx: ToolContext) -> str:
 def _fastsurfer_common(ctx: ToolContext) -> str:
     subject = _q(ctx.subject_id)
     return (
-        "set -e; "
+        "set -euo pipefail; "
         "export SUBJECTS_DIR=/output/freesurfer; "
-        "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
+        "if [ -d /license ]; then LIC_FILE=$(find /license -type f -print -quit); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
         "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
-        "FASTSURFER_HOME=/fastsurfer; "
-        "export PYTHONPATH=\"$FASTSURFER_HOME:$PYTHONPATH\"; "
+        "MDIR=\"$SD/mri\"; SDIR=\"$SD/surf\"; LDIR=\"$SD/label\"; STATSDIR=\"$SD/stats\"; SCRIPTDIR=\"$SD/scripts\"; "
+        "export FASTSURFER_HOME=${FASTSURFER_HOME:-/fastsurfer}; "
+        "if [ -z \"${FREESURFER_HOME:-}\" ]; then if [ -d /opt/freesurfer ]; then export FREESURFER_HOME=/opt/freesurfer; elif [ -d /usr/local/freesurfer ]; then export FREESURFER_HOME=/usr/local/freesurfer; else export FREESURFER_HOME=/freesurfer; fi; fi; "
+        "export FREESURFER=\"$FREESURFER_HOME\"; "
+        "export PYTHONUNBUFFERED=${PYTHONUNBUFFERED:-0}; "
+        "export PYTHONPATH=\"$FASTSURFER_HOME:${PYTHONPATH:-}\"; "
+        "if [ -f \"$FREESURFER_HOME/SetUpFreeSurfer.sh\" ]; then set +eu; source \"$FREESURFER_HOME/SetUpFreeSurfer.sh\" >/dev/null; set -eu; fi; "
         "mkdir -p \"$SD\"/mri \"$SD\"/surf \"$SD\"/label \"$SD\"/stats \"$SD\"/tmp \"$SD\"/scripts \"$SD/mri/transforms\" /output/stats; "
         "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
         "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
-        "cd \"$SD/mri\"; "
+        f"THR={int(ctx.threads)}; "
+        "VOX_SIZE=1; if [ -s \"$MDIR/orig.mgz\" ]; then VOX_SIZE=$(python3 -s -c \"from nibabel import load; print(load('$MDIR/orig.mgz').header.get_zooms()[0])\"); fi; "
+        "HIRESFLAG=; NOCONFORM_IF_HIRES=; HIRES_SURFACE_SUFFIX=; if python3 -s -c \"import sys; sys.exit(0 if float('$VOX_SIZE') < 0.999 else 1)\"; then HIRESFLAG=-hires; NOCONFORM_IF_HIRES=-noconform; HIRES_SURFACE_SUFFIX=.predec; fi; "
+        "FSTHREADS=; if [ \"$THR\" -gt 1 ]; then FSTHREADS=\"-threads $THR -itkthreads $THR\"; fi; "
+        "THREADS_HEMI=1; if [ \"$THR\" -gt 1 ]; then THREADS_HEMI=$((THR / 2)); [ \"$THREADS_HEMI\" -lt 1 ] && THREADS_HEMI=1; fi; "
+        "FSTHREADS_HEMI=; if [ \"$THREADS_HEMI\" -gt 1 ]; then FSTHREADS_HEMI=\"-threads $THREADS_HEMI -itkthreads $THREADS_HEMI\"; fi; "
+        "cd \"$MDIR\"; "
     )
+
+
+def _fastsurfer_device_arg(ctx: ToolContext) -> str:
+    if ctx.device == "cpu":
+        return "--device cpu "
+    if ctx.device in {"cuda", "gpu"}:
+        return "--device cuda "
+    return ""
+
 
 def _fastsurfer_stage1(ctx: ToolContext) -> str:
     dicom_flags = ""
@@ -444,97 +464,111 @@ def _fastsurfer_stage1(ctx: ToolContext) -> str:
     )
 
 def _fastsurfer_stage3(ctx: ToolContext) -> str:
-    cpu_flag = "--device cpu " if ctx.device == "cpu" else ""
+    device_flag = _fastsurfer_device_arg(ctx)
     return (
         _fastsurfer_common(ctx)
-        + f"python3 $FASTSURFER_HOME/FastSurferCNN/run_prediction.py {cpu_flag}--t1 \"$SD/mri/orig.mgz\" --sid \"$SUBJ\" --sd \"$SUBJECTS_DIR\" --asegdkt_segfile \"$SD/mri/aparc.DKTatlas+aseg.deep.mgz\" --conformed_name \"$SD/mri/orig.mgz\" --brainmask_name \"$SD/mri/mask.mgz\" --aseg_name \"$SD/mri/aseg.auto_noCCseg.mgz\" --threads {ctx.threads}; "
-        "test -s aparc.DKTatlas+aseg.deep.mgz; test -s mask.mgz"
+        + f"python3 -s $FASTSURFER_HOME/FastSurferCNN/run_prediction.py {device_flag}--t1 \"$MDIR/orig.mgz\" --sid \"$SUBJ\" --sd \"$SUBJECTS_DIR\" --asegdkt_segfile \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\" --conformed_name \"$MDIR/orig.mgz\" --brainmask_name \"$MDIR/mask.mgz\" --aseg_name \"$MDIR/aseg.auto_noCCseg.mgz\" --threads {ctx.threads}; "
+        "test -s aparc.DKTatlas+aseg.deep.mgz; test -s aseg.auto_noCCseg.mgz; test -s mask.mgz; "
+        f"python3 -s $FASTSURFER_HOME/CorpusCallosum/fastsurfer_cc.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\" --threads {ctx.threads} --conformed_name \"$MDIR/orig.mgz\" --aseg_name \"$MDIR/aseg.auto_noCCseg.mgz\" --segmentation_in_orig \"$MDIR/callosum.CC.orig.mgz\"; "
+        "python3 -s $FASTSURFER_HOME/CorpusCallosum/paint_cc_into_pred.py -in_cc \"$MDIR/callosum.CC.orig.mgz\" -in_pred \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\" -out \"$MDIR/aparc.DKTatlas+aseg.deep.withCC.mgz\" -aseg \"$MDIR/aseg.auto.mgz\"; "
+        "test -s aseg.auto.mgz"
     )
 
 def _fastsurfer_stage4(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + f"python3 $FASTSURFER_HOME/recon_surf/N4_bias_correct.py --in orig.mgz --rescale orig_nu.mgz --aseg aparc.DKTatlas+aseg.deep.mgz --threads {ctx.threads}; "
-        "bash $FASTSURFER_HOME/recon_surf/talairach-reg.sh /dev/null --dir . --conformed_name orig.mgz --norm_name orig_nu.mgz --py python3 --asegdkt_segfile aparc.DKTatlas+aseg.deep.mgz --edits; "
-        "test -s transforms/talairach.xfm"
+        + "test -s orig.mgz; test -s aparc.DKTatlas+aseg.deep.mgz; test -s aseg.auto.mgz; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/quick_qc.py --asegdkt_segfile \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\"; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/data_loader/conform.py -i \"$MDIR/orig.mgz\" --check_only --vox_size min --verbose; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/data_loader/conform.py -i \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\" --check_only --vox_size \"$VOX_SIZE\" --dtype any --verbose; "
+        "mri_convert \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\" \"$MDIR/aparc.DKTatlas+aseg.orig.mgz\"; "
+        "ln -sf orig.mgz \"$MDIR/rawavg.mgz\"; "
+        f"if [ ! -s \"$MDIR/orig_nu.mgz\" ]; then python3 -s $FASTSURFER_HOME/recon_surf/N4_bias_correct.py --in \"$MDIR/orig.mgz\" --rescale \"$MDIR/orig_nu.mgz\" --aseg \"$MDIR/aparc.DKTatlas+aseg.orig.mgz\" --threads {ctx.threads}; fi; "
+        "if [ ! -s \"$MDIR/transforms/talairach.lta\" ] || [ ! -s \"$MDIR/transforms/talairach_with_skull.lta\" ] || [ ! -s \"$MDIR/nu.mgz\" ]; then bash $FASTSURFER_HOME/recon_surf/talairach-reg.sh /dev/null --dir \"$MDIR\" --conformed_name \"$MDIR/orig.mgz\" --norm_name \"$MDIR/orig_nu.mgz\" --py \"python3 -s\" --asegdkt_segfile \"$MDIR/aparc.DKTatlas+aseg.deep.mgz\"; fi; "
+        "test -s aparc.DKTatlas+aseg.orig.mgz; test -s orig_nu.mgz; test -s nu.mgz; test -s transforms/talairach.xfm; test -s transforms/talairach.lta"
     )
 
 def _fastsurfer_stage5(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + "ln -sf orig_nu.mgz nu.mgz; "
-        "mri_mask nu.mgz mask.mgz norm.mgz; "
-        "mri_mask -T 5 norm.mgz mask.mgz brain.finalsurfs.mgz; "
-        "ln -sf norm.mgz brainmask.mgz; "
-        "test -s brain.finalsurfs.mgz"
+        + "test -s nu.mgz; test -s mask.mgz; "
+        "mri_mask \"$MDIR/nu.mgz\" \"$MDIR/mask.mgz\" \"$MDIR/norm.mgz\"; "
+        "mri_normalize -g 1 -seed 1234 -mprage \"$MDIR/nu.mgz\" \"$MDIR/T1.mgz\" $NOCONFORM_IF_HIRES; "
+        "mri_mask \"$MDIR/T1.mgz\" \"$MDIR/mask.mgz\" \"$MDIR/brainmask.mgz\"; "
+        "test -s norm.mgz; test -s T1.mgz; test -s brainmask.mgz"
     )
 
 def _fastsurfer_stage6(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + "sed -i 's/futures.extend(thread_executor()/futures.extend([thread_executor()/' $FASTSURFER_HOME/FastSurferCNN/download_checkpoints.py; "
-        "sed -i 's/defaults.checkpoint(mod).items())/defaults.checkpoint(mod).items()])/g' $FASTSURFER_HOME/FastSurferCNN/download_checkpoints.py; "
-        f"python3 $FASTSURFER_HOME/CorpusCallosum/fastsurfer_cc.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\" --threads {ctx.threads} --conformed_name \"$SD/mri/orig.mgz\" --aseg_name \"$SD/mri/aseg.auto_noCCseg.mgz\" --segmentation_in_orig \"$SD/mri/cc.mgz\"; "
-        "PRED=\"$SD/mri/aparc.DKTatlas+aseg.deep.mgz\"; if [ ! -f \"$PRED\" ]; then PRED=\"$SD/mri/aparc.DKTatlas+aseg.mgz\"; fi; "
-        "python3 $FASTSURFER_HOME/CorpusCallosum/paint_cc_into_pred.py -in_cc \"$SD/mri/cc.mgz\" -in_pred \"$PRED\" -out \"$SD/mri/aparc.DKTatlas+aseg.deep.withCC.mgz\" -aseg \"$SD/mri/aseg.auto.mgz\"; "
-        f"recon-all -s \"$SUBJ\" -asegmerge -normalization2 -maskbfs -segmentation -fill -umask 0022 -threads {ctx.threads}; "
-        "test -s filled.mgz"
+        + "test -s aseg.auto.mgz; test -s norm.mgz; test -s brainmask.mgz; "
+        "recon-all -s \"$SUBJ\" -asegmerge -normalization2 -maskbfs -segmentation -fill -umask 0022 $HIRESFLAG $FSTHREADS; "
+        "test -s wm.mgz; test -s filled.mgz; test -s brain.finalsurfs.mgz; test -s aseg.presurf.mgz"
     )
 
 def _fastsurfer_stage7(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + "mri_pretess filled.mgz 255 brain.mgz filled-pretess255.mgz; "
-        "mri_mc filled-pretess255.mgz 255 ../surf/lh.orig.nofix; "
-        "mris_extract_main_component ../surf/lh.orig.nofix ../surf/lh.orig.nofix; "
-        "mris_smooth -n 10 -nw -seed 1234 ../surf/lh.orig.nofix ../surf/lh.smoothwm.nofix; "
-        "mris_inflate -no-save-sulc ../surf/lh.smoothwm.nofix ../surf/lh.inflated.nofix; "
-        "python3 $FASTSURFER_HOME/recon_surf/spherically_project.py -i ../surf/lh.inflated.nofix -o ../surf/lh.qsphere.nofix || mris_sphere -q -p 6 -a 128 -seed 1234 ../surf/lh.inflated.nofix ../surf/lh.qsphere.nofix; "
-        "cp ../surf/lh.orig.nofix ../surf/lh.orig; "
-        "mris_autodet_gwstats --o ../surf/autodet.gw.stats.lh.dat --i brain.finalsurfs.mgz --wm wm.mgz --surf ../surf/lh.orig; "
-        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.lh.dat --wm wm.mgz --threads 1 --invol brain.finalsurfs.mgz --lh --i ../surf/lh.orig --o ../surf/lh.white --white --seg aseg.presurf.mgz --max-cbv-dist 3.5; "
-        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.lh.dat --seg aseg.presurf.mgz --threads 1 --wm wm.mgz --invol brain.finalsurfs.mgz --lh --i ../surf/lh.white --o ../surf/lh.pial --pial --nsmooth 0 --repulse-surf ../surf/lh.white --white-surf ../surf/lh.white; "
-        "mris_place_surface --thickness ../surf/lh.white ../surf/lh.pial 20 5 ../surf/lh.thickness; "
-        "mri_pretess filled.mgz 127 brain.mgz filled-pretess127.mgz; "
-        "mri_mc filled-pretess127.mgz 127 ../surf/rh.orig.nofix; "
-        "mris_extract_main_component ../surf/rh.orig.nofix ../surf/rh.orig.nofix; "
-        "mris_smooth -n 10 -nw -seed 1234 ../surf/rh.orig.nofix ../surf/rh.smoothwm.nofix; "
-        "mris_inflate -no-save-sulc ../surf/rh.smoothwm.nofix ../surf/rh.inflated.nofix; "
-        "python3 $FASTSURFER_HOME/recon_surf/spherically_project.py -i ../surf/rh.inflated.nofix -o ../surf/rh.qsphere.nofix || mris_sphere -q -p 6 -a 128 -seed 1234 ../surf/rh.inflated.nofix ../surf/rh.qsphere.nofix; "
-        "cp ../surf/rh.orig.nofix ../surf/rh.orig; "
-        "mris_autodet_gwstats --o ../surf/autodet.gw.stats.rh.dat --i brain.finalsurfs.mgz --wm wm.mgz --surf ../surf/rh.orig; "
-        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.rh.dat --wm wm.mgz --threads 1 --invol brain.finalsurfs.mgz --rh --i ../surf/rh.orig --o ../surf/rh.white --white --seg aseg.presurf.mgz --max-cbv-dist 3.5; "
-        "mris_place_surface --adgws-in ../surf/autodet.gw.stats.rh.dat --seg aseg.presurf.mgz --threads 1 --wm wm.mgz --invol brain.finalsurfs.mgz --rh --i ../surf/rh.white --o ../surf/rh.pial --pial --nsmooth 0 --repulse-surf ../surf/rh.white --white-surf ../surf/rh.white; "
-        "mris_place_surface --thickness ../surf/rh.white ../surf/rh.pial 20 5 ../surf/rh.thickness; "
-        "test -s ../surf/lh.thickness; test -s ../surf/rh.thickness"
+        + "test -s filled.mgz; test -s brain.mgz; test -s wm.mgz; test -s brain.finalsurfs.mgz; test -s aseg.presurf.mgz; test -s aparc.DKTatlas+aseg.orig.mgz; "
+        "stage7_hemi() { hemi=$1; hemivalue=255; [ \"$hemi\" = rh ] && hemivalue=127; outmesh=\"$SDIR/${hemi}.orig.nofix${HIRES_SURFACE_SUFFIX}\"; "
+        "mri_pretess \"$MDIR/filled.mgz\" \"$hemivalue\" \"$MDIR/brain.mgz\" \"$MDIR/filled-pretess${hemivalue}.mgz\"; "
+        "mri_mc \"$MDIR/filled-pretess${hemivalue}.mgz\" \"$hemivalue\" \"$outmesh\"; "
+        "mris_extract_main_component \"$outmesh\" \"$outmesh\"; "
+        "if [ -n \"$HIRES_SURFACE_SUFFIX\" ]; then mris_remesh --desired-face-area 0.5 --input \"$outmesh\" --output \"$SDIR/${hemi}.orig.nofix\"; fi; "
+        "mris_smooth -n 10 -nw -seed 1234 \"$SDIR/${hemi}.orig.nofix\" \"$SDIR/${hemi}.smoothwm.nofix\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -inflate1 -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "python3 -s $FASTSURFER_HOME/recon_surf/spherically_project_wrapper.py --hemi \"$hemi\" --sd \"$SUBJECTS_DIR\" --subject \"$SUBJ\" --threads \"$THREADS_HEMI\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -fix -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "[ -f \"$SDIR/${hemi}.orig.premesh\" ] && python3 -s $FASTSURFER_HOME/recon_surf/rewrite_oriented_surface.py --file \"$SDIR/${hemi}.orig.premesh\" --backup \"$SDIR/${hemi}.orig.premesh.noorient\"; "
+        "[ -f \"$SDIR/${hemi}.orig\" ] && python3 -s $FASTSURFER_HOME/recon_surf/rewrite_oriented_surface.py --file \"$SDIR/${hemi}.orig\" --backup \"$SDIR/${hemi}.orig.noorient\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -autodetgwstats -white-preaparc -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -cortex-label -smooth2 -inflate2 -curvHK -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "python3 -s $FASTSURFER_HOME/recon_surf/sample_parc.py --inseg \"$MDIR/aparc.DKTatlas+aseg.orig.mgz\" --insurf \"$SDIR/${hemi}.white.preaparc\" --incort \"$LDIR/${hemi}.cortex.label\" --outaparc \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\" --seglut \"$FASTSURFER_HOME/recon_surf/${hemi}.DKTatlaslookup.txt\" --surflut \"$FASTSURFER_HOME/recon_surf/DKTatlaslookup.txt\" --projmm 0.6 --radius 2; "
+        "mris_place_surface --adgws-in \"$SDIR/autodet.gw.stats.${hemi}.dat\" --seg \"$MDIR/aseg.presurf.mgz\" --threads \"$THREADS_HEMI\" --wm \"$MDIR/wm.mgz\" --invol \"$MDIR/brain.finalsurfs.mgz\" --$hemi --i \"$SDIR/${hemi}.white.preaparc\" --o \"$SDIR/${hemi}.white\" --white --nsmooth 0 --rip-label \"$LDIR/${hemi}.cortex.label\" --rip-bg --rip-surf \"$SDIR/${hemi}.white.preaparc\" --aparc \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\"; "
+        "mris_place_surface --adgws-in \"$SDIR/autodet.gw.stats.${hemi}.dat\" --seg \"$MDIR/aseg.presurf.mgz\" --threads \"$THREADS_HEMI\" --wm \"$MDIR/wm.mgz\" --invol \"$MDIR/brain.finalsurfs.mgz\" --$hemi --i \"$SDIR/${hemi}.white\" --o \"$SDIR/${hemi}.pial.T1\" --pial --nsmooth 0 --rip-label \"$LDIR/${hemi}.cortex+hipamyg.label\" --pin-medial-wall \"$LDIR/${hemi}.cortex.label\" --aparc \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\" --repulse-surf \"$SDIR/${hemi}.white\" --white-surf \"$SDIR/${hemi}.white\"; "
+        "ln -sf \"${hemi}.pial.T1\" \"$SDIR/${hemi}.pial\"; "
+        "mris_place_surface --curv-map \"$SDIR/${hemi}.white\" 2 10 \"$SDIR/${hemi}.curv\"; mris_place_surface --area-map \"$SDIR/${hemi}.white\" \"$SDIR/${hemi}.area\"; "
+        "mris_place_surface --curv-map \"$SDIR/${hemi}.pial\" 2 10 \"$SDIR/${hemi}.curv.pial\"; mris_place_surface --area-map \"$SDIR/${hemi}.pial\" \"$SDIR/${hemi}.area.pial\"; "
+        "mris_place_surface --thickness \"$SDIR/${hemi}.white\" \"$SDIR/${hemi}.pial\" 20 5 \"$SDIR/${hemi}.thickness\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -curvstats -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; }; "
+        "export OMP_NUM_THREADS=\"$THREADS_HEMI\" ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=\"$THREADS_HEMI\"; stage7_hemi lh; stage7_hemi rh; "
+        "test -s \"$SDIR/lh.white\"; test -s \"$SDIR/rh.white\"; test -s \"$SDIR/lh.pial\"; test -s \"$SDIR/rh.pial\"; test -s \"$SDIR/lh.thickness\"; test -s \"$SDIR/rh.thickness\"; test -s \"$LDIR/lh.aparc.DKTatlas.mapped.annot\"; test -s \"$LDIR/rh.aparc.DKTatlas.mapped.annot\""
     )
 
 def _fastsurfer_stage8(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + _fs7r_atlas_lookup()
-        + "ln -sf ../surf/lh.white ../surf/lh.white.preaparc; "
-        "ln -sf ../surf/rh.white ../surf/rh.white.preaparc; "
-        f"recon-all -subject \"$SUBJ\" -hemi lh -cortex-label -smooth2 -inflate2 -curvHK -sphere -no-isrunning; "
-        f"recon-all -subject \"$SUBJ\" -hemi rh -cortex-label -smooth2 -inflate2 -curvHK -sphere -no-isrunning; "
-        "mris_register -curv -norot ../surf/lh.qsphere.nofix \"$LH_FOLDING_ATLAS\" ../surf/lh.sphere.reg; "
-        "mris_jacobian ../surf/lh.white ../surf/lh.sphere.reg ../surf/lh.jacobian_white; "
-        "mris_register -curv -norot ../surf/rh.qsphere.nofix \"$RH_FOLDING_ATLAS\" ../surf/rh.sphere.reg; "
-        "mris_jacobian ../surf/rh.white ../surf/rh.sphere.reg ../surf/rh.jacobian_white; "
-        "test -s ../surf/lh.sphere.reg; test -s ../surf/rh.sphere.reg"
+        + "for hemi in lh rh; do "
+        "test -s \"$SDIR/${hemi}.inflated\"; test -s \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -sphere -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "python3 -s $FASTSURFER_HOME/recon_surf/rotate_sphere.py --srcsphere \"$SDIR/${hemi}.sphere\" --srcaparc \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\" --trgsphere \"$FREESURFER_HOME/subjects/fsaverage/surf/${hemi}.sphere\" --trgaparc \"$FREESURFER_HOME/subjects/fsaverage/label/${hemi}.aparc.annot\" --out \"$SDIR/${hemi}.angles.txt\"; "
+        "read -r rot_a rot_b rot_c < \"$SDIR/${hemi}.angles.txt\"; "
+        "mris_register -curv -norot -rotate \"$rot_a\" \"$rot_b\" \"$rot_c\" \"$SDIR/${hemi}.sphere\" \"$FREESURFER_HOME/average/${hemi}.folding.atlas.acfb40.noaparc.i12.2016-08-02.tif\" \"$SDIR/${hemi}.sphere.reg\"; "
+        "recon-all -subject \"$SUBJ\" -hemi \"$hemi\" -jacobian_white -avgcurv -no-isrunning -umask 0022 $HIRESFLAG $FSTHREADS_HEMI; "
+        "test -s \"$SDIR/${hemi}.sphere.reg\"; test -s \"$SDIR/${hemi}.jacobian_white\"; done"
     )
 
 def _fastsurfer_stage9(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + _fs7r_atlas_lookup()
-        + "mris_ca_label -aseg aseg.presurf.mgz -seed 1234 \"$SUBJ\" lh ../surf/lh.sphere.reg \"$LH_DK_ATLAS\" ../label/lh.aparc.annot; "
-        "mris_anatomical_stats -th3 -mgz -f ../stats/lh.aparc.stats -b -a ../label/lh.aparc.annot -c ../label/aparc.annot.ctab \"$SUBJ\" lh white; "
-        "mris_ca_label -aseg aseg.presurf.mgz -seed 1234 \"$SUBJ\" rh ../surf/rh.sphere.reg \"$RH_DK_ATLAS\" ../label/rh.aparc.annot; "
-        "mris_anatomical_stats -th3 -mgz -f ../stats/rh.aparc.stats -b -a ../label/rh.aparc.annot -c ../label/aparc.annot.ctab \"$SUBJ\" rh white; "
-        "cp ../stats/*.stats /output/stats/ 2>/dev/null || true; "
+        + "for hemi in lh rh; do test -s \"$SDIR/${hemi}.sphere.reg\"; test -s \"$SDIR/${hemi}.white\"; test -s \"$SDIR/${hemi}.pial\"; test -s \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\"; done; "
+        "recon-all -subject \"$SUBJ\" -cortribbon -umask 0022 $HIRESFLAG $FSTHREADS; "
+        "for hemi in lh rh; do mris_anatomical_stats -th3 -mgz -cortex \"$LDIR/${hemi}.cortex.label\" -f \"$STATSDIR/${hemi}.aparc.DKTatlas.mapped.stats\" -b -a \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\" -c \"$LDIR/aparc.annot.mapped.ctab\" \"$SUBJ\" \"$hemi\" white; done; "
+        "ln -sf lh.aparc.DKTatlas.mapped.annot \"$LDIR/lh.aparc.annot\"; ln -sf rh.aparc.DKTatlas.mapped.annot \"$LDIR/rh.aparc.annot\"; "
+        "pctsurfcon --s \"$SUBJ\" --lh-only; pctsurfcon --s \"$SUBJ\" --rh-only; rm -f \"$LDIR/lh.aparc.annot\" \"$LDIR/rh.aparc.annot\"; "
+        "recon-all -subject \"$SUBJ\" -hyporelabel -apas2aseg -umask 0022 $HIRESFLAG $FSTHREADS; "
+        "mri_surf2volseg --o \"$MDIR/aparc.DKTatlas+aseg.mapped.mgz\" --label-cortex --i \"$MDIR/aseg.mgz\" --threads \"$THR\" --lh-annot \"$LDIR/lh.aparc.DKTatlas.mapped.annot\" 1000 --lh-cortex-mask \"$LDIR/lh.cortex.label\" --lh-white \"$SDIR/lh.white\" --lh-pial \"$SDIR/lh.pial\" --rh-annot \"$LDIR/rh.aparc.DKTatlas.mapped.annot\" 2000 --rh-cortex-mask \"$LDIR/rh.cortex.label\" --rh-white \"$SDIR/rh.white\" --rh-pial \"$SDIR/rh.pial\"; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/segstats.py --sid \"$SUBJ\" --segfile \"$MDIR/aseg.mgz\" --segstatsfile \"$STATSDIR/aseg.stats\" --pvfile \"$MDIR/norm.mgz\" --normfile \"$MDIR/norm.mgz\" --threads \"$THR\" --excludeid 0 2 3 41 42 --lut \"$FREESURFER_HOME/ASegStatsLUT.txt\" --empty measures --compute BrainSeg BrainSegNotVent VentricleChoroidVol lhCortex rhCortex Cortex lhCerebralWhiteMatter rhCerebralWhiteMatter CerebralWhiteMatter SubCortGray TotalGray SupraTentorial SupraTentorialNotVent \"Mask($MDIR/mask.mgz)\" BrainSegVol-to-eTIV MaskVol-to-eTIV lhSurfaceHoles rhSurfaceHoles SurfaceHoles EstimatedTotalIntraCranialVol; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/segstats.py --sid \"$SUBJ\" --segfile \"$MDIR/aseg.mgz\" --pvfile \"$MDIR/norm.mgz\" --measure_only --threads \"$THR\" --segstatsfile \"$STATSDIR/brainvol.stats\" measures --file \"$STATSDIR/aseg.stats\" --import BrainSeg BrainSegNotVent SupraTentorial SupraTentorialNotVent SubCortGray lhCortex rhCortex Cortex TotalGray lhCerebralWhiteMatter rhCerebralWhiteMatter CerebralWhiteMatter Mask --compute SupraTentorialNotVentVox BrainSegNotVentSurf VentricleChoroidVol; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/segstats.py --sid \"$SUBJ\" --segfile \"$MDIR/aseg.presurf.hypos.mgz\" --normfile \"$MDIR/norm.mgz\" --pvfile \"$MDIR/norm.mgz\" --segstatsfile \"$STATSDIR/aseg.presurf.hypos.stats\" --excludeid 0 2 3 41 42 --lut \"$FREESURFER_HOME/ASegStatsLUT.txt\" --threads \"$THR\" --empty --volume_precision 1 measures --file \"$STATSDIR/aseg.stats\" --import all; "
+        "mri_surf2volseg --o \"$MDIR/wmparc.DKTatlas.mapped.mgz\" --label-wm --i \"$MDIR/aparc.DKTatlas+aseg.mapped.mgz\" --threads \"$THR\" --lh-annot \"$LDIR/lh.aparc.DKTatlas.mapped.annot\" 3000 --lh-cortex-mask \"$LDIR/lh.cortex.label\" --lh-white \"$SDIR/lh.white\" --lh-pial \"$SDIR/lh.pial\" --rh-annot \"$LDIR/rh.aparc.DKTatlas.mapped.annot\" 4000 --rh-cortex-mask \"$LDIR/rh.cortex.label\" --rh-white \"$SDIR/rh.white\" --rh-pial \"$SDIR/rh.pial\"; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/segstats.py --sid \"$SUBJ\" --sd \"$SUBJECTS_DIR\" --pvfile \"$MDIR/norm.mgz\" --segfile \"$MDIR/wmparc.DKTatlas.mapped.mgz\" --normfile \"$MDIR/norm.mgz\" --lut \"$FREESURFER_HOME/WMParcStatsLUT.txt\" --threads \"$THR\" --segstatsfile \"$STATSDIR/wmparc.DKTatlas.mapped.stats\" --volume_precision 1 measures --file \"$STATSDIR/brainvol.stats\" --import Mask VentricleChoroidVol rhCerebralWhiteMatter lhCerebralWhiteMatter CerebralWhiteMatter; "
+        "ln -sf aparc.DKTatlas+aseg.mapped.mgz \"$MDIR/aparc.DKTatlas+aseg.mgz\"; ln -sf aparc.DKTatlas+aseg.mapped.mgz \"$MDIR/aparc+aseg.mgz\"; ln -sf wmparc.DKTatlas.mapped.mgz \"$MDIR/wmparc.mgz\"; "
+        "ln -sf lh.aparc.DKTatlas.mapped.annot \"$LDIR/lh.aparc.DKTatlas.annot\"; ln -sf rh.aparc.DKTatlas.mapped.annot \"$LDIR/rh.aparc.DKTatlas.annot\"; "
+        "python3 -s $FASTSURFER_HOME/recon_surf/fs_balabels.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\"; "
+        "cp \"$STATSDIR\"/*.stats /output/stats/; "
         "python3 /app/normalize_volumes.py --subject-id \"$SUBJ\" --stats-dir /output/stats --output-subcortical /output/stats/subcortical_volume.tsv --output-cortical /output/stats/cortical_volume.tsv; "
-        "test -s ../stats/lh.aparc.stats; test -s ../stats/rh.aparc.stats"
+        "test -s \"$STATSDIR/aseg.stats\"; test -s \"$STATSDIR/brainvol.stats\"; test -s \"$STATSDIR/lh.aparc.DKTatlas.mapped.stats\"; test -s \"$STATSDIR/rh.aparc.DKTatlas.mapped.stats\"; test -s \"$STATSDIR/wmparc.DKTatlas.mapped.stats\"; test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv"
     )
 
 
@@ -557,7 +591,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fastsurfer_stage3,
         "output_files": [],
-        "output_globs": ["freesurfer/*/mri/aparc.DKTatlas+aseg.deep.mgz"],
+        "output_globs": ["freesurfer/*/mri/aseg.auto.mgz"],
     },
     "fastsurfer_template_registration": {
         "entrypoint": "",
@@ -567,7 +601,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fastsurfer_stage4,
         "output_files": [],
-        "output_globs": ["freesurfer/*/mri/transforms/talairach.xfm"],
+        "output_globs": ["freesurfer/*/mri/transforms/talairach.lta"],
     },
     "fastsurfer_standardization": {
         "entrypoint": "",
@@ -597,7 +631,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fastsurfer_stage7,
         "output_files": [],
-        "output_globs": ["freesurfer/*/surf/?h.thickness"],
+        "output_globs": ["freesurfer/*/surf/lh.thickness", "freesurfer/*/surf/rh.thickness"],
     },
     "fastsurfer_surface_registration": {
         "entrypoint": "",
@@ -607,7 +641,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fastsurfer_stage8,
         "output_files": [],
-        "output_globs": ["freesurfer/*/surf/?h.sphere.reg"],
+        "output_globs": ["freesurfer/*/surf/lh.sphere.reg", "freesurfer/*/surf/rh.sphere.reg"],
     },
     "fastsurfer_stats_extraction": {
         "entrypoint": "",
@@ -617,7 +651,12 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fastsurfer_stage9,
         "output_files": ["cortical_volume.tsv", "subcortical_volume.tsv"],
-        "output_globs": ["freesurfer/*/stats/*.stats", "stats/*.tsv"],
+        "output_globs": [
+            "freesurfer/*/stats/lh.aparc.DKTatlas.mapped.stats",
+            "freesurfer/*/stats/rh.aparc.DKTatlas.mapped.stats",
+            "freesurfer/*/stats/aseg.stats",
+            "stats/*.tsv",
+        ],
     },
     "fs8_reduced54_reorientation": {
         "display_name": "FreeSurfer 8 Reorientation",
