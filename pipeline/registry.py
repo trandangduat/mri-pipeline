@@ -19,6 +19,7 @@ def _fs8r_common(ctx: ToolContext) -> str:
     return (
         "set -e; "
         "export SUBJECTS_DIR=/output/freesurfer; "
+        "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
         "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
         "mkdir -p \"$SD\"/mri \"$SD\"/surf \"$SD\"/label \"$SD\"/stats \"$SD\"/tmp \"$SD\"/scripts \"$SD/mri/transforms\" /output/stats; "
@@ -228,6 +229,7 @@ def _fs7r_common(ctx: ToolContext) -> str:
     return (
         "set -e; "
         "export SUBJECTS_DIR=/output/freesurfer; "
+        "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
         "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
         "mkdir -p \"$SD\"/mri \"$SD\"/surf \"$SD\"/label \"$SD\"/stats \"$SD\"/tmp \"$SD\"/scripts \"$SD/mri/transforms\" /output/stats; "
@@ -288,7 +290,7 @@ def _fs7r_stage3(ctx: ToolContext) -> str:
         + "mri_em_register -uns 3 -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta; "
         "CTRL_FLAG=\"\"; if [ -f ctrl_pts.mgz ]; then CTRL_FLAG=\"-c ctrl_pts.mgz\"; fi; "
         "mri_ca_normalize $CTRL_FLAG -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
-        "mri_ca_register -nobigventricles -T transforms/talairach.lta -align-after -mask brainmask.mgz norm.mgz \"$GCA\" transforms/talairach.m3z; "
+        f"mri_ca_register -threads {ctx.threads} -nobigventricles -T transforms/talairach.lta -align-after -mask brainmask.mgz norm.mgz \"$GCA\" transforms/talairach.m3z; "
         "mri_ca_label -relabel_unlikely 9 .3 -prior 0.5 -align norm.mgz transforms/talairach.m3z \"$GCA\" aseg.auto_noCCseg.mgz; "
         "mri_cc -aseg aseg.auto_noCCseg.mgz -o aseg.auto.mgz -lta transforms/cc_up.lta \"$SUBJ\"; "
         "rm -f aseg.presurf.mgz; cp aseg.auto.mgz aseg.presurf.mgz; "
@@ -419,7 +421,7 @@ def _fastsurfer_common(ctx: ToolContext) -> str:
     return (
         "set -e; "
         "export SUBJECTS_DIR=/output/freesurfer; "
-        "export FS_LICENSE=/license/license.txt; "
+        "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
         "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
         "FASTSURFER_HOME=/fastsurfer; "
@@ -470,8 +472,11 @@ def _fastsurfer_stage5(ctx: ToolContext) -> str:
 def _fastsurfer_stage6(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
-        + f"python3 $FASTSURFER_HOME/CorpusCallosum/fastsurfer_cc.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\" --threads {ctx.threads} --conformed_name orig.mgz --aseg_name aseg.auto_noCCseg.mgz --segmentation_in_orig cc.mgz; "
-        "python3 $FASTSURFER_HOME/CorpusCallosum/paint_cc_into_pred.py -in_cc cc.mgz -in_pred aparc.DKTatlas+aseg.deep.mgz -out aparc.DKTatlas+aseg.deep.withCC.mgz -aseg aseg.auto.mgz; "
+        + "sed -i 's/futures.extend(thread_executor()/futures.extend([thread_executor()/' $FASTSURFER_HOME/FastSurferCNN/download_checkpoints.py; "
+        "sed -i 's/defaults.checkpoint(mod).items())/defaults.checkpoint(mod).items()])/g' $FASTSURFER_HOME/FastSurferCNN/download_checkpoints.py; "
+        f"python3 $FASTSURFER_HOME/CorpusCallosum/fastsurfer_cc.py --sd \"$SUBJECTS_DIR\" --sid \"$SUBJ\" --threads {ctx.threads} --conformed_name \"$SD/mri/orig.mgz\" --aseg_name \"$SD/mri/aseg.auto_noCCseg.mgz\" --segmentation_in_orig \"$SD/mri/cc.mgz\"; "
+        "PRED=\"$SD/mri/aparc.DKTatlas+aseg.deep.mgz\"; if [ ! -f \"$PRED\" ]; then PRED=\"$SD/mri/aparc.DKTatlas+aseg.mgz\"; fi; "
+        "python3 $FASTSURFER_HOME/CorpusCallosum/paint_cc_into_pred.py -in_cc \"$SD/mri/cc.mgz\" -in_pred \"$PRED\" -out \"$SD/mri/aparc.DKTatlas+aseg.deep.withCC.mgz\" -aseg \"$SD/mri/aseg.auto.mgz\"; "
         f"recon-all -s \"$SUBJ\" -asegmerge -normalization2 -maskbfs -segmentation -fill -umask 0022 -threads {ctx.threads}; "
         "test -s filled.mgz"
     )
