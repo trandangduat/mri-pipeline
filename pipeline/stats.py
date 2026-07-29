@@ -284,12 +284,20 @@ def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
 
 def _atlas_stats_candidates(stats_dir: Path, atlas: str, hemi: str) -> list[Path]:
     stem = str(VECTOR_SPECS[atlas].get("stats_stem", atlas))
-    return [
+    candidates = [
         stats_dir / f"{hemi}.{stem}.stats",
         stats_dir / f"{hemi}_{stem}.stats",
         stats_dir / f"{hemi}.{stem.lower()}.stats",
         stats_dir / f"{hemi}_{stem.lower()}.stats",
     ]
+    if atlas == "aparc":
+        candidates.extend(
+            [
+                stats_dir / f"{hemi}.aparc.DKTatlas.mapped.stats",
+                stats_dir / f"{hemi}.aparc.dktatlas.mapped.stats",
+            ]
+        )
+    return candidates
 
 def _read_atlas_thickness_values(stats_dir: Path, atlas: str) -> dict[str, str]:
     values: dict[str, str] = {}
@@ -460,6 +468,5 @@ def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[s
             continue
         out[str(spec["column"])] = _load_vector_features(str(spec["features"]))
     return out
-
 
 
