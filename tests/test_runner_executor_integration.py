@@ -51,6 +51,28 @@ class MultiStageExecutor:
         )
 
 
+class SegmentationExecutor:
+    def __init__(self) -> None:
+        self.requests: list[ExecutionRequest] = []
+
+    def execute(self, req: ExecutionRequest, on_metrics=None) -> ExecutionResult:
+        self.requests.append(req)
+        for host_path, container_path in req.mounts:
+            if container_path == "/work":
+                Path(host_path, "freesurfer", "sub-01", "mri").mkdir(parents=True, exist_ok=True)
+                Path(host_path, "freesurfer", "sub-01", "mri", "aseg.presurf.mgz").write_text("ok", encoding="utf-8")
+                break
+        return ExecutionResult(
+            success=True,
+            error="",
+            output="completed",
+            duration_sec=0.1,
+            metrics=DockerResourceMetrics(),
+            container_name=req.container_name,
+            return_code=0,
+        )
+
+
 def test_run_pipeline_executes_tool_with_execution_request(tmp_path, mocker) -> None:
     input_file = tmp_path / "input.nii.gz"
     input_file.write_text("input", encoding="utf-8")
@@ -120,3 +142,33 @@ def test_run_pipeline_passes_prior_stage_output_to_next_stage(tmp_path, mocker) 
         "-c",
         "mri_synthstrip -i /work/mri/01_reoriented.nii.gz -o /work/02_synthstrip_brain.nii.gz -m /work/02_synthstrip_brain_mask.nii.gz ",
     ]
+
+
+def test_run_pipeline_uses_tool_specific_timeout_for_fs7_segmentation(tmp_path, mocker) -> None:
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input", encoding="utf-8")
+    output_dir = tmp_path / "outputs"
+    executor = SegmentationExecutor()
+    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+
+    config = PipelineConfig(
+        input_file=str(input_file),
+        output_dir=str(output_dir),
+        subject_id="sub-01",
+        selected_tools={
+            "reorientation": "",
+            "brain_extraction": "",
+            "segmentation": "fs7_recon_style_segmentation",
+            "template_registration": "",
+            "bias_correction": "",
+            "white_matter_segmentation": "",
+            "surface_reconstruction": "",
+            "surface_registration": "",
+            "stats_extraction": "",
+        },
+    )
+
+    results = run_pipeline(config, executor=executor)
+
+    assert results[0].success is True
+    assert executor.requests[0].timeout > 7200

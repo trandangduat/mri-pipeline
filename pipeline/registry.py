@@ -8,6 +8,7 @@ SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
 
 FS8_REDUCED54_IMAGE = "mkdayyyy/mri-fs8-all:latest"
 FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs7-all:latest"
+FREESURFER_RECON_STYLE_TIMEOUT = 12 * 60 * 60
 
 
 def _q(value: str) -> str:
@@ -764,6 +765,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "segmentation",
         "needs_license": True,
         "command_builder": _fs7r_stage3,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/mri/aseg.presurf.mgz", "freesurfer/*/mri/aseg.auto.mgz"],
     },
@@ -791,6 +793,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "white_matter_segmentation",
         "needs_license": True,
         "command_builder": _fs7r_stage6,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/mri/filled.mgz", "freesurfer/*/mri/wm.mgz"],
     },
@@ -800,6 +803,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "surface_reconstruction",
         "needs_license": True,
         "command_builder": _fs7r_stage7,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/surf/lh.white.preaparc", "freesurfer/*/surf/rh.white.preaparc"],
     },
@@ -809,6 +813,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "surface_registration",
         "needs_license": True,
         "command_builder": _fs7r_stage8,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/surf/lh.sphere.reg", "freesurfer/*/surf/rh.sphere.reg"],
     },

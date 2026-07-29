@@ -161,6 +161,7 @@ def _build_execution_request(
         gpus=(config.device == "gpu" or config.device == "cuda"),
         memory_bytes=memory_limit_bytes,
         container_name=_safe_container_name("mri", config.subject_id, tool_key),
+        timeout=int(tool.get("timeout", 7200)),
     )
 
 
