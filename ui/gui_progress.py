@@ -199,7 +199,7 @@ class ProgressController:
         ):
             setattr(self, name, context.get(name))
         self._sync_progress_context_to_state(context)
-        monitor = getattr(self, "job_monitors", {}).get(context_id)
+        monitor = getattr(getattr(self.gui, "jobs_ctrl", None), "job_monitors", {}).get(context_id)
         if monitor:
             self.gui.jobs_ctrl.active_job = monitor.get("active_job")
             self.gui.pipeline_ctrl.remote_runner = monitor.get("remote_runner")
@@ -316,7 +316,7 @@ class ProgressController:
         context = self.progress_contexts.get(context_id)
         if not context or self.gui.notebook is None:
             return
-        monitor = getattr(self, "job_monitors", {}).get(context_id)
+        monitor = getattr(getattr(self.gui, "jobs_ctrl", None), "job_monitors", {}).get(context_id)
         if monitor and monitor.get("active_job") and not monitor.get("active_job", {}).get("done"):
             if not messagebox.askyesno("Close progress tab", "Close this progress tab? The background job will continue running."):
                 return

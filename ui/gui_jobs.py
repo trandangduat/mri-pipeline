@@ -48,6 +48,8 @@ class JobsController:
         self._attach_loading_spinner_label = None
         self._attach_busy_button_states = {}
         self._attach_loading_started_at = 0.0
+        self._attach_loading_timeout_after_id = None
+        self._attach_loading_token = 0
     def _attach_job_dialog(self) -> None:
         from ui.dialogs.job_dialogs import show_attach_job_dialog
         show_attach_job_dialog(self)
@@ -174,7 +176,7 @@ class JobsController:
         self._stop_current_job_monitor()
 
     def _register_job_monitor_for_active_context(self) -> None:
-        context_id = getattr(self, "active_progress_context_id", "")
+        context_id = getattr(self.gui.progress_ctrl, "active_progress_context_id", "")
         if not context_id or not self.active_job:
             return
         self.job_monitors[context_id] = {
@@ -203,8 +205,34 @@ class JobsController:
         monitor["remote_runner"] = self.gui.pipeline_ctrl.remote_runner if self.active_job and self.active_job.get("target") == "Server" else monitor.get("remote_runner")
         monitor["job_log_offset"] = int(self.job_log_offset or 0)
         monitor["remote_poll_in_flight"] = bool(self.remote_poll_in_flight)
-        if monitor.get("context_id") == getattr(self, "active_progress_context_id", ""):
+        if monitor.get("context_id") == getattr(self.gui.progress_ctrl, "active_progress_context_id", ""):
             self.job_poll_after_id = monitor.get("after_id")
+
+    def _capture_active_job_context(self) -> dict:
+        return {
+            "context_id": getattr(self.gui.progress_ctrl, "active_progress_context_id", ""),
+            "active_job": self.active_job,
+            "remote_runner": self.gui.pipeline_ctrl.remote_runner,
+            "job_log_offset": int(self.job_log_offset or 0),
+            "remote_poll_in_flight": bool(self.remote_poll_in_flight),
+            "job_poll_after_id": self.job_poll_after_id,
+        }
+
+    def _restore_active_job_context(self, snapshot: dict, monitored_context_id: str | None) -> None:
+        if not monitored_context_id or snapshot.get("context_id") == monitored_context_id:
+            return
+        progress_ctrl = self.gui.progress_ctrl
+        previous_context_id = str(snapshot.get("context_id") or "")
+        if previous_context_id and previous_context_id in progress_ctrl.progress_contexts:
+            progress_ctrl._activate_progress_context(previous_context_id)
+        else:
+            progress_ctrl._save_active_progress_context()
+            progress_ctrl.active_progress_context_id = previous_context_id
+        self.active_job = snapshot.get("active_job")
+        self.gui.pipeline_ctrl.remote_runner = snapshot.get("remote_runner")
+        self.job_log_offset = int(snapshot.get("job_log_offset", 0) or 0)
+        self.remote_poll_in_flight = bool(snapshot.get("remote_poll_in_flight", False))
+        self.job_poll_after_id = snapshot.get("job_poll_after_id")
 
     def _attach_manual_job_dialog(self) -> None:
         if self.gui.state.run_target.get() == "Server":
@@ -258,6 +286,13 @@ class JobsController:
             self.gui._validate_configuration()
 
     def _finish_attach_loading(self) -> None:
+        timeout_after_id = getattr(self, "_attach_loading_timeout_after_id", None)
+        if timeout_after_id:
+            try:
+                self.gui.root.after_cancel(timeout_after_id)
+            except Exception:
+                pass
+        self._attach_loading_timeout_after_id = None
         dialog = getattr(self, "_attach_loading_dialog", None)
         try:
             if dialog is not None and dialog.winfo_exists():
@@ -271,6 +306,14 @@ class JobsController:
         self._attach_loading_started_at = 0.0
         self._set_attach_buttons_busy(False)
         self._sync_attach_toolbar_state()
+
+    def _finish_attach_loading_after_timeout(self, token: int) -> None:
+        if token != getattr(self, "_attach_loading_token", 0):
+            return
+        if not getattr(self, "_attach_loading_active", False):
+            return
+        ui_events.emit(EVENT_LOG_MESSAGE, "Attach is still polling in the background; closing loading dialog.")
+        self._finish_attach_loading()
 
     def _attach_progress_ready(self) -> bool:
         if not getattr(self, "_attach_loading_active", False):
@@ -315,7 +358,7 @@ class JobsController:
         dialog.title("Attaching job")
         dialog.transient(parent)
         dialog.resizable(False, False)
-        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+        dialog.protocol("WM_DELETE_WINDOW", self._finish_attach_loading)
 
         body = ttk.Frame(dialog, padding=18)
         body.pack(fill=tk.BOTH, expand=True)
@@ -352,6 +395,11 @@ class JobsController:
             self._attach_loading_spinner_label = spinner
             self._attach_loading_active = True
             self._attach_loading_started_at = time.monotonic()
+            self._attach_loading_token += 1
+            self._attach_loading_timeout_after_id = self.gui.root.after(
+                12000,
+                lambda token=self._attach_loading_token: self._finish_attach_loading_after_timeout(token),
+            )
             shown_at = time.monotonic()
             self.gui.root.update()
             attached = self._attach_registry_job_loaded(job)
@@ -866,7 +914,7 @@ class JobsController:
         return RemoteRunner(remote_config, on_log=self.gui.tools_ctrl._remote_log_event)
 
     def _schedule_job_poll(self, delay_ms: int = 1500, context_id: str | None = None) -> None:
-        context_id = context_id or getattr(self, "active_progress_context_id", "")
+        context_id = context_id or getattr(self.gui.progress_ctrl, "active_progress_context_id", "")
         monitor = self.job_monitors.get(context_id) if context_id else None
         if monitor is None:
             if self.job_poll_after_id:
@@ -882,10 +930,18 @@ class JobsController:
             except Exception:
                 pass
         monitor["after_id"] = self.gui.root.after(delay_ms, lambda cid=context_id: self._poll_active_job(cid))
-        if context_id == getattr(self, "active_progress_context_id", ""):
+        if context_id == getattr(self.gui.progress_ctrl, "active_progress_context_id", ""):
             self.job_poll_after_id = monitor["after_id"]
 
     def _poll_active_job(self, context_id: str | None = None) -> None:
+        snapshot = self._capture_active_job_context() if context_id else None
+        try:
+            self._poll_active_job_loaded(context_id)
+        finally:
+            if snapshot is not None:
+                self._restore_active_job_context(snapshot, context_id)
+
+    def _poll_active_job_loaded(self, context_id: str | None = None) -> None:
         monitor = self._load_job_monitor(context_id) if context_id else None
         if context_id and monitor is None:
             return
@@ -964,9 +1020,21 @@ class JobsController:
         threading.Thread(target=worker, daemon=True).start()
 
     def _finish_remote_poll(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None, context_id: str | None = None) -> None:
+        snapshot = self._capture_active_job_context() if context_id else None
+        try:
+            self._finish_remote_poll_loaded(runner, data, new_offset, status, error, context_id)
+        finally:
+            if snapshot is not None:
+                self._restore_active_job_context(snapshot, context_id)
+
+    def _finish_remote_poll_loaded(self, runner: RemoteRunner, data: str, new_offset: int, status: dict, error: Exception | None, context_id: str | None = None) -> None:
         monitor = self._load_job_monitor(context_id) if context_id else None
         expected_runner = monitor.get("remote_runner") if monitor is not None else self.gui.pipeline_ctrl.remote_runner
         if runner is not expected_runner:
+            self.remote_poll_in_flight = False
+            if monitor is not None:
+                monitor["remote_poll_in_flight"] = False
+                self._save_job_monitor(monitor)
             return
         finish_attach_loading = bool(getattr(self, "_attach_loading_active", False))
         self.remote_poll_in_flight = False
