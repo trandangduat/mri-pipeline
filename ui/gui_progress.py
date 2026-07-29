@@ -78,7 +78,7 @@ class ProgressController:
         return title
 
     def _unique_progress_title(self, title: str, context_id: str | None = None) -> str:
-        base = truncate_middle(title, 34)
+        base = title
         used = {
             ctx.get("title", "")
             for cid, ctx in getattr(self, "progress_contexts", {}).items()

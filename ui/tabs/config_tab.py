@@ -357,11 +357,12 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
 
     stats_frame = ttk.LabelFrame(frame, text=" Stats vectors ", padding=(12, 10))
     stats_frame.grid(row=stats_row, column=0, sticky=tk.EW, pady=(0, 14))
-    stats_frame.columnconfigure(1, weight=1)
+    stats_frame.columnconfigure(0, weight=1)
 
     gui.stat_vector_checkbuttons = getattr(gui, "stat_vector_checkbuttons", {})
     gui.stat_atlas_frames = getattr(gui, "stat_atlas_frames", {})
     gui.stat_add_buttons = getattr(gui, "stat_add_buttons", {})
+    gui.stat_atlas_summary_labels = getattr(gui, "stat_atlas_summary_labels", {})
 
     def render_atlases_for_stat(stat: str, container: ttk.Frame) -> None:
         for child in container.winfo_children():
@@ -369,6 +370,14 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         
         is_enabled = gui.state.stat_vector_enabled_vars[stat].get()
         selected_atlases = gui.state.selected_atlases_for_stat(stat)
+        summary = gui.stat_atlas_summary_labels.get(stat)
+        if summary is not None:
+            if not is_enabled:
+                summary.configure(text="Disabled", foreground="#94a3b8")
+            elif selected_atlases:
+                summary.configure(text=f"{len(selected_atlases)} atlas selected", foreground="#2563eb")
+            else:
+                summary.configure(text="No atlas selected", foreground="#dc2626")
 
         if not is_enabled or not selected_atlases:
             container.grid_remove()
@@ -377,16 +386,23 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         container.grid()
         
         chips_frame = ttk.Frame(container)
-        chips_frame.pack(fill=tk.X, padx=(28, 5), pady=(2, 6))
+        chips_frame.pack(fill=tk.X, padx=(28, 5), pady=(6, 0))
+        chips_frame.columnconfigure(0, weight=1)
 
-        for atlas in selected_atlases:
+        for row, atlas in enumerate(selected_atlases):
             atlas_label = ATLAS_DEFS.get(atlas, atlas)
             
-            chip = ttk.Frame(chips_frame)
-            chip.pack(side=tk.LEFT, padx=(0, 8), pady=2)
+            chip = tk.Frame(chips_frame, bg="#eef6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=8, pady=4)
+            chip.grid(row=row, column=0, sticky=tk.EW, pady=(0, 6))
+            chip.columnconfigure(0, weight=1)
 
-            lbl = ttk.Label(chip, text=f"• {atlas_label}")
-            lbl.pack(side=tk.LEFT)
+            lbl = tk.Label(chip, text=atlas_label, bg="#eef6ff", fg="#1e3a8a", font=("Inter", 9), anchor=tk.W, justify=tk.LEFT)
+            lbl.grid(row=0, column=0, sticky=tk.EW)
+
+            def sync_atlas_wrap(event, label=lbl) -> None:
+                label.configure(wraplength=max(220, event.width - 44))
+
+            chip.bind("<Configure>", sync_atlas_wrap)
             
             def remove_atlas(s=stat, a=atlas):
                 import tkinter.messagebox as messagebox
@@ -397,8 +413,21 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
                     else:
                         render_atlases_for_stat(s, container)
 
-            btn = ttk.Button(chip, text="✕", width=2, command=remove_atlas)
-            btn.pack(side=tk.LEFT, padx=(4, 0))
+            btn = tk.Button(
+                chip,
+                text="x",
+                command=remove_atlas,
+                relief=tk.FLAT,
+                bd=0,
+                bg="#eef6ff",
+                activebackground="#dbeafe",
+                fg="#1e3a8a",
+                activeforeground="#1e3a8a",
+                cursor="hand2",
+                padx=5,
+                pady=0,
+            )
+            btn.grid(row=0, column=1, sticky=tk.E, padx=(8, 0))
 
     def sync_stats_options(*_args) -> None:
         for stat in STAT_VECTOR_DEFS:
@@ -486,26 +515,38 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         ttk.Button(btn_frame, text="OK", command=on_ok, style="Accent.TButton").pack(side=tk.RIGHT)
 
     for idx, (stat, stat_def) in enumerate(STAT_VECTOR_DEFS.items()):
-        row = idx * 2
+        row = idx
         
-        header_frame = ttk.Frame(stats_frame)
-        header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.EW, pady=(4, 0))
+        stat_row = tk.Frame(stats_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=10, pady=8)
+        stat_row.grid(row=row, column=0, sticky=tk.EW, pady=(0, 8))
+        stat_row.columnconfigure(0, weight=1)
+
+        header_frame = ttk.Frame(stat_row)
+        header_frame.grid(row=0, column=0, sticky=tk.EW)
+        header_frame.columnconfigure(0, weight=1)
+        header_left = ttk.Frame(header_frame)
+        header_left.grid(row=0, column=0, sticky=tk.W)
         
         check = ttk.Checkbutton(
-            header_frame,
+            header_left,
             text=stat_def["label"],
             variable=gui.state.stat_vector_enabled_vars[stat],
         )
-        check.pack(side=tk.LEFT, padx=(6, 10))
+        check.pack(side=tk.LEFT)
         gui.stat_vector_checkbuttons[stat] = check
+
+        summary = ttk.Label(header_left, text="Disabled", foreground="#94a3b8", font=("Inter", 9))
+        summary.pack(side=tk.LEFT, padx=(10, 0))
+        gui.stat_atlas_summary_labels[stat] = summary
         
         if stat_def.get("atlases"):
-            add_btn = ttk.Button(header_frame, text="+ Add Atlas", command=lambda s=stat, sd=stat_def: open_add_atlas_dialog(s, sd))
-            add_btn.pack(side=tk.LEFT)
+            add_options = {"text": "+ Add Atlas", "command": lambda s=stat, sd=stat_def: open_add_atlas_dialog(s, sd)}
+            add_btn = ttk.Button(header_frame, **add_options)
+            add_btn.grid(row=0, column=1, sticky=tk.E)
             gui.stat_add_buttons[stat] = add_btn
 
-        atlases_container = ttk.Frame(stats_frame)
-        atlases_container.grid(row=row+1, column=0, columnspan=2, sticky=tk.EW)
+        atlases_container = ttk.Frame(stat_row)
+        atlases_container.grid(row=1, column=0, sticky=tk.EW)
         gui.stat_atlas_frames[stat] = atlases_container
         
         gui.state.stat_vector_enabled_vars[stat].trace_add("write", sync_stats_options)

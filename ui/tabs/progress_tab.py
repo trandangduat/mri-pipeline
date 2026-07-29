@@ -25,16 +25,16 @@ def _var(context: dict | None, gui, name: str):
 class ProgressMetricsPanel(ttk.Frame):
     def __init__(self, parent: tk.Widget) -> None:
         super().__init__(parent)
-        self.panel_width = 280
+        self.panel_width = 300
         self.container_label = tk.StringVar(value="Container: n/a")
         ttk.Label(self, textvariable=self.container_label, foreground="#475569", wraplength=self.panel_width, justify=tk.LEFT).pack(anchor=tk.W, fill=tk.X, pady=(0, 8))
         self.cpu_chart = LineChart(self, "CPU", "#22c55e", "%", 100.0)
         self.gpu_chart = LineChart(self, "GPU", "#3b82f6", "%", 100.0)
         self.ram_chart = LineChart(self, "RAM", "#f87171", " MiB", 1024.0)
         for chart in (self.cpu_chart, self.gpu_chart, self.ram_chart):
-            chart.canvas.configure(width=self.panel_width, height=68)
-        self.cpu_chart.pack(fill=tk.X, pady=(0, 10))
-        self.gpu_chart.pack(fill=tk.X, pady=(0, 10))
+            chart.canvas.configure(width=self.panel_width, height=104)
+        self.cpu_chart.pack(fill=tk.X, pady=(0, 12))
+        self.gpu_chart.pack(fill=tk.X, pady=(0, 12))
         self.ram_chart.pack(fill=tk.X)
 
     def reset(self) -> None:
@@ -58,6 +58,14 @@ def _progress_action(gui, context: dict | None, action) -> None:
     action()
 
 
+def _progress_action_button(parent: ttk.Frame, gui, text: str, icon_name: str, command, icon_color: str | None = None) -> ttk.Button:
+    icon = gui.gui._make_icon(icon_name, icon_color) if getattr(gui.gui, "_make_icon", None) is not None else None
+    options = {"text": f" {text}" if icon is not None else text, "command": command}
+    if icon is not None:
+        options.update({"image": icon, "compound": tk.LEFT})
+    return ttk.Button(parent, **options)
+
+
 def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> None:
     parent.rowconfigure(2, weight=1)
     parent.columnconfigure(0, weight=1)
@@ -79,21 +87,29 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
 
     actions = ttk.Frame(header)
     actions.grid(row=0, column=1, sticky=tk.E)
-    ttk.Button(
+    _progress_action_button(
         actions,
-        text="Job Info",
-        command=lambda: _progress_action(gui, context, gui._show_active_job_info),
+        gui,
+        "Job info",
+        "pending",
+        lambda: _progress_action(gui, context, gui._show_active_job_info),
+        icon_color="#475569",
     ).pack(side=tk.LEFT, padx=(0, 8))
-    ttk.Button(
+    _progress_action_button(
         actions,
-        text="Download outputs",
-        command=lambda: _progress_action(gui, context, gui._download_active_job_outputs),
+        gui,
+        "Download outputs",
+        "download",
+        lambda: _progress_action(gui, context, gui._download_active_job_outputs),
     ).pack(side=tk.LEFT, padx=(0, 8))
     if context is not None:
-        ttk.Button(
+        _progress_action_button(
             actions,
-            text="Close tab",
-            command=lambda: _progress_action(gui, context, lambda: gui._close_progress_tab(context["id"])),
+            gui,
+            "Close tab",
+            "failed",
+            lambda: _progress_action(gui, context, lambda: gui._close_progress_tab(context["id"])),
+            icon_color="#64748b",
         ).pack(side=tk.LEFT)
 
     ttk.Separator(parent, orient=tk.HORIZONTAL).grid(row=1, column=0, sticky=tk.EW)
@@ -247,7 +263,7 @@ def build_progress_tab(parent: ttk.Frame, gui, context: dict | None = None) -> N
 
     runtime_card.bind("<Configure>", _sync_runtime_wrap)
 
-    metrics_card = create_card(right, "MET", "Metrics", "", {"fill": tk.X})
+    metrics_card = create_card(right, "MET", "Metrics", "", {"fill": tk.BOTH, "expand": True})
     detail_chart = ProgressMetricsPanel(metrics_card)
     _target(context, gui, "detail_chart", detail_chart)
     detail_chart.pack(fill=tk.X)

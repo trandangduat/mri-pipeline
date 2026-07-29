@@ -36,11 +36,13 @@ class RemoteController:
         if label is None:
             return
         status_text = (status or self.gui.state.remote_status.get()).lower()
-        if "success" in status_text or "connected" in status_text:
+        if "disconnected" in status_text:
+            color = "#64748b"
+        elif "success" in status_text or "connected" in status_text:
             color = "#16a34a"
         elif "running" in status_text or "connecting" in status_text:
             color = "#2563eb"
-        elif "failed" in status_text or "error" in status_text or "disconnected" in status_text:
+        elif "failed" in status_text or "error" in status_text:
             color = "#dc2626"
         elif "pending" in status_text or "idle" in status_text:
             color = "#64748b"
