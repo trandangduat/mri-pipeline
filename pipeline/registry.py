@@ -585,6 +585,21 @@ def _fastsurfer_stage9(ctx: ToolContext) -> str:
     )
 
 
+def _fastsurfer_volume_stats(ctx: ToolContext) -> str:
+    return (
+        _fastsurfer_common(ctx)
+        + "ASEG=\"$MDIR/aseg.auto.mgz\"; "
+        "DEEP=\"$MDIR/aparc.DKTatlas+aseg.deep.withCC.mgz\"; if [ ! -s \"$DEEP\" ]; then DEEP=\"$MDIR/aparc.DKTatlas+aseg.deep.mgz\"; fi; "
+        "test -s \"$ASEG\"; test -s \"$DEEP\"; test -s \"$MDIR/orig.mgz\"; "
+        "mri_segstats --seg \"$ASEG\" --sum \"$STATSDIR/aseg.stats\" --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg \"$ASEG\" --sum \"$STATSDIR/aseg.stats\"; "
+        "LUT=\"$FASTSURFER_HOME/FastSurferCNN/config/FastSurfer_ColorLUT.tsv\"; LUT_FLAG=; if [ -s \"$LUT\" ]; then LUT_FLAG=\"--lut $LUT\"; fi; "
+        "python3 -s $FASTSURFER_HOME/FastSurferCNN/segstats.py --sid \"$SUBJ\" --segfile \"$DEEP\" --pvfile \"$MDIR/orig.mgz\" --segstatsfile \"$STATSDIR/aparc.DKTatlas+aseg.deep.stats\" --threads \"$THR\" $LUT_FLAG --empty --volume_precision 1 || mri_segstats --seg \"$DEEP\" --sum \"$STATSDIR/aparc.DKTatlas+aseg.deep.stats\"; "
+        "cp \"$STATSDIR\"/*.stats /output/stats/; "
+        "python3 /app/normalize_volumes.py --subject-id \"$SUBJ\" --stats-dir /output/stats --output-subcortical /output/stats/subcortical_volume.tsv --output-cortical /output/stats/cortical_volume.tsv --tool FastSurferVINN; "
+        "test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv"
+    )
+
+
 TOOL_DEFS: dict[str, dict] = {
     "fastsurfer_reorientation": {
         "entrypoint": "",
@@ -667,6 +682,20 @@ TOOL_DEFS: dict[str, dict] = {
         "output_globs": [
             "freesurfer/*/stats/lh.aparc.DKTatlas.mapped.stats",
             "freesurfer/*/stats/rh.aparc.DKTatlas.mapped.stats",
+            "freesurfer/*/stats/aseg.stats",
+            "stats/*.tsv",
+        ],
+    },
+    "fastsurfer_volume_stats_extraction": {
+        "entrypoint": "",
+        "display_name": "FastSurfer Volume Stats Extraction",
+        "image": "duattran05/mri-fastsurfervinn:latest",
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "command_builder": _fastsurfer_volume_stats,
+        "output_files": ["cortical_volume.tsv", "subcortical_volume.tsv"],
+        "output_globs": [
+            "freesurfer/*/stats/aparc.DKTatlas+aseg.deep.stats",
             "freesurfer/*/stats/aseg.stats",
             "stats/*.tsv",
         ],

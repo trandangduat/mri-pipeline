@@ -98,13 +98,14 @@ FASTSURFER_TOOLS = {
     "white_matter_segmentation": "fastsurfer_wm_segmentation",
     "surface_reconstruction": "",
     "surface_registration": "",
-    "stats_extraction": "fastsurfer_stats_extraction",
+    "stats_extraction": "fastsurfer_volume_stats_extraction",
 }
 
 FASTSURFER_SURFACE_TOOLS = {
     **FASTSURFER_TOOLS,
     "surface_reconstruction": "fastsurfer_surface_reconstruction",
     "surface_registration": "fastsurfer_surface_registration",
+    "stats_extraction": "fastsurfer_stats_extraction",
 }
 
 VOLUME_STATS = {"cortical_volume", "subcortical_volume"}
