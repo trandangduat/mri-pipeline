@@ -1,0 +1,462 @@
+schema_version: 1
+pipeline_id: fastsurfer_cortical_thickness
+display_name: FastSurfer - Cortical Thickness
+pipeline_version: 2.0.0
+description: Mirrors the current MRI Pipeline preset 'FastSurfer + Cortical Thickness'. Dependencies use a safe file-level
+  DAG so independent stages can be scheduled concurrently when resources allow.
+status: draft
+metadata:
+  validated: false
+  source: mri_pipeline_current_presets
+  processing_engine: fastsurfer
+  feature_set: cortical_thickness
+  pipeline_mode: FastSurfer + Cortical Thickness
+  default_profile_set: fastsurfer_cortical_thickness_default
+  required_outputs:
+  - cortical_thickness
+  optional_outputs:
+  - intermediate_work_products
+  active_pipeline_stages:
+  - reorientation
+  - segmentation
+  - template_registration
+  - bias_correction
+  - white_matter_segmentation
+  - surface_reconstruction
+  - surface_registration
+  - stats_extraction
+  skipped_pipeline_stages:
+  - brain_extraction
+  stage_options:
+    command_template: mri_pipeline_executor
+    input_placeholder: '{input}'
+    output_placeholder: '{output}'
+    workspace_placeholder: '{workspace_id}'
+stages:
+- id: reorient_resize
+  display_name: Reorientation and Resize
+  operation: reorientation_resize
+  implementation: fastsurfer_reorientation
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on: []
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_reorient_resize_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: reorientation
+      pipeline_tool_key: fastsurfer_reorientation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_reorient_resize_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: reorientation
+      pipeline_tool_key: fastsurfer_reorientation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_reorient_resize_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: reorientation
+      pipeline_tool_key: fastsurfer_reorientation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: reorientation
+    pipeline_tool_key: fastsurfer_reorientation
+    pipeline_stage_order: 1
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/orig.mgz
+- id: subcortical_segmentation
+  display_name: Subcortical Segmentation
+  operation: subcortical_segmentation
+  implementation: fastsurfer_segmentation
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - reorient_resize
+  execution_configurations:
+  - id: gpu_default
+    mode: gpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_subcortical_segmentation_gpu_default
+    metadata:
+      executor: gpu
+      pipeline_stage: segmentation
+      pipeline_tool_key: fastsurfer_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+    gpu:
+      required: true
+      minimum_memory_mib: 4096
+      device_classes:
+      - generic_cuda
+      exclusive: true
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_subcortical_segmentation_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: segmentation
+      pipeline_tool_key: fastsurfer_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_subcortical_segmentation_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: segmentation
+      pipeline_tool_key: fastsurfer_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_subcortical_segmentation_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: segmentation
+      pipeline_tool_key: fastsurfer_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: segmentation
+    pipeline_tool_key: fastsurfer_segmentation
+    pipeline_stage_order: 2
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/aseg.auto.mgz
+- id: template_registration
+  display_name: Template Registration
+  operation: template_registration
+  implementation: fastsurfer_template_registration
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - subcortical_segmentation
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_template_registration_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fastsurfer_template_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_template_registration_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fastsurfer_template_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_template_registration_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fastsurfer_template_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: template_registration
+    pipeline_tool_key: fastsurfer_template_registration
+    pipeline_stage_order: 3
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/transforms/talairach.lta
+- id: image_standardization
+  display_name: Image Standardization
+  operation: image_standardization
+  implementation: fastsurfer_standardization
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - template_registration
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_image_standardization_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: bias_correction
+      pipeline_tool_key: fastsurfer_standardization
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_image_standardization_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: bias_correction
+      pipeline_tool_key: fastsurfer_standardization
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_image_standardization_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: bias_correction
+      pipeline_tool_key: fastsurfer_standardization
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: bias_correction
+    pipeline_tool_key: fastsurfer_standardization
+    pipeline_stage_order: 4
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/norm.mgz
+- id: wm_segmentation
+  display_name: White-matter Segmentation
+  operation: white_matter_segmentation
+  implementation: fastsurfer_wm_segmentation
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - image_standardization
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_wm_segmentation_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: white_matter_segmentation
+      pipeline_tool_key: fastsurfer_wm_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_wm_segmentation_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: white_matter_segmentation
+      pipeline_tool_key: fastsurfer_wm_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_wm_segmentation_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: white_matter_segmentation
+      pipeline_tool_key: fastsurfer_wm_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_8
+    mode: cpu
+    cpu_threads: 8
+    profile_ref: fastsurfer_cortical_thickness_default_wm_segmentation_cpu_8
+    metadata:
+      executor: cpu
+      pipeline_stage: white_matter_segmentation
+      pipeline_tool_key: fastsurfer_wm_segmentation
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: white_matter_segmentation
+    pipeline_tool_key: fastsurfer_wm_segmentation
+    pipeline_stage_order: 5
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/wm.mgz
+- id: surface_reconstruction
+  display_name: Surface Reconstruction
+  operation: surface_reconstruction
+  implementation: fastsurfer_surface_reconstruction
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - wm_segmentation
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_surface_reconstruction_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_reconstruction
+      pipeline_tool_key: fastsurfer_surface_reconstruction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_surface_reconstruction_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_reconstruction
+      pipeline_tool_key: fastsurfer_surface_reconstruction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_surface_reconstruction_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_reconstruction
+      pipeline_tool_key: fastsurfer_surface_reconstruction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_8
+    mode: cpu
+    cpu_threads: 8
+    profile_ref: fastsurfer_cortical_thickness_default_surface_reconstruction_cpu_8
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_reconstruction
+      pipeline_tool_key: fastsurfer_surface_reconstruction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: surface_reconstruction
+    pipeline_tool_key: fastsurfer_surface_reconstruction
+    pipeline_stage_order: 6
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/surf/lh.thickness
+    - freesurfer/*/surf/rh.thickness
+- id: surface_registration
+  display_name: Surface Registration
+  operation: surface_registration
+  implementation: fastsurfer_surface_registration
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - surface_reconstruction
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_surface_registration_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_registration
+      pipeline_tool_key: fastsurfer_surface_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_surface_registration_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_registration
+      pipeline_tool_key: fastsurfer_surface_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_surface_registration_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: surface_registration
+      pipeline_tool_key: fastsurfer_surface_registration
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: surface_registration
+    pipeline_tool_key: fastsurfer_surface_registration
+    pipeline_stage_order: 7
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/surf/lh.sphere.reg
+    - freesurfer/*/surf/rh.sphere.reg
+- id: statistics_atlas_mapping
+  display_name: Statistics and Atlas Mapping
+  operation: statistics_atlas_mapping
+  implementation: fastsurfer_stats_extraction
+  implementation_version: 2.4.2
+  enabled: true
+  depends_on:
+  - subcortical_segmentation
+  - surface_registration
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: fastsurfer_cortical_thickness_default_statistics_atlas_mapping_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: stats_extraction
+      pipeline_tool_key: fastsurfer_stats_extraction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: fastsurfer_cortical_thickness_default_statistics_atlas_mapping_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: stats_extraction
+      pipeline_tool_key: fastsurfer_stats_extraction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: fastsurfer_cortical_thickness_default_statistics_atlas_mapping_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: stats_extraction
+      pipeline_tool_key: fastsurfer_stats_extraction
+      docker_image: duattran05/mri-fastsurfervinn:latest
+      provisional: true
+  metadata:
+    pipeline_stage: stats_extraction
+    pipeline_tool_key: fastsurfer_stats_extraction
+    pipeline_stage_order: 8
+    docker_image: duattran05/mri-fastsurfervinn:latest
+    needs_license: true
+    output_files:
+    - cortical_volume.tsv
+    - subcortical_volume.tsv
+    output_globs:
+    - freesurfer/*/stats/lh.aparc.DKTatlas.mapped.stats
+    - freesurfer/*/stats/rh.aparc.DKTatlas.mapped.stats
+    - freesurfer/*/stats/aseg.stats
+    - stats/*.tsv

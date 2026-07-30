@@ -1,0 +1,183 @@
+schema_version: 1
+profile_set_id: freesurfer7_volumetrics_default
+display_name: FreeSurfer 7 - Volumetrics default profiles
+profile_set_version: 2.0.0
+status: draft
+machine_reference:
+  name: application_default
+  notes: Provisional values for UI integration; replace after target-infrastructure measurement.
+metadata:
+  validated: false
+  source: mri_pipeline_current_presets
+  provisional: true
+profiles:
+- profile_id: freesurfer7_volumetrics_default_reorient_resize_cpu_1
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_1
+  implementation: fs7_recon_style_reorientation
+  implementation_version: 7.4.1
+  stage: reorient_resize
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 30000
+    upper_ms: 37500
+  memory:
+    peak_mib: 256
+    reservation_mib: 320
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_reorient_resize_cpu_2
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_2
+  implementation: fs7_recon_style_reorientation
+  implementation_version: 7.4.1
+  stage: reorient_resize
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 19500
+    upper_ms: 24375
+  memory:
+    peak_mib: 282
+    reservation_mib: 353
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_1
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_1
+  implementation: fs7_recon_style_brain_extraction
+  implementation_version: 7.4.1
+  stage: brain_extraction
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 138000
+    upper_ms: 172500
+  memory:
+    peak_mib: 2355
+    reservation_mib: 2944
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_2
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_2
+  implementation: fs7_recon_style_brain_extraction
+  implementation_version: 7.4.1
+  stage: brain_extraction
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 89700
+    upper_ms: 112125
+  memory:
+    peak_mib: 2591
+    reservation_mib: 3239
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_4
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_4
+  implementation: fs7_recon_style_brain_extraction
+  implementation_version: 7.4.1
+  stage: brain_extraction
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 62100
+    upper_ms: 77625
+  memory:
+    peak_mib: 2944
+    reservation_mib: 3680
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_1
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_1
+  implementation: fs7_recon_style_segmentation
+  implementation_version: 7.4.1
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 600000
+    upper_ms: 750000
+  memory:
+    peak_mib: 4096
+    reservation_mib: 5120
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_2
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_2
+  implementation: fs7_recon_style_segmentation
+  implementation_version: 7.4.1
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 390000
+    upper_ms: 487500
+  memory:
+    peak_mib: 4506
+    reservation_mib: 5633
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_4
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_4
+  implementation: fs7_recon_style_segmentation
+  implementation_version: 7.4.1
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 270000
+    upper_ms: 337500
+  memory:
+    peak_mib: 5120
+    reservation_mib: 6400
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_1
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_1
+  implementation: fs7_recon_style_subcortical_stats
+  implementation_version: 7.4.1
+  stage: statistics_atlas_mapping
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 180000
+    upper_ms: 225000
+  memory:
+    peak_mib: 1024
+    reservation_mib: 1280
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_2
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_2
+  implementation: fs7_recon_style_subcortical_stats
+  implementation_version: 7.4.1
+  stage: statistics_atlas_mapping
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 117000
+    upper_ms: 146250
+  memory:
+    peak_mib: 1126
+    reservation_mib: 1408
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft

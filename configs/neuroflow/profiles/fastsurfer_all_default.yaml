@@ -1,0 +1,475 @@
+schema_version: 1
+profile_set_id: fastsurfer_all_default
+display_name: FastSurfer - Volume + Cortical Thickness default profiles
+profile_set_version: 2.0.0
+status: draft
+machine_reference:
+  name: application_default
+  notes: Provisional values for UI integration; replace after target-infrastructure measurement.
+metadata:
+  validated: false
+  source: mri_pipeline_current_presets
+  provisional: true
+profiles:
+- profile_id: fastsurfer_all_default_reorient_resize_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_reorientation
+  implementation_version: 2.4.2
+  stage: reorient_resize
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 34500
+    upper_ms: 43125
+  memory:
+    peak_mib: 294
+    reservation_mib: 368
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_reorient_resize_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_reorientation
+  implementation_version: 2.4.2
+  stage: reorient_resize
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 22425
+    upper_ms: 28032
+  memory:
+    peak_mib: 324
+    reservation_mib: 405
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_reorient_resize_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_reorientation
+  implementation_version: 2.4.2
+  stage: reorient_resize
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 15525
+    upper_ms: 19407
+  memory:
+    peak_mib: 368
+    reservation_mib: 460
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_subcortical_segmentation_gpu_default
+  pipeline_id: fastsurfer_all
+  configuration_id: gpu_default
+  implementation: fastsurfer_segmentation
+  implementation_version: 2.4.2
+  stage: subcortical_segmentation
+  mode: gpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 276000
+    upper_ms: 345000
+  memory:
+    peak_mib: 3768
+    reservation_mib: 4710
+  gpu_memory:
+    peak_mib: 4096
+    reservation_mib: 5120
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_subcortical_segmentation_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_segmentation
+  implementation_version: 2.4.2
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 690000
+    upper_ms: 862500
+  memory:
+    peak_mib: 4710
+    reservation_mib: 5888
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_subcortical_segmentation_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_segmentation
+  implementation_version: 2.4.2
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 448500
+    upper_ms: 560625
+  memory:
+    peak_mib: 5182
+    reservation_mib: 6478
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_subcortical_segmentation_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_segmentation
+  implementation_version: 2.4.2
+  stage: subcortical_segmentation
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 310500
+    upper_ms: 388125
+  memory:
+    peak_mib: 5888
+    reservation_mib: 7360
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_template_registration_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_template_registration
+  implementation_version: 2.4.2
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 103500
+    upper_ms: 129375
+  memory:
+    peak_mib: 1178
+    reservation_mib: 1473
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_template_registration_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_template_registration
+  implementation_version: 2.4.2
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 67275
+    upper_ms: 84094
+  memory:
+    peak_mib: 1295
+    reservation_mib: 1619
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_template_registration_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_template_registration
+  implementation_version: 2.4.2
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 46575
+    upper_ms: 58219
+  memory:
+    peak_mib: 1472
+    reservation_mib: 1840
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_image_standardization_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_standardization
+  implementation_version: 2.4.2
+  stage: image_standardization
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 69000
+    upper_ms: 86250
+  memory:
+    peak_mib: 589
+    reservation_mib: 737
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_image_standardization_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_standardization
+  implementation_version: 2.4.2
+  stage: image_standardization
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 44850
+    upper_ms: 56063
+  memory:
+    peak_mib: 647
+    reservation_mib: 809
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_image_standardization_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_standardization
+  implementation_version: 2.4.2
+  stage: image_standardization
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 31050
+    upper_ms: 38813
+  memory:
+    peak_mib: 736
+    reservation_mib: 920
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_wm_segmentation_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_wm_segmentation
+  implementation_version: 2.4.2
+  stage: wm_segmentation
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 345000
+    upper_ms: 431250
+  memory:
+    peak_mib: 4710
+    reservation_mib: 5888
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_wm_segmentation_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_wm_segmentation
+  implementation_version: 2.4.2
+  stage: wm_segmentation
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 224250
+    upper_ms: 280313
+  memory:
+    peak_mib: 5182
+    reservation_mib: 6478
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_wm_segmentation_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_wm_segmentation
+  implementation_version: 2.4.2
+  stage: wm_segmentation
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 155250
+    upper_ms: 194063
+  memory:
+    peak_mib: 5888
+    reservation_mib: 7360
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_wm_segmentation_cpu_8
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_8
+  implementation: fastsurfer_wm_segmentation
+  implementation_version: 2.4.2
+  stage: wm_segmentation
+  mode: cpu
+  cpu_threads: 8
+  runtime:
+    point_ms: 120750
+    upper_ms: 150938
+  memory:
+    peak_mib: 6830
+    reservation_mib: 8538
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_reconstruction_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_surface_reconstruction
+  implementation_version: 2.4.2
+  stage: surface_reconstruction
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 2070000
+    upper_ms: 2587500
+  memory:
+    peak_mib: 9421
+    reservation_mib: 11777
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_reconstruction_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_surface_reconstruction
+  implementation_version: 2.4.2
+  stage: surface_reconstruction
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 1345500
+    upper_ms: 1681875
+  memory:
+    peak_mib: 10363
+    reservation_mib: 12954
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_reconstruction_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_surface_reconstruction
+  implementation_version: 2.4.2
+  stage: surface_reconstruction
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 931500
+    upper_ms: 1164375
+  memory:
+    peak_mib: 11776
+    reservation_mib: 14720
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_reconstruction_cpu_8
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_8
+  implementation: fastsurfer_surface_reconstruction
+  implementation_version: 2.4.2
+  stage: surface_reconstruction
+  mode: cpu
+  cpu_threads: 8
+  runtime:
+    point_ms: 724500
+    upper_ms: 905625
+  memory:
+    peak_mib: 13660
+    reservation_mib: 17075
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_registration_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_surface_registration
+  implementation_version: 2.4.2
+  stage: surface_registration
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 690000
+    upper_ms: 862500
+  memory:
+    peak_mib: 2355
+    reservation_mib: 2944
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_registration_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_surface_registration
+  implementation_version: 2.4.2
+  stage: surface_registration
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 448500
+    upper_ms: 560625
+  memory:
+    peak_mib: 2591
+    reservation_mib: 3239
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_surface_registration_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_surface_registration
+  implementation_version: 2.4.2
+  stage: surface_registration
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 310500
+    upper_ms: 388125
+  memory:
+    peak_mib: 2944
+    reservation_mib: 3680
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_statistics_atlas_mapping_cpu_1
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_1
+  implementation: fastsurfer_stats_extraction
+  implementation_version: 2.4.2
+  stage: statistics_atlas_mapping
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 207000
+    upper_ms: 258750
+  memory:
+    peak_mib: 1178
+    reservation_mib: 1473
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_statistics_atlas_mapping_cpu_2
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_2
+  implementation: fastsurfer_stats_extraction
+  implementation_version: 2.4.2
+  stage: statistics_atlas_mapping
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 134550
+    upper_ms: 168188
+  memory:
+    peak_mib: 1295
+    reservation_mib: 1619
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
+- profile_id: fastsurfer_all_default_statistics_atlas_mapping_cpu_4
+  pipeline_id: fastsurfer_all
+  configuration_id: cpu_4
+  implementation: fastsurfer_stats_extraction
+  implementation_version: 2.4.2
+  stage: statistics_atlas_mapping
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 93150
+    upper_ms: 116438
+  memory:
+    peak_mib: 1472
+    reservation_mib: 1840
+  sample_count: 0
+  source: provisional_ui_integration
+  status: draft
