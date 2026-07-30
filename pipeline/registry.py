@@ -125,7 +125,6 @@ def _fs8r_stage5(ctx: ToolContext) -> str:
         "mri_em_register -uns 3 -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta; "
         "CTRL_FLAG=\"\"; if [ -f ctrl_pts.mgz ]; then CTRL_FLAG=\"-c ctrl_pts.mgz\"; fi; "
         "mri_ca_normalize $CTRL_FLAG -mask brainmask.mgz nu.mgz \"$GCA\" transforms/talairach.lta norm.mgz; "
-        "mri_ca_register -nobigventricles -T transforms/talairach.lta -align-after -mask brainmask.mgz norm.mgz \"$GCA\" transforms/talairach.m3z; "
         "mri_normalize -seed 1234 -mprage -aseg aseg.presurf.mgz -mask brainmask.mgz norm.mgz brain.mgz; "
         "AntsDenoiseImageFs -i brain.mgz -o antsdn.brain.mgz; "
         "mri_mask -T 5 brain.mgz brainmask.mgz brain.finalsurfs.mgz; "
@@ -702,6 +701,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "bias_correction",
         "needs_license": True,
         "command_builder": _fs8r_stage5,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/mri/brain.finalsurfs.mgz", "freesurfer/*/mri/antsdn.brain.mgz"],
     },
@@ -711,6 +711,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "white_matter_segmentation",
         "needs_license": True,
         "command_builder": _fs8r_stage6,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/mri/filled.mgz", "freesurfer/*/mri/wm.mgz"],
     },
@@ -720,6 +721,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "surface_reconstruction",
         "needs_license": True,
         "command_builder": _fs8r_stage7,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/surf/lh.thickness", "freesurfer/*/surf/rh.thickness"],
     },
@@ -729,6 +731,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "surface_registration",
         "needs_license": True,
         "command_builder": _fs8r_stage8,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
         "output_globs": ["freesurfer/*/surf/lh.sphere.reg", "freesurfer/*/surf/rh.sphere.reg"],
     },

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pipeline.config import ToolContext
 from pipeline.presets import FREESURFER_8_SURFACE_TOOLS, PRESET_CONFIGS
-from pipeline.registry import STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, tool_display_name, tool_key_from_display
+from pipeline.registry import (
+    FREESURFER_RECON_STYLE_TIMEOUT,
+    STAGE_ORDER,
+    TOOL_DEFS,
+    enabled_tools_for_stage,
+    tool_display_name,
+    tool_key_from_display,
+)
 
 
 def test_freesurfer8_surface_presets_use_surface_tools() -> None:
@@ -53,6 +60,16 @@ def test_freesurfer8_surface_outputs_are_pipeline_markers() -> None:
     ]
 
 
+def test_freesurfer8_long_surface_stages_use_recon_style_timeout() -> None:
+    for tool_key in (
+        "fs8_reduced54_bias_correction",
+        "fs8_reduced54_wm_segmentation",
+        "fs8_reduced54_surface_reconstruction",
+        "fs8_reduced54_surface_registration",
+    ):
+        assert TOOL_DEFS[tool_key]["timeout"] == FREESURFER_RECON_STYLE_TIMEOUT
+
+
 def test_freesurfer8_surface_tool_names_do_not_expose_reduced54() -> None:
     selected_tool_names = [tool_display_name(tool) for tool in FREESURFER_8_SURFACE_TOOLS.values()]
     assert all("Reduced54" not in name for name in selected_tool_names)
@@ -85,6 +102,22 @@ def test_freesurfer8_volume_synthseg_uses_parc() -> None:
     )
 
     assert "--keepgeom --addctab --parc --cpu" in command
+
+
+def test_freesurfer8_bias_correction_matches_reduced54_stage5() -> None:
+    command = TOOL_DEFS["fs8_reduced54_bias_correction"]["command_builder"](
+        ToolContext(
+            input_path="/input.nii",
+            subject_id="subj",
+            threads=4,
+            device="cpu",
+            enabled_stats={"cortical_volume": True, "subcortical_volume": True, "cortical_thickness": True},
+        )
+    )
+
+    assert "mri_ca_normalize" in command
+    assert "mri_ca_register" not in command
+    assert "mri_normalize -seed 1234 -mprage -aseg aseg.presurf.mgz" in command
 
 
 def test_skipped_display_value_maps_to_no_tool() -> None:
