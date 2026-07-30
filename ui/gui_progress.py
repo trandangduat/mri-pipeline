@@ -31,6 +31,12 @@ def step_status_from_result(success: bool, tool: str = "", error: str = "") -> s
     return "Done" if success else "Failed"
 
 
+def progress_status_for_stage(status: str, stage: str, tool: str) -> str:
+    if stage in STAGE_ORDER and status == "success" and not tool:
+        return "skipped"
+    return status
+
+
 class ProgressController:
     def __init__(self, gui):
         self.gui = gui
@@ -833,7 +839,9 @@ class ProgressController:
             status = str(event.get("status", "running"))
             stage = str(event.get("stage", "pipeline"))
             msg = str(event.get("msg", ""))
-            label = {"running": "Running", "success": "Running", "failed": "Failed", "paused": "Paused"}.get(status, status.capitalize())
+            current_tool_for_event = self.progress_selected_tools.get(stage, "") if stage in STAGE_ORDER else ""
+            display_status = progress_status_for_stage(status, stage, current_tool_for_event)
+            label = {"running": "Running", "success": "Running", "skipped": "Skipped", "failed": "Failed", "paused": "Paused"}.get(display_status, display_status.capitalize())
             target_key = getattr(self, "active_image_key", "")
             current_run = self.image_runs.get(target_key, {}) if target_key else {}
             idx = int(current_run.get("idx", 1) or 1)
@@ -841,21 +849,21 @@ class ProgressController:
             overall_pct = pct if stage == "batch" else (((idx - 1) + (pct / 100.0)) / total) * 100.0
             self.gui.state.overall_progress_var.set(max(0, min(100, overall_pct)))
             self.gui.state.overall_progress_text.set(f"{int(max(0, min(100, overall_pct)))}%")
-            self.gui.state.status_text.set(status.capitalize())
+            self.gui.state.status_text.set(display_status.capitalize())
             prefix = "REMOTE " if self.gui.state.run_target.get() == "Server" else ""
             self._log(f"{prefix}{status.upper()} {stage}: {msg}")
             if target_key:
                 stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
-                stage_text = f"{stage_name} - {status.capitalize()}"
+                stage_text = f"{stage_name} - {display_status.capitalize()}"
                 image_pct = None if stage == "batch" else pct
                 if stage in STAGE_ORDER:
-                    current_tool = self.progress_selected_tools.get(stage, "")
                     step_status = {
                         "running": "Running",
-                        "success": "Skipped" if not current_tool else "Done",
+                        "success": "Skipped" if not current_tool_for_event else "Done",
+                        "skipped": "Skipped",
                         "failed": "Failed",
                         "paused": "Paused",
-                    }.get(status, status.capitalize())
+                    }.get(display_status, display_status.capitalize())
                     self._update_run_step(target_key, stage, status=step_status)
                 self._update_image_run(
                     target_key,
@@ -922,24 +930,27 @@ class ProgressController:
         overall_pct = max(0, min(100, overall_pct))
         self.gui.state.overall_progress_var.set(overall_pct)
         self.gui.state.overall_progress_text.set(f"{int(overall_pct)}%")
-        self.gui.state.status_text.set(status.capitalize())
+        current_tool_for_event = self.progress_selected_tools.get(stage, "") if stage in STAGE_ORDER else ""
+        display_status = progress_status_for_stage(status, stage, current_tool_for_event)
+        self.gui.state.status_text.set(display_status.capitalize())
         if target_key:
             label = {
                 "running": "Running",
                 "success": "Running" if stage != "pipeline" else "Done",
+                "skipped": "Skipped",
                 "failed": "Failed",
                 "paused": "Paused",
-            }.get(status, status.capitalize())
+            }.get(display_status, display_status.capitalize())
             stage_name = STAGE_LABELS.get(stage, "Batch" if stage == "batch" else stage.replace("_", " ").title())
-            stage_text = f"{stage_name} - {status.capitalize()}"
+            stage_text = f"{stage_name} - {display_status.capitalize()}"
             if stage in STAGE_ORDER:
-                current_tool = self.progress_selected_tools.get(stage, "")
                 step_status = {
                     "running": "Running",
-                    "success": "Skipped" if not current_tool else "Done",
+                    "success": "Skipped" if not current_tool_for_event else "Done",
+                    "skipped": "Skipped",
                     "failed": "Failed",
                     "paused": "Paused",
-                }.get(status, status.capitalize())
+                }.get(display_status, display_status.capitalize())
                 self._update_run_step(target_key, stage, status=step_status)
             self._update_image_run(
                 target_key,

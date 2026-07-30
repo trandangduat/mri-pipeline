@@ -32,6 +32,8 @@ from pipeline.registry import (
 from pipeline.presets import (
     PIPELINE_MODES,
     PIPELINE_MODE_ALIASES,
+    FS7_VOLUME_SKIPPED_STAGES,
+    SUBCORTICAL_VOLUME_STATS,
     VOLUME_SKIPPED_STAGES,
     PRESET_CONFIGS,
     VOLUME_STATS,
@@ -65,18 +67,26 @@ class PipelineGUI:
         return bool(var is not None and var.get())
 
     def _volume_skipped_stages_enabled(self) -> bool:
-        mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
-        return not mode.startswith("FreeSurfer 7")
+        return bool(self._volume_skipped_stages_for_mode())
+
+    def _volume_skipped_stages_for_mode(self, mode: str | None = None) -> set[str]:
+        normalized = self._normalize_pipeline_mode(mode or self.state.pipeline_mode.get())
+        if normalized == "FreeSurfer 7 + Volume":
+            return set(FS7_VOLUME_SKIPPED_STAGES)
+        if normalized.startswith("FreeSurfer 7"):
+            return set()
+        return set(VOLUME_SKIPPED_STAGES)
 
     def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:
         thickness_on = self._cortical_thickness_enabled()
+        volume_skipped = self._volume_skipped_stages_for_mode()
         for stage in STAGE_ORDER:
             current = self.state.tool_vars[stage].get().strip() if stage in self.state.tool_vars else ""
             # Keep any existing choice (including explicit skips) unless force-resetting into Custom.
             if not force_reset and current:
                 continue
             tools = enabled_tools_for_stage(stage)
-            if self._volume_skipped_stages_enabled() and stage in VOLUME_SKIPPED_STAGES and not thickness_on:
+            if stage in volume_skipped and not thickness_on:
                 self.state.tool_vars[stage].set("Not available")
             elif tools:
                 self.state.tool_vars[stage].set(tool_display_name(tools[0]))
@@ -84,28 +94,36 @@ class PipelineGUI:
                 self.state.tool_vars[stage].set("Not available")
 
     def _sync_surface_stages_with_stats(self) -> None:
-        """Steps 7-8 track cortical thickness: off => skipped, on => restore a tool if needed."""
-        if not self._volume_skipped_stages_enabled():
+        """Preset-specific volume-only stages are disabled unless thickness needs them."""
+        volume_skipped = self._volume_skipped_stages_for_mode()
+        if not volume_skipped:
             return
+        mode = self._normalize_pipeline_mode(self.state.pipeline_mode.get())
+        preset = PRESET_CONFIGS.get(mode)
         thickness_on = self._cortical_thickness_enabled()
-        for stage in VOLUME_SKIPPED_STAGES:
+        for stage in volume_skipped:
             if stage not in self.state.tool_vars:
                 continue
             tools = enabled_tools_for_stage(stage)
             if not thickness_on or not tools:
                 self.state.tool_vars[stage].set("Not available")
                 continue
+            preset_tool = str((preset or {}).get("tools", {}).get(stage, ""))
+            if preset is not None and not preset_tool:
+                self.state.tool_vars[stage].set("Not available")
+                continue
             current = self.state.tool_vars[stage].get().strip()
             if not current or current == "Not available":
-                self.state.tool_vars[stage].set(tool_display_name(tools[0]))
+                self.state.tool_vars[stage].set(tool_display_name(preset_tool or tools[0]))
 
     def _sync_tool_combo_states(self) -> None:
         """Enable tool dropdowns for active stages; dim/disable skipped ones."""
         thickness_on = self._cortical_thickness_enabled()
+        volume_skipped = self._volume_skipped_stages_for_mode()
         for stage, combo in getattr(self, "tool_combos", {}).items():
             tools = enabled_tools_for_stage(stage)
             value = self.state.tool_vars[stage].get() if stage in self.state.tool_vars else ""
-            surface_skipped = self._volume_skipped_stages_enabled() and stage in VOLUME_SKIPPED_STAGES and not thickness_on
+            surface_skipped = stage in volume_skipped and not thickness_on
             if not tools or value == "Not available" or surface_skipped:
                 combo.configure(state=tk.DISABLED, style="Skipped.TCombobox")
             else:
@@ -869,11 +887,10 @@ class PipelineGUI:
                             self.state.tool_vars[stage].set("Not available")
                         else:
                             self.state.tool_vars[stage].set(tool_display_name(tool))
-                if stats == VOLUME_STATS:
-                    if mode.startswith("FreeSurfer 7"):
-                        self.state.pipeline_note.set(f"{mode}: volume vectors are selected. The FreeSurfer 7 recon-style workflow runs all 9 dependent stages.")
-                    else:
-                        self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Unneeded stages are skipped.")
+                if stats == SUBCORTICAL_VOLUME_STATS:
+                    self.state.pipeline_note.set(f"{mode}: subcortical volume vector is selected. Surface-dependent stages are skipped.")
+                elif stats == VOLUME_STATS:
+                    self.state.pipeline_note.set(f"{mode}: cortical and subcortical volume vectors are selected. Unneeded stages are skipped.")
                 elif stats == THICKNESS_STATS:
                     suffix = " FastSurfer presets use FastSurferVINN for segmentation and FreeSurfer surface steps for thickness."
                     self.state.pipeline_note.set(f"{mode}: cortical thickness vector is selected with FreeSurfer aparc by default. Surface steps 7-8 are enabled." + (suffix if mode.startswith("FastSurfer") else ""))

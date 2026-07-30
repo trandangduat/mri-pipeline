@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pipeline.config import ToolContext
-from pipeline.presets import FREESURFER_7_SURFACE_TOOLS, PRESET_CONFIGS
+from pipeline.presets import FREESURFER_7_SURFACE_TOOLS, FREESURFER_7_VOLUME_TOOLS, PRESET_CONFIGS, SUBCORTICAL_VOLUME_STATS
 from pipeline.registry import STAGE_ORDER, TOOL_DEFS
 
 
@@ -17,12 +17,29 @@ EXPECTED_FS7_TOOLS = {
     "stats_extraction": "fs7_recon_style_stats",
 }
 
+EXPECTED_FS7_VOLUME_TOOLS = {
+    **EXPECTED_FS7_TOOLS,
+    "template_registration": "",
+    "bias_correction": "",
+    "white_matter_segmentation": "",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": "fs7_recon_style_subcortical_stats",
+}
+
 
 def test_freesurfer7_presets_use_recon_style_9_stage_tools() -> None:
     assert FREESURFER_7_SURFACE_TOOLS == EXPECTED_FS7_TOOLS
-    assert PRESET_CONFIGS["FreeSurfer 7 + Volume"]["tools"] == EXPECTED_FS7_TOOLS
     assert PRESET_CONFIGS["FreeSurfer 7 + Cortical Thickness"]["tools"] == EXPECTED_FS7_TOOLS
     assert PRESET_CONFIGS["FreeSurfer 7 + Volume + Cortical Thickness"]["tools"] == EXPECTED_FS7_TOOLS
+
+
+def test_freesurfer7_volume_preset_is_subcortical_only() -> None:
+    preset = PRESET_CONFIGS["FreeSurfer 7 + Volume"]
+
+    assert FREESURFER_7_VOLUME_TOOLS == EXPECTED_FS7_VOLUME_TOOLS
+    assert preset["tools"] == EXPECTED_FS7_VOLUME_TOOLS
+    assert preset["stats"] == SUBCORTICAL_VOLUME_STATS
 
 
 def test_freesurfer7_recon_style_tools_cover_all_pipeline_stages() -> None:
@@ -56,3 +73,15 @@ def test_freesurfer7_commands_match_successful_standalone_flow() -> None:
     assert "mris_ca_label -l label/lh.cortex.label" in commands["surface_registration"]
     assert "mri_surf2volseg --o aseg.mgz" in commands["stats_extraction"]
     assert "mri_segstats --seed 1234 --seg mri/aseg.mgz" in commands["stats_extraction"]
+
+
+def test_freesurfer7_volume_stats_use_aseg_without_surface_dependencies() -> None:
+    command = TOOL_DEFS["fs7_recon_style_subcortical_stats"]["command_builder"](
+        ToolContext(input_path="/input/T1.nii.gz", subject_id="I776974", threads=4, device="cpu")
+    )
+
+    assert "mri_segstats --seg \"$SEG\"" in command
+    assert "normalize_volumes.py" in command
+    assert "subcortical_volume.tsv" in command
+    assert "mris_place_surface" not in command
+    assert "mri_surf2volseg" not in command

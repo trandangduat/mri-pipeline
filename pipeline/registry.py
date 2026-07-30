@@ -415,6 +415,19 @@ def _fs7r_stage9(ctx: ToolContext) -> str:
     )
 
 
+def _fs7r_subcortical_stats(ctx: ToolContext) -> str:
+    return (
+        _fs7r_common(ctx)
+        + "cd \"$SD\"; "
+        "SEG=mri/aseg.auto.mgz; if [ ! -s \"$SEG\" ]; then SEG=mri/aseg.presurf.mgz; fi; "
+        "test -s \"$SEG\"; "
+        "mri_segstats --seg \"$SEG\" --sum stats/aseg.stats --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg \"$SEG\" --sum stats/aseg.stats; "
+        "cp stats/aseg.stats /output/stats/ 2>/dev/null || true; "
+        "python3 /app/normalize_volumes.py --subject-id \"$SUBJ\" --stats-dir /output/stats --output-subcortical /output/stats/subcortical_volume.tsv --output-cortical /output/stats/cortical_volume.tsv --tool FreeSurfer7; "
+        "test -s /output/stats/subcortical_volume.tsv"
+    )
+
+
 
 def _fastsurfer_common(ctx: ToolContext) -> str:
     subject = _q(ctx.subject_id)
@@ -828,6 +841,15 @@ TOOL_DEFS: dict[str, dict] = {
         "command_builder": _fs7r_stage9,
         "output_files": ["lh.aparc.stats", "rh.aparc.stats", "aseg.stats"],
         "output_globs": ["freesurfer/*/stats/lh.aparc.stats", "freesurfer/*/stats/rh.aparc.stats", "freesurfer/*/stats/aseg.stats"],
+    },
+    "fs7_recon_style_subcortical_stats": {
+        "display_name": "FreeSurfer 7 Subcortical Stats",
+        "image": FS7_RECON_STYLE_IMAGE,
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "command_builder": _fs7r_subcortical_stats,
+        "output_files": ["aseg.stats", "subcortical_volume.tsv"],
+        "output_globs": ["freesurfer/*/stats/aseg.stats", "stats/subcortical_volume.tsv"],
     },
     "mri_convert_fs7": {
         "display_name": "MRI Convert FreeSurfer7",

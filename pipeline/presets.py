@@ -36,6 +36,14 @@ VOLUME_SKIPPED_STAGES = {
     "surface_registration",
 }
 
+FS7_VOLUME_SKIPPED_STAGES = {
+    "template_registration",
+    "bias_correction",
+    "white_matter_segmentation",
+    "surface_reconstruction",
+    "surface_registration",
+}
+
 _BASE_FS7_TOOLS = {
     "reorientation": "mri_convert_fs7",
     "brain_extraction": "synthstrip_fs7",
@@ -57,6 +65,12 @@ FREESURFER_7_TOOLS = {
     "surface_reconstruction": "fs7_recon_style_surface_reconstruction",
     "surface_registration": "fs7_recon_style_surface_registration",
     "stats_extraction": "fs7_recon_style_stats",
+}
+
+FREESURFER_7_VOLUME_TOOLS = {
+    **FREESURFER_7_TOOLS,
+    **{stage: "" for stage in FS7_VOLUME_SKIPPED_STAGES},
+    "stats_extraction": "fs7_recon_style_subcortical_stats",
 }
 
 FREESURFER_7_SURFACE_TOOLS = FREESURFER_7_TOOLS
@@ -95,13 +109,15 @@ FASTSURFER_SURFACE_TOOLS = {
 
 VOLUME_STATS = {"cortical_volume", "subcortical_volume"}
 
+SUBCORTICAL_VOLUME_STATS = {"subcortical_volume"}
+
 THICKNESS_STATS = {"cortical_thickness"}
 
 PRESET_CONFIGS = {
     "FreeSurfer 8 + Volume": {"tools": FREESURFER_8_TOOLS, "stats": VOLUME_STATS},
     "FreeSurfer 8 + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": THICKNESS_STATS},
     "FreeSurfer 8 + Volume + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
-    "FreeSurfer 7 + Volume": {"tools": FREESURFER_7_TOOLS, "stats": VOLUME_STATS},
+    "FreeSurfer 7 + Volume": {"tools": FREESURFER_7_VOLUME_TOOLS, "stats": SUBCORTICAL_VOLUME_STATS},
     "FreeSurfer 7 + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": THICKNESS_STATS},
     "FreeSurfer 7 + Volume + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
     "FastSurfer + Volume": {"tools": FASTSURFER_TOOLS, "stats": VOLUME_STATS},
