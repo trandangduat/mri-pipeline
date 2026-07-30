@@ -5,6 +5,7 @@ import hashlib
 import json
 import posixpath
 import shlex
+import stat
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -767,8 +768,43 @@ class RemoteRunner:
             self._download_job_artifacts(ssh, local_target)
         return local_target
 
+    def count_download_files(self) -> int:
+        if not self.remote_job_dir:
+            raise RuntimeError("No remote job has been run or attached yet")
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_outputs = self._require_workspace_child(ssh, self.remote_output_dir or posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
+            return self._count_remote_files(ssh, remote_outputs) + self._count_job_artifacts(ssh)
+
+    def _count_remote_files(self, ssh: RemoteSSHClient, remote_dir: str) -> int:
+        total = 0
+        for item in ssh.sftp.listdir_attr(remote_dir):
+            remote_path = posixpath.join(remote_dir, item.filename)
+            if stat.S_ISLNK(item.st_mode):
+                continue
+            if stat.S_ISDIR(item.st_mode):
+                total += self._count_remote_files(ssh, remote_path)
+            else:
+                total += 1
+        return total
+
+    def _count_job_artifacts(self, ssh: RemoteSSHClient) -> int:
+        total = 0
+        for name in self._job_artifact_names():
+            remote_file = self._job_child_path(ssh, name)
+            try:
+                ssh.sftp.stat(remote_file)
+                total += 1
+            except OSError:
+                pass
+        return total
+
     def _download_job_artifacts(self, ssh: RemoteSSHClient, local_target: Path) -> None:
-        artifact_names = (
+        for name in self._job_artifact_names():
+            remote_file = self._job_child_path(ssh, name)
+            ssh.download_file_if_exists(remote_file, local_target / name)
+
+    def _job_artifact_names(self) -> tuple[str, ...]:
+        return (
             "neuroflow_observations.tsv",
             "neuroflow_observations.jsonl",
             "neuroflow_workspace.sqlite",
@@ -781,9 +817,6 @@ class RemoteRunner:
             "exit_code.txt",
             "finished_at.txt",
         )
-        for name in artifact_names:
-            remote_file = self._job_child_path(ssh, name)
-            ssh.download_file_if_exists(remote_file, local_target / name)
 
     def clean_remote(self) -> None:
         if not self.remote_job_dir:

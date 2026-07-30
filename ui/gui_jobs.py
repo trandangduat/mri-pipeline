@@ -610,19 +610,12 @@ class JobsController:
                 return
             runners.append((job, runner))
 
-        def task() -> None:
-            total = len(runners)
-            for idx, (job, runner) in enumerate(runners, start=1):
-                label = job.get("remote_job_dir") or job.get("job_id") or f"job {idx}"
-                ui_events.emit(EVENT_LOG_MESSAGE, f"Downloading outputs ({idx}/{total}): {label}")
-                if not runner.config.download_subdir:
-                    metadata = runner.read_remote_metadata()
-                    if metadata.get("download_subdir"):
-                        runner.config.download_subdir = str(metadata.get("download_subdir"))
-                local_path = runner.download_outputs(job.get("output_dir") or self.gui.state.output_dir.get())
-                ui_events.emit(EVENT_LOG_MESSAGE, f"Downloaded outputs to: {local_path}")
-
-        self.gui.pipeline_ctrl._run_remote_task(f"Download Outputs ({len(runners)} jobs)", task)
+        from ui.dialogs.job_dialogs import show_download_outputs_dialog
+        downloads = [
+            (job.get("remote_job_dir") or job.get("job_id") or f"job {idx}", runner, job.get("output_dir") or self.gui.state.output_dir.get())
+            for idx, (job, runner) in enumerate(runners, start=1)
+        ]
+        show_download_outputs_dialog(self.gui.pipeline_ctrl, downloads)
 
     def _enter_background_monitor_state(self, title: str) -> None:
         self.gui.pipeline_ctrl.running = True
@@ -709,20 +702,69 @@ class JobsController:
 
     def _choose_start_with_existing_jobs(self, candidates: list[dict]) -> str:
         dialog = tk.Toplevel(self.gui.root)
-        dialog.title("Background Pipeline Running")
-        dialog.geometry("760x280")
+        dialog.title("Background Job Running")
+        dialog.geometry("620x250")
+        dialog.minsize(560, 230)
         dialog.transient(self.gui.root)
         dialog.grab_set()
 
-        target = self.gui.state.run_target.get()
-        first = candidates[0].get("remote_job_dir") or candidates[0].get("job_dir") or candidates[0].get("job_id", "background job")
-        more = f"\nAlso found {len(candidates) - 1} other running job(s) for this target." if len(candidates) > 1 else ""
+        first_job = candidates[0]
+        first_path = str(first_job.get("remote_job_dir") or first_job.get("job_dir") or first_job.get("job_id", "background job"))
+        first_name = Path(first_path).name or first_path
+
+        def started_value(job: dict) -> float | None:
+            raw = job.get("started_at")
+            try:
+                return float(raw) if raw not in (None, "") else None
+            except (TypeError, ValueError):
+                pass
+            label = Path(str(job.get("remote_job_dir") or job.get("job_dir") or job.get("job_id") or "")).name
+            parts = label.split("_")
+            if len(parts) >= 3 and parts[-2].isdigit() and parts[-1].isdigit():
+                try:
+                    return time.mktime(time.strptime(parts[-2] + parts[-1], "%Y%m%d%H%M%S"))
+                except ValueError:
+                    return None
+            return None
+
+        started_at = started_value(first_job)
+        started_text = time.strftime("%b %d, %Y %H:%M:%S", time.localtime(started_at)) if started_at else "Unknown"
+
+        header = ttk.Frame(dialog, padding=(16, 16, 16, 8))
+        header.pack(fill=tk.X)
         ttk.Label(
-            dialog,
-            text=f"A {target} pipeline is already running in the background:\n\n{first}{more}\n\nWhat do you want to do?",
+            header,
+            text="There're jobs that are currently running",
+            font=("Inter", 13, "bold"),
             justify=tk.LEFT,
             wraplength=720,
-        ).pack(anchor=tk.W, padx=14, pady=(14, 10))
+            foreground="#0f172a",
+        ).pack(anchor=tk.W)
+
+        card = tk.Frame(dialog, bg="#ffffff", highlightbackground="#dbe3ee", highlightthickness=1, bd=0)
+        card.pack(fill=tk.X, padx=16, pady=(4, 8))
+        card_inner = tk.Frame(card, bg="#ffffff")
+        card_inner.pack(fill=tk.X, padx=14, pady=12)
+        status_icon = self.gui._make_icon("running", "#2563eb") if getattr(self.gui, "_make_icon", None) is not None else None
+        icon_wrap = tk.Frame(card_inner, bg="#eff6ff", width=34, height=34)
+        icon_wrap.pack(side=tk.LEFT, padx=(0, 12))
+        icon_wrap.pack_propagate(False)
+        if status_icon is not None:
+            tk.Label(icon_wrap, image=status_icon, bg="#eff6ff").pack(expand=True)
+        else:
+            tk.Label(icon_wrap, text="...", bg="#eff6ff", fg="#2563eb", font=("Inter", 11, "bold")).pack(expand=True)
+        job_text = tk.Frame(card_inner, bg="#ffffff")
+        job_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(job_text, text=first_name, bg="#ffffff", fg="#0f172a", font=("Inter", 11, "bold")).pack(anchor=tk.W)
+        tk.Label(job_text, text=first_path, bg="#ffffff", fg="#475569", wraplength=520, justify=tk.LEFT).pack(anchor=tk.W, pady=(4, 0))
+        tk.Label(job_text, text=f"Started: {started_text}", bg="#ffffff", fg="#475569").pack(anchor=tk.W, pady=(6, 0))
+
+        if len(candidates) > 1:
+            ttk.Label(
+                dialog,
+                text=f"... and {len(candidates) - 1} other running jobs",
+                foreground="#475569",
+            ).pack(anchor=tk.W, padx=16, pady=(0, 4))
 
         result = tk.StringVar(value="cancel")
 
@@ -731,11 +773,9 @@ class JobsController:
             dialog.destroy()
 
         buttons = ttk.Frame(dialog)
-        buttons.pack(fill=tk.X, padx=14, pady=(6, 14))
-        ttk.Button(buttons, text="Attach Old Job", command=lambda: choose("attach")).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Pause Old and Start New", command=lambda: choose("pause")).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(buttons, text="Start New Alongside", style="Accent.TButton", command=lambda: choose("parallel")).pack(side=tk.LEFT, padx=(8, 0))
+        buttons.pack(fill=tk.X, padx=16, pady=(8, 12))
         ttk.Button(buttons, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Start anyway", style="Accent.TButton", command=lambda: choose("parallel")).pack(side=tk.RIGHT, padx=(0, 8))
         dialog.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
         self.gui.root.wait_window(dialog)
         return result.get()

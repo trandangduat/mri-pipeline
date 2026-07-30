@@ -686,13 +686,12 @@ class PipelineController:
         threading.Thread(target=task, daemon=True).start()
 
     def _remote_download_outputs(self) -> None:
-        def task():
-            if not self.remote_runner:
-                ui_events.emit(EVENT_LOG_MESSAGE, "No remote job is available. Run or attach a remote job first.")
-                return
-            local_path = self.remote_runner.download_outputs(self.gui.state.output_dir.get())
-            ui_events.emit(EVENT_LOG_MESSAGE, f"Downloaded outputs to: {local_path}")
-        self._run_remote_task("Download Outputs", task)
+        if not self.remote_runner:
+            ui_events.emit(EVENT_LOG_MESSAGE, "No remote job is available. Run or attach a remote job first.")
+            return
+        from ui.dialogs.job_dialogs import show_download_outputs_dialog
+        label = self.remote_runner.remote_job_dir or "remote job"
+        show_download_outputs_dialog(self, [(label, self.remote_runner, self.gui.state.output_dir.get())])
 
     def _common_input_root(self, files: list[str]) -> str:
         parents = [str(Path(f).resolve().parent) for f in files]
