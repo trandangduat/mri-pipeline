@@ -387,23 +387,10 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
         
         chips_frame = ttk.Frame(container)
         chips_frame.pack(fill=tk.X, padx=(28, 5), pady=(6, 0))
-        chips_frame.columnconfigure(0, weight=1)
 
         for row, atlas in enumerate(selected_atlases):
             atlas_label = ATLAS_DEFS.get(atlas, atlas)
-            
-            chip = tk.Frame(chips_frame, bg="#eef6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=8, pady=4)
-            chip.grid(row=row, column=0, sticky=tk.EW, pady=(0, 6))
-            chip.columnconfigure(0, weight=1)
 
-            lbl = tk.Label(chip, text=atlas_label, bg="#eef6ff", fg="#1e3a8a", font=("Inter", 9), anchor=tk.W, justify=tk.LEFT)
-            lbl.grid(row=0, column=0, sticky=tk.EW)
-
-            def sync_atlas_wrap(event, label=lbl) -> None:
-                label.configure(wraplength=max(220, event.width - 44))
-
-            chip.bind("<Configure>", sync_atlas_wrap)
-            
             def remove_atlas(s=stat, a=atlas):
                 import tkinter.messagebox as messagebox
                 if messagebox.askyesno("Remove Atlas", f"Are you sure you want to remove '{ATLAS_DEFS.get(a, a)}'?"):
@@ -414,20 +401,27 @@ def _build_tools_section(parent: ttk.Frame, gui) -> None:
                         render_atlases_for_stat(s, container)
 
             btn = tk.Button(
-                chip,
-                text="x",
+                chips_frame,
+                text="-",
                 command=remove_atlas,
                 relief=tk.FLAT,
                 bd=0,
-                bg="#eef6ff",
+                bg="#fafafa",
                 activebackground="#dbeafe",
                 fg="#1e3a8a",
                 activeforeground="#1e3a8a",
+                font=("Inter", 12, "bold"),
                 cursor="hand2",
-                padx=5,
+                padx=4,
                 pady=0,
             )
-            btn.grid(row=0, column=1, sticky=tk.E, padx=(8, 0))
+            btn.grid(row=row, column=0, sticky=tk.W, padx=(0, 6), pady=(0, 6))
+
+            chip = tk.Frame(chips_frame, bg="#eef6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=8, pady=4)
+            chip.grid(row=row, column=1, sticky=tk.W, pady=(0, 6))
+
+            lbl = tk.Label(chip, text=atlas_label, bg="#eef6ff", fg="#1e3a8a", font=("Inter", 9), anchor=tk.W, justify=tk.LEFT)
+            lbl.grid(row=0, column=0, sticky=tk.W)
 
     def sync_stats_options(*_args) -> None:
         for stat in STAT_VECTOR_DEFS:
