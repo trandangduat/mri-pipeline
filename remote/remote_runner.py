@@ -109,7 +109,11 @@ class RemoteRunner:
                         if path.suffix in extensions:
                             roots.append(path)
         neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
-        for folder, extensions in ((neuroflow / "src", {".py", ".typed"}), (neuroflow / "config", {".yaml", ".yml", ".json"})):
+        neuroflow_configs = PROJECT_ROOT / "configs" / "neuroflow"
+        for folder, extensions in (
+            (neuroflow / "src", {".py", ".typed"}),
+            (neuroflow_configs, {".yaml", ".yml", ".json"}),
+        ):
             if folder.exists():
                 for root, dirs, files in os.walk(folder):
                     dirs[:] = [d for d in dirs if d not in {"__pycache__", ".pytest_cache"}]
@@ -880,14 +884,14 @@ class RemoteRunner:
                     skip_dirs={"__pycache__", ".pytest_cache"},
                     allowed_extensions={".py", ".typed"},
                 )
-            config_dir = neuroflow / "config"
-            if config_dir.exists():
-                ssh.upload_dir(
-                    config_dir,
-                    posixpath.join(remote_neuroflow, "config"),
-                    skip_dirs={"__pycache__", ".pytest_cache"},
-                    allowed_extensions={".yaml", ".yml", ".json"},
-                )
+        neuroflow_configs = PROJECT_ROOT / "configs" / "neuroflow"
+        if neuroflow_configs.exists():
+            ssh.upload_dir(
+                neuroflow_configs,
+                posixpath.join(remote_code, "configs", "neuroflow"),
+                skip_dirs={"__pycache__", ".pytest_cache"},
+                allowed_extensions={".yaml", ".yml", ".json"},
+            )
 
     def _upload_license(self, ssh: RemoteSSHClient) -> None:
         if not self.config.license_dir:

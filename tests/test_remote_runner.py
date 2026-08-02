@@ -12,6 +12,8 @@ class FakeRemoteSSHClient:
     dependency_check: tuple[int, str] = (0, "")
     downloaded_dirs: list[tuple[str, Path]] = []
     downloaded_files: list[tuple[str, Path]] = []
+    uploaded_dirs: list[tuple[Path, str]] = []
+    uploaded_files: list[tuple[Path, str]] = []
     existing_download_files: set[str] = set()
     managed_python_installed: bool = False
 
@@ -58,6 +60,19 @@ class FakeRemoteSSHClient:
             return False
         self.downloaded_files.append((remote_file, Path(local_file)))
         return True
+
+    def upload_file(self, local_file: str | Path, remote_file: str) -> None:
+        self.uploaded_files.append((Path(local_file), remote_file))
+
+    def upload_dir(
+        self,
+        local_dir: str | Path,
+        remote_dir: str,
+        skip_dirs: set[str] | None = None,
+        allowed_extensions: set[str] | None = None,
+    ) -> None:
+        self.uploaded_dirs.append((Path(local_dir), remote_dir))
+
 
 def test_remote_runner_clean_guardrail(dummy_ssh_server):
     ssh_config = SSHConfig(
@@ -212,6 +227,32 @@ def test_remote_runner_adds_neuroflow_src_to_worker_pythonpath(mocker) -> None:
 
     commands = "\n".join(FakeRemoteSSHClient.commands)
     assert "/home/tester/mri-remote-jobs/code/NeuroFLOW-private/src" in commands
+
+
+def test_remote_runner_uploads_tracked_neuroflow_configs(mocker: object) -> None:
+    FakeRemoteSSHClient.commands = []
+    FakeRemoteSSHClient.uploaded_dirs = []
+    FakeRemoteSSHClient.uploaded_files = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        neuroflow_enabled=True,
+    )
+    runner = RemoteRunner(run_config)
+
+    with FakeRemoteSSHClient(None) as ssh:
+        runner._upload_code(ssh, "/home/tester/mri-remote-jobs/code")
+
+    assert any(
+        local.as_posix().endswith("configs/neuroflow")
+        and remote == "/home/tester/mri-remote-jobs/code/configs/neuroflow"
+        for local, remote in FakeRemoteSSHClient.uploaded_dirs
+    )
+    assert not any(
+        remote.endswith("/NeuroFLOW-private/config")
+        for _local, remote in FakeRemoteSSHClient.uploaded_dirs
+    )
 
 
 def test_remote_runner_recreates_old_venv_for_neuroflow(mocker) -> None:

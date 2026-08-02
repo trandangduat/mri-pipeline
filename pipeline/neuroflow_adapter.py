@@ -5,13 +5,15 @@ import json
 import math
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-from .config import BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
+from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .discovery import _derive_subject_id
 from .hardware import _total_ram_bytes
 from .registry import STAGE_ORDER
@@ -65,6 +67,7 @@ class _ImageRunContext:
     steps: list = field(default_factory=list)
     stage_outputs: dict[str, str] = field(default_factory=dict)
     completed: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     def input_for_stage(self, local_stage: str) -> str | None:
         try:
@@ -83,7 +86,7 @@ def _ensure_neuroflow_import_path() -> None:
         import neuroflow  # noqa: F401
         return
     except ModuleNotFoundError:
-        checkout_src = Path(__file__).resolve().parents[1] / "NeuroFLOW-private" / "src"
+        checkout_src = PROJECT_ROOT / "NeuroFLOW-private" / "src"
         if checkout_src.exists():
             sys.path.insert(0, str(checkout_src))
 
@@ -99,10 +102,10 @@ def _preset_id_from_request(req: dict) -> str:
     return preset_id
 
 
-def _neuroflow_root() -> Path:
-    root = Path(__file__).resolve().parents[1] / "NeuroFLOW-private"
-    if not root.exists():
-        raise FileNotFoundError(f"NeuroFLOW checkout not found: {root}")
+def _neuroflow_config_root() -> Path:
+    root = PROJECT_ROOT / "configs" / "neuroflow"
+    if not (root / "presets").is_dir() or not (root / "profiles").is_dir():
+        raise FileNotFoundError(f"NeuroFLOW preset/profile configs not found: {root}")
     return root
 
 
@@ -272,9 +275,9 @@ def run_neuroflow_batch(
 
     preset_id = _preset_id_from_request(req)
     profile_set_id = str(req.get("neuroflow_profile") or f"{preset_id}_default")
-    root = _neuroflow_root()
-    pipeline = load_pipeline_file(root / "config" / "presets" / f"{preset_id}.yaml")
-    profiles = load_profile_set_file(root / "config" / "profiles" / f"{profile_set_id}.yaml")
+    config_root = _neuroflow_config_root()
+    pipeline = load_pipeline_file(config_root / "presets" / f"{preset_id}.yaml")
+    profiles = load_profile_set_file(config_root / "profiles" / f"{profile_set_id}.yaml")
     scheduler_config = _scheduler_config(req)
     validate_cross_documents(pipeline, profiles, scheduler_config)
 
@@ -334,58 +337,28 @@ def run_neuroflow_batch(
     if on_progress:
         on_progress("batch", "running", 0.0, f"NeuroFLOW preset {preset_id} loaded with profile {profile_set_id}")
 
-    max_empty_polls = 3
-    empty_polls = 0
-    while True:
-        if should_stop and should_stop():
-            break
-        response = scheduler.request_launches(
-            request=LaunchRequest(resource_snapshot=_resource_snapshot(req), maximum_number=1)
+    max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 1) or 1))
+
+    def _run_launch_stage(
+        launch: object,
+        context: _ImageRunContext,
+        local_stage: str,
+        execution_id: str,
+    ) -> tuple[object, dict[str, object]]:
+        stage_config = PipelineConfig(
+            input_file=context.config.input_file,
+            output_dir=context.config.output_dir,
+            subject_id=context.config.subject_id,
+            license_dir=context.config.license_dir,
+            device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
+            threads=int(launch.cpu_threads),
+            ram_percent=context.config.ram_percent,
+            resume=context.config.resume,
+            selected_tools=context.config.selected_tools,
+            export_config=context.config.export_config,
+            stats_vector_config=context.config.stats_vector_config,
         )
-        if response.terminal:
-            break
-        if not response.launches:
-            empty_polls += 1
-            if on_progress:
-                on_progress("batch", "running", 0.0, f"NeuroFLOW waiting: {response.reason}")
-            if empty_polls >= max_empty_polls:
-                break
-            time.sleep(1.0)
-            continue
-        empty_polls = 0
-
-        for launch in response.launches:
-            context = contexts.get(str(launch.image_id))
-            if context is None:
-                continue
-            if on_image_start:
-                on_image_start(context.input_file, context.idx, context.total)
-            local_stage = NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(str(launch.stage_id), str(launch.stage_id))
-            execution_id = str(launch.attempt_id)
-            scheduler.confirm_started(
-                confirmation=ConfirmStart(
-                    confirmation_id=f"confirm-{launch.attempt_id}",
-                    reservation_id=str(launch.reservation_id),
-                    attempt_id=str(launch.attempt_id),
-                    task_id=str(launch.task_id),
-                    execution_id=execution_id,
-                    started_at=datetime.now(timezone.utc),
-                )
-            )
-
-            stage_config = PipelineConfig(
-                input_file=context.config.input_file,
-                output_dir=context.config.output_dir,
-                subject_id=context.config.subject_id,
-                license_dir=context.config.license_dir,
-                device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
-                threads=int(launch.cpu_threads),
-                ram_percent=context.config.ram_percent,
-                resume=context.config.resume,
-                selected_tools=context.config.selected_tools,
-                export_config=context.config.export_config,
-                stats_vector_config=context.config.stats_vector_config,
-            )
+        with context.lock:
             step, output_for_next = run_pipeline_stage(
                 stage_config,
                 local_stage,
@@ -400,54 +373,103 @@ def run_neuroflow_batch(
             context.steps.append(step)
             if step.success and output_for_next:
                 context.stage_outputs[local_stage] = output_for_next
-            runtime_ms = max(1, int(step.duration_sec * 1000))
-            peak_ram_mib = _memory_mib(step.peak_ram_bytes)
-            success = bool(step.success)
-            error = None if success else TaskError(ErrorCategory.PROCESS_CRASH, step.error or "Pipeline stage failed")
-            scheduler.report_result(
-                result=TaskResult(
-                    result_id=f"result-{launch.attempt_id}",
-                    task_id=str(launch.task_id),
-                    attempt_id=str(launch.attempt_id),
-                    execution_id=execution_id,
-                    status=ResultStatus.SUCCEEDED if success else ResultStatus.FAILED,
-                    exit_code=0 if success else (step.return_code or 1),
-                    validation_passed=True if success else False,
-                    error=error,
-                    metrics=TaskMetrics(
-                        runtime_ms=runtime_ms,
-                        peak_ram_mib=peak_ram_mib,
-                        allocated_cpu_threads=int(launch.cpu_threads),
-                        execution_mode=launch.execution_mode,
-                        gpu_id=launch.gpu_id,
-                        peak_cpu_utilization=step.peak_cpu_pct,
-                    ),
-                    finished_at=datetime.now(timezone.utc),
-                )
+        runtime_ms = max(1, int(step.duration_sec * 1000))
+        peak_ram_mib = _memory_mib(step.peak_ram_bytes)
+        success = bool(step.success)
+        error = None if success else TaskError(ErrorCategory.PROCESS_CRASH, step.error or "Pipeline stage failed")
+        result = TaskResult(
+            result_id=f"result-{launch.attempt_id}",
+            task_id=str(launch.task_id),
+            attempt_id=str(launch.attempt_id),
+            execution_id=execution_id,
+            status=ResultStatus.SUCCEEDED if success else ResultStatus.FAILED,
+            exit_code=0 if success else (step.return_code or 1),
+            validation_passed=True if success else False,
+            error=error,
+            metrics=TaskMetrics(
+                runtime_ms=runtime_ms,
+                peak_ram_mib=peak_ram_mib,
+                allocated_cpu_threads=int(launch.cpu_threads),
+                execution_mode=launch.execution_mode,
+                gpu_id=launch.gpu_id,
+                peak_cpu_utilization=step.peak_cpu_pct,
+            ),
+            finished_at=datetime.now(timezone.utc),
+        )
+        observation = {
+            "preset_id": preset_id,
+            "profile_set_id": profile_set_id,
+            "image_id": str(launch.image_id),
+            "subject_id": context.subject_id,
+            "stage_id": str(launch.stage_id),
+            "local_stage": local_stage,
+            "tool": step.tool,
+            "configuration_id": str(launch.configuration_id),
+            "mode": str(launch.execution_mode.value),
+            "cpu_threads": int(launch.cpu_threads),
+            "gpu_id": launch.gpu_id or "",
+            "runtime_ms": runtime_ms,
+            "peak_ram_mib": peak_ram_mib,
+            "peak_gpu_memory_mib": "",
+            "exit_code": 0 if success else (step.return_code or 1),
+            "success": success,
+            "error": step.error,
+        }
+        return result, observation
+
+    max_empty_polls = 3
+    empty_polls = 0
+    with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+        while True:
+            if should_stop and should_stop():
+                break
+            response = scheduler.request_launches(
+                request=LaunchRequest(resource_snapshot=_resource_snapshot(req), maximum_number=max_concurrent)
             )
-            observation = {
-                "preset_id": preset_id,
-                "profile_set_id": profile_set_id,
-                "image_id": str(launch.image_id),
-                "subject_id": context.subject_id,
-                "stage_id": str(launch.stage_id),
-                "local_stage": local_stage,
-                "tool": step.tool,
-                "configuration_id": str(launch.configuration_id),
-                "mode": str(launch.execution_mode.value),
-                "cpu_threads": int(launch.cpu_threads),
-                "gpu_id": launch.gpu_id or "",
-                "runtime_ms": runtime_ms,
-                "peak_ram_mib": peak_ram_mib,
-                "peak_gpu_memory_mib": "",
-                "exit_code": 0 if success else (step.return_code or 1),
-                "success": success,
-                "error": step.error,
-            }
-            _write_observation(job_dir, observation)
-            output_observation_dir = Path(output_dir)
-            if output_observation_dir.resolve() != job_dir.resolve():
-                _write_observation(output_observation_dir, observation)
+            if response.terminal:
+                break
+            if not response.launches:
+                empty_polls += 1
+                if on_progress:
+                    on_progress("batch", "running", 0.0, f"NeuroFLOW waiting: {response.reason}")
+                if empty_polls >= max_empty_polls:
+                    break
+                time.sleep(1.0)
+                continue
+            empty_polls = 0
+
+            ready_launches = []
+            for launch in response.launches:
+                context = contexts.get(str(launch.image_id))
+                if context is None:
+                    continue
+                local_stage = NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(str(launch.stage_id), str(launch.stage_id))
+                execution_id = str(launch.attempt_id)
+                if on_image_start:
+                    on_image_start(context.input_file, context.idx, context.total)
+                scheduler.confirm_started(
+                    confirmation=ConfirmStart(
+                        confirmation_id=f"confirm-{launch.attempt_id}",
+                        reservation_id=str(launch.reservation_id),
+                        attempt_id=str(launch.attempt_id),
+                        task_id=str(launch.task_id),
+                        execution_id=execution_id,
+                        started_at=datetime.now(timezone.utc),
+                    )
+                )
+                ready_launches.append((launch, context, local_stage, execution_id))
+
+            futures = [
+                executor.submit(_run_launch_stage, launch, context, local_stage, execution_id)
+                for launch, context, local_stage, execution_id in ready_launches
+            ]
+            for future in as_completed(futures):
+                result, observation = future.result()
+                scheduler.report_result(result=result)
+                _write_observation(job_dir, observation)
+                output_observation_dir = Path(output_dir)
+                if output_observation_dir.resolve() != job_dir.resolve():
+                    _write_observation(output_observation_dir, observation)
 
     results: list[BatchImageResult] = []
     generator = StatsGenerator(stats_vector_config)
