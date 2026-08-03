@@ -37,7 +37,6 @@ VOLUME_SKIPPED_STAGES = {
 }
 
 FS7_VOLUME_SKIPPED_STAGES = {
-    "template_registration",
     "bias_correction",
     "white_matter_segmentation",
     "surface_reconstruction",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.config import ToolContext
 from pipeline.presets import FREESURFER_7_SURFACE_TOOLS, FREESURFER_7_VOLUME_TOOLS, PRESET_CONFIGS, SUBCORTICAL_VOLUME_STATS
-from pipeline.registry import STAGE_ORDER, TOOL_DEFS
+from pipeline.registry import STAGE_ORDER, TOOL_DEFS, stage_order_for_tools
 
 
 EXPECTED_FS7_TOOLS = {
@@ -19,7 +19,6 @@ EXPECTED_FS7_TOOLS = {
 
 EXPECTED_FS7_VOLUME_TOOLS = {
     **EXPECTED_FS7_TOOLS,
-    "template_registration": "",
     "bias_correction": "",
     "white_matter_segmentation": "",
     "surface_reconstruction": "",
@@ -53,14 +52,33 @@ def test_freesurfer7_recon_style_tools_cover_all_pipeline_stages() -> None:
         assert tool["output_files"] or tool.get("output_globs")
 
 
+def test_freesurfer7_template_registration_runs_before_skull_strip_and_segmentation() -> None:
+    stage_order = stage_order_for_tools(EXPECTED_FS7_TOOLS)
+
+    assert STAGE_ORDER.index("brain_extraction") < STAGE_ORDER.index("template_registration")
+    assert stage_order.index("template_registration") < stage_order.index("brain_extraction")
+    assert stage_order.index("template_registration") < stage_order.index("segmentation")
+
+
 def test_freesurfer7_commands_match_successful_standalone_flow() -> None:
     ctx = ToolContext(input_path="/input/T1.nii.gz", subject_id="I776974", threads=4, device="cpu")
 
     commands = {stage: TOOL_DEFS[tool]["command_builder"](ctx) for stage, tool in EXPECTED_FS7_TOOLS.items()}
 
     assert "mri_convert /input/T1.nii.gz 001.mgz" in commands["reorientation"]
-    assert "talairach_avi --i orig_nu.mgz" in commands["brain_extraction"]
+    assert "talairach_avi --i orig_nu.mgz" in commands["template_registration"]
+    assert "lta_convert --src orig.mgz --trg \"$MNI305\"" in commands["template_registration"]
+    assert "mri_em_register" not in commands["template_registration"]
+    assert "mri_ca_register" not in commands["template_registration"]
+    assert "talairach_avi --i orig_nu.mgz" not in commands["brain_extraction"]
+    assert "mri_nu_correct.mni --i orig.mgz --o nu.mgz" in commands["brain_extraction"]
+    assert "mri_normalize -g 1 -seed 1234 -mprage nu.mgz T1.mgz" in commands["brain_extraction"]
+    assert "mri_em_register -skull nu.mgz" in commands["brain_extraction"]
     assert "mri_watershed -T1 -brain_atlas" in commands["brain_extraction"]
+    assert "mri_em_register -uns 3 -mask brainmask.mgz" in commands["segmentation"]
+    assert "mri_ca_normalize $CTRL_FLAG -mask brainmask.mgz" in commands["segmentation"]
+    assert "mri_ca_register -threads 4" in commands["segmentation"]
+    assert "-mask brainmask.mgz norm.mgz" in commands["segmentation"]
     assert "mri_ca_label -relabel_unlikely 9 .3" in commands["segmentation"]
     assert "mri_cc -aseg aseg.auto_noCCseg.mgz" in commands["segmentation"]
     assert "rm -f aseg.presurf.mgz; cp aseg.auto.mgz aseg.presurf.mgz" in commands["segmentation"]

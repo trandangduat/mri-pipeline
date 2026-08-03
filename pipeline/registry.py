@@ -106,11 +106,13 @@ def _fs8r_stage4(ctx: ToolContext) -> str:
     return (
         _fs8r_common(ctx)
         + f"fs-synthmorph-reg --i synthstrip.mgz --t \"$MNI305\" --affine-only --o transforms/synthmorph.mni305 --threads {ctx.threads}; "
-        "for candidate in transforms/synthmorph.mni305/aff.lta transforms/synthmorph.mni305/*aff*.lta; do if [ -f \"$candidate\" ]; then cp \"$candidate\" transforms/aff.lta; break; fi; done; "
-        "if [ ! -s transforms/aff.lta ]; then lta_convert --inlta identity.nofile --src orig.mgz --trg orig.mgz --outlta transforms/aff.lta --subject \"$SUBJ\"; fi; "
-        "lta_convert --inlta transforms/aff.lta --outmni transforms/talairach.xfm --src synthstrip.mgz --trg \"$MNI305\" || cp transforms/aff.lta transforms/talairach.xfm; "
-        "lta_convert --inlta transforms/aff.lta --outlta transforms/talairach.lta --src synthstrip.mgz --trg \"$MNI305\"; "
-        "test -s transforms/talairach.lta"
+        "lta_convert --ltavox2vox --inlta transforms/synthmorph.mni305/aff.lta --outlta transforms/talairach.xfm.lta; "
+        "lta_convert --inlta transforms/talairach.xfm.lta --outmni transforms/talairach.xfm; "
+        f"fs-synthmorph-reg --s \"$SUBJ\" --threads {ctx.threads} --i \"$SD/mri/orig.mgz\" --test; "
+        "test -s transforms/synthmorph.mni305/aff.lta; "
+        "test -s transforms/synthmorph.1.0mm.1.0mm/warp.to.mni152.1.0mm.1.0mm.nii.gz; "
+        "test -s transforms/synthmorph.1.0mm.1.0mm/warp.to.mni152.1.0mm.1.0mm.inv.nii.gz; "
+        "test -s transforms/talairach.xfm; test -s transforms/talairach.xfm.lta"
     )
 
 
@@ -269,12 +271,7 @@ def _fs7r_stage1(ctx: ToolContext) -> str:
 def _fs7r_stage2(ctx: ToolContext) -> str:
     return (
         _fs7r_common(ctx)
-        + "mri_nu_correct.mni --no-rescale --i orig.mgz --o orig_nu.mgz --ants-n4 --n 1 --proto-iters 1000 --distance 50; "
-        "talairach_avi --i orig_nu.mgz --xfm transforms/talairach.auto.xfm; "
-        "cp transforms/talairach.auto.xfm transforms/talairach.xfm; "
-        "lta_convert --src orig.mgz --trg \"$MNI305\" --inxfm transforms/talairach.xfm --outlta transforms/talairach.xfm.lta --subject fsaverage --ltavox2vox; "
-        "talairach_afd -T 0.005 -xfm transforms/talairach.xfm; "
-        "mri_nu_correct.mni --i orig.mgz --o nu.mgz --uchar transforms/talairach.xfm --n 2 --ants-n4; "
+        + "mri_nu_correct.mni --i orig.mgz --o nu.mgz --uchar transforms/talairach.xfm --n 2 --ants-n4; "
         "mri_add_xform_to_header -c transforms/talairach.xfm nu.mgz nu.mgz; "
         "mri_normalize -g 1 -seed 1234 -mprage nu.mgz T1.mgz; "
         "mri_em_register -skull nu.mgz \"$GCA_WITH_SKULL\" transforms/talairach_with_skull.lta; "
@@ -301,9 +298,14 @@ def _fs7r_stage3(ctx: ToolContext) -> str:
 def _fs7r_stage4(ctx: ToolContext) -> str:
     return (
         _fs7r_common(ctx)
-        + "test -s transforms/talairach.xfm; "
+        + "mri_nu_correct.mni --no-rescale --i orig.mgz --o orig_nu.mgz --ants-n4 --n 1 --proto-iters 1000 --distance 50; "
+        "talairach_avi --i orig_nu.mgz --xfm transforms/talairach.auto.xfm; "
+        "cp transforms/talairach.auto.xfm transforms/talairach.xfm; "
+        "lta_convert --src orig.mgz --trg \"$MNI305\" --inxfm transforms/talairach.xfm --outlta transforms/talairach.xfm.lta --subject fsaverage --ltavox2vox; "
+        "talairach_afd -T 0.005 -xfm transforms/talairach.xfm; "
+        "test -s transforms/talairach.xfm; "
         "test -s transforms/talairach.xfm.lta; "
-        "test -s transforms/talairach.lta"
+        "test -s orig_nu.mgz"
     )
 
 
@@ -735,7 +737,12 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fs8r_stage4,
         "output_files": [],
-        "output_globs": ["freesurfer/*/mri/transforms/talairach.lta", "freesurfer/*/mri/transforms/talairach.xfm"],
+        "output_globs": [
+            "freesurfer/*/mri/transforms/talairach.xfm",
+            "freesurfer/*/mri/transforms/talairach.xfm.lta",
+            "freesurfer/*/mri/transforms/synthmorph.1.0mm.1.0mm/warp.to.mni152.1.0mm.1.0mm.nii.gz",
+            "freesurfer/*/mri/transforms/synthmorph.1.0mm.1.0mm/warp.to.mni152.1.0mm.1.0mm.inv.nii.gz",
+        ],
     },
     "fs8_reduced54_bias_correction": {
         "display_name": "FreeSurfer 8 Image Standardization",
@@ -820,8 +827,13 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "template_registration",
         "needs_license": True,
         "command_builder": _fs7r_stage4,
+        "timeout": FREESURFER_RECON_STYLE_TIMEOUT,
         "output_files": [],
-        "output_globs": ["freesurfer/*/mri/transforms/talairach.lta", "freesurfer/*/mri/transforms/talairach.xfm"],
+        "output_globs": [
+            "freesurfer/*/mri/transforms/talairach.xfm",
+            "freesurfer/*/mri/transforms/talairach.xfm.lta",
+            "freesurfer/*/mri/orig_nu.mgz",
+        ],
     },
     "fs7_recon_style_bias_correction": {
         "display_name": "FreeSurfer 7 Image Standardization",
@@ -1104,6 +1116,25 @@ STAGE_ORDER = [
     "surface_registration",
     "stats_extraction",
 ]
+
+FS7_RECON_STYLE_STAGE_ORDER = [
+    "reorientation",
+    "template_registration",
+    "brain_extraction",
+    "segmentation",
+    "bias_correction",
+    "white_matter_segmentation",
+    "surface_reconstruction",
+    "surface_registration",
+    "stats_extraction",
+]
+
+
+def stage_order_for_tools(selected_tools: dict[str, str]) -> list[str]:
+    if selected_tools.get("template_registration") == "fs7_recon_style_template_registration":
+        return FS7_RECON_STYLE_STAGE_ORDER.copy()
+    return STAGE_ORDER.copy()
+
 
 STAGE_LABELS = {
     "reorientation": "Reorientation, resize",

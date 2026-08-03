@@ -120,5 +120,16 @@ def test_freesurfer8_bias_correction_matches_reduced54_stage5() -> None:
     assert "mri_normalize -seed 1234 -mprage -aseg aseg.presurf.mgz" in command
 
 
+def test_freesurfer8_template_registration_matches_recon_all_synthmorph() -> None:
+    command = TOOL_DEFS["fs8_reduced54_template_registration"]["command_builder"](
+        ToolContext(input_path="/input.nii", subject_id="subj", threads=4, device="cpu")
+    )
+
+    assert 'fs-synthmorph-reg --i synthstrip.mgz --t "$MNI305" --affine-only' in command
+    assert 'lta_convert --ltavox2vox --inlta transforms/synthmorph.mni305/aff.lta' in command
+    assert 'fs-synthmorph-reg --s "$SUBJ" --threads 4 --i "$SD/mri/orig.mgz" --test' in command
+    assert "warp.to.mni152.1.0mm.1.0mm.inv.nii.gz" in command
+
+
 def test_skipped_display_value_maps_to_no_tool() -> None:
     assert tool_key_from_display("Skipped") == ""

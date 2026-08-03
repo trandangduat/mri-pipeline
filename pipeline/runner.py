@@ -31,6 +31,7 @@ from .registry import (
     STAGE_ORDER,
     TOOL_DEFS,
     is_tool_enabled,
+    stage_order_for_tools,
     tool_display_name,
 )
 from .docker_ops import ensure_image
@@ -485,12 +486,13 @@ def run_pipeline(
 
     results: list[StepResult] = []
     input_for_next_step: str | None = None
-    total_stages = len(STAGE_ORDER)
+    stage_order = stage_order_for_tools(config.selected_tools)
+    total_stages = len(stage_order)
     paused = False
     ram_percent = max(1, min(int(config.ram_percent), 100))
     memory_limit_bytes = _docker_memory_limit_bytes(ram_percent)
 
-    for stage_idx, stage in enumerate(STAGE_ORDER):
+    for stage_idx, stage in enumerate(stage_order):
         tool_key = config.selected_tools.get(stage)
         if not tool_key:
             progress(stage, "success", (stage_idx + 1) / total_stages, f"Skipped {STAGE_LABELS[stage]}: no tool selected")
