@@ -7,7 +7,7 @@ from .config import SURFACE_ATLAS_STEMS, ToolContext
 SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
 
 FS8_REDUCED54_IMAGE = "mkdayyyy/mri-fs8-all:latest"
-FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs7-all:latest"
+FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs741:7.4.1-min"
 FREESURFER_RECON_STYLE_TIMEOUT = 12 * 60 * 60
 
 

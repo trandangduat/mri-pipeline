@@ -84,7 +84,7 @@ echo "Output:   $OUTPUT"
 echo "Subject:  $SUBJECT"
 echo "Threads:  $THREADS"
 echo "Start:    stage $START_STAGE"
-echo "Image:    mkdayyyy/mri-fs7-all:latest"
+echo "Image:    mkdayyyy/mri-fs741:7.4.1-min"
 echo "============================================================"
 
 INNER_SCRIPT=$(mktemp /tmp/fs7_reduced54_XXXXXX.sh)
@@ -338,7 +338,7 @@ docker run --rm \
     -v "$INNER_SCRIPT:/app/fs7_recon_style.sh:ro" \
     -e SUBJECTS_DIR=/output/freesurfer \
     -e FS_LICENSE=/license/license.txt \
-    "mkdayyyy/mri-fs7-all:latest" \
+    "mkdayyyy/mri-fs741:7.4.1-min" \
     /app/fs7_recon_style.sh "$SUBJECT" "$THREADS" "$START_STAGE"
 DOCKER_EXIT=$?
 set -e

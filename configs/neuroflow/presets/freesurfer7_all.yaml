@@ -2,7 +2,8 @@ schema_version: 1
 pipeline_id: freesurfer7_all
 display_name: FreeSurfer 7 - Volume + Cortical Thickness
 pipeline_version: 2.0.0
-description: Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Volume + Cortical Thickness'. Dependencies use a safe
+description:
+  Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Volume + Cortical Thickness'. Dependencies use a safe
   file-level DAG so independent stages can be scheduled concurrently when resources allow.
 status: draft
 metadata:
@@ -13,458 +14,458 @@ metadata:
   pipeline_mode: FreeSurfer 7 + Volume + Cortical Thickness
   default_profile_set: freesurfer7_all_default
   required_outputs:
-  - cortical_thickness
-  - cortical_volume
-  - subcortical_volume
+    - cortical_thickness
+    - cortical_volume
+    - subcortical_volume
   optional_outputs:
-  - intermediate_work_products
+    - intermediate_work_products
   active_pipeline_stages:
-  - reorientation
-  - brain_extraction
-  - segmentation
-  - template_registration
-  - bias_correction
-  - white_matter_segmentation
-  - surface_reconstruction
-  - surface_registration
-  - stats_extraction
+    - reorientation
+    - brain_extraction
+    - segmentation
+    - template_registration
+    - bias_correction
+    - white_matter_segmentation
+    - surface_reconstruction
+    - surface_registration
+    - stats_extraction
   skipped_pipeline_stages: []
   stage_options:
     command_template: mri_pipeline_executor
-    input_placeholder: '{input}'
-    output_placeholder: '{output}'
-    workspace_placeholder: '{workspace_id}'
+    input_placeholder: "{input}"
+    output_placeholder: "{output}"
+    workspace_placeholder: "{workspace_id}"
 stages:
-- id: reorient_resize
-  display_name: Reorientation and Resize
-  operation: reorientation_resize
-  implementation: fs7_recon_style_reorientation
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on: []
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_reorient_resize_cpu_1
+  - id: reorient_resize
+    display_name: Reorientation and Resize
+    operation: reorientation_resize
+    implementation: fs7_recon_style_reorientation
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on: []
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_reorient_resize_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: reorientation
+          pipeline_tool_key: fs7_recon_style_reorientation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_reorient_resize_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: reorientation
+          pipeline_tool_key: fs7_recon_style_reorientation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
       pipeline_stage: reorientation
       pipeline_tool_key: fs7_recon_style_reorientation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_reorient_resize_cpu_2
+      pipeline_stage_order: 1
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/orig.mgz
+  - id: brain_extraction
+    display_name: Brain Extraction
+    operation: brain_extraction
+    implementation: fs7_recon_style_brain_extraction
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - reorient_resize
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_brain_extraction_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: brain_extraction
+          pipeline_tool_key: fs7_recon_style_brain_extraction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_brain_extraction_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: brain_extraction
+          pipeline_tool_key: fs7_recon_style_brain_extraction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_brain_extraction_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: brain_extraction
+          pipeline_tool_key: fs7_recon_style_brain_extraction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: reorientation
-      pipeline_tool_key: fs7_recon_style_reorientation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: reorientation
-    pipeline_tool_key: fs7_recon_style_reorientation
-    pipeline_stage_order: 1
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/orig.mgz
-- id: brain_extraction
-  display_name: Brain Extraction
-  operation: brain_extraction
-  implementation: fs7_recon_style_brain_extraction
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - reorient_resize
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_brain_extraction_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: brain_extraction
       pipeline_tool_key: fs7_recon_style_brain_extraction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_brain_extraction_cpu_2
+      pipeline_stage_order: 2
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/brainmask.mgz
+  - id: subcortical_segmentation
+    display_name: Subcortical Segmentation
+    operation: subcortical_segmentation
+    implementation: fs7_recon_style_segmentation
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - brain_extraction
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: segmentation
+          pipeline_tool_key: fs7_recon_style_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: segmentation
+          pipeline_tool_key: fs7_recon_style_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: segmentation
+          pipeline_tool_key: fs7_recon_style_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: brain_extraction
-      pipeline_tool_key: fs7_recon_style_brain_extraction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_brain_extraction_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: brain_extraction
-      pipeline_tool_key: fs7_recon_style_brain_extraction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: brain_extraction
-    pipeline_tool_key: fs7_recon_style_brain_extraction
-    pipeline_stage_order: 2
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/brainmask.mgz
-- id: subcortical_segmentation
-  display_name: Subcortical Segmentation
-  operation: subcortical_segmentation
-  implementation: fs7_recon_style_segmentation
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - brain_extraction
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: segmentation
       pipeline_tool_key: fs7_recon_style_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_2
+      pipeline_stage_order: 3
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/aseg.presurf.mgz
+        - freesurfer/*/mri/aseg.auto.mgz
+  - id: template_registration
+    display_name: Template Registration
+    operation: template_registration
+    implementation: fs7_recon_style_template_registration
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - subcortical_segmentation
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_template_registration_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: template_registration
+          pipeline_tool_key: fs7_recon_style_template_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_template_registration_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: template_registration
+          pipeline_tool_key: fs7_recon_style_template_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_template_registration_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: template_registration
+          pipeline_tool_key: fs7_recon_style_template_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: segmentation
-      pipeline_tool_key: fs7_recon_style_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_subcortical_segmentation_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: segmentation
-      pipeline_tool_key: fs7_recon_style_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: segmentation
-    pipeline_tool_key: fs7_recon_style_segmentation
-    pipeline_stage_order: 3
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/aseg.presurf.mgz
-    - freesurfer/*/mri/aseg.auto.mgz
-- id: template_registration
-  display_name: Template Registration
-  operation: template_registration
-  implementation: fs7_recon_style_template_registration
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - subcortical_segmentation
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_template_registration_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: template_registration
       pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_template_registration_cpu_2
+      pipeline_stage_order: 4
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/transforms/talairach.lta
+        - freesurfer/*/mri/transforms/talairach.xfm
+  - id: image_standardization
+    display_name: Image Standardization
+    operation: image_standardization
+    implementation: fs7_recon_style_bias_correction
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - template_registration
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_image_standardization_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: bias_correction
+          pipeline_tool_key: fs7_recon_style_bias_correction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_image_standardization_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: bias_correction
+          pipeline_tool_key: fs7_recon_style_bias_correction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: template_registration
-      pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_template_registration_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: template_registration
-      pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: template_registration
-    pipeline_tool_key: fs7_recon_style_template_registration
-    pipeline_stage_order: 4
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/transforms/talairach.lta
-    - freesurfer/*/mri/transforms/talairach.xfm
-- id: image_standardization
-  display_name: Image Standardization
-  operation: image_standardization
-  implementation: fs7_recon_style_bias_correction
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - template_registration
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_image_standardization_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: bias_correction
       pipeline_tool_key: fs7_recon_style_bias_correction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_image_standardization_cpu_2
+      pipeline_stage_order: 5
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/brain.finalsurfs.mgz
+        - freesurfer/*/mri/antsdn.brain.mgz
+  - id: wm_segmentation
+    display_name: White-matter Segmentation
+    operation: white_matter_segmentation
+    implementation: fs7_recon_style_wm_segmentation
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - image_standardization
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_wm_segmentation_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: white_matter_segmentation
+          pipeline_tool_key: fs7_recon_style_wm_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_wm_segmentation_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: white_matter_segmentation
+          pipeline_tool_key: fs7_recon_style_wm_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_wm_segmentation_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: white_matter_segmentation
+          pipeline_tool_key: fs7_recon_style_wm_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_8
+        mode: cpu
+        cpu_threads: 8
+        profile_ref: freesurfer7_all_default_wm_segmentation_cpu_8
+        metadata:
+          executor: cpu
+          pipeline_stage: white_matter_segmentation
+          pipeline_tool_key: fs7_recon_style_wm_segmentation
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: bias_correction
-      pipeline_tool_key: fs7_recon_style_bias_correction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: bias_correction
-    pipeline_tool_key: fs7_recon_style_bias_correction
-    pipeline_stage_order: 5
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/brain.finalsurfs.mgz
-    - freesurfer/*/mri/antsdn.brain.mgz
-- id: wm_segmentation
-  display_name: White-matter Segmentation
-  operation: white_matter_segmentation
-  implementation: fs7_recon_style_wm_segmentation
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - image_standardization
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_wm_segmentation_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: white_matter_segmentation
       pipeline_tool_key: fs7_recon_style_wm_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_wm_segmentation_cpu_2
+      pipeline_stage_order: 6
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/mri/filled.mgz
+        - freesurfer/*/mri/wm.mgz
+  - id: surface_reconstruction
+    display_name: Surface Reconstruction
+    operation: surface_reconstruction
+    implementation: fs7_recon_style_surface_reconstruction
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - wm_segmentation
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_reconstruction
+          pipeline_tool_key: fs7_recon_style_surface_reconstruction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_reconstruction
+          pipeline_tool_key: fs7_recon_style_surface_reconstruction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_reconstruction
+          pipeline_tool_key: fs7_recon_style_surface_reconstruction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_8
+        mode: cpu
+        cpu_threads: 8
+        profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_8
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_reconstruction
+          pipeline_tool_key: fs7_recon_style_surface_reconstruction
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: white_matter_segmentation
-      pipeline_tool_key: fs7_recon_style_wm_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_wm_segmentation_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: white_matter_segmentation
-      pipeline_tool_key: fs7_recon_style_wm_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_8
-    mode: cpu
-    cpu_threads: 8
-    profile_ref: freesurfer7_all_default_wm_segmentation_cpu_8
-    metadata:
-      executor: cpu
-      pipeline_stage: white_matter_segmentation
-      pipeline_tool_key: fs7_recon_style_wm_segmentation
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: white_matter_segmentation
-    pipeline_tool_key: fs7_recon_style_wm_segmentation
-    pipeline_stage_order: 6
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/filled.mgz
-    - freesurfer/*/mri/wm.mgz
-- id: surface_reconstruction
-  display_name: Surface Reconstruction
-  operation: surface_reconstruction
-  implementation: fs7_recon_style_surface_reconstruction
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - wm_segmentation
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: surface_reconstruction
       pipeline_tool_key: fs7_recon_style_surface_reconstruction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_2
+      pipeline_stage_order: 7
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/surf/lh.white.preaparc
+        - freesurfer/*/surf/rh.white.preaparc
+  - id: surface_registration
+    display_name: Surface Registration
+    operation: surface_registration
+    implementation: fs7_recon_style_surface_registration
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - surface_reconstruction
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_surface_registration_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_registration
+          pipeline_tool_key: fs7_recon_style_surface_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_surface_registration_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_registration
+          pipeline_tool_key: fs7_recon_style_surface_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_4
+        mode: cpu
+        cpu_threads: 4
+        profile_ref: freesurfer7_all_default_surface_registration_cpu_4
+        metadata:
+          executor: cpu
+          pipeline_stage: surface_registration
+          pipeline_tool_key: fs7_recon_style_surface_registration
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: surface_reconstruction
-      pipeline_tool_key: fs7_recon_style_surface_reconstruction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: surface_reconstruction
-      pipeline_tool_key: fs7_recon_style_surface_reconstruction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_8
-    mode: cpu
-    cpu_threads: 8
-    profile_ref: freesurfer7_all_default_surface_reconstruction_cpu_8
-    metadata:
-      executor: cpu
-      pipeline_stage: surface_reconstruction
-      pipeline_tool_key: fs7_recon_style_surface_reconstruction
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: surface_reconstruction
-    pipeline_tool_key: fs7_recon_style_surface_reconstruction
-    pipeline_stage_order: 7
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/surf/lh.white.preaparc
-    - freesurfer/*/surf/rh.white.preaparc
-- id: surface_registration
-  display_name: Surface Registration
-  operation: surface_registration
-  implementation: fs7_recon_style_surface_registration
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - surface_reconstruction
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_surface_registration_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: surface_registration
       pipeline_tool_key: fs7_recon_style_surface_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_surface_registration_cpu_2
+      pipeline_stage_order: 8
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files: []
+      output_globs:
+        - freesurfer/*/surf/lh.sphere.reg
+        - freesurfer/*/surf/rh.sphere.reg
+  - id: statistics_atlas_mapping
+    display_name: Statistics and Atlas Mapping
+    operation: statistics_atlas_mapping
+    implementation: fs7_recon_style_stats
+    implementation_version: 7.4.1
+    enabled: true
+    depends_on:
+      - subcortical_segmentation
+      - surface_registration
+    execution_configurations:
+      - id: cpu_1
+        mode: cpu
+        cpu_threads: 1
+        profile_ref: freesurfer7_all_default_statistics_atlas_mapping_cpu_1
+        metadata:
+          executor: cpu
+          pipeline_stage: stats_extraction
+          pipeline_tool_key: fs7_recon_style_stats
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
+      - id: cpu_2
+        mode: cpu
+        cpu_threads: 2
+        profile_ref: freesurfer7_all_default_statistics_atlas_mapping_cpu_2
+        metadata:
+          executor: cpu
+          pipeline_stage: stats_extraction
+          pipeline_tool_key: fs7_recon_style_stats
+          docker_image: mkdayyyy/mri-fs741:7.4.1-min
+          provisional: true
     metadata:
-      executor: cpu
-      pipeline_stage: surface_registration
-      pipeline_tool_key: fs7_recon_style_surface_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_all_default_surface_registration_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: surface_registration
-      pipeline_tool_key: fs7_recon_style_surface_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: surface_registration
-    pipeline_tool_key: fs7_recon_style_surface_registration
-    pipeline_stage_order: 8
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/surf/lh.sphere.reg
-    - freesurfer/*/surf/rh.sphere.reg
-- id: statistics_atlas_mapping
-  display_name: Statistics and Atlas Mapping
-  operation: statistics_atlas_mapping
-  implementation: fs7_recon_style_stats
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - subcortical_segmentation
-  - surface_registration
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_all_default_statistics_atlas_mapping_cpu_1
-    metadata:
-      executor: cpu
       pipeline_stage: stats_extraction
       pipeline_tool_key: fs7_recon_style_stats
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_all_default_statistics_atlas_mapping_cpu_2
-    metadata:
-      executor: cpu
-      pipeline_stage: stats_extraction
-      pipeline_tool_key: fs7_recon_style_stats
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: stats_extraction
-    pipeline_tool_key: fs7_recon_style_stats
-    pipeline_stage_order: 9
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files:
-    - lh.aparc.stats
-    - rh.aparc.stats
-    - aseg.stats
-    output_globs:
-    - freesurfer/*/stats/lh.aparc.stats
-    - freesurfer/*/stats/rh.aparc.stats
-    - freesurfer/*/stats/aseg.stats
+      pipeline_stage_order: 9
+      docker_image: mkdayyyy/mri-fs741:7.4.1-min
+      needs_license: true
+      output_files:
+        - lh.aparc.stats
+        - rh.aparc.stats
+        - aseg.stats
+      output_globs:
+        - freesurfer/*/stats/lh.aparc.stats
+        - freesurfer/*/stats/rh.aparc.stats
+        - freesurfer/*/stats/aseg.stats
