@@ -52,57 +52,66 @@ Date: 2026-08-06
   - Image tag: `local/cat12_26_glibc:latest`
   - Built by copying `/opt/cat12` and `/opt/mcr` from `vnmd/cat12_26.0.rc3:latest` into an Ubuntu 22.04 base image with GLIBC 2.35.
   - This is a server-local experimental image, not pushed to a registry.
+- The matching Dockerfile is now in the repo at `docker/cat12_26_glibc/Dockerfile` for local build/publish as `duattran05/cat12_26_glibc:latest`.
+- The patched local image completed CAT12 cortical thickness successfully on `catcd1@10.8.0.1`.
+  - Previous `cat_sanlm.mexa64` `GLIBC_2.34` failure is resolved by the Ubuntu 22.04 base.
+  - Previous `CAT_FixTopology` segmentation fault did not reproduce in this image.
+  - CAT12 reported average thickness `2.2115 +/- 0.4703 mm` and wrote cortical thickness files for both hemispheres.
+  - Raw FreeSurfer curv thickness values were validated as finite, positive, and plausible: LH mean `2.256294 mm`, RH mean `2.166684 mm`, combined LH+RH mean `2.212437 mm` and std `0.472864 mm`.
+  - Combined LH+RH raw values match CAT12's reported average thickness closely: mean delta `0.000937 mm`, std delta `0.002564 mm`.
+  - Thickness vertex/face counts match the corresponding `central`, `pial`, `white`, `sphere`, and `sphere.reg` GIFTI surfaces for LH, RH, and cerebellum.
 
 ## New Azure Server Test State
 
 Server details and credentials were provided out of band. Do not commit passwords or private keys.
 
-Workspace on server:
+Latest successful workspace on `catcd1@10.8.0.1`:
 
 ```bash
-/home/mriuser/cat12-surface-test
+/home/catcd1/duat-jobs/run-cat12-glibc
 ```
 
-Useful server files:
+Useful server files from the successful run:
 
 ```bash
-/home/mriuser/cat12-surface-test/input/input.nii.gz
-/home/mriuser/cat12-surface-test/Dockerfile.cat12_26_glibc
-/home/mriuser/cat12-surface-test/build_and_run_cat12_fixed.sh
-/home/mriuser/cat12-surface-test/scripts/run_cat12_surface_test.sh
-/home/mriuser/cat12-surface-test/scripts/test_cat12_docker_image.sh
+/home/catcd1/duat-jobs/run-cat12-glibc/Dockerfile.cat12_26_glibc
+/home/catcd1/duat-jobs/run-cat12-glibc/run_cat12_glibc_surface.sh
+/home/catcd1/duat-jobs/run-cat12-glibc/logs/surface_20260806_112907.log
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/SUCCESS_THICKNESS.txt
 ```
 
 Tmux session used for patched image test:
 
 ```bash
-tmux attach -t cat12_surface_glibc
+tmux attach -t cat12_glibc_surface
 ```
 
-Logs:
+Final successful outputs included:
 
 ```bash
-tail -f /home/mriuser/cat12-surface-test/output/cat12_26_glibc_build.log
-tail -f /home/mriuser/cat12-surface-test/output/cat12_surface_glibc.log
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/label/catROI_input.xml
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/report/cat_input.xml
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/surf/lh.thickness.input
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/surf/rh.thickness.input
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/surf/lh.central.input.gii
+/home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907/surf/rh.central.input.gii
 ```
 
-The build of `local/cat12_26_glibc:latest` completed successfully. The first test attempt failed because the test script tried to `docker pull local/cat12_26_glibc:latest`; the script was patched on the server to skip pulling if the image already exists locally. The test was restarted in `cat12_surface_glibc`.
-
-At the end of the previous session, SSH to the server began timing out, so final status of the patched-image run was not confirmed.
+The build and full surface/thickness run of `local/cat12_26_glibc:latest` completed successfully. The first test attempt failed because the test script tried to `docker pull local/cat12_26_glibc:latest`; the server run script was patched to skip pulling for the local image.
 
 ## Commands To Check Patched CAT12 Surface Test
 
 ```bash
-ssh mriuser@104.214.184.21
+ssh -i /tmp/opencode/duat_ssh_key -p 19622 catcd1@10.8.0.1
 tmux ls
-tmux attach -t cat12_surface_glibc
+tmux attach -t cat12_glibc_surface
 ```
 
 Or non-interactive checks:
 
 ```bash
-tail -120 /home/mriuser/cat12-surface-test/output/cat12_surface_glibc.log
-find /home/mriuser/cat12-surface-test/output/cat12_surface_glibc_output -maxdepth 5 -type f \
+tail -120 /home/catcd1/duat-jobs/run-cat12-glibc/logs/surface_20260806_112907.log
+find /home/catcd1/duat-jobs/run-cat12-glibc/output/surface_20260806_112907 -maxdepth 5 -type f \
   \( -name "*thickness*" -o -name "*.gii" -o -name "catROI_*.xml" -o -name "cat_*.xml" \) | sort
 ```
 
@@ -125,9 +134,39 @@ python3 -m compileall pipeline/ remote/ ui/ normalize_volumes.py tests/test_cat1
 
 `pytest` was not available in the local WSL environment during development.
 
+## Build And Publish Fixed CAT12 Image
+
+Build the proven GLIBC-rebased CAT12 image locally:
+
+```bash
+docker build -t duattran05/cat12_26_glibc:latest docker/cat12_26_glibc
+```
+
+Smoke-test the image before pushing:
+
+```bash
+docker run --rm --entrypoint sh duattran05/cat12_26_glibc:latest -lc 'ldd --version | head -n 1; test -x /opt/cat12/standalone/cat_standalone.sh; test -d /opt/mcr/R2023b'
+```
+
+Publish to Docker Hub:
+
+```bash
+docker login
+docker push duattran05/cat12_26_glibc:latest
+```
+
+The image was pushed successfully to Docker Hub:
+
+```text
+duattran05/cat12_26_glibc:latest
+digest: sha256:02208cef1ea562ef455389fe0241f3440d647e190f2a9a7fd6cadc5af19f586e
+linux/amd64 manifest: sha256:04c910f380d8ffe7abae6630807114952b4ab10adab411c29b7cd76f34d46e5a
+```
+
+`CAT12_SURFACE_IMAGE` in `pipeline/registry.py` now points to `duattran05/cat12_26_glibc:latest`.
+
 ## Known Risks / Next Steps
 
-- CAT12 full cortical thickness is not proven until `local/cat12_26_glibc:latest` completes successfully.
-- If the patched image works, update `CAT12_SURFACE_IMAGE` in `pipeline/registry.py` to a real pushed image tag rather than `vnmd/cat12_26.0.rc3:latest`.
-- If the patched image fails, inspect whether failure is still `CAT_FixTopology`, a missing shared library, or input-specific CAT preprocessing.
+- CAT12 full cortical thickness is proven with server-local `local/cat12_26_glibc:latest` and the pushed `duattran05/cat12_26_glibc:latest` image built from `docker/cat12_26_glibc/Dockerfile`.
+- Keep monitoring future CAT12 inputs for image-specific or input-specific surface failures, because only one subject has been fully validated so far.
 - CAT12 volume path should remain on `jhuguetn/cat12:r2665-2` unless another image is proven more stable for volume-only.

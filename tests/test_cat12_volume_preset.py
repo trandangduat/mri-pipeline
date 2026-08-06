@@ -59,7 +59,7 @@ def test_cat12_volume_tools_use_standalone_image_without_surface_processing() ->
 
     assert "cat_standalone_segment.m" in command
     assert "output.surface = 0" in command
-    assert "surface output is still enabled" in command
+    assert "CAT12 batch has unexpected output.surface setting" in command
     assert "CAT Preprocessing error" in command
     assert "catROI_*.xml" in command
     assert "case \"$INPUT_BASE\"" in command
@@ -72,8 +72,8 @@ def test_cat12_full_tools_use_surface_candidate_image_and_thickness_output() -> 
     segmentation = TOOL_DEFS["cat12_full_segmentation"]
     stats = TOOL_DEFS["cat12_full_stats_extraction"]
 
-    assert segmentation["image"] == "vnmd/cat12_26.0.rc3:latest"
-    assert stats["image"] == "vnmd/cat12_26.0.rc3:latest"
+    assert segmentation["image"] == "duattran05/cat12_26_glibc:latest"
+    assert stats["image"] == "duattran05/cat12_26_glibc:latest"
     assert "CAT12.9/surf/*thickness*" in segmentation["output_globs"]
     assert "stats/cat12_cortical_thickness.tsv" in stats["output_globs"]
 
