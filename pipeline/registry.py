@@ -659,12 +659,14 @@ def _cat12_stats(ctx: ToolContext, include_thickness: bool = False) -> str:
         "mkdir -p /output/stats; "
         "REPORT=$(find /work /output -maxdepth 5 -type f -path '*/report/cat_*.xml' 2>/dev/null | head -n 1); "
         "ROI=$(find /work /output -maxdepth 5 -type f -path '*/label/catROI_*.xml' 2>/dev/null | head -n 1); "
+        "SURF=$(find /work /output -maxdepth 5 -type d -name surf 2>/dev/null | head -n 1); "
         "test -s \"$REPORT\"; test -s \"$ROI\"; "
         "PYTHON=$(command -v python3 || command -v python); test -n \"$PYTHON\"; "
         "\"$PYTHON\" /app/normalize_volumes.py "
         f"--subject-id {subject} "
         "--cat-report \"$REPORT\" --cat-roi \"$ROI\" "
-        "--output-subcortical /output/stats/subcortical_volume.tsv "
+        + ("--cat-surf-dir \"$SURF\" " if include_thickness else "")
+        + "--output-subcortical /output/stats/subcortical_volume.tsv "
         "--output-cortical /output/stats/cortical_volume.tsv "
         + ("--output-thickness /output/stats/cat12_cortical_thickness.tsv " if include_thickness else "")
         + "--tool CAT12; "

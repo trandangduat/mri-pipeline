@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import re
+import struct
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -76,7 +78,12 @@ def _text_items(element: ET.Element) -> List[str]:
     return lines if len(lines) > 1 else [text]
 
 
-def _classify_cat12_region(name: str) -> str:
+CAT12_CORTICAL_ATLAS_MARKERS = ("schaefer", "aal", "anatomy", "hammers", "julich", "lpba", "mori")
+
+
+def _classify_cat12_region(name: str, atlas: str = "") -> str:
+    if any(marker in _norm_name(atlas) for marker in CAT12_CORTICAL_ATLAS_MARKERS):
+        return "cortical"
     norm = _norm_name(name)
     cortical_markers = ("cortex", "cortical", "ctx", "frontal", "temporal", "parietal", "occipital", "cingulate", "insula")
     return "cortical" if any(marker in norm for marker in cortical_markers) else "subcortical"
@@ -99,11 +106,20 @@ def _append_cat12_roi_volume(
     cort_rows: List[List[str]],
     seen_sub: Set[Tuple[str, str]],
     seen_cort: Set[Tuple[str, str]],
+    atlas: str = "",
 ) -> None:
-    if _classify_cat12_region(region) == "cortical":
+    if _classify_cat12_region(region, atlas) == "cortical":
         _append_unique([subject_id, region, "both", value, tool], cort_rows, seen_cort)
     else:
         _append_unique([subject_id, region, value, tool], sub_rows, seen_sub)
+
+
+def _cat12_vector_value_elements(parent: ET.Element, predicate) -> List[ET.Element]:
+    elements = [child for child in list(parent) if predicate(_xml_tag(child))]
+    for child in list(parent):
+        if _norm_name(_xml_tag(child)) == "data":
+            elements.extend(grandchild for grandchild in list(child) if predicate(_xml_tag(grandchild)))
+    return elements
 
 
 def _append_cat12_roi_thickness(
@@ -160,14 +176,13 @@ def _cat12_roi_rows(roi_xml: Path, subject_id: str, tool: str) -> Tuple[List[Lis
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
         if region_names:
-            for child in list(parent):
-                if not _is_volume_tag(_xml_tag(child)):
-                    continue
+            atlas = _xml_tag(parent)
+            for child in _cat12_vector_value_elements(parent, _is_volume_tag):
                 numbers = _numeric_tokens(child.text)
                 if len(numbers) != len(region_names):
                     continue
                 for region, value in zip(region_names, numbers):
-                    _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort)
+                    _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas)
 
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
@@ -196,9 +211,7 @@ def _cat12_roi_thickness_rows(roi_xml: Path, subject_id: str, tool: str) -> List
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
         if region_names:
-            for child in list(parent):
-                if not _is_thickness_tag(_xml_tag(child)):
-                    continue
+            for child in _cat12_vector_value_elements(parent, _is_thickness_tag):
                 numbers = _numeric_tokens(child.text)
                 if len(numbers) != len(region_names):
                     continue
@@ -217,6 +230,34 @@ def _cat12_roi_thickness_rows(roi_xml: Path, subject_id: str, tool: str) -> List
     return rows
 
 
+def _read_freesurfer_curv_values(path: Path) -> List[float]:
+    if not path.exists():
+        return []
+    data = path.read_bytes()
+    if len(data) < 15 or int.from_bytes(data[:3], "big", signed=False) != 16777215:
+        return []
+    vnum, _fnum, vals_per_vertex = struct.unpack(">iii", data[3:15])
+    count = vnum * vals_per_vertex
+    expected = 15 + count * 4
+    if vals_per_vertex <= 0 or len(data) < expected:
+        return []
+    return [value for value in struct.unpack(f">{count}f", data[15:expected]) if math.isfinite(value)]
+
+
+def _cat12_surface_thickness_rows(surf_dir: Path, subject_id: str, tool: str) -> List[List[str]]:
+    rows: List[List[str]] = []
+    all_values: List[float] = []
+    for hemi in ("lh", "rh"):
+        values = _read_freesurfer_curv_values(surf_dir / f"{hemi}.thickness.input")
+        if not values:
+            continue
+        all_values.extend(values)
+        rows.append([subject_id, "global cortical mean", hemi, f"{sum(values) / len(values):.6f}", tool])
+    if all_values:
+        rows.append([subject_id, "global cortical mean", "both", f"{sum(all_values) / len(all_values):.6f}", tool])
+    return rows
+
+
 def _write_cat12_xml(
     report_xml: str,
     roi_xml: str,
@@ -225,6 +266,7 @@ def _write_cat12_xml(
     subject_id: str,
     tool: str = "CAT12",
     out_thickness: str = "",
+    surf_dir: str = "",
 ) -> None:
     sub_rows = _cat12_report_rows(Path(report_xml), subject_id, tool)
     roi_sub_rows, cort_rows = _cat12_roi_rows(Path(roi_xml), subject_id, tool)
@@ -242,6 +284,8 @@ def _write_cat12_xml(
         writer.writerows(cort_rows)
     if out_thickness:
         thickness_rows = _cat12_roi_thickness_rows(Path(roi_xml), subject_id, tool)
+        if not thickness_rows and surf_dir:
+            thickness_rows = _cat12_surface_thickness_rows(Path(surf_dir), subject_id, tool)
         Path(out_thickness).parent.mkdir(parents=True, exist_ok=True)
         with open(out_thickness, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, delimiter="\t")
@@ -426,6 +470,7 @@ def main():
     parser.add_argument("--stats-dir")
     parser.add_argument("--cat-report")
     parser.add_argument("--cat-roi")
+    parser.add_argument("--cat-surf-dir")
     parser.add_argument("--output-subcortical", required=True)
     parser.add_argument("--output-cortical", required=True)
     parser.add_argument("--output-thickness")
@@ -441,6 +486,7 @@ def main():
             args.subject_id,
             args.tool,
             args.output_thickness or "",
+            args.cat_surf_dir or "",
         )
     elif args.stats_dir:
         _write_from_stats_dir(args.stats_dir, args.output_subcortical, args.output_cortical, args.subject_id, args.tool)

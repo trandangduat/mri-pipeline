@@ -166,6 +166,25 @@ linux/amd64 manifest: sha256:2e3d81a280a8c0922b2a2065019c447d8e75a19ea0689e67c1d
 
 `CAT12_IMAGE` and `CAT12_SURFACE_IMAGE` in `pipeline/registry.py` now point to `duattran05/cat12_26_glibc:latest` so both CAT12 presets can use the same GLIBC-fixed image and `.mgz`/`.mgh` conversion path.
 
+## Stats Extraction Fix (2026-08-06)
+
+A CAT12 full run (`job_20260806_174604`) failed at the final `get_cat12_full_stats_extraction` step: `cortical_volume.tsv` and `cat12_cortical_thickness.tsv` were header-only (1 line), while `subcortical_volume.tsv` had data.
+
+Root cause: real `label/catROI_input.xml` stores ROI volume values under nested `<data><Vgm>[...]</Vgm></data>` nodes (not flat `Vgm` item siblings), so the old flat parser found no cortical values. The XML also contains no thickness tags at all, so the thickness step needs a surface-based fallback.
+
+Fix in `normalize_volumes.py`:
+- `_cat12_vector_value_elements`: also descend into `<data>` children when scanning ROI tags.
+- `_classify_cat12_region(name, atlas)`: treat atlases containing `schaefer/aal/anatomy/hammers/julich/lpba/mori` as cortical.
+- `_append_cat12_roi_volume` accepts the atlas name for classification.
+- `_write_cat12_xml(..., surf_dir)` accepts a surface dir; if no ROI thickness rows are found it falls back to `surf/lh.thickness.input` + `rh.thickness.input` raw FreeSurfer curv values (`global cortical mean` per hemisphere and combined).
+- `_read_freesurfer_curv_values`: minimal binary `?h.thickness.input` reader (Big-Endian float, 3-byte magic `16777215`).
+- CLI `--cat-surf-dir`, wired through `main`.
+- `pipeline/registry.py::_cat12_stats` now passes `--cat-surf-dir` when thickness output is requested.
+
+Verified against the real failed run output `job_20260606_174604` (`/home/catcd1/neuroflow-test/...`): `cortical_volume.tsv` now has 1698 data rows, `cat12_cortical_thickness.tsv` has surface-derived global means, `subcortical_volume.tsv` unchanged.
+
+All related unit tests updated and passing (manual execution since `pytest` is unavailable in WSL): `tests/test_cat12_volume_normalization.py` (incl. new nested-`<data>` and surface-thickness-fallback tests) and `tests/test_cat12_volume_preset.py`.
+
 ## Known Risks / Next Steps
 
 - CAT12 full cortical thickness is proven with server-local `local/cat12_26_glibc:latest` and the pushed `duattran05/cat12_26_glibc:latest` image built from `docker/cat12_26_glibc/Dockerfile`.
