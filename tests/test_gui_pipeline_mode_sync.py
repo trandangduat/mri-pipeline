@@ -39,3 +39,33 @@ def test_fastsurfer_full_keeps_brain_extraction_not_available_when_syncing_thick
     assert gui.state.tool_vars["brain_extraction"].get() == "Not available"
     assert gui.state.tool_vars["surface_reconstruction"].get() == "FastSurfer Surface Reconstruction"
     assert gui.state.tool_vars["surface_registration"].get() == "FastSurfer Surface Registration"
+
+
+def test_cat12_volume_skips_reorientation_and_surface_stages() -> None:
+    gui = PipelineGUI.__new__(PipelineGUI)
+    gui.state = SimpleNamespace(pipeline_mode=Value("CAT12 + Volume"))
+
+    skipped = PipelineGUI._volume_skipped_stages_for_mode(gui)
+
+    assert "reorientation" in skipped
+    assert "brain_extraction" in skipped
+    assert "template_registration" in skipped
+    assert "bias_correction" in skipped
+    assert "white_matter_segmentation" in skipped
+    assert "surface_reconstruction" in skipped
+    assert "surface_registration" in skipped
+    assert "segmentation" not in skipped
+    assert "stats_extraction" not in skipped
+
+
+def test_cat12_full_skips_reorientation_and_surface_stage_dropdowns() -> None:
+    gui = PipelineGUI.__new__(PipelineGUI)
+    gui.state = SimpleNamespace(pipeline_mode=Value("CAT12 + Volume + Cortical Thickness"))
+
+    skipped = PipelineGUI._volume_skipped_stages_for_mode(gui)
+
+    assert "reorientation" in skipped
+    assert "surface_reconstruction" in skipped
+    assert "surface_registration" in skipped
+    assert "segmentation" not in skipped
+    assert "stats_extraction" not in skipped

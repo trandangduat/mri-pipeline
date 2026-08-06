@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 PIPELINE_MODES = (
+    "CAT12 + Volume",
+    "CAT12 + Volume + Cortical Thickness",
     "FreeSurfer 8 + Volume",
     "FreeSurfer 8 + Cortical Thickness",
     "FreeSurfer 8 + Volume + Cortical Thickness",
@@ -37,6 +39,16 @@ VOLUME_SKIPPED_STAGES = {
 }
 
 FS7_VOLUME_SKIPPED_STAGES = {
+    "template_registration",
+    "bias_correction",
+    "white_matter_segmentation",
+    "surface_reconstruction",
+    "surface_registration",
+}
+
+CAT12_VOLUME_SKIPPED_STAGES = {
+    "reorientation",
+    "brain_extraction",
     "template_registration",
     "bias_correction",
     "white_matter_segmentation",
@@ -108,6 +120,24 @@ FASTSURFER_SURFACE_TOOLS = {
     "stats_extraction": "fastsurfer_stats_extraction",
 }
 
+CAT12_VOLUME_TOOLS = {
+    "reorientation": "",
+    "brain_extraction": "",
+    "segmentation": "cat12_volume_segmentation",
+    "template_registration": "",
+    "bias_correction": "",
+    "white_matter_segmentation": "",
+    "surface_reconstruction": "",
+    "surface_registration": "",
+    "stats_extraction": "cat12_volume_stats_extraction",
+}
+
+CAT12_FULL_TOOLS = {
+    **CAT12_VOLUME_TOOLS,
+    "segmentation": "cat12_full_segmentation",
+    "stats_extraction": "cat12_full_stats_extraction",
+}
+
 VOLUME_STATS = {"cortical_volume", "subcortical_volume"}
 
 SUBCORTICAL_VOLUME_STATS = {"subcortical_volume"}
@@ -115,6 +145,8 @@ SUBCORTICAL_VOLUME_STATS = {"subcortical_volume"}
 THICKNESS_STATS = {"cortical_thickness"}
 
 PRESET_CONFIGS = {
+    "CAT12 + Volume": {"tools": CAT12_VOLUME_TOOLS, "stats": VOLUME_STATS},
+    "CAT12 + Volume + Cortical Thickness": {"tools": CAT12_FULL_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
     "FreeSurfer 8 + Volume": {"tools": FREESURFER_8_TOOLS, "stats": VOLUME_STATS},
     "FreeSurfer 8 + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": THICKNESS_STATS},
     "FreeSurfer 8 + Volume + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},

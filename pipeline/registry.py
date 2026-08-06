@@ -8,7 +8,11 @@ SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
 
 FS8_REDUCED54_IMAGE = "mkdayyyy/mri-fs8-all:latest"
 FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs7-all:latest"
+CAT12_IMAGE = "jhuguetn/cat12:r2665-2"
+CAT12_SURFACE_IMAGE = "vnmd/cat12_26.0.rc3:latest"
 FREESURFER_RECON_STYLE_TIMEOUT = 12 * 60 * 60
+CAT12_VOLUME_TIMEOUT = 6 * 60 * 60
+CAT12_SURFACE_TIMEOUT = 12 * 60 * 60
 
 
 def _q(value: str) -> str:
@@ -600,7 +604,150 @@ def _fastsurfer_volume_stats(ctx: ToolContext) -> str:
     )
 
 
+def _cat12_segmentation(ctx: ToolContext, surface_mode: int, batch_names: str) -> str:
+    return (
+        "set -euo pipefail; "
+        "mkdir -p /work/logs /output/stats; "
+        "cd /work; "
+        "ulimit -s unlimited || true; export MCR_CACHE_ROOT=/work/.mcr_cache; mkdir -p \"$MCR_CACHE_ROOT\"; "
+        f"INPUT={_q(ctx.input_path)}; "
+        "INPUT_BASE=$(basename \"$INPUT\"); "
+        "case \"$INPUT_BASE\" in *.nii.gz) WORK_INPUT=input.nii.gz ;; *.nii) WORK_INPUT=input.nii ;; *) WORK_INPUT=input.nii ;; esac; "
+        "cp \"$INPUT\" \"/work/$WORK_INPUT\"; "
+        "CAT_SCRIPT=; for candidate in /opt/spm/standalone/cat_standalone.sh /opt/cat12/standalone/cat_standalone.sh; do if [ -x \"$candidate\" ]; then CAT_SCRIPT=\"$candidate\"; break; fi; done; "
+        "test -n \"$CAT_SCRIPT\" || { echo 'CAT standalone script not found' >&2; exit 3; }; "
+        "SPM_ROOT=/opt/spm; [ -d /opt/cat12 ] && SPM_ROOT=/opt/cat12; "
+        "MCR_ROOT=; for candidate in /opt/mcr/v232 /opt/mcr/R2023b; do if [ -d \"$candidate\" ]; then MCR_ROOT=\"$candidate\"; break; fi; done; "
+        "test -n \"$MCR_ROOT\" || { echo 'MCR root not found' >&2; exit 3; }; "
+        f"BATCH_SRC=; for batch_name in {batch_names}; do candidate=\"$SPM_ROOT/standalone/$batch_name\"; if [ -f \"$candidate\" ]; then BATCH_SRC=\"$candidate\"; break; fi; done; "
+        "test -n \"$BATCH_SRC\" || { echo 'CAT segment batch not found' >&2; exit 3; }; "
+        "BATCH=/work/cat12_segment.m; cp \"$BATCH_SRC\" \"$BATCH\"; "
+        f"sed -i 's/output[.]surface[[:space:]]*=[[:space:]]*[0-9]/output.surface = {surface_mode}/g' \"$BATCH\" || true; "
+        f"grep -Eq 'output[.]surface[[:space:]]*=[[:space:]]*{surface_mode}' \"$BATCH\" || {{ echo 'CAT12 batch has unexpected output.surface setting' >&2; exit 4; }}; "
+        "grep 'output.surface' \"$BATCH\" || true; "
+        "set +e; \"$CAT_SCRIPT\" -s \"$SPM_ROOT\" -m \"$MCR_ROOT\" -b \"$BATCH\" \"/work/$WORK_INPUT\" 2>&1 | tee /work/logs/cat12_segmentation.log; cat_status=${PIPESTATUS[0]}; set -e; "
+        "if grep -E 'CAT Preprocessing error|Cannot gunzip|No executable modules|Error using|MATLAB:|SPM failed|Segmentation fault' /work/logs/cat12_segmentation.log >/work/logs/cat12_error_matches.txt 2>/dev/null; then cat /work/logs/cat12_error_matches.txt >&2; exit 10; fi; "
+        "if [ \"$cat_status\" != 0 ]; then echo \"CAT standalone exited with status $cat_status\" >&2; exit \"$cat_status\"; fi; "
+        "find /work -maxdepth 4 -type f -path '*/report/cat_*.xml' | grep -q .; "
+        "find /work -maxdepth 4 -type f -path '*/label/catROI_*.xml' | grep -q .; "
+        + (
+            "find /work -maxdepth 5 -type f -name '*thickness*' | grep -q ."
+            if surface_mode else
+            "true"
+        )
+    )
+
+
+def _cat12_volume_segmentation(ctx: ToolContext) -> str:
+    return _cat12_segmentation(ctx, surface_mode=0, batch_names="cat_standalone_segment.m cat_standalone_segment_enigma.m")
+
+
+def _cat12_full_segmentation(ctx: ToolContext) -> str:
+    return _cat12_segmentation(ctx, surface_mode=2, batch_names="cat_standalone_segment_enigma.m cat_standalone_segment.m")
+
+
+def _cat12_stats(ctx: ToolContext, include_thickness: bool = False) -> str:
+    subject = _q(ctx.subject_id)
+    return (
+        "set -e; "
+        "mkdir -p /output/stats; "
+        "REPORT=$(find /work /output -maxdepth 5 -type f -path '*/report/cat_*.xml' 2>/dev/null | head -n 1); "
+        "ROI=$(find /work /output -maxdepth 5 -type f -path '*/label/catROI_*.xml' 2>/dev/null | head -n 1); "
+        "test -s \"$REPORT\"; test -s \"$ROI\"; "
+        "PYTHON=$(command -v python3 || command -v python); test -n \"$PYTHON\"; "
+        "\"$PYTHON\" /app/normalize_volumes.py "
+        f"--subject-id {subject} "
+        "--cat-report \"$REPORT\" --cat-roi \"$ROI\" "
+        "--output-subcortical /output/stats/subcortical_volume.tsv "
+        "--output-cortical /output/stats/cortical_volume.tsv "
+        + ("--output-thickness /output/stats/cat12_cortical_thickness.tsv " if include_thickness else "")
+        + "--tool CAT12; "
+        "test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv; "
+        + ('test "$(wc -l < /output/stats/cat12_cortical_thickness.tsv)" -gt 1' if include_thickness else "true")
+    )
+
+
+def _cat12_volume_stats(ctx: ToolContext) -> str:
+    return _cat12_stats(ctx, include_thickness=False)
+
+
+def _cat12_full_stats(ctx: ToolContext) -> str:
+    return _cat12_stats(ctx, include_thickness=True)
+
+
 TOOL_DEFS: dict[str, dict] = {
+    "cat12_volume_segmentation": {
+        "entrypoint": "",
+        "display_name": "CAT12 Volume Segmentation",
+        "image": CAT12_IMAGE,
+        "stage": "segmentation",
+        "needs_license": False,
+        "command_builder": _cat12_volume_segmentation,
+        "timeout": CAT12_VOLUME_TIMEOUT,
+        "output_files": [],
+        "output_globs": [
+            "report/cat_*.xml",
+            "CAT12.9/report/cat_*.xml",
+            "label/catROI_*.xml",
+            "CAT12.9/label/catROI_*.xml",
+            "mri/mwp1*.nii",
+            "CAT12.9/mri/mwp1*.nii",
+            "mri/mwp1*.nii.gz",
+            "CAT12.9/mri/mwp1*.nii.gz",
+            "mri/p0*.nii",
+            "CAT12.9/mri/p0*.nii",
+            "mri/p0*.nii.gz",
+            "CAT12.9/mri/p0*.nii.gz",
+        ],
+    },
+    "cat12_full_segmentation": {
+        "entrypoint": "",
+        "display_name": "CAT12 Full Segmentation",
+        "image": CAT12_SURFACE_IMAGE,
+        "stage": "segmentation",
+        "needs_license": False,
+        "command_builder": _cat12_full_segmentation,
+        "timeout": CAT12_SURFACE_TIMEOUT,
+        "output_files": [],
+        "output_globs": [
+            "report/cat_*.xml",
+            "CAT12.9/report/cat_*.xml",
+            "label/catROI_*.xml",
+            "CAT12.9/label/catROI_*.xml",
+            "surf/*thickness*",
+            "CAT12.9/surf/*thickness*",
+            "surf/*.gii",
+            "CAT12.9/surf/*.gii",
+            "mri/mwp1*.nii",
+            "CAT12.9/mri/mwp1*.nii",
+            "mri/p0*.nii",
+            "CAT12.9/mri/p0*.nii",
+        ],
+    },
+    "cat12_volume_stats_extraction": {
+        "entrypoint": "",
+        "display_name": "CAT12 Volume Stats Extraction",
+        "image": CAT12_IMAGE,
+        "stage": "stats_extraction",
+        "needs_license": False,
+        "command_builder": _cat12_volume_stats,
+        "output_files": ["subcortical_volume.tsv", "cortical_volume.tsv"],
+        "output_globs": ["stats/subcortical_volume.tsv", "stats/cortical_volume.tsv"],
+    },
+    "cat12_full_stats_extraction": {
+        "entrypoint": "",
+        "display_name": "CAT12 Full Stats Extraction",
+        "image": CAT12_SURFACE_IMAGE,
+        "stage": "stats_extraction",
+        "needs_license": False,
+        "command_builder": _cat12_full_stats,
+        "output_files": ["subcortical_volume.tsv", "cortical_volume.tsv", "cat12_cortical_thickness.tsv"],
+        "output_globs": [
+            "stats/subcortical_volume.tsv",
+            "stats/cortical_volume.tsv",
+            "stats/cat12_cortical_thickness.tsv",
+        ],
+    },
     "fastsurfer_reorientation": {
         "entrypoint": "",
         "display_name": "FastSurfer Reorientation",
@@ -1085,6 +1232,10 @@ TOOL_DISPLAY_ALIASES = {
     "Mri Binarize": "mri_binarize",
     "MRI Binarize": "mri_binarize",
     "FreeSurfer Stats FS7": "freesurfer_stats_fs7",
+    "CAT12 Volume Segmentation": "cat12_volume_segmentation",
+    "CAT12 Volume Stats Extraction": "cat12_volume_stats_extraction",
+    "CAT12 Full Segmentation": "cat12_full_segmentation",
+    "CAT12 Full Stats Extraction": "cat12_full_stats_extraction",
     "CorticalFlow": "corticalflow",
     "CorticalFlow++": "corticalflow",
     "Sugar": "sugar",

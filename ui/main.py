@@ -32,6 +32,7 @@ from pipeline.registry import (
 from pipeline.presets import (
     PIPELINE_MODES,
     PIPELINE_MODE_ALIASES,
+    CAT12_VOLUME_SKIPPED_STAGES,
     FS7_VOLUME_SKIPPED_STAGES,
     SUBCORTICAL_VOLUME_STATS,
     VOLUME_SKIPPED_STAGES,
@@ -75,6 +76,8 @@ class PipelineGUI:
             return set(FS7_VOLUME_SKIPPED_STAGES)
         if normalized.startswith("FreeSurfer 7"):
             return set()
+        if normalized.startswith("CAT12"):
+            return set(CAT12_VOLUME_SKIPPED_STAGES)
         return set(VOLUME_SKIPPED_STAGES)
 
     def _apply_custom_tool_defaults(self, force_reset: bool = False) -> None:

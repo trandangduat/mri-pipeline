@@ -11,6 +11,7 @@ from pathlib import Path
 from .config import BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .jobs import read_json, write_json
 from .discovery import _derive_subject_id, _discover_mri_files, build_subject_id_map
+from .presets import PIPELINE_MODE_ALIASES, PRESET_CONFIGS
 from .reports import BatchReportContext, write_batch_reports
 from .runner import run_batch_pipeline, run_pipeline
 
@@ -68,7 +69,14 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     stop_file = job_dir / "stop_requested"
     mode = req.get("mode")
     output_dir = req.get("effective_output_dir", req.get("output_dir", ""))
-    selected_tools = req.get("selected_tools", {})
+    pipeline_mode = PIPELINE_MODE_ALIASES.get(str(req.get("pipeline_mode") or ""), str(req.get("pipeline_mode") or ""))
+    if pipeline_mode != "Custom" and pipeline_mode in PRESET_CONFIGS:
+        selected_tools = dict(PRESET_CONFIGS[pipeline_mode]["tools"])
+        req["selected_tools"] = selected_tools
+        req["pipeline_mode"] = pipeline_mode
+        write_json(job_dir / "job_config.json", req)
+    else:
+        selected_tools = req.get("selected_tools", {})
     export_config = ExportConfig.from_dict(req.get("export_config"))
     stats_vector_config = StatsVectorConfig.from_dict(req.get("stats_vector_config"))
 

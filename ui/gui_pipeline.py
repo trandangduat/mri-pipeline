@@ -18,6 +18,7 @@ from tkinter import messagebox, ttk
 from pipeline.jobs import create_local_job_dir, upsert_job_registry, write_json
 from pipeline.config import PROJECT_ROOT
 from pipeline.neuroflow_adapter import PIPELINE_MODE_TO_PRESET
+from pipeline.presets import PRESET_CONFIGS
 from pipeline.registry import STAGE_ORDER
 from pipeline.discovery import _is_supported_mri_input, _is_dicom_series_dir, _discover_mri_files
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
@@ -420,7 +421,13 @@ class PipelineController:
             messagebox.showerror("Invalid input", "Server input requires Run on = Server.")
             return None
 
-        selected_tools = self.gui._selected_tools() if hasattr(self, "_selected_tools") else self.gui.state.get_selected_tools()
+        pipeline_mode = self.gui._normalize_pipeline_mode(self.gui.state.pipeline_mode.get())
+        if pipeline_mode != self.gui.state.pipeline_mode.get():
+            self.gui.state.pipeline_mode.set(pipeline_mode)
+        if pipeline_mode != "Custom" and pipeline_mode in PRESET_CONFIGS:
+            selected_tools = dict(PRESET_CONFIGS[pipeline_mode]["tools"])
+        else:
+            selected_tools = self.gui._selected_tools() if hasattr(self, "_selected_tools") else self.gui.state.get_selected_tools()
         is_batch = mode == "dir"
         output_dir = self.gui.state.output_dir.get().strip()
         batch_output_name = f"batch_{time.strftime('%Y%m%d_%H%M%S')}" if is_batch else ""
@@ -444,7 +451,7 @@ class PipelineController:
             "export_config": self.gui.state.get_export_config(),
             "stats_vector_config": self.gui.state.get_stats_vector_config(),
             "input_source": input_source,
-            "pipeline_mode": self.gui.state.pipeline_mode.get(),
+            "pipeline_mode": pipeline_mode,
             "neuroflow_enabled": bool(self.gui.state.neuroflow_enabled.get()),
             "neuroflow_max_concurrent_tasks": neuroflow_max_concurrent,
             "neuroflow_machine_profile_id": "application_default",
