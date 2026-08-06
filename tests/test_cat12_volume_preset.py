@@ -46,7 +46,8 @@ def test_cat12_volume_tools_use_standalone_image_without_surface_processing() ->
     segmentation = TOOL_DEFS["cat12_volume_segmentation"]
     stats = TOOL_DEFS["cat12_volume_stats_extraction"]
 
-    assert segmentation["image"] == "jhuguetn/cat12:r2665-2"
+    assert segmentation["image"] == "duattran05/cat12_26_glibc:latest"
+    assert stats["image"] == "duattran05/cat12_26_glibc:latest"
     assert segmentation["stage"] == "segmentation"
     assert segmentation["needs_license"] is False
     assert stats["stage"] == "stats_extraction"
@@ -63,8 +64,9 @@ def test_cat12_volume_tools_use_standalone_image_without_surface_processing() ->
     assert "CAT Preprocessing error" in command
     assert "catROI_*.xml" in command
     assert "case \"$INPUT_BASE\"" in command
-    assert "*) WORK_INPUT=input.nii ;;" in command
-    assert "CAT12 expects .nii or .nii.gz input" not in command
+    assert "*.mgz|*.mgh) WORK_INPUT=input.nii" in command
+    assert "nibabel as nib" in command
+    assert "CAT12 supports .nii, .nii.gz, .mgz, or .mgh input files" in command
     assert "cp \"$INPUT\" \"/work/$WORK_INPUT\"" in command
 
 

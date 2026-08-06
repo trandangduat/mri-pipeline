@@ -60,6 +60,7 @@ Date: 2026-08-06
   - Raw FreeSurfer curv thickness values were validated as finite, positive, and plausible: LH mean `2.256294 mm`, RH mean `2.166684 mm`, combined LH+RH mean `2.212437 mm` and std `0.472864 mm`.
   - Combined LH+RH raw values match CAT12's reported average thickness closely: mean delta `0.000937 mm`, std delta `0.002564 mm`.
   - Thickness vertex/face counts match the corresponding `central`, `pial`, `white`, `sphere`, and `sphere.reg` GIFTI surfaces for LH, RH, and cerebellum.
+- A later CAT12 full run failed on a `.mgz` input because the old command copied `001.mgz` to `/work/input.nii` without conversion, causing SPM/CAT `read_hdr` to reject the file. The CAT12 GLIBC image now includes `python3-nibabel`, and the pipeline command converts `.mgz`/`.mgh` inputs to NIfTI before launching CAT.
 
 ## New Azure Server Test State
 
@@ -145,7 +146,7 @@ docker build -t duattran05/cat12_26_glibc:latest docker/cat12_26_glibc
 Smoke-test the image before pushing:
 
 ```bash
-docker run --rm --entrypoint sh duattran05/cat12_26_glibc:latest -lc 'ldd --version | head -n 1; test -x /opt/cat12/standalone/cat_standalone.sh; test -d /opt/mcr/R2023b'
+docker run --rm --entrypoint sh duattran05/cat12_26_glibc:latest -lc 'ldd --version | head -n 1; python3 -c "import nibabel"; test -x /opt/cat12/standalone/cat_standalone.sh; test -d /opt/mcr/R2023b'
 ```
 
 Publish to Docker Hub:
@@ -159,11 +160,11 @@ The image was pushed successfully to Docker Hub:
 
 ```text
 duattran05/cat12_26_glibc:latest
-digest: sha256:02208cef1ea562ef455389fe0241f3440d647e190f2a9a7fd6cadc5af19f586e
-linux/amd64 manifest: sha256:04c910f380d8ffe7abae6630807114952b4ab10adab411c29b7cd76f34d46e5a
+digest: sha256:a7be6fa0f1613ad5876eb813553019ec9add19aac5a5c0fe72a826f91a4a54f3
+linux/amd64 manifest: sha256:2e3d81a280a8c0922b2a2065019c447d8e75a19ea0689e67c1df032e8d667921
 ```
 
-`CAT12_SURFACE_IMAGE` in `pipeline/registry.py` now points to `duattran05/cat12_26_glibc:latest`.
+`CAT12_IMAGE` and `CAT12_SURFACE_IMAGE` in `pipeline/registry.py` now point to `duattran05/cat12_26_glibc:latest` so both CAT12 presets can use the same GLIBC-fixed image and `.mgz`/`.mgh` conversion path.
 
 ## Known Risks / Next Steps
 

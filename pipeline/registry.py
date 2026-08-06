@@ -8,8 +8,8 @@ SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
 
 FS8_REDUCED54_IMAGE = "mkdayyyy/mri-fs8-all:latest"
 FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs7-all:latest"
-CAT12_IMAGE = "jhuguetn/cat12:r2665-2"
-CAT12_SURFACE_IMAGE = "duattran05/cat12_26_glibc:latest"
+CAT12_IMAGE = "duattran05/cat12_26_glibc:latest"
+CAT12_SURFACE_IMAGE = CAT12_IMAGE
 FREESURFER_RECON_STYLE_TIMEOUT = 12 * 60 * 60
 CAT12_VOLUME_TIMEOUT = 6 * 60 * 60
 CAT12_SURFACE_TIMEOUT = 12 * 60 * 60
@@ -614,8 +614,12 @@ def _cat12_segmentation(ctx: ToolContext, surface_mode: int, batch_names: str) -
         "ulimit -s unlimited || true; export MCR_CACHE_ROOT=/work/.mcr_cache; mkdir -p \"$MCR_CACHE_ROOT\"; "
         f"INPUT={_q(ctx.input_path)}; "
         "INPUT_BASE=$(basename \"$INPUT\"); "
-        "case \"$INPUT_BASE\" in *.nii.gz) WORK_INPUT=input.nii.gz ;; *.nii) WORK_INPUT=input.nii ;; *) WORK_INPUT=input.nii ;; esac; "
-        "cp \"$INPUT\" \"/work/$WORK_INPUT\"; "
+        "case \"$INPUT_BASE\" in "
+        "*.nii.gz) WORK_INPUT=input.nii.gz; cp \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
+        "*.nii) WORK_INPUT=input.nii; cp \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
+        "*.mgz|*.mgh) WORK_INPUT=input.nii; python3 -c 'import sys, nibabel as nib; img = nib.load(sys.argv[1]); nib.save(img, sys.argv[2])' \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
+        "*) echo 'CAT12 supports .nii, .nii.gz, .mgz, or .mgh input files' >&2; exit 2 ;; "
+        "esac; "
         "CAT_SCRIPT=; for candidate in /opt/spm/standalone/cat_standalone.sh /opt/cat12/standalone/cat_standalone.sh; do if [ -x \"$candidate\" ]; then CAT_SCRIPT=\"$candidate\"; break; fi; done; "
         "test -n \"$CAT_SCRIPT\" || { echo 'CAT standalone script not found' >&2; exit 3; }; "
         "SPM_ROOT=/opt/spm; [ -d /opt/cat12 ] && SPM_ROOT=/opt/cat12; "

@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates coreutils findutils grep sed gawk file procps unzip \
+    python3 python3-nibabel \
     libc6 libgcc-s1 libstdc++6 libgomp1 zlib1g \
     libx11-6 libxext6 libxmu6 libxt6 libxrender1 libxrandr2 libxi6 \
     libxinerama1 libxcursor1 libxcomposite1 libxdamage1 libxfixes3 \
