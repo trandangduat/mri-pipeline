@@ -349,3 +349,27 @@ def test_remote_python_details_report_neuroflow_requirements() -> None:
     assert "Remote Python=3.8" in str(details["neuroflow_python_text"])
     FakeRemoteSSHClient.versions = {}
     FakeRemoteSSHClient.dependency_check = (0, "")
+
+
+def test_remote_runner_uses_preset_tools_for_cat12_volume() -> None:
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            pipeline_mode="CAT12 + Volume",
+            selected_tools={
+                "reorientation": "fs8_reduced54_reorientation",
+                "segmentation": "cat12_volume_segmentation",
+                "stats_extraction": "cat12_volume_stats_extraction",
+            },
+        )
+    )
+
+    args = runner._tool_args()
+
+    assert "--reorientation" not in args
+    assert args == [
+        "--segmentation",
+        "cat12_volume_segmentation",
+        "--stats-extraction",
+        "cat12_volume_stats_extraction",
+    ]

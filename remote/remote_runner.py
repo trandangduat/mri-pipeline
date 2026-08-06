@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map
+from pipeline.presets import PIPELINE_MODE_ALIASES, PRESET_CONFIGS
 from pipeline.registry import is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
@@ -923,8 +924,13 @@ class RemoteRunner:
             "surface_registration": "--surface-registration",
             "stats_extraction": "--stats-extraction",
         }
+        mode = PIPELINE_MODE_ALIASES.get(self.config.pipeline_mode, self.config.pipeline_mode)
+        if mode != "Custom" and mode in PRESET_CONFIGS:
+            selected_tools = PRESET_CONFIGS[mode]["tools"]
+        else:
+            selected_tools = self.config.selected_tools
         for stage, opt in option_map.items():
-            value = self.config.selected_tools.get(stage)
+            value = selected_tools.get(stage)
             if value and is_tool_enabled(value):
                 args += [opt, value]
         return args
