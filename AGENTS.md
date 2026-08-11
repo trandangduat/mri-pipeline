@@ -22,31 +22,17 @@ The project has been aggressively refactored into **Deep Modules** with strict s
 - `stats.py`: Parses FreeSurfer stat files into TSV/CSV files.
 - `utils.py`: Pure math and string manipulation helpers (e.g., `_as_number`, `_avg`). 
 
-### Frontend (`ui/`)
-The Frontend has been strictly partitioned into cohesive Controllers to prevent the "God Object" anti-pattern.
-- `main.py`: The **Main View Container** (`PipelineGUI`). Only handles high-level layout drawing, toolbars, and spinning animations.
-- `state.py`: The **State Store** (`AppState`). Contains all `tkinter` Variables (StringVars, BooleanVars).
-- `gui_config.py`: The **Config Controller**. Handles saving/loading workspaces and run configurations.
-- `gui_jobs.py`: The **Jobs Controller**. Manages job lifecycle dialogs (attach, resume, manual runs).
-- `job_registry.py`: The **Registry Controller**. Handles parsing, saving, and querying `.mri-pipeline-jobs.json`.
-- `gui_pipeline.py`: The **Pipeline Controller**. Handles the main pipeline setup tab logic.
-- `gui_progress.py`: The **Progress Controller**. Manages the Progress tab, log streaming, and metric updating.
-- `gui_remote.py`: The **Remote Controller**. Handles all SSH health checks and remote status UI.
-- `gui_tools.py`: The **Tools Controller**. Handles tool selection tab and Python environment checks.
-- `gui_validation.py`: The **Validation Controller**. Validates user input before allowing a run.
-- App Entrypoint: `python gui.py` (Not `ui/main.py`).
-
 ## 2. Where and How to Edit
 
 | Goal | Where to edit | Notes |
 |---|---|---|
 | **Add a new Docker Tool** | `pipeline/registry.py` | Add to `TOOL_DEFS` and update `STAGE_ORDER`. |
-| **Change UI Layout/Animations** | `ui/main.py` | This is the main view container now. |
-| **Change SSH/Remote logic** | `ui/gui_remote.py` | Health checks and connection status. |
-| **Change Job Saving/Loading** | `ui/job_registry.py` | Any changes to how jobs are written to JSON. |
-| **Add a UI Configuration Field** | `ui/state.py` & `ui/gui_config.py`| Add variable to `AppState`, then update load/save in `ConfigController`. |
+| **Change UI Layout/Animations** | `tauri-app/src/App.jsx` & `tauri-app/src/AppSidebar.jsx` | Main view container and navigation shell. |
+| **Change SSH/Remote logic** | `remote/ssh_client.py` & `app_backend/remote.py` | Health checks and connection status. |
+| **Change Job Saving/Loading** | `app_backend/jobs.py` & `tauri-app/src/AppContext.jsx` | Any changes to how jobs are written/read. |
+| **Add a UI Configuration Field** | `tauri-app/src/AppContext.jsx` & `tauri-app/src/pages/` | Add state/action, then wire the page UI. |
 | **Change Docker Execution Logic** | `pipeline/executor.py` | Modify `ExecutionRequest` and `LocalDockerExecutor`. |
-| **Fix RAM/CPU Detection** | `pipeline/hardware.py` | Any OS-level hardware detection logic goes here. |
+| **Fix RAM/CPU Detection** | `pipeline/hardware.py` & `remote/remote_runner.py` | Host-side and remote-side detection. |
 | **Change Benchmark Output** | `pipeline/reports.py` | Modify `write_batch_reports` or `_step_metrics_row`. |
 | **Add new CLI flags** | `pipeline/cli.py` & `pipeline_runner.py` | Ensure arguments map correctly to `PipelineConfig`. |
 
@@ -63,18 +49,14 @@ When writing code, agents **MUST** adhere to the following standards:
 
 ## 4. Skills Usage (For AI Agents)
 
-When operating in this codebase, utilize your provided skills effectively:
-
-- **`tdd`**: Run this skill before adding new logic or refactoring core algorithms. It forces a Test-Driven Development loop (writing tests first, then implementing) to prevent regressions in modules like `executor.py` or `ConfigController`.
-- **`code-review`**: Run this skill after ANY major refactoring or feature addition. Instruct it to check for code smells (Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Speculative Generality).
-- **`improve-codebase-architecture`**: Use this when tasked with refactoring or reducing technical debt. It helps identify deep module boundaries and separation of concerns.
-- **`codebase-design`**: Use this when extracting a new module or deciding "where a seam goes". It provides a shared vocabulary for designing clean interfaces.
-- **`diagnosing-bugs`**: Use this for complex stack traces or performance regressions (e.g., "Why is FreeSurfer hanging?").
-- **`research`**: Delegate to this subagent when you need to read extensive documentation or do deep codebase exploration without cluttering the main conversation context.
+Use the skills made available by the agent environment (see the opencode skills inventory). Follow the skill's own instructions before adding core logic, after major refactoring, or when doing deep codebase exploration.
 
 ## 5. Execution Commands
 
-- **Desktop GUI**: `python3 gui.py` (requires `python3-tk` on Linux).
+- **Desktop GUI**: `npm run dev` inside `tauri-app/` (dev server) or the packaged Tauri app.
 - **Headless Batch CLI**: `python3 pipeline_runner.py --input-dir <path>`
-- **Run Python Syntax Check**: `python3 -m compileall pipeline/ ui/`
-- **Linter Check (If flake8 is installed)**: `flake8 pipeline/ ui/ --select=F821,E9`
+- **Run Python Syntax Check**: `python3 -m compileall pipeline/ app_backend/ remote/`
+- **Linter Check (If flake8 is installed)**: `flake8 pipeline/ app_backend/ remote/ --select=F821,E9`
+
+## FRONTEND
+- reference DESIGN.md for UI changes

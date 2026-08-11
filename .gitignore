@@ -62,6 +62,16 @@ license/*
 .env
 .env.*
 
+# Frontend / Tauri generated files
+tauri-app/node_modules/
+tauri-app/dist/
+tauri-app/src-tauri/target/
+
+# Nested git checkouts / runtime output
+FastSurfer/
+NeuroFLOW-private/
+output-tauri/
+
 # Keep tracked folder placeholders
 !**/.gitkeep
 

@@ -29,6 +29,12 @@ PIPELINE_MODE_ALIASES = {
     "Volume & Cortical Thickness": "FreeSurfer 7 + Volume + Cortical Thickness",
 }
 
+
+def normalize_pipeline_mode(mode: str) -> str:
+    normalized = PIPELINE_MODE_ALIASES.get(mode, mode)
+    normalized = PIPELINE_MODE_ALIASES.get(normalized, normalized)
+    return normalized if normalized in PIPELINE_MODES else "Custom"
+
 VOLUME_SKIPPED_STAGES = {
     "brain_extraction",
     "template_registration",

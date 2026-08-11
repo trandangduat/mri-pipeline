@@ -20,6 +20,14 @@ from remote.ssh_client import RemoteSSHClient, SSHConfig
 LogCallback = Callable[[str], None]
 
 
+def _positive_int(value: object) -> int | None:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
+
 @dataclass
 class RemoteRunConfig:
     ssh: SSHConfig
@@ -134,6 +142,31 @@ class RemoteRunner:
     def test_ssh(self) -> None:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.run("uname -a && whoami && pwd", check=True)
+
+    def remote_hardware_info(self) -> dict[str, int | str | None]:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            code, text = ssh.read_text(
+                "printf 'hostname='; hostname; "
+                "printf '\nlogical_cores='; getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 0; "
+                "printf '\nphys_pages='; getconf _PHYS_PAGES 2>/dev/null || printf 0; "
+                "printf '\npage_size='; getconf PAGE_SIZE 2>/dev/null || printf 0; "
+            )
+            if code != 0:
+                return {"hostname": "", "logical_cores": None, "total_ram_bytes": None}
+            values: dict[str, str] = {}
+            for line in text.splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    values[key.strip()] = value.strip()
+            logical_cores = _positive_int(values.get("logical_cores"))
+            phys_pages = _positive_int(values.get("phys_pages"))
+            page_size = _positive_int(values.get("page_size"))
+            total_ram_bytes = phys_pages * page_size if phys_pages and page_size else None
+            return {
+                "hostname": values.get("hostname", ""),
+                "logical_cores": logical_cores,
+                "total_ram_bytes": total_ram_bytes,
+            }
 
     def check_python_details(self) -> dict[str, str | bool]:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:

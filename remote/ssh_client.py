@@ -27,6 +27,7 @@ class RemoteSSHClient:
         self.on_log = on_log or (lambda _line: None)
         self._client = None
         self._sftp = None
+        self._prepared_key = None
 
     def __enter__(self) -> "RemoteSSHClient":
         self.connect()
@@ -34,6 +35,7 @@ class RemoteSSHClient:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
+        self._prepared_key = None
 
     def connect(self) -> None:
         try:
@@ -53,12 +55,24 @@ class RemoteSSHClient:
             "auth_timeout": self.config.timeout,
         }
         if self.config.key_path:
-            kwargs["key_filename"] = self.config.key_path
+            from remote.ssh_key import prepare_ssh_key_for_paramiko
+            prepared = prepare_ssh_key_for_paramiko(self.config.key_path)
+            self._prepared_key = prepared
+            kwargs["key_filename"] = prepared.key_path
+            if prepared.warning:
+                self.on_log(prepared.warning)
         if self.config.password:
             kwargs["password"] = self.config.password
 
         self.on_log(f"Connecting SSH {self.config.username}@{self.config.host}:{self.config.port}...")
-        client.connect(**kwargs)
+        try:
+            client.connect(**kwargs)
+        except Exception:
+            if self._prepared_key:
+                self._prepared_key.cleanup()
+                self._prepared_key = None
+            raise
+
         self._client = client
         self._sftp = client.open_sftp()
         self.on_log("SSH connected.")
@@ -70,6 +84,9 @@ class RemoteSSHClient:
         if self._client:
             self._client.close()
             self._client = None
+        if self._prepared_key:
+            self._prepared_key.cleanup()
+            self._prepared_key = None
 
     @property
     def client(self):
