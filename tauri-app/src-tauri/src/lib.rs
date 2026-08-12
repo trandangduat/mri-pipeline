@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::Manager;
@@ -33,7 +33,7 @@ impl Drop for BackendSidecar {
     }
 }
 
-fn resolve_python(repo_root: &PathBuf) -> PathBuf {
+fn resolve_python(repo_root: &Path) -> PathBuf {
     std::env::var("MRI_PIPELINE_PYTHON")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -46,7 +46,7 @@ fn resolve_python(repo_root: &PathBuf) -> PathBuf {
         })
 }
 
-fn cleanup_stale_backend(python: &PathBuf, repo_root: &PathBuf) {
+fn cleanup_stale_backend(python: &Path, repo_root: &Path) {
     let _ = Command::new(python)
         .args([
             "-m",
@@ -101,6 +101,7 @@ fn backend_root(resource_dir: Option<PathBuf>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+#[allow(clippy::manual_find)]
 fn find_resource_backend_root(resources: PathBuf) -> Option<PathBuf> {
     for candidate in [resources.clone(), resources.join("_up_").join("_up_")] {
         if candidate.join("app_backend").exists() && candidate.join("pipeline").exists() {

@@ -1,13 +1,13 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: "Geist Sans", "CursorGothic", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Geist Sans', 'CursorGothic', system-ui, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-cursor-primary: #0077b6;
   --color-cursor-primary-active: #005f8f;

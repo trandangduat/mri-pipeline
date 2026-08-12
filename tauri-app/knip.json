@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/api/index.ts",
+    "src/query/prefetch.ts",
+    "src/query/useJobs.ts",
+    "src/query/useRemote.ts",
+    "src/query/useTools.ts",
+    "src/router/routes.tsx"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+  "ignoreDependencies": [
+    "shadcn",
+    "@fontsource-variable/geist",
+    "@testing-library/react",
+    "@testing-library/user-event",
+    "tailwindcss",
+    "clsx",
+    "tailwind-merge",
+    "tw-animate-css"
+  ],
+  "rules": {
+    "exports": "off",
+    "types": "off"
+  }
+}

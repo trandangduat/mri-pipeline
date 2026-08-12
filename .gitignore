@@ -65,6 +65,7 @@ license/*
 # Frontend / Tauri generated files
 tauri-app/node_modules/
 tauri-app/dist/
+tauri-app/.vite/
 tauri-app/src-tauri/target/
 
 # Nested git checkouts / runtime output
