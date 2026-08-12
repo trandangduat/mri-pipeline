@@ -40,7 +40,9 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         self.local_job_service = local_job_service or LocalJobService()
         self.local_progress_service = local_progress_service or LocalJobProgressService(self.local_job_service.jobs_root)
         self.config_store = config_store or ConfigStore()
-        self.remote_job_service = remote_job_service or RemoteJobService()
+        self.remote_job_service = remote_job_service or RemoteJobService(
+            register_remote_job=self.local_job_service.upsert_remote_job,
+        )
         self.local_tool_service = local_tool_service or LocalToolService()
         self.local_environment_service = local_environment_service or LocalEnvironmentService()
 
@@ -163,6 +165,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/jobs/log":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_log(payload))
+            return
+        if self.path == "/remote/jobs/start/stream":
+            self._handle_remote_start_stream(payload)
+            return
+        if self.path == "/jobs/local/start/stream":
+            self._handle_local_start_stream(payload)
             return
         if self.path == "/tools/local/images":
             selected_tools = payload.get("selected_tools")
@@ -287,6 +295,38 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_sse_headers(self) -> None:
+        self.send_response(200)
+        self._write_cors_headers()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+    def _send_sse_event(self, event: str, data: dict[str, JsonValue]) -> None:
+        payload = json.dumps(data, ensure_ascii=False)
+        frame = f"event: {event}\ndata: {payload}\n\n"
+        self.wfile.write(frame.encode("utf-8"))
+        self.wfile.flush()
+
+    def _handle_remote_start_stream(self, payload: dict[str, JsonValue]) -> None:
+        self._write_sse_headers()
+        try:
+            for sse_event in self._remote_jobs().stream_start_job(payload):
+                self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except Exception as exc:
+            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+
+    def _handle_local_start_stream(self, payload: dict[str, JsonValue]) -> None:
+        self._write_sse_headers()
+        try:
+            for sse_event in self._local_jobs().stream_start_job(payload):
+                self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except Exception as exc:
+            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
 
     def _write_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")

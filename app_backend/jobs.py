@@ -6,8 +6,9 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TypeAlias
+from typing import Callable, Iterator, TypeAlias
 
+from app_backend.sse_utils import step_event, complete_event, SSEEvent
 from pipeline.config import PROJECT_ROOT
 from pipeline.jobs import read_json, write_json
 
@@ -80,6 +81,65 @@ class LocalJobService:
         if not _write_stop_marker(job_dir / "stop_requested"):
             return {"ok": False, "error": "Stop marker path is not safe"}
         return {"ok": True, "accepted": True, "job": _job_summary(entry)}
+
+    def stream_start_job(self, payload: dict[str, object]) -> Iterator[SSEEvent]:
+        from app_backend.run_request import prepare_run_request
+
+        yield step_event("validate", "running", "Validating configuration...")
+        result = prepare_run_request(payload)
+        if not result.get("ok"):
+            errors = result.get("errors", [])
+            yield step_event("validate", "failed", "; ".join(str(e) for e in errors))
+            yield complete_event(False, errors=errors)
+            return
+        request = result["request"]
+        yield step_event("validate", "done", "Configuration valid")
+
+        yield step_event("config", "running", "Preparing job configuration...")
+        yield step_event("config", "done", "Job configuration ready")
+
+        yield step_event("start", "running", "Starting local worker...")
+        try:
+            start_result = self.start_local_job(request)
+            if start_result.get("ok"):
+                yield step_event("start", "done", "Worker started")
+                yield complete_event(True, job=start_result.get("job"))
+            else:
+                yield step_event("start", "failed", str(start_result.get("error", "Unknown error")))
+                yield complete_event(False, error=str(start_result.get("error", "Unknown error")))
+        except Exception as exc:
+            yield step_event("start", "failed", str(exc))
+            yield complete_event(False, error=str(exc))
+
+    def upsert_remote_job(
+        self,
+        job_id: str,
+        remote_job_dir: str,
+        state: str,
+        ssh_config: dict[str, JsonValue],
+        run_request: dict[str, JsonValue],
+        started_at: float | None = None,
+        pid: str | int | None = None,
+    ) -> dict[str, JsonValue]:
+        now = self.clock()
+        entry: dict[str, JsonValue] = {
+            "job_id": job_id,
+            "target": "Server",
+            "state": state,
+            "job_dir": remote_job_dir,
+            "remote_job_dir": remote_job_dir,
+            "pid": pid or 0,
+            "started_at": started_at or now,
+            "updated_at": now,
+            "output_dir": str(run_request.get("output_dir", "")),
+            "effective_output_dir": str(run_request.get("effective_output_dir", run_request.get("output_dir", ""))),
+            "download_subdir": str(run_request.get("batch_output_name", "")) if run_request.get("is_batch") else "",
+            "input_files": _input_files_for_request(run_request),
+            "run_request": run_request,
+            "ssh_config": ssh_config,
+        }
+        self._upsert_registry(entry)
+        return _job_summary(entry)
 
     def _create_job_dir(self) -> Path:
         self.jobs_root.mkdir(parents=True, exist_ok=True)

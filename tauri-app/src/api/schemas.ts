@@ -182,6 +182,19 @@ export const genericResponseSchema = z.object({
 
 export const preparedRunRequestSchema = z.record(z.string(), z.unknown());
 
+export const progressStepSchema = z.object({
+  step: z.string(),
+  status: z.enum(['running', 'done', 'failed']),
+  detail: z.string().optional(),
+});
+
+export const progressCompleteSchema = z.object({
+  ok: z.boolean(),
+  job: localJobSummarySchema.optional(),
+  error: z.string().optional(),
+  errors: z.array(z.string()).optional(),
+});
+
 export const remoteBrowseEntrySchema = z.object({
   name: z.string(),
   path: z.string(),

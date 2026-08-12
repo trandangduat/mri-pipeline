@@ -232,7 +232,7 @@ def test_run_request_input_parses_boolean_strings() -> None:
     assert config.neuroflow_enabled is False
 
 
-def test_prepare_run_request_blocks_remote_until_remote_phase(tmp_path: Path) -> None:
+def test_prepare_run_request_allows_remote_with_server_input(tmp_path: Path) -> None:
     result = prepare_run_request(
         _base_config(
             tmp_path,
@@ -242,6 +242,40 @@ def test_prepare_run_request_blocks_remote_until_remote_phase(tmp_path: Path) ->
         )
     )
 
+    assert result["ok"] is True
+    assert result["request"] is not None
+    assert result["errors"] == []
+    assert result["request"]["run_target"] == "Server"
+    assert result["request"]["input_source"] == "Server"
+
+
+def test_prepare_run_request_rejects_remote_with_local_input(tmp_path: Path) -> None:
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_source="Local",
+            run_target="Server",
+            input_path="/local/data/image.nii.gz",
+            output_dir=str(tmp_path / "out"),
+        )
+    )
+
     assert result["ok"] is False
     assert result["request"] is None
-    assert result["errors"] == ["Remote run request preparation is deferred to the remote migration phase."]
+    assert any("input source" in e.lower() for e in result["errors"])
+
+
+def test_prepare_run_request_rejects_local_with_server_input(tmp_path: Path) -> None:
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_source="Server",
+            run_target="Local",
+            input_path="/data/image.nii.gz",
+            output_dir=str(tmp_path / "out"),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["request"] is None
+    assert any("local" in e.lower() for e in result["errors"])

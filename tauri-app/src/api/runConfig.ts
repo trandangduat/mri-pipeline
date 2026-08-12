@@ -19,6 +19,7 @@ export interface PipelineFormValues {
   key_path: string;
   password: string;
   batchImageCount?: number;
+  nonRecursive?: boolean;
   [key: string]: unknown;
 }
 
@@ -53,6 +54,7 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
     .filter(Boolean);
   return {
     input_source: formValues.inputSource || 'Local',
+    run_target: formValues.runtimeTarget || 'Local',
     input_mode: inputMode,
     input_path: inputPath,
     input_paths:
@@ -61,11 +63,16 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
         : inputMode === 'batch_folder' && additionalPaths.length > 0
           ? additionalPaths
           : [],
+    selected_files: additionalPaths.length > 0 ? additionalPaths : [],
     output_dir: formValues.outputDir,
     pipeline_mode: mode,
     selected_tools: preset?.tools || {},
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},
     stats_vector_config: {enabled_stats: {}, atlases: {}},
+    non_recursive: Boolean(formValues.nonRecursive),
+    device: formValues.gpuMode === 'enabled' ? 'cuda' : 'cpu',
+    threads: formValues.cpuThreads ?? 4,
+    ram_percent: formValues.ramPercent ?? 100,
   } satisfies PreparedRunRequest;
 
 }

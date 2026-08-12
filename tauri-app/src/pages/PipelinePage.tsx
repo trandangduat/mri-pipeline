@@ -1,11 +1,12 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2} from 'lucide-react';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
+import {StartPipelineDialog} from '../components/StartPipelineDialog';
+import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient} from '../query/useEnvironment';
-import {usePrepareRunRequestMutation, useStartLocalJobMutation} from '../query/useJobs';
 import {useRemoteBrowseMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
@@ -20,54 +21,58 @@ function browseJsonFile(inputRef: React.RefObject<HTMLInputElement | null>) {
   if (inputRef.current) inputRef.current.click();
 }
 
-async function readJsonFile(file?: File | null) {
-  if (!file) return null;
-  return JSON.parse(await file.text());
-}
-
 export function PipelineStepsSection() {
   const {data: metadata, isLoading: metaLoading, isError: metaError} = useMetadata();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
-  const applyPresetConfig = usePipelineFormStore((s) => s.applyPresetConfig);
-  const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const presetFileInput = useRef<HTMLInputElement>(null);
 
   const print = (label: string, payload: unknown) => {
-    appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
+    const output = useJobsStore.getState().appendOutput;
+    output(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
   };
 
-  const handlePipelineModeChange = (value: string) => {
-    const presetTools = metadata?.presets?.[value]?.tools || {};
-    const patch: Record<string, string> = {pipelineMode: value};
-    for (const stage of metadata?.stages || []) {
-      patch[`stage_${stage.id}`] = presetTools[stage.id] || '';
+  const handlePipelineModeChange = (mode: string) => {
+    const preset = metadata?.presets?.[mode];
+    if (preset) {
+      const formFields: Record<string, string> = {pipelineMode: mode};
+      for (const [stageKey, toolKey] of Object.entries(preset.tools || {})) {
+        formFields[`stage_${stageKey}`] = toolKey;
+      }
+      setFormFields(formFields);
+    } else {
+      setFormField('pipelineMode', mode);
     }
-    setFormFields(patch);
   };
 
   async function handlePresetFile(file?: File | null) {
+    if (!file) return;
     try {
-      const preset = await readJsonFile(file);
-      if (!preset || typeof preset !== 'object') {
-        throw new Error('Preset JSON must be an object.');
+      const content = await file.text();
+      const preset = JSON.parse(content) as Record<string, unknown>;
+      const formFields: Record<string, unknown> = {pipelineMode: 'Custom'};
+      if (preset.selected_tools && typeof preset.selected_tools === 'object') {
+        for (const [k, v] of Object.entries(preset.selected_tools)) {
+          formFields[`stage_${k}`] = v;
+        }
       }
-      if (preset.type && !['mri-pipeline-run-config', 'mri-pipeline-preset'].includes(preset.type)) {
-        throw new Error('Selected file is not an MRI pipeline preset.');
-      }
-      applyPresetConfig(preset);
-      print('Loaded preset file', {name: file?.name, pipeline_mode: preset.pipeline_mode || 'Custom'});
-    } catch (error: unknown) {
-      print('Load preset failed', {error: (error as Error).message});
+      setFormFields(formFields);
+      print('Loaded preset file', {name: file.name, selected_tools: preset.selected_tools});
+    } catch (err: unknown) {
+      print('Load preset failed', {error: (err as Error).message});
     }
   }
 
   return (
-    <Panel icon={<Workflow className="h-5 w-5 text-cursor-primary" />} title="Pipeline Steps" className="min-w-0">
-      <div className="mb-5 grid items-end gap-3 grid-cols-[minmax(16rem,1fr)_auto_auto] max-[1080px]:grid-cols-1">
-        <label className={labelCls}>
+    <Panel
+      icon={<Workflow className="h-5 w-5 text-cursor-primary" />}
+      title="Pipeline Steps"
+      className="min-w-0"
+    >
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
           Pipeline preset
           <select
             id="pipelineMode"
@@ -83,15 +88,18 @@ export function PipelineStepsSection() {
             ))}
           </select>
         </label>
-        <Button variant="ghost" onClick={() => browseJsonFile(presetFileInput)}>
-          Load Preset
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => print('Save preset', {ok: false, error: 'Preset save UI is not wired in this slice.'})}
-        >
-          Save Preset
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" icon={<FolderOpen className="h-4 w-4" />} onClick={() => browseJsonFile(presetFileInput)}>
+            Load Preset
+          </Button>
+          <Button
+            variant="ghost"
+            icon={<Save className="h-4 w-4" />}
+            onClick={() => print('Save preset', {ok: false, error: 'Preset save UI is not wired in this slice.'})}
+          >
+            Save Preset
+          </Button>
+        </div>
         <input
           ref={presetFileInput}
           className="hidden"
@@ -126,17 +134,16 @@ export function PipelineStepsSection() {
             return (
               <div
                 key={stage.id}
-                className="grid items-center gap-4 border-b border-cursor-hairline-soft p-4 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1"
+                className="grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1"
               >
-                <div className="grid gap-1">
-                  <strong className="font-semibold text-cursor-ink">{stage.label}</strong>
-                  <span className="text-[13px] text-cursor-muted">{stage.id}</span>
+                <div className="flex min-h-11 items-center">
+                  <strong className="font-semibold text-cursor-ink text-[13.5px] leading-none">{stage.label}</strong>
                 </div>
                 <select
                   name={`stage_${stage.id}`}
                   value={((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || ''}
                   onChange={(e) => setFormField(`stage_${stage.id}`, e.target.value)}
-                  className={inputCls}
+                  className={`${inputCls} max-[1080px]:w-full`}
                 >
                   <option value="">Disabled / Skip</option>
                   {tools.map((toolKey) => {
@@ -161,6 +168,7 @@ export function StatsAtlasSection() {
   const {data: metadata} = useMetadata();
   const selectedStatsAtlases = usePipelineFormStore((s) => s.selectedStatsAtlases);
   const removeAtlasStore = usePipelineFormStore((s) => s.removeAtlas);
+  const addAtlas = usePipelineFormStore((s) => s.addAtlas);
   const order = ['subcortical_volume', 'cortical_volume', 'cortical_thickness'];
 
   const removeAtlas = (statKey: string, atlasKey: string) =>
@@ -176,89 +184,75 @@ export function StatsAtlasSection() {
       title="Stats & Atlas Mapping"
       className="min-w-0"
     >
-      <div id="statsAtlasGroups" className="grid gap-4">
+      <div id="statsAtlasGroups" className="divide-y divide-cursor-hairline-soft">
         {order.map((statKey) => {
           const stat = metadata?.stats_vectors?.[statKey];
           const selectedAtlases = selectedStatsAtlases[statKey] || [];
           const atlasKeys = Array.isArray(stat?.atlases) ? stat.atlases : [];
+          
           return (
-            <section key={statKey} className="grid gap-3 rounded-xl border border-cursor-hairline bg-white p-5">
-              <label className="m-0 flex items-center gap-2 text-[13px] font-semibold leading-[1.4] text-cursor-ink">
-                <input type="checkbox" name={`stat_${statKey}`} checked readOnly className="h-auto w-auto" />
-                <span>{stat?.label || statKey}</span>
-              </label>
-              <div className="grid gap-2">
+            <div key={statKey} className="py-4 first:pt-0 last:pb-0">
+              <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2.5">
+                <span className="flex min-h-8 items-center gap-2 text-[13px] font-semibold text-cursor-ink">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-cursor-primary" />
+                  {stat?.label || statKey}
+                </span>
+
+                <select
+                  className="h-8 w-[6.75rem] shrink-0 rounded-lg border border-cursor-hairline bg-white px-2.5 text-[11px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong focus:outline-none"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      addAtlas(statKey, e.target.value);
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="" disabled>
+                    + Add Atlas
+                  </option>
+                  {atlasKeys.map((k) => {
+                    const atlas = metadata?.atlases?.[k] || {key: k, label: k};
+                    const isSelected = selectedAtlases.includes(k);
+                    return (
+                      <option key={k} value={k} disabled={isSelected}>
+                        {atlas.label || atlas.key} {isSelected ? '(selected)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                <div className="col-span-2 flex flex-wrap gap-1.5 pl-4">
                 {selectedAtlases.length ? (
                   selectedAtlases.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
                     return (
-                      <div
+                      <span
                         key={atlasKey}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-2 text-cursor-ink"
+                        className="inline-flex items-center gap-1 rounded-md border border-cursor-hairline bg-white pl-2.5 pr-1.5 py-1 text-[12px] font-medium text-cursor-ink"
                       >
-                        <span>{atlas.label || atlas.key}</span>
+                        {atlas.label || atlas.key}
                         <button
                           type="button"
                           onClick={() => removeAtlas(statKey, atlas.key)}
-                          className="h-6 w-6 flex-none cursor-pointer rounded-md border border-cursor-hairline bg-white text-cursor-muted hover:border-cursor-semantic-error hover:text-cursor-semantic-error"
+                          className="h-4.5 w-4.5 rounded hover:bg-cursor-canvas-soft text-cursor-muted hover:text-cursor-semantic-error flex items-center justify-center font-bold text-[10px]"
+                          title="Remove atlas"
                         >
-                          -
+                          ✕
                         </button>
-                      </div>
+                      </span>
                     );
                   })
                 ) : (
-                  <div className="mt-4 whitespace-pre-wrap rounded-lg border border-cursor-hairline bg-white p-4 text-cursor-body">
-                    No atlas selected.
-                  </div>
+                  <span className="text-[12px] italic text-cursor-muted">No atlases mapped to this statistic.</span>
                 )}
+                </div>
               </div>
-              <AtlasPicker statKey={statKey} atlasKeys={atlasKeys} selectedAtlases={selectedAtlases} />
-            </section>
+            </div>
           );
         })}
       </div>
     </Panel>
-  );
-}
-
-function AtlasPicker({
-  statKey,
-  atlasKeys,
-  selectedAtlases,
-}: {
-  statKey: string;
-  atlasKeys: string[];
-  selectedAtlases: string[];
-}) {
-  const {data: metadata} = useMetadata();
-  const addAtlas = usePipelineFormStore((s) => s.addAtlas);
-  const selected = new Set(selectedAtlases);
-
-  if (!atlasKeys.length) {
-    return (
-      <div className="mt-4 whitespace-pre-wrap rounded-lg border border-cursor-hairline bg-white p-4 text-cursor-body">
-        No atlas available.
-      </div>
-    );
-  }
-  return (
-    <div className="mt-3 grid gap-1.5 rounded-lg border border-cursor-hairline bg-cursor-canvas-soft p-3">
-      {atlasKeys.map((atlasKey) => {
-        const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
-        return (
-          <button
-            key={atlasKey}
-            type="button"
-            disabled={selected.has(atlasKey)}
-            onClick={() => addAtlas(statKey, atlasKey)}
-            className="flex min-h-8 cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-white px-3 text-xs text-cursor-ink hover:border-cursor-primary hover:text-cursor-primary disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {selected.has(atlasKey) ? `Selected: ${atlas.label || atlas.key}` : atlas.label || atlas.key}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1020,7 +1014,7 @@ export function InputOutputSection() {
       <Panel icon={<FolderInput className="h-5 w-5 text-cursor-primary" />} title="Input & Output" className="min-w-0">
         <div className="grid gap-6">
           {/* Row 1: Source + Input Mode */}
-          <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1">
+          <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1 items-start">
             {/* Source */}
             <div className="grid gap-3">
               <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Source Input</span>
@@ -1235,8 +1229,6 @@ export function PipelinePage() {
   const navigate = useNavigate();
   const {data: metadata} = useMetadata();
   const formValues = usePipelineFormStore((s) => s.formValues);
-  const preparedRequest = usePipelineFormStore((s) => s.preparedRequest);
-  const setPreparedRequest = usePipelineFormStore((s) => s.setPreparedRequest);
   const applyWorkspaceConfig = usePipelineFormStore((s) => s.applyWorkspaceConfig);
 
   const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
@@ -1248,6 +1240,18 @@ export function PipelinePage() {
 
   const remoteResult = useRemoteStore();
   const setBusyKey = useUiStore((s) => s.setBusyKey);
+  const [starting, setStarting] = React.useState(false);
+
+  const {
+    open: dialogOpen,
+    steps: dialogSteps,
+    complete: dialogComplete,
+    success: dialogSuccess,
+    job: dialogJob,
+    errorMessage: dialogError,
+    start: startStream,
+    close: closeDialog,
+  } = useStartPipelineStream();
 
   const workspaceFileInput = useRef<HTMLInputElement>(null);
 
@@ -1258,32 +1262,28 @@ export function PipelinePage() {
   const loadJobDetails = async (jobId: string | null) => {
     if (!jobId) {
       setJobEvents([]);
-      setOutputText('Log stream is idle.');
+      setOutputText('');
       return;
     }
-    const [eventsResult, logResult] = await Promise.all([
-      client.readLocalEvents(jobId).catch(() => ({events: []})),
-      client.readLocalLog(jobId, 0, 65536).catch(() => ({text: ''})),
-    ]);
-    const events = Array.isArray(eventsResult.events) ? eventsResult.events : [];
-    setJobEvents(events);
-    setOutputText(logResult.text || '');
+    try {
+      const evts = await client.readLocalEvents(jobId, 0, 500);
+      setJobEvents(evts.events || []);
+      const log = await client.readLocalLog(jobId, 0, 65536);
+      setOutputText(log.text || '');
+    } catch (err: unknown) {
+      print('Load job details failed', {error: (err as Error).message});
+    }
   };
 
   const refreshJobs = async () => {
     setBusyKey('refreshJobs', true);
     try {
-      const localRes = await client.listLocalJobs().catch(() => ({jobs: []}));
-      const remoteRes = remoteResult.connected
-        ? await client.listRemoteJobs(buildRemotePayload(formValues)).catch(() => ({jobs: []}))
-        : {jobs: []};
-      const localJobs = (Array.isArray(localRes.jobs) ? localRes.jobs : []).map((j) => normalizeJob(j, 'Local'));
-      const remoteJobs = (Array.isArray(remoteRes.jobs) ? remoteRes.jobs : []).map((j) => normalizeJob(j, 'Server'));
-      const jobs = [...localJobs, ...remoteJobs];
+      const res = await client.listLocalJobs();
+      const rawJobs = res.jobs || [];
+      const jobs = rawJobs.map((j) => normalizeJob(j, 'Local'));
       setLatestJobs(jobs);
-
       let nextSelected = selectedJobId;
-      if (jobs.length && (!nextSelected || !jobs.some((j) => j.job_id === nextSelected))) {
+      if (!nextSelected && jobs.length > 0) {
         nextSelected = jobs[0]?.job_id || null;
         setSelectedJobId(nextSelected);
       }
@@ -1296,38 +1296,45 @@ export function PipelinePage() {
     }
   };
 
-  const prepareRunRequestMutation = usePrepareRunRequestMutation();
-  const startLocalJobMutation = useStartLocalJobMutation();
-
-  const prepareRunRequest = async () => {
-    const config = buildRunConfig(formValues, metadata ?? null);
-    const request = (await prepareRunRequestMutation.mutateAsync(config)) as Record<string, unknown>;
-    setPreparedRequest(request);
-    print('Prepared run request', request);
-    return request;
+  const startPipeline = async () => {
+    setStarting(true);
+    try {
+      const isRemote = formValues.runtimeTarget === 'Server';
+      const config = buildRunConfig(formValues, metadata ?? null);
+      if (isRemote) {
+        const payload = {
+          ...buildRemotePayload(formValues),
+          run_request: config,
+        };
+        await startStream('/remote/jobs/start/stream', payload, true);
+      } else {
+        await startStream('/jobs/local/start/stream', config, false);
+      }
+    } catch (err: unknown) {
+      print('Start pipeline failed', {error: (err as Error).message});
+    } finally {
+      setStarting(false);
+    }
   };
 
-  const startPipeline = async () => {
-    let request: Record<string, unknown> | null = preparedRequest;
-    if (!request?.request) {
-      request = await prepareRunRequest();
-      if (!request?.ok) return;
+  const handleDialogClose = () => {
+    closeDialog();
+    if (dialogSuccess) {
+      navigate('/jobs');
+      void refreshJobs();
     }
-    if (!request?.request) return;
-    const result = await startLocalJobMutation.mutateAsync(request.request as Record<string, unknown>);
-    print('Started local job', result);
-    navigate('/jobs');
-    void refreshJobs();
   };
 
   async function handleWorkspaceFile(file?: File | null) {
+    if (!file) return;
     try {
-      const workspace = await readJsonFile(file);
+      const content = await file.text();
+      const workspace = JSON.parse(content);
       if (!workspace || typeof workspace !== 'object') {
         throw new Error('Workspace JSON must be an object.');
       }
       applyWorkspaceConfig(workspace);
-      print('Loaded workspace file', {name: file?.name, type: workspace.type || 'unknown'});
+      print('Loaded workspace file', {name: file.name, type: workspace.type || 'unknown'});
     } catch (error: unknown) {
       print('Load workspace failed', {error: (error as Error).message});
     }
@@ -1338,11 +1345,16 @@ export function PipelinePage() {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Button
           variant="ghost"
+          icon={<Save className="h-4 w-4" />}
           onClick={() => print('Save workspace', {ok: false, error: 'Workspace save UI is not wired in this slice.'})}
         >
           Save Workspace
         </Button>
-        <Button variant="ghost" onClick={() => browseJsonFile(workspaceFileInput)}>
+        <Button
+          variant="ghost"
+          icon={<FolderOpen className="h-4 w-4" />}
+          onClick={() => browseJsonFile(workspaceFileInput)}
+        >
           Load Workspace
         </Button>
         <input
@@ -1352,11 +1364,22 @@ export function PipelinePage() {
           accept="application/json,.json"
           onChange={(e) => handleWorkspaceFile(e.target.files?.[0])}
         />
-        <Button id="startButton" variant="primary" onClick={startPipeline}>
-          Start Pipeline
+        <Button
+          id="startButton"
+          variant="primary"
+          icon={starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          onClick={startPipeline}
+          disabled={starting || (formValues.runtimeTarget === 'Server' && !remoteResult.connected)}
+        >
+          {starting
+            ? 'Starting...'
+            : formValues.runtimeTarget === 'Server' && !remoteResult.connected
+              ? 'Connect SSH first'
+              : 'Start Pipeline'}
         </Button>
         <Button
           variant="danger"
+          icon={<Square className="h-4 w-4" />}
           onClick={() =>
             print('Stop pipeline', {
               ok: false,
@@ -1381,6 +1404,14 @@ export function PipelinePage() {
             <RuntimeSection />
           </div>
         }
+      />
+      <StartPipelineDialog
+        open={dialogOpen}
+        onClose={handleDialogClose}
+        steps={dialogSteps}
+        complete={dialogComplete}
+        success={dialogSuccess}
+        errorMessage={dialogError}
       />
     </>
   );

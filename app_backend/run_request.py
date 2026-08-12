@@ -128,9 +128,11 @@ def _prepare_run_request_result(config: RunRequestInput | dict[str, object]) -> 
 
 
 def validate_run_request_input(config: RunRequestInput) -> list[str]:
-    if config.run_target == "Server" or config.input_source == "Server":
-        return ["Remote run request preparation is deferred to the remote migration phase."]
-    if config.run_target != "Local" or config.input_source != "Local":
+    is_remote = config.run_target == "Server"
+
+    if is_remote and config.input_source != "Server":
+        return ["Remote jobs require input source to be 'Server' (files must be on the remote server)."]
+    if not is_remote and config.input_source == "Server":
         return ["Local runs can only use local input data."]
 
     raw_input = config.input_path.strip()
@@ -146,6 +148,11 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     neuroflow_error = _neuroflow_error(config)
     if neuroflow_error:
         return [neuroflow_error]
+
+    # Skip local file existence checks for remote jobs
+    # (files are on the server, not accessible locally)
+    if is_remote:
+        return []
 
     mode = config.input_mode
     if mode == "file":
@@ -189,6 +196,7 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "export_config": config.export_config,
         "stats_vector_config": _stats_vector_config(config),
         "input_source": config.input_source,
+        "run_target": config.run_target,
         "pipeline_mode": config.pipeline_mode,
         "neuroflow_enabled": config.neuroflow_enabled,
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,

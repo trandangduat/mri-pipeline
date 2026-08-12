@@ -155,6 +155,55 @@ export class BackendClient {
     return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
   }
 
+  async startPipelineStream(
+    path: string,
+    payload: Record<string, unknown>,
+    onEvent: (event: string, data: Record<string, unknown>) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      onError(`HTTP ${response.status}`);
+      return;
+    }
+    const reader = response.body?.getReader();
+    if (!reader) {
+      onError('No response body');
+      return;
+    }
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        let currentEvent = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7);
+          } else if (line.startsWith('data: ') && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              onEvent(currentEvent, data);
+              currentEvent = '';
+            } catch {
+              // skip malformed JSON
+            }
+          }
+        }
+      }
+    } catch (err) {
+      onError((err as Error).message || 'Stream error');
+    }
+  }
+
   async get(path: string): Promise<unknown> {
     return this.request(path, {method: 'GET'});
   }

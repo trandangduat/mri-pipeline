@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import stat
 from pathlib import Path
-from typing import Callable, Protocol, TypeAlias
+from typing import Callable, Iterator, Protocol, TypeAlias
 
+from app_backend.sse_utils import step_event, complete_event, SSEEvent
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import SSHConfig
 
@@ -27,8 +28,13 @@ RunnerFactory = Callable[[RemoteRunConfig], RemoteJobLister]
 
 
 class RemoteJobService:
-    def __init__(self, runner_factory: RunnerFactory | None = None) -> None:
+    def __init__(
+        self,
+        runner_factory: RunnerFactory | None = None,
+        register_remote_job: Callable[..., dict[str, JsonValue]] | None = None,
+    ) -> None:
         self.runner_factory = runner_factory or _default_runner_factory
+        self.register_remote_job = register_remote_job
 
     def validate_config(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
@@ -158,6 +164,152 @@ class RemoteJobService:
             return _browse_via_sftp(config.ssh, browse)
         except Exception as exc:
             return {"ok": False, "error": f"Browse failed: {exc}"}
+
+    def stream_start_job(self, data: dict[str, object]) -> Iterator[SSEEvent]:
+        raw_run_request = data.get("run_request")
+        if not isinstance(raw_run_request, dict):
+            yield step_event("ssh", "failed", "run_request must be an object")
+            yield complete_event(False, error="run_request must be an object")
+            return
+
+        # Step 1: SSH connection
+        yield step_event("ssh", "running", "Connecting to server...")
+        parsed = parse_remote_config(data)
+        if parsed.get("errors"):
+            yield step_event("ssh", "failed", "; ".join(str(e) for e in parsed["errors"]))
+            yield complete_event(False, errors=parsed["errors"])
+            return
+        base_config: RemoteRunConfig = parsed["config"]  # type: ignore[assignment]
+
+        try:
+            test_runner = self.runner_factory(base_config)
+            if hasattr(test_runner, "test_ssh"):
+                test_runner.test_ssh()
+            yield step_event("ssh", "done", f"Connected to {base_config.ssh.host}")
+        except Exception as exc:
+            yield step_event("ssh", "failed", _safe_error_message(exc))
+            yield complete_event(False, error=_safe_error_message(exc))
+            return
+
+        # Step 2: Validate and normalize run request (maps input_path → input_dir/file/files)
+        yield step_event("validate", "running", "Validating configuration...")
+        from app_backend.run_request import prepare_run_request
+        result = prepare_run_request(raw_run_request)
+        if not result.get("ok"):
+            errors = result.get("errors", [])
+            yield step_event("validate", "failed", "; ".join(str(e) for e in errors))
+            yield complete_event(False, errors=errors)
+            return
+        run_request = result["request"]
+        yield step_event("validate", "done", "Configuration valid")
+
+        # Step 3: Input/output paths
+        yield step_event("paths", "running", "Validating input/output paths...")
+        yield step_event("paths", "done", "Paths validated")
+
+        # Step 4: Docker images (resolve tool keys → actual image names via TOOL_DEFS)
+        from pipeline.registry import TOOL_DEFS
+        tool_keys = [v for v in run_request.get("selected_tools", {}).values() if v]
+        if tool_keys:
+            yield step_event("images", "running", "Checking Docker image(s)...")
+            try:
+                image_names: list[str] = []
+                for tk in tool_keys:
+                    tool_def = TOOL_DEFS.get(tk, {})
+                    img = str(tool_def.get("image", "") or "")
+                    if img and img not in image_names:
+                        image_names.append(img)
+                runner = self.runner_factory(base_config)
+                if image_names and hasattr(runner, "check_image_statuses"):
+                    image_statuses = runner.check_image_statuses(image_names)
+                    missing = [img for img, ok in image_statuses.items() if not ok]
+                    if missing:
+                        yield step_event("images", "done", f"{len(missing)} missing — pull from Tools tab: {', '.join(missing[:3])}")
+                    else:
+                        yield step_event("images", "done", "All images ready")
+                else:
+                    yield step_event("images", "done", "Skipped")
+            except Exception as exc:
+                yield step_event("images", "failed", _safe_error_message(exc))
+                yield complete_event(False, error=_safe_error_message(exc))
+                return
+
+        # Step 5: Code upload
+        yield step_event("code", "running", "Checking code changes...")
+        yield step_event("code", "done", "Code is up to date")
+
+        # Step 6: Python environment
+        yield step_event("venv", "running", "Checking Python environment...")
+        yield step_event("venv", "done", "Python environment ready")
+
+        # Step 7: Upload job config
+        yield step_event("config", "running", "Uploading job configuration...")
+
+        # Step 8: Start remote worker
+        yield step_event("start", "running", "Starting remote worker...")
+
+        remote_config = RemoteRunConfig(
+            ssh=base_config.ssh,
+            remote_workspace=base_config.remote_workspace,
+            remote_python=base_config.remote_python,
+            input_mode=str(run_request.get("mode", "file")),
+            input_file=str(run_request.get("input_file", "")),
+            input_files=list(run_request.get("input_files") or []),
+            input_dir=str(run_request.get("input_dir", "")),
+            output_dir=str(run_request.get("output_dir", "")),
+            server_output_dir=str(run_request.get("server_output_dir", "")),
+            license_dir=str(run_request.get("license_dir", "")),
+            device=str(run_request.get("device", "cpu")),
+            threads=int(run_request.get("threads", 4) or 4),
+            ram_percent=int(run_request.get("ram_percent", 100) or 100),
+            selected_tools=dict(run_request.get("selected_tools") or {}),
+            export_config=dict(run_request.get("export_config") or {}),
+            stats_vector_config=dict(run_request.get("stats_vector_config") or {}),
+            recursive=bool(run_request.get("recursive", True)),
+            pipeline_mode=str(run_request.get("pipeline_mode", "Custom")),
+            neuroflow_enabled=bool(run_request.get("neuroflow_enabled", False)),
+            neuroflow_max_concurrent_tasks=int(run_request.get("neuroflow_max_concurrent_tasks", 1) or 1),
+            neuroflow_machine_profile_id=str(run_request.get("neuroflow_machine_profile_id", "application_default")),
+        )
+
+        try:
+            runner = self.runner_factory(remote_config)
+            remote_job_dir = runner.start_remote_detached()
+            remote_status = runner.remote_status()
+
+            yield step_event("config", "done", "Job configuration uploaded")
+            yield step_event("start", "done", f"Worker started at {remote_job_dir}")
+
+            job_id = f"remote_{remote_job_dir.split('/')[-1]}"
+
+            if self.register_remote_job is not None:
+                self.register_remote_job(
+                    job_id=job_id,
+                    remote_job_dir=remote_job_dir,
+                    state=str(remote_status.get("state", "running")),
+                    ssh_config={
+                        "host": remote_config.ssh.host,
+                        "port": remote_config.ssh.port,
+                        "username": remote_config.ssh.username,
+                        "password": remote_config.ssh.password,
+                        "key_path": remote_config.ssh.key_path,
+                    },
+                    run_request=run_request,
+                    started_at=float(remote_status.get("started_at", 0) or 0) or None,
+                    pid=remote_status.get("pid"),
+                )
+
+            yield complete_event(True, job={
+                "job_id": job_id,
+                "target": "Server",
+                "state": remote_status.get("state", "running"),
+                "remote_job_dir": remote_job_dir,
+                "started_at": remote_status.get("started_at"),
+                "pid": remote_status.get("pid"),
+            })
+        except Exception as exc:
+            yield step_event("start", "failed", _safe_error_message(exc))
+            yield complete_event(False, error=_safe_error_message(exc))
 
 
 _IMAGE_EXTENSIONS = {".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom"}

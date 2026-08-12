@@ -78,6 +78,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
         remote_python: (remote.python as string) || 'python3',
         workspace: (remote.workspace as string) || '~/mri-remote-jobs',
         key_path: (remote.key_path as string) || '',
+        nonRecursive: Boolean(workspace.non_recursive),
       },
       preparedRequest: null,
     }));
