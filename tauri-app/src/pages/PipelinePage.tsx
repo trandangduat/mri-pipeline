@@ -6,12 +6,15 @@ import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
 import {useMetadata, useClient} from '../query/useEnvironment';
 import {usePrepareRunRequestMutation, useStartLocalJobMutation} from '../query/useJobs';
+import {useRemoteBrowseMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
 import {normalizeJob} from '../jobFormatters';
+import type {RemoteBrowseEntry} from '../types/backend';
+
 
 function browseJsonFile(inputRef: React.RefObject<HTMLInputElement | null>) {
   if (inputRef.current) inputRef.current.click();
@@ -23,7 +26,7 @@ async function readJsonFile(file?: File | null) {
 }
 
 export function PipelineStepsSection() {
-  const {data: metadata} = useMetadata();
+  const {data: metadata, isLoading: metaLoading, isError: metaError} = useMetadata();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
@@ -97,38 +100,59 @@ export function PipelineStepsSection() {
           onChange={(e) => handlePresetFile(e.target.files?.[0])}
         />
       </div>
-      <div className="grid border border-cursor-hairline">
-        {(metadata?.stages || []).map((stage) => {
-          const tools = metadata?.tools_by_stage?.[stage.id] || [];
-          return (
-            <div
-              key={stage.id}
-              className="grid items-center gap-4 border-b border-cursor-hairline-soft p-4 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1"
-            >
-              <div className="grid gap-1">
-                <strong className="font-semibold text-cursor-ink">{stage.label}</strong>
-                <span className="text-[13px] text-cursor-muted">{stage.id}</span>
-              </div>
-              <select
-                name={`stage_${stage.id}`}
-                value={((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || ''}
-                onChange={(e) => setFormField(`stage_${stage.id}`, e.target.value)}
-                className={inputCls}
+      {metaLoading && (
+        <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-6 text-center">
+          <span className="text-[13px] text-cursor-muted">Connecting to backend&hellip;</span>
+        </div>
+      )}
+      {metaError && !metaLoading && (
+        <div className="rounded-lg border border-cursor-semantic-error/30 bg-cursor-semantic-error/5 px-4 py-5">
+          <p className="m-0 text-[13px] font-medium text-cursor-semantic-error">Backend unavailable</p>
+          <p className="mt-1 text-[12px] text-cursor-muted">
+            The MRI pipeline backend is not running. Start the dev server with{' '}
+            <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-[11px] text-cursor-ink">npm run dev</code>{' '}
+            from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-[11px] text-cursor-ink">tauri-app/</code>{' '}
+            directory, which also starts the Python backend on port 8765.
+          </p>
+        </div>
+      )}
+      {!metaLoading && !metaError && (
+        <div className="grid border border-cursor-hairline">
+          {(metadata?.stages || []).length === 0 && (
+            <div className="px-4 py-6 text-center text-[13px] text-cursor-muted">No pipeline stages found.</div>
+          )}
+          {(metadata?.stages || []).map((stage) => {
+            const tools = metadata?.tools_by_stage?.[stage.id] || [];
+            return (
+              <div
+                key={stage.id}
+                className="grid items-center gap-4 border-b border-cursor-hairline-soft p-4 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1"
               >
-                <option value="">Disabled / Skip</option>
-                {tools.map((toolKey) => {
-                  const tool = metadata?.tools?.[toolKey];
-                  return (
-                    <option key={toolKey} value={toolKey}>
-                      {tool?.display_name || toolKey}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          );
-        })}
-      </div>
+                <div className="grid gap-1">
+                  <strong className="font-semibold text-cursor-ink">{stage.label}</strong>
+                  <span className="text-[13px] text-cursor-muted">{stage.id}</span>
+                </div>
+                <select
+                  name={`stage_${stage.id}`}
+                  value={((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || ''}
+                  onChange={(e) => setFormField(`stage_${stage.id}`, e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Disabled / Skip</option>
+                  {tools.map((toolKey) => {
+                    const tool = metadata?.tools?.[toolKey];
+                    return (
+                      <option key={toolKey} value={toolKey}>
+                        {tool?.display_name || toolKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -257,77 +281,954 @@ function BarChartIcon() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Shared small components for Input & Output section
+// ---------------------------------------------------------------------------
+
+function ModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="relative w-full max-w-[min(42rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModalTitle({children}: {children: React.ReactNode}) {
+  return <h3 className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">{children}</h3>;
+}
+
+function remoteBrowseErrorMessage(message: string | undefined): string {
+  if (message === 'Not found') {
+    return 'Remote browse endpoint is not available. Restart npm run dev so the backend loads the latest code.';
+  }
+  return message || 'Browse failed.';
+}
+
+// ---------------------------------------------------------------------------
+// formatBytes helper
+// ---------------------------------------------------------------------------
+
+function fmtBytes(bytes: number | null | undefined): string {
+  if (bytes == null) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ---------------------------------------------------------------------------
+// ServerBrowserModal — real SFTP directory browser when SSH is connected
+// ---------------------------------------------------------------------------
+
+// ModalOverlay for wide modals (browser popup)
+function WideModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-cursor-ink/30 p-6"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="relative my-auto w-full max-w-[min(56rem,calc(100vw-3rem))] rounded-xl border border-cursor-hairline bg-white shadow-none">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ServerBrowserModal({
+  title,
+  initialPath,
+  remotePayload,
+  selectMode,
+  onConfirm,
+  onClose,
+  onSelectFiles,
+}: {
+  title: string;
+  initialPath: string;
+  remotePayload: Record<string, unknown>;
+  selectMode: 'path' | 'files';
+  onConfirm: (path: string) => void;
+  onClose: () => void;
+  onSelectFiles?: (paths: string[], count: number) => void;
+}) {
+  const browseMutation = useRemoteBrowseMutation();
+  const [currentPath, setCurrentPath] = React.useState(initialPath || '~');
+  const [entries, setEntries] = React.useState<RemoteBrowseEntry[]>([]);
+  const [parentPath, setParentPath] = React.useState('~');
+  const [selectedFiles, setSelectedFiles] = React.useState<Set<string>>(new Set());
+  const [statusMsg, setStatusMsg] = React.useState('');
+  const [isError, setIsError] = React.useState(false);
+  const [manualPath, setManualPath] = React.useState(initialPath || '');
+
+  const doBrowse = React.useCallback(
+    (path: string) => {
+      setStatusMsg('Loading...');
+      setIsError(false);
+      browseMutation.mutate(
+        {...remotePayload, path} as Parameters<typeof browseMutation.mutate>[0],
+        {
+          onSuccess: (res) => {
+            if (!res.ok) {
+              setStatusMsg(remoteBrowseErrorMessage(res.error));
+              setIsError(true);
+              setEntries([]);
+              return;
+            }
+            setCurrentPath(res.path ?? path);
+            setManualPath(res.path ?? path);
+            setParentPath(res.parent ?? res.path ?? path);
+            setEntries(res.entries ?? []);
+            setStatusMsg('');
+            setIsError(false);
+          },
+          onError: (err: unknown) => {
+            setStatusMsg(remoteBrowseErrorMessage((err as Error).message));
+            setIsError(true);
+          },
+        },
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [remotePayload],
+  );
+
+  React.useEffect(() => {
+    doBrowse(initialPath || '~');
+    // only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleFile = (path: string) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const dirs = entries.filter((e) => e.kind === 'directory');
+  const files = entries.filter((e) => e.kind === 'file');
+  const isLoading = browseMutation.isPending;
+
+  return (
+    <WideModalOverlay onClose={onClose}>
+      {/* Header */}
+      <div className="border-b border-cursor-hairline px-6 py-4">
+        <h3 className="m-0 text-[15px] font-semibold text-cursor-ink">{title}</h3>
+        {/* Path bar */}
+        <div className="mt-3 flex gap-2">
+          <input
+            className={`${inputCls} min-w-0 flex-1 font-mono text-[12px]`}
+            value={manualPath}
+            onChange={(e) => setManualPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') doBrowse(manualPath);
+            }}
+            placeholder="/home/user/mri-data"
+            aria-label="Remote path"
+          />
+          <button
+            type="button"
+            onClick={() => doBrowse(manualPath)}
+            disabled={isLoading}
+            className="inline-flex h-11 flex-none cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Go
+          </button>
+        </div>
+      </div>
+
+      {/* Entry list */}
+      <div className="max-h-[min(28rem,60vh)] overflow-y-auto bg-cursor-canvas-soft">
+        {/* Up row */}
+        {parentPath !== currentPath && !isLoading && (
+          <button
+            type="button"
+            onClick={() => doBrowse(parentPath)}
+            className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-left text-[12px] text-cursor-primary hover:bg-white"
+          >
+            <span className="inline-flex h-5 w-8 flex-none items-center justify-center rounded text-[10px] font-semibold uppercase tracking-wide text-cursor-muted">
+              UP
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono">..</span>
+          </button>
+        )}
+
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-10 text-[12px] text-cursor-muted">Loading...</div>
+        )}
+
+        {/* Error */}
+        {!isLoading && isError && statusMsg && (
+          <div className="px-6 py-4 text-[12px] text-cursor-semantic-error">{statusMsg}</div>
+        )}
+
+        {/* Empty */}
+        {!isLoading && !isError && entries.length === 0 && (
+          <div className="flex items-center justify-center py-10 text-[12px] text-cursor-muted">
+            Empty directory.
+          </div>
+        )}
+
+        {/* Directories */}
+        {!isLoading &&
+          dirs.map((entry) => (
+            <button
+              key={entry.path}
+              type="button"
+              title={entry.path}
+              onClick={() => {
+                if (selectMode === 'path') setManualPath(entry.path);
+                doBrowse(entry.path);
+              }}
+              className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-left text-[12px] hover:bg-white"
+            >
+              <span className="inline-flex h-5 w-8 flex-none items-center justify-center rounded bg-cursor-primary/10 text-[10px] font-semibold uppercase tracking-wide text-cursor-primary">
+                DIR
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium text-cursor-ink">{entry.name}</span>
+            </button>
+          ))}
+
+        {/* Files */}
+        {!isLoading &&
+          files.map((entry) => {
+            const checked = selectedFiles.has(entry.path);
+            const isImg = entry.selectable;
+            const badge = isImg ? 'IMG' : 'FILE';
+            const badgeCls = isImg
+              ? 'bg-cursor-primary/8 text-cursor-primary'
+              : 'bg-cursor-canvas text-cursor-muted';
+            return (
+              <div
+                key={entry.path}
+                className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-[12px]"
+              >
+                {selectMode === 'files' && isImg && (
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleFile(entry.path)}
+                    className="h-3.5 w-3.5 flex-none accent-cursor-primary"
+                  />
+                )}
+                {!(selectMode === 'files' && isImg) && <span className="h-3.5 w-3.5 flex-none" />}
+                <span
+                  className={`inline-flex h-5 w-8 flex-none items-center justify-center rounded text-[10px] font-semibold uppercase tracking-wide ${badgeCls}`}
+                >
+                  {badge}
+                </span>
+                <button
+                  type="button"
+                  title={entry.path}
+                  onClick={() => {
+                    if (selectMode === 'path') setManualPath(entry.path);
+                    else if (isImg) toggleFile(entry.path);
+                  }}
+                  className={`min-w-0 flex-1 truncate text-left font-mono ${isImg ? 'text-cursor-ink hover:underline' : 'cursor-default text-cursor-muted'}`}
+                >
+                  {entry.name}
+                </button>
+                {entry.size != null && (
+                  <span className="flex-none text-right text-cursor-muted" style={{minWidth: '4rem'}}>
+                    {fmtBytes(entry.size)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+      </div>
+
+      {/* Sticky footer */}
+      <div className="flex items-center justify-between gap-3 border-t border-cursor-hairline px-6 py-4">
+        {selectMode === 'files' ? (
+          <span className="text-[12px] text-cursor-muted">{selectedFiles.size} file(s) selected</span>
+        ) : (
+          <span className="min-w-0 truncate font-mono text-[11px] text-cursor-muted" title={manualPath || currentPath}>
+            {manualPath || currentPath}
+          </span>
+        )}
+        <div className="flex flex-none gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          {selectMode === 'path' ? (
+            <Button variant="primary" onClick={() => onConfirm(manualPath || currentPath)}>
+              Select path
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (onSelectFiles) {
+                  const arr = Array.from(selectedFiles);
+                  onSelectFiles(arr, arr.length);
+                }
+                onClose();
+              }}
+            >
+              Confirm ({selectedFiles.size})
+            </Button>
+          )}
+        </div>
+      </div>
+    </WideModalOverlay>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Batch Configure Modal — recursive scan with depth controls
+// ---------------------------------------------------------------------------
+
+type ScanMode = 'direct' | 'one-level' | 'recursive';
+
+const SCAN_MODE_OPTIONS: {value: ScanMode; label: string; hint: string; maxDepth: number}[] = [
+  {value: 'direct', label: 'Direct files only', hint: 'Image files immediately in the input folder.', maxDepth: 0},
+  {
+    value: 'one-level',
+    label: 'One level of subfolders',
+    hint: 'ADNI-style: one scan file per subject subfolder.',
+    maxDepth: 1,
+  },
+  {value: 'recursive', label: 'Recursive', hint: 'Scan up to 6 levels deep.', maxDepth: 6},
+];
+
+function BatchConfigModal({
+  inputSource,
+  inputPath,
+  currentCount,
+  onConfirm,
+  onClose,
+  localFileListLen,
+  isConnected,
+  remotePayload,
+}: {
+  inputSource: string;
+  inputPath: string;
+  currentCount: number | undefined;
+  onConfirm: (count: number, paths?: string[]) => void;
+  onClose: () => void;
+  localFileListLen: number;
+  isConnected: boolean;
+  remotePayload: Record<string, unknown>;
+}) {
+  const browseMutation = useRemoteBrowseMutation();
+  const [count, setCount] = React.useState<number>(currentCount ?? (localFileListLen || 1));
+  const [serverEntries, setServerEntries] = React.useState<RemoteBrowseEntry[]>([]);
+  const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(new Set());
+  const [scanStatus, setScanStatus] = React.useState('');
+  const [scanMode, setScanMode] = React.useState<ScanMode>('one-level');
+  const [scanned, setScanned] = React.useState(false);
+  const [hasConflict, setHasConflict] = React.useState(false);
+
+  const isServer = inputSource === 'Server';
+  const inferred = localFileListLen > 0 ? localFileListLen : 0;
+
+  const doServerScan = React.useCallback(
+    (mode: ScanMode) => {
+      if (!inputPath) {
+        setScanStatus('Set an input location first.');
+        return;
+      }
+      const modeOpt = SCAN_MODE_OPTIONS.find((o) => o.value === mode)!;
+      setScanStatus('Scanning...');
+      setServerEntries([]);
+      setSelectedPaths(new Set());
+      setScanned(false);
+      browseMutation.mutate(
+        {
+          ...remotePayload,
+          path: inputPath,
+          purpose: 'batch',
+          recursive: true,
+          max_depth: modeOpt.maxDepth,
+        } as Parameters<typeof browseMutation.mutate>[0],
+        {
+          onSuccess: (res) => {
+            if (!res.ok) {
+              setScanStatus(remoteBrowseErrorMessage(res.error));
+              return;
+            }
+            const candidates = (res.entries ?? []).filter((e) => e.kind === 'file' && e.selectable);
+            setServerEntries(candidates);
+            setHasConflict(res.has_multi_subject_conflict ?? false);
+
+            // Auto-select: all candidates whose subject_label is unique (exactly 1 image per folder)
+            const labelCounts = new Map<string, number>();
+            for (const e of candidates) {
+              const lbl = e.subject_label ?? e.name;
+              labelCounts.set(lbl, (labelCounts.get(lbl) ?? 0) + 1);
+            }
+            const autoSelected = new Set<string>();
+            for (const e of candidates) {
+              const lbl = e.subject_label ?? e.name;
+              if ((labelCounts.get(lbl) ?? 0) === 1) {
+                autoSelected.add(e.path);
+              }
+            }
+            setSelectedPaths(autoSelected);
+            setCount(autoSelected.size || candidates.length || 1);
+            setScanStatus(
+              candidates.length === 0
+                ? 'No image files found in this directory.'
+                : `Found ${candidates.length} image file(s) across ${labelCounts.size} subject(s).`,
+            );
+            setScanned(true);
+          },
+          onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
+        },
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [browseMutation, remotePayload, inputPath],
+  );
+
+  React.useEffect(() => {
+    if (isServer && isConnected && inputPath && !scanned) {
+      doServerScan(scanMode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const togglePath = (path: string) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const finalCount = selectedPaths.size > 0 ? selectedPaths.size : count;
+
+  return (
+    <WideModalOverlay onClose={onClose}>
+      {/* Header */}
+      <div className="border-b border-cursor-hairline px-6 py-4">
+        <h3 className="m-0 text-[15px] font-semibold text-cursor-ink">Configure Batch Settings</h3>
+        <p className="mt-1 text-[12px] text-cursor-muted">
+          {isServer && isConnected
+            ? `Input path: ${inputPath || '(not set)'}`
+            : isServer
+              ? 'Connect to the server first to scan the directory.'
+              : inferred > 0
+                ? `${inferred} file(s) picked via browser.`
+                : `Input path: ${inputPath || '(not set)'}`}
+        </p>
+      </div>
+
+      {/* Server scan controls */}
+      {isServer && isConnected && (
+        <div className="border-b border-cursor-hairline px-6 py-4">
+          <p className="mb-2 text-[12px] font-medium text-cursor-body">Scan mode</p>
+          <div className="flex flex-wrap gap-2">
+            {SCAN_MODE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setScanMode(opt.value);
+                  doServerScan(opt.value);
+                }}
+                title={opt.hint}
+                className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  scanMode === opt.value
+                    ? 'border-cursor-primary bg-cursor-primary text-white'
+                    : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {scanStatus && (
+            <p className={`mt-2 text-[12px] ${hasConflict ? 'text-cursor-semantic-error' : 'text-cursor-muted'}`}>
+              {scanStatus}
+              {hasConflict && ' Multiple images found for some subjects - review selections below.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Candidate list */}
+      {isServer && isConnected && serverEntries.length > 0 && (
+        <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
+          {/* Table header */}
+          <div className="grid border-b border-cursor-hairline px-6 py-2 text-[11px] font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem 1fr 1fr minmax(0,2fr) 4rem'}}>
+            <span />
+            <span>Subject</span>
+            <span>Filename</span>
+            <span className="hidden sm:block">Relative path</span>
+            <span className="text-right">Size</span>
+          </div>
+          {serverEntries.map((entry) => {
+            const checked = selectedPaths.has(entry.path);
+            return (
+              <label
+                key={entry.path}
+                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-6 py-2 hover:bg-white"
+                style={{gridTemplateColumns: '1.5rem 1fr 1fr minmax(0,2fr) 4rem'}}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => togglePath(entry.path)}
+                  className="h-3.5 w-3.5 accent-cursor-primary"
+                />
+                <span className="min-w-0 truncate pr-2 text-[12px] font-medium text-cursor-ink" title={entry.subject_label ?? ''}>
+                  {entry.subject_label ?? '-'}
+                </span>
+                <span className="min-w-0 truncate pr-2 font-mono text-[12px] text-cursor-ink" title={entry.name}>
+                  {entry.name}
+                </span>
+                <span className="hidden min-w-0 truncate pr-2 font-mono text-[11px] text-cursor-muted sm:block" title={entry.relative_path ?? entry.path}>
+                  {entry.relative_path ?? ''}
+                </span>
+                <span className="text-right text-[11px] text-cursor-muted">{fmtBytes(entry.size)}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Manual count fallback (local or not yet scanned) */}
+      <div className="px-6 py-4">
+        {(!isServer || !isConnected || !scanned) && (
+          <label className={labelCls}>
+            Number of images to process
+            <input
+              type="number"
+              min={1}
+              step={1}
+              className={inputCls}
+              value={count}
+              onChange={(e) => {
+                setCount(Math.max(1, parseInt(e.target.value, 10) || 1));
+                setSelectedPaths(new Set());
+              }}
+            />
+          </label>
+        )}
+        {isServer && isConnected && scanned && (
+          <p className="text-[12px] text-cursor-muted">
+            {selectedPaths.size} of {serverEntries.length} selected.{' '}
+            {selectedPaths.size !== serverEntries.length && (
+              <button
+                type="button"
+                onClick={() => setSelectedPaths(new Set(serverEntries.map((e) => e.path)))}
+                className="text-cursor-primary hover:underline"
+              >
+                Select all
+              </button>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex justify-end gap-2 border-t border-cursor-hairline px-6 py-4">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => {
+            const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
+            onConfirm(finalCount, paths);
+          }}
+        >
+          Save ({finalCount} image{finalCount !== 1 ? 's' : ''})
+        </Button>
+      </div>
+    </WideModalOverlay>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PathField — input + browse button row
+// ---------------------------------------------------------------------------
+
+function PathField({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange,
+  onBrowse,
+  required,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (v: string) => void;
+  onBrowse: () => void;
+  required?: boolean;
+}) {
+  return (
+    <label className={labelCls}>
+      {label}
+      <div className="flex gap-2">
+        <input
+          id={id}
+          name={id}
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputCls} flex-1`}
+        />
+        <button
+          type="button"
+          onClick={onBrowse}
+          title="Browse"
+          className="inline-flex h-11 flex-none cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-3 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+        >
+          Browse
+        </button>
+      </div>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Radio group helper
+// ---------------------------------------------------------------------------
+
+function RadioGroup({
+  name,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  name: string;
+  options: {label: string; value: string; hint?: string}[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {options.map((opt) => (
+        <label
+          key={opt.value}
+          className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 transition-colors ${
+            value === opt.value
+              ? 'border-cursor-primary bg-cursor-canvas-soft'
+              : 'border-cursor-hairline bg-white hover:border-cursor-hairline-strong'
+          } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={opt.value}
+            checked={value === opt.value}
+            disabled={disabled}
+            onChange={() => !disabled && onChange(opt.value)}
+            className="mt-0.5 h-4 w-4 flex-none accent-cursor-primary"
+          />
+          <span className="grid gap-0.5">
+            <span className="text-[13px] font-medium leading-[1.4] text-cursor-ink">{opt.label}</span>
+            {opt.hint && <span className="text-[12px] leading-[1.4] text-cursor-muted">{opt.hint}</span>}
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InputOutputSection — main export
+// ---------------------------------------------------------------------------
+
 export function InputOutputSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
+  const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+
+  // Remote connection state
+  const remoteConnected = useRemoteStore((s) => s.connected);
+  const remotePayload = buildRemotePayload(formValues) as unknown as Record<string, unknown>;
+
+  // Derived helpers
+  const isLocal = formValues.runtimeTarget === 'Local';
+  const inputSource = formValues.inputSource as string;
+  const isBatch = formValues.inputMode === 'batch_folder';
+  const isServerSource = inputSource === 'Server';
+
+  // Modal states
+  const [serverInputModal, setServerInputModal] = React.useState(false);
+  const [serverOutputModal, setServerOutputModal] = React.useState(false);
+  const [batchModal, setBatchModal] = React.useState(false);
+  const [uploadNotice, setUploadNotice] = React.useState(false);
+
+  // Ref for hidden local file input (browser fallback for directory browse)
+  const localInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [localFileListLen, setLocalFileListLen] = React.useState(0);
+
+  // When runtime is Local, force source to Local
+  React.useEffect(() => {
+    if (isLocal && inputSource === 'Server') {
+      setFormField('inputSource', 'Local');
+    }
+  }, [isLocal, inputSource, setFormField]);
+
+  // Input Mode radio options — map to existing backend inputMode values
+  const inputModeOptions = [
+    {label: 'Single input', value: 'file', hint: 'Process one NIfTI or DICOM file.'},
+    {label: 'Batch input', value: 'batch_folder', hint: 'Process a folder of images.'},
+  ];
+
+  // Source radio options
+  const sourceOptions = [
+    {label: 'Local', value: 'Local', hint: 'Files on this machine.'},
+    {label: 'Server', value: 'Server', hint: 'Files on the remote server.'},
+  ];
+
+  const handleLocalBrowseInput = () => {
+    localInputRef.current?.click();
+  };
+
+  const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (files.length === 1 && files[0]) {
+      setFormField('inputPath', files[0].name);
+    }
+    setLocalFileListLen(files.length);
+  };
+
+  // Upload to server — intentionally no-op
+  const handleUploadToServer = () => {
+    setUploadNotice(true);
+    setTimeout(() => setUploadNotice(false), 3500);
+  };
 
   return (
-    <Panel icon={<FolderInput className="h-5 w-5 text-cursor-primary" />} title="Input & Output" className="min-w-0">
-      <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1">
-        <label className={labelCls}>
-          Source
-          <select
-            name="inputSource"
-            value={formValues.inputSource}
-            onChange={(e) => setFormField('inputSource', e.target.value)}
-            className={inputCls}
+    <>
+      <Panel icon={<FolderInput className="h-5 w-5 text-cursor-primary" />} title="Input & Output" className="min-w-0">
+        <div className="grid gap-6">
+          {/* Row 1: Source + Input Mode */}
+          <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1">
+            {/* Source */}
+            <div className="grid gap-3">
+              <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Source Input</span>
+              <RadioGroup
+                name="inputSource"
+                options={sourceOptions}
+                value={inputSource}
+                onChange={(v) => setFormField('inputSource', v)}
+                disabled={isLocal}
+              />
+              {isLocal && (
+                <p className="text-[11px] leading-[1.4] text-cursor-muted">
+                  Server source is unavailable when Runtime Target is Local.
+                </p>
+              )}
+            </div>
+
+            {/* Input Mode */}
+            <div className="grid gap-3">
+              <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Input Mode</span>
+              <RadioGroup
+                name="inputMode"
+                options={inputModeOptions}
+                value={isBatch ? 'batch_folder' : 'file'}
+                onChange={(v) => setFormField('inputMode', v)}
+              />
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-cursor-hairline-soft" />
+
+          {/* Server not-connected notice */}
+          {isServerSource && !remoteConnected && (
+            <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-3">
+              <p className="text-[13px] font-medium text-cursor-ink">SSH not connected</p>
+              <p className="mt-0.5 text-[12px] text-cursor-muted">
+                Connect in the SSH Server card below to enable server browsing.
+              </p>
+            </div>
+          )}
+
+          {/* Row 2: Path fields — Local */}
+          {inputSource === 'Local' && (
+            <div className="grid gap-4">
+              <PathField
+                id="inputPath"
+                label="Input location"
+                value={formValues.inputPath}
+                placeholder="/data/sub-001_T1w.nii.gz or /data/batch"
+                onChange={(v) => setFormField('inputPath', v)}
+                onBrowse={handleLocalBrowseInput}
+                required
+              />
+              {/* Hidden file input — browser-safe fallback */}
+              <input
+                ref={localInputRef}
+                className="hidden"
+                type="file"
+                multiple
+                onChange={handleLocalFileChange}
+              />
+              <PathField
+                id="outputDir"
+                label="Output location"
+                value={formValues.outputDir}
+                placeholder="/outputs/project"
+                onChange={(v) => setFormField('outputDir', v)}
+                onBrowse={() => {
+                  alert('Directory picker is not available in browser mode. Please type the path manually.');
+                }}
+                required
+              />
+            </div>
+          )}
+
+          {/* Row 2: Path fields — Server */}
+          {inputSource === 'Server' && (
+            <div className="grid gap-4">
+              <PathField
+                id="inputPath"
+                label="Input location (server path)"
+                value={formValues.inputPath}
+                placeholder="/home/user/mri-data"
+                onChange={(v) => setFormField('inputPath', v)}
+                onBrowse={() => setServerInputModal(true)}
+                required
+              />
+              <PathField
+                id="outputDir"
+                label="Output location (server path)"
+                value={formValues.outputDir}
+                placeholder="/home/user/mri-outputs"
+                onChange={(v) => setFormField('outputDir', v)}
+                onBrowse={() => setServerOutputModal(true)}
+                required
+              />
+              {/* Upload to server */}
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={handleUploadToServer}>
+                  Upload data to server
+                </Button>
+                {uploadNotice && (
+                  <span className="text-[12px] text-cursor-muted">Not wired yet - upload feature coming soon.</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Batch settings */}
+          {isBatch && (
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" onClick={() => setBatchModal(true)}>
+                Configure batch settings
+              </Button>
+              {formValues.batchImageCount !== undefined && (
+                <span className="text-[12px] text-cursor-muted">{formValues.batchImageCount} image(s) selected</span>
+              )}
+            </div>
+          )}
+        </div>
+      </Panel>
+
+      {/* Server input browse modal */}
+      {serverInputModal && (
+        remoteConnected ? (
+          <ServerBrowserModal
+            title="Browse server - Input location"
+            initialPath={formValues.inputPath || '~'}
+            remotePayload={remotePayload}
+            selectMode="path"
+            onConfirm={(p) => {
+              setFormField('inputPath', p);
+              setServerInputModal(false);
+            }}
+            onClose={() => setServerInputModal(false)}
+          />
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30"
+            onMouseDown={() => setServerInputModal(false)}
           >
-            <option value="Local">Local</option>
-            <option value="Server">Server</option>
-          </select>
-        </label>
-        <label className={labelCls}>
-          Input mode
-          <select
-            name="inputMode"
-            value={formValues.inputMode}
-            onChange={(e) => setFormField('inputMode', e.target.value)}
-            className={inputCls}
+            <div className="rounded-xl border border-cursor-hairline bg-white p-6 max-w-sm w-full">
+              <h3 className="m-0 mb-3 text-[16px] font-semibold text-cursor-ink">SSH not connected</h3>
+              <p className="text-[13px] text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
+              <div className="mt-4 flex justify-end">
+                <Button variant="ghost" onClick={() => setServerInputModal(false)}>Close</Button>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Server output browse modal */}
+      {serverOutputModal && (
+        remoteConnected ? (
+          <ServerBrowserModal
+            title="Browse server - Output location"
+            initialPath={formValues.outputDir || '~'}
+            remotePayload={remotePayload}
+            selectMode="path"
+            onConfirm={(p) => {
+              setFormField('outputDir', p);
+              setServerOutputModal(false);
+            }}
+            onClose={() => setServerOutputModal(false)}
+          />
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30"
+            onMouseDown={() => setServerOutputModal(false)}
           >
-            <option value="file">Single file</option>
-            <option value="multi_file">Multiple files</option>
-            <option value="batch_folder">Batch folder</option>
-            <option value="dicom_folder">DICOM folder</option>
-          </select>
-        </label>
-      </div>
-      <label className={`${labelCls} mt-6`}>
-        Input path
-        <input
-          id="inputPath"
-          name="inputPath"
-          value={formValues.inputPath}
-          onChange={(e) => setFormField('inputPath', e.target.value)}
-          placeholder="/data/sub-001_T1w.nii.gz or /data/batch"
-          required
-          className={inputCls}
+            <div className="rounded-xl border border-cursor-hairline bg-white p-6 max-w-sm w-full">
+              <h3 className="m-0 mb-3 text-[16px] font-semibold text-cursor-ink">SSH not connected</h3>
+              <p className="text-[13px] text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
+              <div className="mt-4 flex justify-end">
+                <Button variant="ghost" onClick={() => setServerOutputModal(false)}>Close</Button>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Batch config modal */}
+      {batchModal && (
+        <BatchConfigModal
+          inputSource={inputSource}
+          inputPath={formValues.inputPath}
+          currentCount={formValues.batchImageCount as number | undefined}
+          localFileListLen={localFileListLen}
+          isConnected={remoteConnected}
+          remotePayload={remotePayload}
+          onConfirm={(n, paths) => {
+            const patch: Record<string, unknown> = {batchImageCount: n};
+            if (paths && paths.length > 0) {
+              patch.additionalInputPaths = paths.join(',');
+            }
+            setFormFields(patch);
+            setBatchModal(false);
+          }}
+          onClose={() => setBatchModal(false)}
         />
-      </label>
-      <label className={`${labelCls} mt-6`}>
-        Additional files
-        <input
-          name="additionalInputPaths"
-          value={formValues.additionalInputPaths}
-          onChange={(e) => setFormField('additionalInputPaths', e.target.value)}
-          placeholder="Optional, comma-separated paths for multi-file runs"
-          className={inputCls}
-        />
-      </label>
-      <label className={`${labelCls} mt-6`}>
-        Output directory
-        <input
-          id="outputDir"
-          name="outputDir"
-          value={formValues.outputDir}
-          onChange={(e) => setFormField('outputDir', e.target.value)}
-          placeholder="/outputs/project"
-          required
-          className={inputCls}
-        />
-      </label>
-    </Panel>
+      )}
+    </>
   );
 }
+
+
 
 export function PipelinePage() {
   const client = useClient();

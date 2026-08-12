@@ -149,6 +149,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
                 return
             self._write_json(HTTPStatus.OK, self._configs().save_preset(name, data))
             return
+        if self.path == "/remote/browse":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().browse_path(payload))
+            return
         if self.path == "/remote/validate":
             self._write_json(HTTPStatus.OK, self._remote_jobs().validate_config(payload))
             return

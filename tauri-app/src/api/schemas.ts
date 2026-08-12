@@ -181,3 +181,31 @@ export const genericResponseSchema = z.object({
 });
 
 export const preparedRunRequestSchema = z.record(z.string(), z.unknown());
+
+export const remoteBrowseEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  kind: z.enum(['directory', 'file']),
+  size: z.number().nullable().optional(),
+  modified_at: z.number().nullable().optional(),
+  selectable: z.boolean(),
+  // recursive batch scan extras
+  subject_label: z.string().optional(),
+  relative_path: z.string().optional(),
+  depth: z.number().optional(),
+  parent: z.string().optional(),
+});
+
+export const remoteBrowseResponseSchema = z.object({
+  ok: z.boolean(),
+  path: z.string().optional(),
+  parent: z.string().optional(),
+  entries: z.array(remoteBrowseEntrySchema).optional(),
+  image_count: z.number().optional(),
+  error: z.string().optional(),
+  errors: z.array(z.string()).optional(),
+  // recursive batch scan extras
+  is_batch_scan: z.boolean().optional(),
+  has_multi_subject_conflict: z.boolean().optional(),
+});
+

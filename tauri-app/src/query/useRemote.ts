@@ -54,3 +54,12 @@ export function useReadRemoteLogMutation() {
     ) => client.readRemoteLog(payload),
   });
 }
+
+export function useRemoteBrowseMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (payload: RemotePayload & {path?: string; purpose?: string; recursive?: boolean; max_depth?: number}) =>
+      client.browseRemotePath(payload),
+  });
+}
+

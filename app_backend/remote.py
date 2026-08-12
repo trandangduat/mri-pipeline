@@ -117,6 +117,222 @@ class RemoteJobService:
         except Exception:
             return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
 
+    def browse_path(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        """Read-only SFTP directory/file listing for a remote path.
+
+        Optional request fields:
+          path        – remote path to browse (default: workspace or ~)
+          recursive   – bool; if True run batch-candidate scan instead of shallow list
+          max_depth   – int; max recursion depth for recursive scan (default 1, cap 6)
+          purpose     – "browse" | "batch"; batch enables recursive by default at depth 1
+        """
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        raw_path = str(data.get("path", "") or "").strip()
+        # Sanitise: reject NUL bytes
+        if "\x00" in raw_path:
+            return {"ok": False, "error": "Invalid path"}
+        # Default to workspace when no path supplied
+        browse = raw_path or config.remote_workspace or "~"
+        # Recursive / depth params
+        purpose = str(data.get("purpose", "browse") or "browse").strip()
+        recursive_flag = data.get("recursive")
+        if isinstance(recursive_flag, bool):
+            recursive = recursive_flag
+        elif isinstance(recursive_flag, str):
+            recursive = recursive_flag.lower() in ("true", "1", "yes")
+        else:
+            # batch purpose implies recursive at depth 1 by default
+            recursive = purpose == "batch"
+        raw_depth = data.get("max_depth")
+        try:
+            max_depth = max(0, min(int(raw_depth), _BATCH_MAX_DEPTH))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            max_depth = 1 if recursive else 0
+        try:
+            if recursive:
+                return _scan_batch_via_sftp(config.ssh, browse, max_depth=max_depth)
+            return _browse_via_sftp(config.ssh, browse)
+        except Exception as exc:
+            return {"ok": False, "error": f"Browse failed: {exc}"}
+
+
+_IMAGE_EXTENSIONS = {".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom"}
+_BROWSE_ENTRY_LIMIT = 500
+_BATCH_CANDIDATE_LIMIT = 1000
+_BATCH_MAX_DEPTH = 6
+
+
+def _is_image_file(name: str) -> bool:
+    lower = name.lower()
+    return any(lower.endswith(ext) for ext in _IMAGE_EXTENSIONS)
+
+
+def _file_stem(name: str) -> str:
+    """Return filename without any known image extension."""
+    lower = name.lower()
+    # longest-match first
+    for ext in sorted(_IMAGE_EXTENSIONS, key=len, reverse=True):
+        if lower.endswith(ext):
+            return name[: -len(ext)]
+    # fallback: strip last dot-extension
+    dot = name.rfind(".")
+    return name[:dot] if dot > 0 else name
+
+
+def _browse_via_sftp(ssh: object, path: str) -> dict[str, JsonValue]:
+    import posixpath
+    import stat as _stat
+    from remote.ssh_client import RemoteSSHClient, SSHConfig
+    assert isinstance(ssh, SSHConfig)
+    with RemoteSSHClient(ssh) as client:
+        try:
+            expanded = client.sftp.normalize(path)
+        except OSError:
+            expanded = path
+        try:
+            attr = client.sftp.stat(expanded)
+        except OSError as exc:
+            return {"ok": False, "error": f"Path not found: {exc}"}
+        is_dir = _stat.S_ISDIR(attr.st_mode) if attr.st_mode else False
+        if is_dir:
+            browse_dir = expanded
+        else:
+            browse_dir = posixpath.dirname(expanded)
+        parent = posixpath.dirname(browse_dir)
+        if parent == browse_dir:
+            parent = browse_dir
+        try:
+            raw_entries = client.sftp.listdir_attr(browse_dir)
+        except OSError as exc:
+            return {"ok": False, "error": f"Cannot list directory: {exc}"}
+        dirs: list[dict[str, JsonValue]] = []
+        files: list[dict[str, JsonValue]] = []
+        image_count = 0
+        for entry in raw_entries:
+            if len(dirs) + len(files) >= _BROWSE_ENTRY_LIMIT:
+                break
+            entry_mode = entry.st_mode or 0
+            is_entry_dir = _stat.S_ISDIR(entry_mode)
+            entry_name: str = entry.filename
+            entry_path = posixpath.join(browse_dir, entry_name)
+            is_img = not is_entry_dir and _is_image_file(entry_name)
+            if is_img:
+                image_count += 1
+            row: dict[str, JsonValue] = {
+                "name": entry_name,
+                "path": entry_path,
+                "kind": "directory" if is_entry_dir else "file",
+                "size": int(entry.st_size or 0) if not is_entry_dir else None,
+                "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
+                "selectable": is_entry_dir or is_img,
+            }
+            if is_entry_dir:
+                dirs.append(row)
+            else:
+                files.append(row)
+        dirs.sort(key=lambda e: str(e["name"]).lower())
+        files.sort(key=lambda e: str(e["name"]).lower())
+        return {
+            "ok": True,
+            "path": browse_dir,
+            "parent": parent,
+            "entries": dirs + files,
+            "image_count": image_count,
+        }
+
+
+def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[str, JsonValue]:
+    """Recursively collect image-file candidates under root for batch processing.
+
+    Returns entries with optional subject_label, relative_path, depth fields.
+    Directories are NOT included in results – only image file candidates.
+    Result is capped at _BATCH_CANDIDATE_LIMIT entries.
+    """
+    import posixpath
+    import stat as _stat
+    from remote.ssh_client import RemoteSSHClient, SSHConfig
+    assert isinstance(ssh, SSHConfig)
+    with RemoteSSHClient(ssh) as client:
+        try:
+            expanded = client.sftp.normalize(root)
+        except OSError:
+            expanded = root
+        try:
+            attr = client.sftp.stat(expanded)
+        except OSError as exc:
+            return {"ok": False, "error": f"Path not found: {exc}"}
+        is_dir = _stat.S_ISDIR(attr.st_mode) if attr.st_mode else False
+        scan_root = expanded if is_dir else posixpath.dirname(expanded)
+
+        candidates: list[dict[str, JsonValue]] = []
+
+        def _recurse(current_dir: str, depth: int, subject_hint: str | None) -> None:
+            if len(candidates) >= _BATCH_CANDIDATE_LIMIT:
+                return
+            try:
+                entries = client.sftp.listdir_attr(current_dir)
+            except OSError:
+                return
+            for entry in entries:
+                if len(candidates) >= _BATCH_CANDIDATE_LIMIT:
+                    return
+                if not entry.filename or "\x00" in entry.filename:
+                    continue
+                entry_mode = entry.st_mode or 0
+                is_entry_dir = _stat.S_ISDIR(entry_mode)
+                entry_path = posixpath.join(current_dir, entry.filename)
+                if is_entry_dir:
+                    if depth < max_depth:
+                        # Use immediate child folder name as subject label hint
+                        label = entry.filename if depth == 0 else subject_hint
+                        _recurse(entry_path, depth + 1, label)
+                else:
+                    if _is_image_file(entry.filename):
+                        # Relative path from scan root
+                        rel = entry_path[len(scan_root):].lstrip("/")
+                        # Subject label: parent folder name for nested, file stem for flat
+                        if depth == 0:
+                            # file is directly in scan_root
+                            label: str = _file_stem(entry.filename)
+                        else:
+                            label = subject_hint or posixpath.basename(current_dir)
+                        candidates.append({
+                            "name": entry.filename,
+                            "path": entry_path,
+                            "kind": "file",
+                            "size": int(entry.st_size or 0),
+                            "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
+                            "selectable": True,
+                            "relative_path": rel,
+                            "subject_label": label,
+                            "depth": depth,
+                            "parent": current_dir,
+                        })
+
+        _recurse(scan_root, 0, None)
+
+        # Sort: by subject_label then name
+        candidates.sort(key=lambda e: (str(e.get("subject_label", "")).lower(), str(e["name"]).lower()))
+
+        # Detect subjects with multiple candidates
+        from collections import Counter
+        label_counts: Counter[str] = Counter(str(e.get("subject_label", "")) for e in candidates)
+        has_multi_subject_conflict = any(v > 1 for v in label_counts.values())
+
+        return {
+            "ok": True,
+            "path": scan_root,
+            "parent": posixpath.dirname(scan_root),
+            "entries": candidates,
+            "image_count": len(candidates),
+            "is_batch_scan": True,
+            "has_multi_subject_conflict": has_multi_subject_conflict,
+        }
+
 
 def _default_runner_factory(config: RemoteRunConfig) -> RemoteJobLister:
     return RemoteRunner(config, on_log=lambda _line: None)

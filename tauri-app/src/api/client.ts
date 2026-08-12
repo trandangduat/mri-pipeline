@@ -7,6 +7,7 @@ import type {
   LocalJobsResponse,
   LogResponse,
   PreparedRunRequest,
+  RemoteBrowseResponse,
   RemoteJobsResponse,
   RemoteValidateResponse,
   StartJobResponse,
@@ -21,6 +22,7 @@ import {
   localJobsResponseSchema,
   logResponseSchema,
   preparedRunRequestSchema,
+  remoteBrowseResponseSchema,
   remoteJobsResponseSchema,
   remoteValidateResponseSchema,
   startJobResponseSchema,
@@ -145,6 +147,12 @@ export class BackendClient {
 
   async stopLocalJob(jobId: string): Promise<GenericResponse> {
     return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}));
+  }
+
+  async browseRemotePath(
+    payload: RemotePayload & {path?: string; purpose?: string; recursive?: boolean; max_depth?: number},
+  ): Promise<RemoteBrowseResponse> {
+    return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
   }
 
   async get(path: string): Promise<unknown> {

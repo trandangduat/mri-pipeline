@@ -18,6 +18,7 @@ export interface PipelineFormValues {
   workspace: string;
   key_path: string;
   password: string;
+  batchImageCount?: number;
   [key: string]: unknown;
 }
 
@@ -54,13 +55,19 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
     input_source: formValues.inputSource || 'Local',
     input_mode: inputMode,
     input_path: inputPath,
-    input_paths: inputMode === 'multi_file' ? [inputPath, ...additionalPaths].filter(Boolean) : [],
+    input_paths:
+      inputMode === 'multi_file'
+        ? [inputPath, ...additionalPaths].filter(Boolean)
+        : inputMode === 'batch_folder' && additionalPaths.length > 0
+          ? additionalPaths
+          : [],
     output_dir: formValues.outputDir,
     pipeline_mode: mode,
     selected_tools: preset?.tools || {},
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},
     stats_vector_config: {enabled_stats: {}, atlases: {}},
   } satisfies PreparedRunRequest;
+
 }
 
 export interface RemotePayload {

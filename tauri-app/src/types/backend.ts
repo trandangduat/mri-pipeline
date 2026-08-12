@@ -13,6 +13,8 @@ import type {
   pipelineEventSchema,
   preparedRunRequestSchema,
   remoteConfigSummarySchema,
+  remoteBrowseEntrySchema,
+  remoteBrowseResponseSchema,
   remoteHardwareSchema,
   remoteJobSummarySchema,
   remoteJobsResponseSchema,
@@ -44,6 +46,8 @@ export type AppMetadata = z.infer<typeof appMetadataSchema>;
 export type StartJobResponse = z.infer<typeof startJobResponseSchema>;
 export type GenericResponse = z.infer<typeof genericResponseSchema>;
 export type PreparedRunRequest = z.infer<typeof preparedRunRequestSchema>;
+export type RemoteBrowseEntry = z.infer<typeof remoteBrowseEntrySchema>;
+export type RemoteBrowseResponse = z.infer<typeof remoteBrowseResponseSchema>;
 
 export type JobState = 'running' | 'completed' | 'failed' | 'stopped' | 'missing' | 'unknown';
 export type RuntimeTarget = 'Local' | 'Server';
