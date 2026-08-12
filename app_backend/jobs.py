@@ -183,7 +183,41 @@ def _default_process_runner(command: list[str]) -> ProcessHandle:
     return ProcessHandle(pid=int(process.pid))
 
 
+SAFE_RUN_REQUEST_KEYS = (
+    "mode",
+    "input_file",
+    "input_files",
+    "input_dir",
+    "recursive",
+    "output_dir",
+    "effective_output_dir",
+    "pipeline_mode",
+    "device",
+    "threads",
+    "ram_percent",
+    "resume",
+    "restart",
+    "lazy_watch",
+    "neuroflow_enabled",
+    "neuroflow_max_concurrent_tasks",
+    "neuroflow_machine_profile_id",
+    "selected_tools",
+    "is_batch",
+    "batch_output_name",
+)
+
+
+def _make_run_request_summary(request: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    summary: dict[str, JsonValue] = {}
+    for key in SAFE_RUN_REQUEST_KEYS:
+        if key in request:
+            summary[key] = _json_value(request[key])
+    return summary
+
+
 def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    run_req = entry.get("run_request")
+    req_dict = run_req if isinstance(run_req, dict) else {}
     return {
         "job_id": str(entry.get("job_id", "")),
         "target": "Local",
@@ -195,7 +229,11 @@ def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
         "updated_at": float(entry.get("updated_at", 0.0) or 0.0),
         "output_dir": str(entry.get("output_dir", "")),
         "effective_output_dir": str(entry.get("effective_output_dir", "")),
+        "download_subdir": str(entry.get("download_subdir", "")),
+        "input_files": _json_value(entry.get("input_files", [])) if isinstance(entry.get("input_files"), list) else [],
+        "run_request_summary": _make_run_request_summary(req_dict),
     }
+
 
 
 def _input_files_for_request(request: dict[str, JsonValue]) -> list[str]:

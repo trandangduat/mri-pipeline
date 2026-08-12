@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useCallback} from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/sidebar';
 import {Activity, BrainCircuit, Container, SlidersHorizontal} from 'lucide-react';
 import type {AppTab} from './stores/uiStore';
+import {displayJobState, sidebarDotClass} from './lib/jobs';
+import {jobBasename} from './jobFormatters';
 
 export interface AppSidebarProps {
   activeTab: AppTab;
@@ -26,6 +28,8 @@ export interface AppSidebarProps {
   envText?: string;
   sidebarOpen: boolean;
   onSidebarOpenChange: (open: boolean) => void;
+  sidebarWidth: number;
+  onSidebarWidthChange: (width: number) => void;
 }
 
 export function AppSidebar({
@@ -37,9 +41,32 @@ export function AppSidebar({
   envText,
   sidebarOpen,
   onSidebarOpenChange,
+  sidebarWidth,
+  onSidebarWidthChange,
 }: AppSidebarProps) {
+  const startResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!sidebarOpen) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
+
+      const onMove = (moveEvent: PointerEvent) => {
+        onSidebarWidthChange(startWidth + moveEvent.clientX - startX);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [onSidebarWidthChange, sidebarOpen, sidebarWidth],
+  );
+
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={onSidebarOpenChange}>
+    <SidebarProvider open={sidebarOpen} onOpenChange={onSidebarOpenChange} style={{'--sidebar-width': `${sidebarWidth}px`} as React.CSSProperties}>
       <Sidebar
         collapsible="icon"
         className="font-sans border-r border-cursor-hairline bg-cursor-canvas text-cursor-ink"
@@ -106,12 +133,9 @@ export function AppSidebar({
                   jobs.map((jobItem) => {
                     const job = jobItem as Record<string, unknown>;
                     const isSelected = selectedJobId === job.job_id;
-                    const stateCls =
-                      job.state === 'running'
-                        ? 'bg-cursor-timeline-read animate-pulse'
-                        : job.state === 'completed'
-                          ? 'bg-cursor-semantic-success'
-                          : 'bg-cursor-semantic-error';
+                    const stateCls = sidebarDotClass(job);
+                    const title = jobBasename(job.display_name || job.job_id || job.remote_job_dir || job.job_dir);
+                    const subtitle = displayJobState(job.state);
 
                     return (
                       <SidebarMenuSubItem key={String(job.job_id || '')}>
@@ -121,11 +145,14 @@ export function AppSidebar({
                             onSelectTab('jobs');
                             onSelectJob?.(String(job.job_id || ''));
                           }}
-                          className="min-h-9 text-xs flex items-center justify-between gap-2 cursor-pointer"
+                          className="min-h-11 text-xs flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className={`h-2 w-2 rounded-full flex-none ${stateCls}`} />
-                            <span className="truncate">{String(job.display_name || job.job_id || '')}</span>
+                            <span className="grid min-w-0 gap-0.5">
+                              <span className="truncate text-[12px] font-medium text-cursor-ink">{title}</span>
+                              <span className="truncate text-[10px] uppercase tracking-[0.08em] text-cursor-muted">{subtitle}</span>
+                            </span>
                           </div>
                           <span className="rounded border border-cursor-hairline bg-white px-1.5 py-0.5 text-[10px] font-mono uppercase text-cursor-body">
                             {String(job.target || 'Local')}
@@ -145,6 +172,15 @@ export function AppSidebar({
             {envText || 'Backend ready'}
           </div>
         </SidebarFooter>
+        {sidebarOpen ? (
+          <div
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            onPointerDown={startResize}
+            className="absolute right-0 top-0 z-30 h-full w-2 cursor-col-resize bg-transparent before:absolute before:right-0 before:top-0 before:h-full before:w-px before:bg-cursor-hairline hover:before:bg-cursor-primary group-data-[collapsible=icon]:hidden"
+          />
+        ) : null}
       </Sidebar>
     </SidebarProvider>
   );

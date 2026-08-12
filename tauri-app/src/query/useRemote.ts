@@ -36,3 +36,21 @@ export function useListRemoteJobsMutation() {
     mutationFn: (payload: RemotePayload) => client.listRemoteJobs(payload),
   });
 }
+
+export function useReadRemoteEventsMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (
+      payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; limit?: number},
+    ) => client.readRemoteEvents(payload),
+  });
+}
+
+export function useReadRemoteLogMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (
+      payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; max_bytes?: number},
+    ) => client.readRemoteLog(payload),
+  });
+}

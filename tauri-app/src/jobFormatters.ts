@@ -15,6 +15,13 @@ export function shortJobName(jobId: unknown): string {
   return `${str.slice(0, 10)}...${str.slice(-8)}`;
 }
 
+export function jobBasename(value: unknown): string {
+  const str = String(value || '').trim();
+  if (!str) return 'unknown-job';
+  const normalized = str.replace(/\\/g, '/').replace(/\/+$/, '');
+  return normalized.split('/').pop() || normalized || 'unknown-job';
+}
+
 export function formatDuration(start: unknown, end?: unknown): string {
   const startNum = Number(start);
   const endNum = Number(end || Date.now() / 1000);
@@ -47,14 +54,15 @@ export interface NormalizedJob {
 
 export function normalizeJob(job: Record<string, unknown>, fallbackTarget = 'Local'): NormalizedJob {
   const target = String(job.target || fallbackTarget);
-  const jobId = job.job_id || job.remote_job_dir || job.pid || 'unknown-job';
+  const rawIdentity = job.job_id || job.remote_job_dir || job.job_dir || job.pid || 'unknown-job';
+  const jobId = job.job_id || jobBasename(rawIdentity);
 
   return {
     ...job,
     job_id: String(jobId),
     target,
     state: normalizeJobState(job.state || job.status),
-    display_name: shortJobName(jobId),
+    display_name: jobBasename(jobId),
     started_at: Number(job.started_at || job.created_at || 0),
     updated_at: Number(job.updated_at || 0),
     pid: typeof job.pid === 'string' || typeof job.pid === 'number' ? job.pid : '',

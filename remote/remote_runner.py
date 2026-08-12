@@ -737,9 +737,59 @@ class RemoteRunner:
             state = str(status_data.get("state") or "uploaded")
             return {**base_status, "state": state}
 
-    def list_background_jobs(self) -> list[dict[str, str]]:
+    def list_background_jobs(self) -> list[dict[str, object]]:
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             workspace = self._remote_workspace(ssh)
+            script = (
+                "import glob, json, os; "
+                f"ws = {shlex.quote(workspace)!r}; "
+                "jobs = []; "
+                "for d in sorted(glob.glob(os.path.join(ws, 'job_*')), reverse=True):\n"
+                "  if not os.path.isdir(d): continue\n"
+                "  cfg, meta, st = {}, {}, {}\n"
+                "  for fn, var in (('job_config.json', cfg), ('job_metadata.json', meta), ('job_status.json', st)):\n"
+                "    try:\n"
+                "      with open(os.path.join(d, fn), 'r', encoding='utf-8') as f: var.update(json.load(f))\n"
+                "    except Exception: pass\n"
+                "  pid = ''; exit_code = None\n"
+                "  try:\n"
+                "    with open(os.path.join(d, 'pid.txt'), 'r', encoding='utf-8') as f: pid = f.read().strip()\n"
+                "  except Exception: pass\n"
+                "  try:\n"
+                "    with open(os.path.join(d, 'exit_code.txt'), 'r', encoding='utf-8') as f: exit_code = int(f.read().strip())\n"
+                "  except Exception: pass\n"
+                "  state = 'uploaded'\n"
+                "  if exit_code is not None: state = 'completed' if exit_code == 0 else 'failed'\n"
+                "  elif pid:\n"
+                "    try:\n"
+                "      os.kill(int(pid), 0); state = 'running'\n"
+                "    except Exception: state = 'failed'\n"
+                "  elif st.get('state'): state = str(st.get('state'))\n"
+                "  jobs.append({\n"
+                "    'job_id': os.path.basename(d),\n"
+                "    'remote_job_dir': d,\n"
+                "    'state': state,\n"
+                "    'pid': pid,\n"
+                "    'exit_code': exit_code,\n"
+                "    'started_at': st.get('started_at') or meta.get('created_at') or 0,\n"
+                "    'finished_at': st.get('finished_at'),\n"
+                "    'output_dir': cfg.get('output_dir') or meta.get('output_dir') or '',\n"
+                "    'effective_output_dir': cfg.get('effective_output_dir') or cfg.get('output_dir') or meta.get('output_dir') or '',\n"
+                "    'download_subdir': meta.get('download_subdir') or '',\n"
+                "    'input_files': cfg.get('input_files') or ([cfg.get('input_file')] if cfg.get('input_file') else []),\n"
+                "    'run_request_summary': cfg,\n"
+                "  })\n"
+                "print(json.dumps(jobs))"
+            )
+            code, text = ssh.read_text(f"python3 -c {shlex.quote(script)} 2>/dev/null")
+            if code == 0 and text.strip():
+                try:
+                    parsed = json.loads(text.strip().splitlines()[-1])
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+
             cmd = (
                 f"for d in {shlex.quote(workspace)}/job_*; do "
                 "[ -d \"$d\" ] || continue; "
@@ -756,14 +806,43 @@ class RemoteRunner:
             code, text = ssh.read_text(cmd)
             if code != 0:
                 return []
-        jobs: list[dict[str, str]] = []
+        jobs: list[dict[str, object]] = []
         for line in text.splitlines():
             parts = line.split("\t", 2)
             if len(parts) != 3:
                 continue
             state, pid, remote_job_dir = parts
-            jobs.append({"state": state, "pid": pid, "remote_job_dir": remote_job_dir})
+            jobs.append({
+                "job_id": posixpath.basename(remote_job_dir),
+                "state": state,
+                "pid": pid,
+                "remote_job_dir": remote_job_dir,
+            })
         return jobs
+
+    def read_remote_events(self, offset: int = 0, limit: int = 500) -> dict[str, object]:
+        if not self.remote_job_dir:
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            try:
+                events_path = self._job_child_path(ssh, "events.jsonl")
+                with ssh.sftp.open(events_path, "r") as f:
+                    f.seek(offset)
+                    events: list[object] = []
+                    next_offset = offset
+                    for line in f:
+                        next_offset = f.tell()
+                        line_str = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line).strip()
+                        if line_str:
+                            try:
+                                events.append(json.loads(line_str))
+                            except Exception:
+                                pass
+                        if len(events) >= limit:
+                            break
+                    return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset}
+            except Exception:
+                return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
 
     def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
         if not self.remote_job_dir:

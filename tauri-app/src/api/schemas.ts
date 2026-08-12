@@ -30,6 +30,8 @@ export const environmentSchema = z.object({
   hardware: hardwareSchema,
 });
 
+export const runRequestSummarySchema = z.record(z.string(), z.unknown()).optional();
+
 export const localJobSummarySchema = z.object({
   job_id: z.string(),
   target: z.string().optional(),
@@ -41,6 +43,9 @@ export const localJobSummarySchema = z.object({
   updated_at: z.number().optional(),
   output_dir: z.string().optional(),
   effective_output_dir: z.string().optional(),
+  download_subdir: z.string().optional(),
+  input_files: z.array(z.string()).optional(),
+  run_request_summary: runRequestSummarySchema,
 });
 
 export const localJobsResponseSchema = z.object({

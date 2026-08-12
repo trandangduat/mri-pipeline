@@ -78,6 +78,45 @@ class RemoteJobService:
             return {"ok": False, "error": "Remote job listing failed"}
         return {"ok": True, "jobs": [_job_summary(job) for job in jobs]}
 
+    def read_job_events(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        offset = _int_val(data.get("offset"), 0)
+        limit = _int_val(data.get("limit"), 500)
+        try:
+            runner = self.runner_factory(config)
+            if remote_job_dir and hasattr(runner, "remote_job_dir"):
+                runner.remote_job_dir = remote_job_dir
+            if hasattr(runner, "read_remote_events"):
+                res = runner.read_remote_events(offset=offset, limit=limit)
+                return _json_dict(res)
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+        except Exception:
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+
+    def read_job_log(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        offset = _int_val(data.get("offset"), 0)
+        try:
+            runner = self.runner_factory(config)
+            if remote_job_dir and hasattr(runner, "remote_job_dir"):
+                runner.remote_job_dir = remote_job_dir
+            if hasattr(runner, "read_remote_log_since"):
+                text, next_offset = runner.read_remote_log_since(offset=offset)
+                return {"ok": True, "text": text, "next_offset": next_offset, "truncated": False}
+            return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
+        except Exception:
+            return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
+
 
 def _default_runner_factory(config: RemoteRunConfig) -> RemoteJobLister:
     return RemoteRunner(config, on_log=lambda _line: None)
@@ -180,10 +219,50 @@ def _int_or_none(value: object) -> int | None:
     return parsed if parsed >= 0 else None
 
 
+def _int_val(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _json_dict(value: object) -> dict[str, JsonValue]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(k): _json_value(v) for k, v in value.items()}
+
+
+def _json_value(value: object) -> JsonValue:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    return str(value)
+
+
 def _job_summary(job: dict[str, object]) -> dict[str, JsonValue]:
+    remote_dir = str(job.get("remote_job_dir", "") or "")
+    job_id = str(job.get("job_id", "") or (Path(remote_dir).name if remote_dir else "remote-job"))
+    run_req = job.get("run_request_summary")
+    req_dict = run_req if isinstance(run_req, dict) else {}
+    from app_backend.jobs import _make_run_request_summary
     return {
+        "job_id": job_id,
         "target": "Server",
         "state": str(job.get("state", "unknown") or "unknown"),
         "pid": str(job.get("pid", "") or ""),
-        "remote_job_dir": str(job.get("remote_job_dir", "") or ""),
+        "exit_code": job.get("exit_code") if isinstance(job.get("exit_code"), int) else None,
+        "remote_job_dir": remote_dir,
+        "job_dir": remote_dir,
+        "started_at": float(job.get("started_at", 0.0) or 0.0),
+        "finished_at": float(job.get("finished_at", 0.0) or 0.0) if job.get("finished_at") else None,
+        "output_dir": str(job.get("output_dir", "") or ""),
+        "effective_output_dir": str(job.get("effective_output_dir", "") or ""),
+        "download_subdir": str(job.get("download_subdir", "") or ""),
+        "input_files": _json_value(job.get("input_files", [])) if isinstance(job.get("input_files"), list) else [],
+        "run_request_summary": _make_run_request_summary(req_dict),
     }

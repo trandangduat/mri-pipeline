@@ -1,5 +1,5 @@
 import {expect, test} from 'vitest';
-import {formatDuration, normalizeJob, normalizeJobState, shortJobName, statusClass} from '../src/jobFormatters';
+import {formatDuration, jobBasename, normalizeJob, normalizeJobState, shortJobName, statusClass} from '../src/jobFormatters';
 
 test('normalizeJobState maps common backend states correctly', () => {
   expect(normalizeJobState('running')).toBe('running');
@@ -14,6 +14,11 @@ test('normalizeJobState maps common backend states correctly', () => {
 test('shortJobName truncates long job IDs', () => {
   expect(shortJobName('job-123')).toBe('job-123');
   expect(shortJobName('very-long-job-id-for-testing-purpose-123456789')).toBe('very-long-...23456789');
+});
+
+test('jobBasename strips local and remote paths', () => {
+  expect(jobBasename('/home/user/jobs/job_20260811_123')).toBe('job_20260811_123');
+  expect(jobBasename('C:\\jobs\\job_abc')).toBe('job_abc');
 });
 
 test('formatDuration calculates formatted minutes and seconds', () => {
@@ -43,4 +48,19 @@ test('normalizeJob builds standardized job object', () => {
   expect(job.target).toBe('Local');
   expect(job.state).toBe('running');
   expect(job.pid).toBe(12345);
+});
+
+test('normalizeJob uses remote job basename as route-safe id', () => {
+  const job = normalizeJob(
+    {
+      remote_job_dir: '/home/catcd1/duat-jobs2/job_20260730_164556',
+      state: 'completed',
+      pid: '9988',
+    },
+    'Server',
+  );
+
+  expect(job.job_id).toBe('job_20260730_164556');
+  expect(job.display_name).toBe('job_20260730_164556');
+  expect(job.remote_job_dir).toBe('/home/catcd1/duat-jobs2/job_20260730_164556');
 });

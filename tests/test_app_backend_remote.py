@@ -118,22 +118,20 @@ def test_list_remote_jobs_uses_injected_runner_and_normalizes_response() -> None
 
     def runner_factory(config: RemoteRunConfig) -> FakeRunner:
         calls.append({"host": config.ssh.host, "password": config.ssh.password})
-        return FakeRunner([{"state": "running", "pid": "123", "remote_job_dir": "/workspace/job_1"}])
+        return FakeRunner([{"job_id": "job_1", "state": "running", "pid": "123", "remote_job_dir": "/workspace/job_1"}])
 
     service = RemoteJobService(runner_factory=runner_factory)
     result = service.list_jobs({"host": "server", "username": "alice", "password": "secret"})
 
-    assert result == {
-        "ok": True,
-        "jobs": [
-            {
-                "target": "Server",
-                "state": "running",
-                "pid": "123",
-                "remote_job_dir": "/workspace/job_1",
-            }
-        ],
-    }
+    assert result["ok"] is True
+    assert isinstance(result.get("jobs"), list)
+    job = result["jobs"][0]
+    assert job["target"] == "Server"
+    assert job["state"] == "running"
+    assert job["pid"] == "123"
+    assert job["remote_job_dir"] == "/workspace/job_1"
+    assert job["job_id"] == "job_1"
+    assert "run_request_summary" in job
     assert calls == [{"host": "server", "password": "secret"}]
 
 
@@ -145,3 +143,4 @@ def test_list_remote_jobs_returns_safe_error_without_secret() -> None:
     result = service.list_jobs({"host": "server", "username": "alice", "password": "secret"})
 
     assert result == {"ok": False, "error": "Remote job listing failed"}
+

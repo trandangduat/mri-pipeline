@@ -46,12 +46,20 @@ def test_start_local_job_writes_worker_files_and_registry(tmp_path: Path) -> Non
     assert job["state"] == "running"
     assert job["pid"] == 9876
     assert job["target"] == "Local"
+    assert "run_request" not in job
+    assert "run_request_summary" in job
+    assert isinstance(job["run_request_summary"], dict)
+    assert job["run_request_summary"]["mode"] == "file"
+    assert job["run_request_summary"]["pipeline_mode"] == "Custom"
+    assert "input_files" in job
+    assert "download_subdir" in job
     assert (job_dir / "job_config.json").exists()
     assert json.loads((job_dir / "job_config.json").read_text(encoding="utf-8"))["job_dir"] == str(job_dir)
     assert json.loads((job_dir / "launcher_status.json").read_text(encoding="utf-8"))["pid"] == 9876
     assert json.loads((job_dir / "job_status.json").read_text(encoding="utf-8"))["state"] == "running"
     assert json.loads((tmp_path / "jobs" / "job_registry.json").read_text(encoding="utf-8"))["jobs"][0]["job_id"] == job["job_id"]
     assert runner.commands[0][1:] == ["-m", "pipeline.job_worker", "--job-config", str(job_dir / "job_config.json")]
+
 
 
 def test_list_local_jobs_refreshes_status_from_exit_code(tmp_path: Path) -> None:

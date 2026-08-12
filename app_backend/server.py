@@ -155,6 +155,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/jobs":
             self._write_json(HTTPStatus.OK, self._remote_jobs().list_jobs(payload))
             return
+        if self.path == "/remote/jobs/events":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_events(payload))
+            return
+        if self.path == "/remote/jobs/log":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_log(payload))
+            return
         if self.path == "/tools/local/images":
             selected_tools = payload.get("selected_tools")
             target = str(payload.get("target", "Local") or "Local")

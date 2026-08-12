@@ -131,6 +131,18 @@ export class BackendClient {
     return remoteJobsResponseSchema.parse(await this.post('/remote/jobs', {...payload}));
   }
 
+  async readRemoteEvents(
+    payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; limit?: number},
+  ): Promise<EventsResponse> {
+    return eventsResponseSchema.parse(await this.post('/remote/jobs/events', {...payload}));
+  }
+
+  async readRemoteLog(
+    payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; max_bytes?: number},
+  ): Promise<LogResponse> {
+    return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}));
+  }
+
   async stopLocalJob(jobId: string): Promise<GenericResponse> {
     return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}));
   }

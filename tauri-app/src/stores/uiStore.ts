@@ -13,16 +13,19 @@ export interface BusyState {
 interface UiState {
   activeTab: AppTab;
   sidebarOpen: boolean;
+  sidebarWidth: number;
   busy: BusyState;
   setActiveTab: (tab: AppTab) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   setBusyKey: (key: keyof BusyState, value: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
   activeTab: 'pipeline',
   sidebarOpen: true,
+  sidebarWidth: 360,
   busy: {
     connect: false,
     listRemote: false,
@@ -33,5 +36,6 @@ export const useUiStore = create<UiState>((set) => ({
   setActiveTab: (activeTab) => set({activeTab}),
   toggleSidebar: () => set((state) => ({sidebarOpen: !state.sidebarOpen})),
   setSidebarOpen: (sidebarOpen) => set({sidebarOpen}),
+  setSidebarWidth: (sidebarWidth) => set({sidebarWidth: Math.max(280, Math.min(520, sidebarWidth))}),
   setBusyKey: (key, value) => set((state) => ({busy: {...state.busy, [key]: value}})),
 }));

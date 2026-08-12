@@ -15,7 +15,9 @@ function AppLayout() {
   const client = useClient();
 
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
+  const sidebarWidth = useUiStore((s) => s.sidebarWidth);
   const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
+  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth);
   const {data: environment} = useEnvironment();
 
   const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
@@ -69,7 +71,7 @@ function AppLayout() {
     <main
       className="min-h-screen bg-cursor-canvas"
       id="appLayout"
-      style={{'--active-sidebar-width': sidebarOpen ? '16rem' : '3rem'} as React.CSSProperties}
+      style={{'--active-sidebar-width': sidebarOpen ? `${sidebarWidth}px` : '3rem'} as React.CSSProperties}
     >
       <div
         id="sidebarRoot"
@@ -80,14 +82,16 @@ function AppLayout() {
           onSelectTab={(tab) => navigate('/' + tab)}
           jobs={latestJobs}
           selectedJobId={selectedJobId}
-          onSelectJob={(jobId) => navigate('/jobs/' + jobId)}
+          onSelectJob={(jobId) => navigate('/jobs/' + encodeURIComponent(jobId))}
           envText={envParts.join(' · ')}
           sidebarOpen={sidebarOpen}
           onSidebarOpenChange={setSidebarOpen}
+          sidebarWidth={sidebarWidth}
+          onSidebarWidthChange={setSidebarWidth}
         />
       </div>
 
-      <section className="grid min-h-screen min-w-0 px-8 py-8 ml-[var(--active-sidebar-width)] max-[760px]:ml-0 max-[760px]:px-4 max-[760px]:pb-4">
+      <section className="flex flex-col h-screen overflow-hidden min-w-0 px-6 py-4 ml-[var(--active-sidebar-width)] max-[760px]:ml-0 max-[760px]:px-4 max-[760px]:pb-4">
         <Routes>
           <Route path="/" element={<Navigate to="/pipeline" replace />} />
           <Route
