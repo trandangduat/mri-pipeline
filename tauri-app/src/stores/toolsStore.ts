@@ -1,30 +1,34 @@
 import {create} from 'zustand';
 
+export interface ImageDownloadState {
+  status: 'idle' | 'pulling' | 'success' | 'failed';
+  logs: string[];
+  error: string | null;
+}
+
 interface ToolsState {
-  imageSearch: string;
-  imageSelection: Set<string>;
-  imageLogText: string;
-  toolMessage: string;
   latestImages: unknown[];
-  setImageSearch: (query: string) => void;
-  setImageSelection: (selection: Set<string>) => void;
-  appendImageLog: (line: string) => void;
-  setToolMessage: (message: string) => void;
+  downloadStates: Record<string, ImageDownloadState>;
   setLatestImages: (images: unknown[]) => void;
+  setDownloadState: (image: string, state: Partial<ImageDownloadState>) => void;
+  clearDownloadState: (image: string) => void;
 }
 
 export const useToolsStore = create<ToolsState>((set) => ({
-  imageSearch: '',
-  imageSelection: new Set<string>(),
-  imageLogText: 'Docker image log is idle.',
-  toolMessage: 'Image status is not loaded.',
   latestImages: [],
-  setImageSearch: (imageSearch) => set({imageSearch}),
-  setImageSelection: (imageSelection) => set({imageSelection}),
-  appendImageLog: (line) => {
-    const timestamp = new Date().toLocaleTimeString();
-    set((state) => ({imageLogText: `[${timestamp}] ${line}\n${state.imageLogText}`.trim()}));
-  },
-  setToolMessage: (toolMessage) => set({toolMessage}),
+  downloadStates: {},
   setLatestImages: (latestImages) => set({latestImages}),
+  setDownloadState: (image, state) =>
+    set((prev) => ({
+      downloadStates: {
+        ...prev.downloadStates,
+        [image]: {...(prev.downloadStates[image] || {status: 'idle', logs: [], error: null}), ...state},
+      },
+    })),
+  clearDownloadState: (image) =>
+    set((prev) => {
+      const next = {...prev.downloadStates};
+      delete next[image];
+      return {downloadStates: next};
+    }),
 }));

@@ -72,10 +72,19 @@ export const logResponseSchema = z.object({
   error: z.string().optional(),
 });
 
+export const toolDetailSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+});
+
 export const toolImageSchema = z.object({
   image: z.string(),
   status: z.string(),
   tools: z.array(z.string()),
+  tool_details: z.array(toolDetailSchema).optional(),
+  repo_size: z.string().nullable().optional(),
+  uncompressed_size: z.string().nullable().optional(),
+  image_id: z.string().nullable().optional(),
 });
 
 export const toolsImageResponseSchema = z.object({
@@ -84,6 +93,16 @@ export const toolsImageResponseSchema = z.object({
   images: z.array(toolImageSchema).optional(),
   warnings: z.array(z.string()).optional(),
   errors: z.array(z.string()).optional(),
+  error: z.string().optional(),
+});
+
+export const pullImageResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const removeImageResponseSchema = z.object({
+  ok: z.boolean(),
   error: z.string().optional(),
 });
 

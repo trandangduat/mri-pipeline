@@ -7,9 +7,11 @@ import type {
   LocalJobsResponse,
   LogResponse,
   PreparedRunRequest,
+  PullImageResponse,
   RemoteBrowseResponse,
   RemoteJobsResponse,
   RemoteValidateResponse,
+  RemoveImageResponse,
   StartJobResponse,
   ToolsImageResponse,
 } from '../types/backend';
@@ -22,9 +24,11 @@ import {
   localJobsResponseSchema,
   logResponseSchema,
   preparedRunRequestSchema,
+  pullImageResponseSchema,
   remoteBrowseResponseSchema,
   remoteJobsResponseSchema,
   remoteValidateResponseSchema,
+  removeImageResponseSchema,
   startJobResponseSchema,
   toolsImageResponseSchema,
 } from './schemas';
@@ -153,6 +157,14 @@ export class BackendClient {
     payload: RemotePayload & {path?: string; purpose?: string; recursive?: boolean; max_depth?: number},
   ): Promise<RemoteBrowseResponse> {
     return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
+  }
+
+  async pullImage(image: string): Promise<PullImageResponse> {
+    return pullImageResponseSchema.parse(await this.post('/tools/local/pull', {image}));
+  }
+
+  async removeImage(image: string): Promise<RemoveImageResponse> {
+    return removeImageResponseSchema.parse(await this.post('/tools/local/remove', {image}));
   }
 
   async startPipelineStream(

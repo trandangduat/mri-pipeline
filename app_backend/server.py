@@ -187,6 +187,21 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             result = self._local_tools().image_status(selected_tools, target=target, remote=remote)
             self._write_json(HTTPStatus.OK, result)
             return
+        if self.path == "/tools/local/pull":
+            image = str(payload.get("image", "") or "")
+            if not image:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
+                return
+            self._handle_tools_pull_stream(image)
+            return
+        if self.path == "/tools/local/remove":
+            image = str(payload.get("image", "") or "")
+            if not image:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
+                return
+            ok, error = self._local_tools().remove_image(image)
+            self._write_json(HTTPStatus.OK, {"ok": ok, "error": error or None})
+            return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
     def do_PUT(self) -> None:
@@ -218,7 +233,10 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         self._write_json(HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "Method not allowed"})
 
     def _write_exception(self, exc: Exception) -> None:
-        self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Internal server error"})
+        try:
+            self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Internal server error"})
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def _local_jobs(self) -> LocalJobService:
         server = self.server
@@ -326,6 +344,31 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
                 self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
         except Exception as exc:
             self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+
+    def _handle_tools_pull_stream(self, image: str) -> None:
+        self._write_sse_headers()
+        try:
+            self._send_sse_event("step", {"step": "pull", "status": "running", "detail": f"Pulling {image}..."})
+            import subprocess
+            proc = subprocess.Popen(
+                ["docker", "pull", image],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    self._send_sse_event("step", {"step": "pull", "status": "running", "detail": line})
+            proc.wait()
+            if proc.returncode == 0:
+                self._send_sse_event("complete", {"ok": True})
+            else:
+                self._send_sse_event("complete", {"ok": False, "error": f"Pull failed (exit {proc.returncode})"})
+        except Exception as exc:
+            self._send_sse_event("step", {"step": "pull", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
 
     def _write_cors_headers(self) -> None:

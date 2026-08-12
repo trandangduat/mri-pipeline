@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app_backend.tools import CommandResult, LocalToolService
+from app_backend.tools import CommandResult, ImageInfo, LocalToolService
 
 
 class FakeCommandRunner:
@@ -14,9 +14,13 @@ class FakeCommandRunner:
         return CommandResult(returncode=0 if image in self.installed else 1)
 
 
+def _fake_image_info(image: str) -> ImageInfo:
+    return ImageInfo(size_bytes=1024 * 1024 * 100, image_id="sha256:abc123def45")
+
+
 def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
     runner = FakeCommandRunner(installed={"mkdayyyy/mri-fs7-all:latest"})
-    service = LocalToolService(command_runner=runner)
+    service = LocalToolService(command_runner=runner, image_info_provider=_fake_image_info)
 
     result = service.local_image_status({"segmentation": "fs7_recon_style_segmentation"})
 
@@ -28,6 +32,10 @@ def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
                 "image": "mkdayyyy/mri-fs7-all:latest",
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
+                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": "FS7 Recon Style Segmentation"}],
+                "repo_size": "100.0 MB",
+                "uncompressed_size": "100.0 MB",
+                "image_id": "sha256:abc123def45",
             }
         ],
         "warnings": [],
@@ -37,7 +45,7 @@ def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
 
 def test_local_tool_service_reports_missing_and_unknown_tools() -> None:
     runner = FakeCommandRunner(installed=set())
-    service = LocalToolService(command_runner=runner)
+    service = LocalToolService(command_runner=runner, image_info_provider=_fake_image_info)
 
     result = service.local_image_status({"segmentation": "fs7_recon_style_segmentation", "bad": "missing_tool"})
 
@@ -52,7 +60,7 @@ def test_local_tool_service_returns_safe_error_when_docker_unavailable() -> None
     def runner(_command: list[str]) -> CommandResult:
         raise FileNotFoundError("docker")
 
-    service = LocalToolService(command_runner=runner)
+    service = LocalToolService(command_runner=runner, image_info_provider=_fake_image_info)
 
     assert service.local_image_status({"segmentation": "fs7_recon_style_segmentation"}) == {
         "ok": False,
@@ -61,7 +69,7 @@ def test_local_tool_service_returns_safe_error_when_docker_unavailable() -> None
 
 
 def test_local_tool_service_rejects_malformed_selected_tool_values() -> None:
-    service = LocalToolService(command_runner=FakeCommandRunner(installed=set()))
+    service = LocalToolService(command_runner=FakeCommandRunner(installed=set()), image_info_provider=_fake_image_info)
 
     assert service.local_image_status({"segmentation": {"bad": "shape"}}) == {
         "ok": False,
@@ -84,6 +92,7 @@ def test_tool_service_checks_server_target_images() -> None:
     service = LocalToolService(
         command_runner=FakeCommandRunner(installed=set()),
         remote_runner_factory=lambda _cfg: fake_remote,
+        image_info_provider=_fake_image_info,
     )
 
     result = service.image_status(
@@ -100,6 +109,10 @@ def test_tool_service_checks_server_target_images() -> None:
                 "image": "mkdayyyy/mri-fs7-all:latest",
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
+                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": "FS7 Recon Style Segmentation"}],
+                "repo_size": None,
+                "uncompressed_size": None,
+                "image_id": None,
             }
         ],
         "warnings": [],

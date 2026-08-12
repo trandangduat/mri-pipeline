@@ -12,14 +12,17 @@ import type {
   logResponseSchema,
   pipelineEventSchema,
   preparedRunRequestSchema,
-  remoteConfigSummarySchema,
+  pullImageResponseSchema,
   remoteBrowseEntrySchema,
   remoteBrowseResponseSchema,
+  remoteConfigSummarySchema,
   remoteHardwareSchema,
   remoteJobSummarySchema,
   remoteJobsResponseSchema,
   remoteValidateResponseSchema,
+  removeImageResponseSchema,
   startJobResponseSchema,
+  toolDetailSchema,
   toolImageSchema,
   toolMetadataSchema,
   toolsImageResponseSchema,
@@ -35,6 +38,7 @@ export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
 export type EventsResponse = z.infer<typeof eventsResponseSchema>;
 export type LogResponse = z.infer<typeof logResponseSchema>;
 export type ToolImage = z.infer<typeof toolImageSchema>;
+export type ToolDetail = z.infer<typeof toolDetailSchema>;
 export type ToolsImageResponse = z.infer<typeof toolsImageResponseSchema>;
 export type RemoteConfigSummary = z.infer<typeof remoteConfigSummarySchema>;
 export type RemoteHardware = z.infer<typeof remoteHardwareSchema>;
@@ -48,6 +52,8 @@ export type GenericResponse = z.infer<typeof genericResponseSchema>;
 export type PreparedRunRequest = z.infer<typeof preparedRunRequestSchema>;
 export type RemoteBrowseEntry = z.infer<typeof remoteBrowseEntrySchema>;
 export type RemoteBrowseResponse = z.infer<typeof remoteBrowseResponseSchema>;
+export type PullImageResponse = z.infer<typeof pullImageResponseSchema>;
+export type RemoveImageResponse = z.infer<typeof removeImageResponseSchema>;
 
 export type JobState = 'running' | 'completed' | 'failed' | 'stopped' | 'missing' | 'unknown';
 export type RuntimeTarget = 'Local' | 'Server';
