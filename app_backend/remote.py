@@ -309,13 +309,21 @@ class RemoteJobService:
                     pid=remote_status.get("pid"),
                 )
 
+            from app_backend.jobs import _make_run_request_summary
+
             yield complete_event(True, job={
                 "job_id": job_id,
                 "target": "Server",
                 "state": remote_status.get("state", "running"),
                 "remote_job_dir": remote_job_dir,
+                "job_dir": remote_job_dir,
                 "started_at": remote_status.get("started_at"),
                 "pid": remote_status.get("pid"),
+                "output_dir": run_request.get("output_dir", ""),
+                "effective_output_dir": run_request.get("effective_output_dir", run_request.get("output_dir", "")),
+                "download_subdir": run_request.get("download_subdir", ""),
+                "input_files": run_request.get("input_files") or ([run_request.get("input_file")] if run_request.get("input_file") else []),
+                "run_request_summary": _make_run_request_summary(run_request),
             })
         except Exception as exc:
             yield step_event("start", "failed", _safe_error_message(exc))
