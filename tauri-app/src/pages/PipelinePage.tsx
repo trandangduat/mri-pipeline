@@ -13,7 +13,6 @@ import {useRemoteBrowseMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {useUiStore} from '../stores/uiStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry} from '../types/backend';
@@ -1449,14 +1448,10 @@ export function PipelinePage() {
   const applyWorkspaceConfig = usePipelineFormStore((s) => s.applyWorkspaceConfig);
 
   const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
-  const selectedJobId = useJobsStore((s) => s.selectedJobId);
   const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
-  const setJobEvents = useJobsStore((s) => s.setJobEvents);
-  const setOutputText = useJobsStore((s) => s.setOutputText);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const remoteResult = useRemoteStore();
-  const setBusyKey = useUiStore((s) => s.setBusyKey);
   const [starting, setStarting] = React.useState(false);
 
   const needsLicense = React.useMemo(() => {
@@ -1484,43 +1479,6 @@ export function PipelinePage() {
 
   const print = (label: string, payload: unknown) => {
     appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
-  };
-
-  const loadJobDetails = async (jobId: string | null) => {
-    if (!jobId) {
-      setJobEvents([]);
-      setOutputText('');
-      return;
-    }
-    try {
-      const evts = await client.readLocalEvents(jobId, 0, 500);
-      setJobEvents(evts.events || []);
-      const log = await client.readLocalLog(jobId, 0, 65536);
-      setOutputText(log.text || '');
-    } catch (err: unknown) {
-      print('Load job details failed', {error: (err as Error).message});
-    }
-  };
-
-  const refreshJobs = async () => {
-    setBusyKey('refreshJobs', true);
-    try {
-      const res = await client.listLocalJobs();
-      const rawJobs = res.jobs || [];
-      const jobs = sortJobsByStartedAtDesc(rawJobs.map((j) => normalizeJob(j, 'Local')));
-      setLatestJobs(jobs);
-      let nextSelected = selectedJobId;
-      if (!nextSelected && jobs.length > 0) {
-        nextSelected = jobs[0]?.job_id || null;
-        setSelectedJobId(nextSelected);
-      }
-      const currentJob = jobs.find((j) => j.job_id === nextSelected);
-      await loadJobDetails(currentJob ? nextSelected : '');
-    } catch (err: unknown) {
-      print('Refresh jobs failed', {error: (err as Error).message});
-    } finally {
-      setBusyKey('refreshJobs', false);
-    }
   };
 
   const startPipeline = async () => {
@@ -1552,10 +1510,28 @@ export function PipelinePage() {
 
   const handleDialogClose = () => {
     closeDialog();
-    if (dialogSuccess) {
-      navigate('/jobs');
-      void refreshJobs();
+    if (!dialogSuccess) return;
+
+    if (dialogJob) {
+      const target = String(dialogJob.target || formValues.runtimeTarget || 'Local');
+      const normalized = normalizeJob(dialogJob, target === 'Server' ? 'Server' : 'Local');
+      const newJobId = String(normalized.job_id || '');
+      if (newJobId) {
+        const existing = useJobsStore.getState().latestJobs || [];
+        const existingJob = existing.find((j) => String(j.job_id || '') === newJobId) || {};
+        const mergedStartedJob = {...existingJob, ...normalized};
+        const merged = sortJobsByStartedAtDesc([
+          mergedStartedJob,
+          ...existing.filter((j) => String(j.job_id || '') !== newJobId),
+        ] as Record<string, unknown>[]);
+        setLatestJobs(merged);
+        setSelectedJobId(newJobId);
+        navigate(`/jobs/${encodeURIComponent(newJobId)}`);
+        return;
+      }
     }
+
+    navigate('/jobs');
   };
 
   async function handleWorkspaceFile(file?: File | null) {
