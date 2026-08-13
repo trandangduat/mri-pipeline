@@ -19,6 +19,15 @@ class FakeRunner:
     def remote_hardware_info(self) -> dict[str, object]:
         return {"hostname": "server", "logical_cores": 32, "total_ram_bytes": 128_000_000_000}
 
+    def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
+        return {image: True for image in image_names}
+
+    def start_remote_detached(self) -> str:
+        return "/workspace/job_1"
+
+    def remote_status(self) -> dict[str, object]:
+        return {"state": "running", "pid": "123"}
+
 
 def test_validate_remote_config_connects_and_redacts_secrets() -> None:
     calls: list[dict[str, object]] = []
@@ -144,3 +153,38 @@ def test_list_remote_jobs_returns_safe_error_without_secret() -> None:
 
     assert result == {"ok": False, "error": "Remote job listing failed"}
 
+
+def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None:
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
+    configs: list[RemoteRunConfig] = []
+
+    def runner_factory(config: RemoteRunConfig) -> FakeRunner:
+        configs.append(config)
+        return FakeRunner([])
+
+    service = RemoteJobService(runner_factory=runner_factory)
+
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": {"segmentation": "fastsurfer_segmentation"},
+                    "license_dir": str(license_file),
+                },
+            }
+        )
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert events[-1]["data"]["ok"] is True
+    assert configs[-1].license_dir == str(license_file)

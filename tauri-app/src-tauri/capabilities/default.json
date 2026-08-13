@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for the MRI Pipeline desktop shell.",
   "windows": ["main"],
-  "permissions": ["opener:default"]
+  "permissions": ["opener:default", "dialog:default", "dialog:allow-open"]
 }

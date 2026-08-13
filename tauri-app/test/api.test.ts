@@ -136,6 +136,22 @@ test('BackendClient raises backend JSON errors', async () => {
   await expect(() => client.health()).rejects.toThrow(/Not found/);
 });
 
+test('BackendClient uploads license file contents as base64 JSON', async () => {
+  const calls: Array<{url: string; options: RequestInit}> = [];
+  const client = new BackendClient('http://backend', async (url: RequestInfo | URL, options?: RequestInit) => {
+    calls.push({url: String(url), options: options || {}});
+    return {ok: true, json: async () => ({ok: true, path: '/managed/license.txt'})} as Response;
+  });
+
+  const result = await client.uploadLicense(new File(['license-body'], 'license.txt', {type: 'text/plain'}));
+  const body = JSON.parse(String(calls[0]?.options.body || '{}')) as {filename: string; content_base64: string};
+
+  expect(result).toEqual({ok: true, path: '/managed/license.txt'});
+  expect(calls[0]?.url).toBe('http://backend/licenses/upload');
+  expect(body.filename).toBe('license.txt');
+  expect(atob(body.content_base64)).toBe('license-body');
+});
+
 test('BackendClient default fetch keeps global fetch binding', async () => {
   const originalFetch = globalThis.fetch;
   try {
@@ -212,6 +228,34 @@ test('buildRunConfig uses preset tools from metadata', () => {
   expect(config.output_dir).toBe('/out');
   expect(config.pipeline_mode).toBe('FreeSurfer 7 + Volume');
   expect(config.selected_tools).toEqual({segmentation: 'fs7'});
+});
+
+test('buildRunConfig sends selected FreeSurfer license path', () => {
+  const config = buildRunConfig(
+    {
+      inputPath: '/data/a.nii.gz',
+      outputDir: '/out',
+      pipelineMode: 'FreeSurfer 7 + Volume',
+      inputSource: 'Local',
+      inputMode: 'file',
+      additionalInputPaths: '',
+      runtimeTarget: 'Local',
+      ramPercent: 80,
+      cpuThreads: 4,
+      gpuMode: 'auto',
+      host: '',
+      port: 22,
+      username: '',
+      remote_python: 'python3',
+      workspace: '~/mri-remote-jobs',
+      key_path: '',
+      password: '',
+      licensePath: '/licenses/license.txt',
+    },
+    null,
+  );
+
+  expect(config.license_dir).toBe('/licenses/license.txt');
 });
 
 test('buildRunConfig maps pipeline input source and multi-file paths', () => {

@@ -199,6 +199,12 @@ export const genericResponseSchema = z.object({
   error: z.string().optional(),
 });
 
+export const licenseUploadResponseSchema = z.object({
+  ok: z.boolean(),
+  path: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const preparedRunRequestSchema = z.record(z.string(), z.unknown());
 
 export const progressStepSchema = z.object({
@@ -240,4 +246,3 @@ export const remoteBrowseResponseSchema = z.object({
   is_batch_scan: z.boolean().optional(),
   has_multi_subject_conflict: z.boolean().optional(),
 });
-

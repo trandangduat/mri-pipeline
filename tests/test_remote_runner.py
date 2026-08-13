@@ -160,6 +160,21 @@ def test_remote_runner_upload_rejects_output_outside_workspace(mocker) -> None:
         runner.upload_job()
 
 
+def test_remote_runner_upload_rejects_missing_license(mocker, tmp_path) -> None:
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        license_dir=str(tmp_path / "missing-license.txt"),
+    )
+    runner = RemoteRunner(run_config)
+    runner.remote_job_dir = "/home/tester/mri-remote-jobs/job_123"
+
+    with FakeRemoteSSHClient(None) as ssh:
+        with pytest.raises(FileNotFoundError, match="License not found locally"):
+            runner._upload_license(ssh)
+
+
 def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path) -> None:
     FakeRemoteSSHClient.downloaded_dirs = []
     FakeRemoteSSHClient.downloaded_files = []

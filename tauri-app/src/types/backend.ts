@@ -7,6 +7,7 @@ import type {
   genericResponseSchema,
   hardwareSchema,
   healthSchema,
+  licenseUploadResponseSchema,
   localJobSummarySchema,
   localJobsResponseSchema,
   logResponseSchema,
@@ -37,6 +38,7 @@ export type LocalJobsResponse = z.infer<typeof localJobsResponseSchema>;
 export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
 export type EventsResponse = z.infer<typeof eventsResponseSchema>;
 export type LogResponse = z.infer<typeof logResponseSchema>;
+export type LicenseUploadResponse = z.infer<typeof licenseUploadResponseSchema>;
 export type ToolImage = z.infer<typeof toolImageSchema>;
 export type ToolDetail = z.infer<typeof toolDetailSchema>;
 export type ToolsImageResponse = z.infer<typeof toolsImageResponseSchema>;

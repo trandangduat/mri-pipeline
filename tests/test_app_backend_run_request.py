@@ -11,10 +11,12 @@ from pipeline.presets import PRESET_CONFIGS
 
 
 def _base_config(tmp_path: Path, **overrides: object) -> RunRequestInput:
+    license_dir = tmp_path / "license"
+    license_dir.mkdir(exist_ok=True)
     data: dict[str, object] = {
         "input_path": str(tmp_path / "image.nii.gz"),
         "output_dir": str(tmp_path / "outputs"),
-        "license_dir": str(tmp_path / "license"),
+        "license_dir": str(license_dir),
         "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
         "export_config": ExportConfig(enabled=False).to_dict(),
         "stats_vector_config": StatsVectorConfig().to_dict(),
@@ -33,7 +35,9 @@ def _ok_request(result: dict[str, object]) -> dict[str, object]:
 
 def test_prepare_run_request_builds_local_file_request(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
+    license_dir = tmp_path / "license"
     image.write_text("fake", encoding="utf-8")
+    license_dir.mkdir()
 
     result = prepare_run_request(_base_config(tmp_path))
     request = _ok_request(result)
@@ -42,9 +46,21 @@ def test_prepare_run_request_builds_local_file_request(tmp_path: Path) -> None:
     assert request["input_file"] == str(image)
     assert request["output_dir"] == str(tmp_path / "outputs")
     assert request["effective_output_dir"] == str(tmp_path / "outputs")
+    assert request["license_dir"] == str(tmp_path / "license")
     assert request["threads"] == 4
     assert request["ram_percent"] == 100
     json.dumps(result)
+
+
+def test_prepare_run_request_requires_existing_license_for_licensed_tools(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(_base_config(tmp_path, license_dir=str(tmp_path / "missing-license.txt")))
+
+    assert result["ok"] is False
+    assert result["request"] is None
+    assert result["errors"] == ["FreeSurfer license file or directory does not exist."]
 
 
 def test_run_request_module_is_tkinter_free_in_fresh_process() -> None:

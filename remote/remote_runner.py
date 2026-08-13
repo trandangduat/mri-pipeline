@@ -1011,8 +1011,7 @@ class RemoteRunner:
             return
         local_license = Path(self.config.license_dir)
         if not local_license.exists():
-            self.on_log(f"License not found locally: {local_license}")
-            return
+            raise FileNotFoundError(f"License not found locally: {local_license}")
             
         remote_license_dir = posixpath.join(self.remote_job_dir, "license")
         remote_license_dir = self._require_workspace_child(ssh, remote_license_dir, "remote license directory")

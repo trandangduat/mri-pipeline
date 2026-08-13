@@ -28,6 +28,7 @@ def _request(tmp_path: Path) -> dict[str, object]:
         "batch_output_name": "",
         "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
         "pipeline_mode": "Custom",
+        "license_dir": str(tmp_path / "license.txt"),
         "threads": 4,
         "device": "cpu",
     }
@@ -54,7 +55,9 @@ def test_start_local_job_writes_worker_files_and_registry(tmp_path: Path) -> Non
     assert "input_files" in job
     assert "download_subdir" in job
     assert (job_dir / "job_config.json").exists()
-    assert json.loads((job_dir / "job_config.json").read_text(encoding="utf-8"))["job_dir"] == str(job_dir)
+    saved_config = json.loads((job_dir / "job_config.json").read_text(encoding="utf-8"))
+    assert saved_config["job_dir"] == str(job_dir)
+    assert saved_config["license_dir"] == str(tmp_path / "license.txt")
     assert json.loads((job_dir / "launcher_status.json").read_text(encoding="utf-8"))["pid"] == 9876
     assert json.loads((job_dir / "job_status.json").read_text(encoding="utf-8"))["state"] == "running"
     assert json.loads((tmp_path / "jobs" / "job_registry.json").read_text(encoding="utf-8"))["jobs"][0]["job_id"] == job["job_id"]

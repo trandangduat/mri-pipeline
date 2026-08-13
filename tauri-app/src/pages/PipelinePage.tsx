@@ -1,5 +1,6 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey} from 'lucide-react';
+import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
 import {SplitPaneForm} from '../components/SplitPaneForm';
@@ -21,11 +22,37 @@ function browseJsonFile(inputRef: React.RefObject<HTMLInputElement | null>) {
   if (inputRef.current) inputRef.current.click();
 }
 
+function hasTauriInternals() {
+  if (typeof window === 'undefined') return false;
+  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
+  return typeof internals?.invoke === 'function';
+}
+
+function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
+  if (Array.isArray(selected)) return selected[0] || '';
+  return selected || '';
+}
+
 export function PipelineStepsSection() {
   const {data: metadata, isLoading: metaLoading, isError: metaError} = useMetadata();
+  const client = useClient();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+
+  const licensePath = usePipelineFormStore((s) => s.formValues.licensePath as string | undefined);
+  const licenseFileInput = useRef<HTMLInputElement>(null);
+  const [uploadingLicense, setUploadingLicense] = React.useState(false);
+
+  const needsLicense = React.useMemo(() => {
+    if (!metadata?.tools) return false;
+    const stageKeys = metadata.stage_order || [];
+    for (const stage of stageKeys) {
+      const toolKey = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
+      if (toolKey && metadata.tools[toolKey]?.needs_license) return true;
+    }
+    return false;
+  }, [metadata, formValues]);
 
   const presetFileInput = useRef<HTMLInputElement>(null);
 
@@ -62,6 +89,23 @@ export function PipelineStepsSection() {
       print('Loaded preset file', {name: file.name, selected_tools: preset.selected_tools});
     } catch (err: unknown) {
       print('Load preset failed', {error: (err as Error).message});
+    }
+  }
+
+  async function handleBrowserLicenseFile(file?: File | null) {
+    if (!file) return;
+    setUploadingLicense(true);
+    try {
+      const result = await client.uploadLicense(file);
+      if (!result.ok || !result.path) {
+        throw new Error(result.error || 'License upload failed.');
+      }
+      setFormField('licensePath', result.path);
+      print('License uploaded', {name: file.name, path: result.path});
+    } catch (err: unknown) {
+      print('License upload failed', {error: (err as Error).message});
+    } finally {
+      setUploadingLicense(false);
     }
   }
 
@@ -158,6 +202,71 @@ export function PipelineStepsSection() {
               </div>
             );
           })}
+        </div>
+      )}
+      {needsLicense && (
+        <div className="mt-4 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileKey className="h-4 w-4 text-cursor-primary" />
+            <span className="text-[13px] font-medium text-cursor-ink">FreeSurfer License</span>
+          </div>
+          <p className="mt-1 mb-2 text-[12px] text-cursor-muted">
+            A selected tool requires a FreeSurfer license file. Provide the path to your license.txt.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={uploadingLicense}
+              onClick={async () => {
+                if (!hasTauriInternals()) {
+                  licenseFileInput.current?.click();
+                  return;
+                }
+                try {
+                  const selected = await open({
+                    multiple: false,
+                    filters: [{name: 'License', extensions: ['txt']}],
+                  });
+                  const path = selectedDialogPath(selected);
+                  if (path) {
+                    setFormField('licensePath', path);
+                  }
+                } catch (err: unknown) {
+                  print('License browse failed', {error: (err as Error).message});
+                }
+              }}
+              className="inline-flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg border border-cursor-hairline bg-white px-3 text-[12px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              {uploadingLicense ? 'Uploading...' : 'Browse'}
+            </button>
+            <input
+              ref={licenseFileInput}
+              className="hidden"
+              type="file"
+              accept=".txt,text/plain"
+              onChange={(event) => {
+                void handleBrowserLicenseFile(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+            <input
+              value={licensePath || ''}
+              onChange={(event) => setFormField('licensePath', event.target.value)}
+              placeholder="/path/to/license.txt"
+              title={licensePath || ''}
+              className={`${inputCls} h-9 min-w-0 flex-1 text-[12px]`}
+            />
+            {licensePath && (
+              <button
+                type="button"
+                onClick={() => setFormField('licensePath', '')}
+                className="text-[12px] text-cursor-muted hover:text-cursor-semantic-error"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       )}
     </Panel>
@@ -1242,6 +1351,16 @@ export function PipelinePage() {
   const setBusyKey = useUiStore((s) => s.setBusyKey);
   const [starting, setStarting] = React.useState(false);
 
+  const needsLicense = React.useMemo(() => {
+    if (!metadata?.tools) return false;
+    const stageKeys = metadata.stage_order || [];
+    for (const stage of stageKeys) {
+      const toolKey = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
+      if (toolKey && metadata.tools[toolKey]?.needs_license) return true;
+    }
+    return false;
+  }, [metadata, formValues]);
+
   const {
     open: dialogOpen,
     steps: dialogSteps,
@@ -1299,6 +1418,12 @@ export function PipelinePage() {
   const startPipeline = async () => {
     setStarting(true);
     try {
+      if (needsLicense && !formValues.licensePath) {
+        print('Start pipeline failed', {
+          error: 'FreeSurfer license file is required. Select a license.txt in the Pipeline Steps section.',
+        });
+        return;
+      }
       const isRemote = formValues.runtimeTarget === 'Server';
       const config = buildRunConfig(formValues, metadata ?? null);
       if (isRemote) {
@@ -1369,13 +1494,15 @@ export function PipelinePage() {
           variant="primary"
           icon={starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           onClick={startPipeline}
-          disabled={starting || (formValues.runtimeTarget === 'Server' && !remoteResult.connected)}
+          disabled={starting || (formValues.runtimeTarget === 'Server' && !remoteResult.connected) || (needsLicense && !formValues.licensePath)}
         >
           {starting
             ? 'Starting...'
             : formValues.runtimeTarget === 'Server' && !remoteResult.connected
               ? 'Connect SSH first'
-              : 'Start Pipeline'}
+              : needsLicense && !formValues.licensePath
+                ? 'License required'
+                : 'Start Pipeline'}
         </Button>
         <Button
           variant="danger"

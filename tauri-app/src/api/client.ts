@@ -4,6 +4,7 @@ import type {
   EventsResponse,
   GenericResponse,
   HealthResponse,
+  LicenseUploadResponse,
   LocalJobsResponse,
   LogResponse,
   PreparedRunRequest,
@@ -21,6 +22,7 @@ import {
   eventsResponseSchema,
   genericResponseSchema,
   healthSchema,
+  licenseUploadResponseSchema,
   localJobsResponseSchema,
   logResponseSchema,
   preparedRunRequestSchema,
@@ -94,6 +96,16 @@ export class BackendClient {
 
   async prepareRunRequest(payload: Record<string, unknown>): Promise<PreparedRunRequest> {
     return preparedRunRequestSchema.parse(await this.post('/run-request/prepare', payload));
+  }
+
+  async uploadLicense(file: File): Promise<LicenseUploadResponse> {
+    const content = await file.arrayBuffer();
+    return licenseUploadResponseSchema.parse(
+      await this.post('/licenses/upload', {
+        filename: file.name,
+        content_base64: arrayBufferToBase64(content),
+      }),
+    );
   }
 
   async startLocalJob(runRequest: unknown): Promise<StartJobResponse> {
@@ -246,4 +258,11 @@ export class BackendClient {
 export function normalizeBaseUrl(value: string): string {
   const url = String(value || DEFAULT_BACKEND_URL).trim();
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }

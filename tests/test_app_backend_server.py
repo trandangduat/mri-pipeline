@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import http.client
 import threading
 from http.server import ThreadingHTTPServer
@@ -13,6 +14,7 @@ from urllib.request import Request, urlopen
 from app_backend.config_store import ConfigStore
 from app_backend.environment import LocalEnvironmentService
 from app_backend.jobs import LocalJobService, ProcessHandle
+from app_backend.licenses import LicenseStore
 from app_backend.remote import RemoteJobService
 from app_backend.server import make_server
 from app_backend.tools import LocalToolService
@@ -32,6 +34,7 @@ def _serve_in_thread(
     remote_job_service: RemoteJobService | None = None,
     local_tool_service: LocalToolService | None = None,
     local_environment_service: LocalEnvironmentService | None = None,
+    license_store: LicenseStore | None = None,
 ) -> tuple[ThreadingHTTPServer, threading.Thread, str]:
     server = make_server(
         "127.0.0.1",
@@ -41,6 +44,7 @@ def _serve_in_thread(
         remote_job_service=remote_job_service,
         local_tool_service=local_tool_service,
         local_environment_service=local_environment_service,
+        license_store=license_store,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -167,7 +171,9 @@ def test_sidecar_allows_tauri_dev_origin_and_json_preflight() -> None:
 
 def test_sidecar_prepare_run_request_endpoint(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
+    license_file = tmp_path / "license.txt"
     image.write_text("fake", encoding="utf-8")
+    license_file.write_text("license", encoding="utf-8")
     server, thread, base_url = _serve_in_thread()
     try:
         result = _post_json(
@@ -176,12 +182,34 @@ def test_sidecar_prepare_run_request_endpoint(tmp_path: Path) -> None:
                 "input_path": str(image),
                 "output_dir": str(tmp_path / "outputs"),
                 "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
+                "license_dir": str(license_file),
             },
         )
         assert result["ok"] is True
         request = result["request"]
         assert isinstance(request, dict)
         assert request["input_file"] == str(image)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_sidecar_uploads_license_file_to_backend_store(tmp_path: Path) -> None:
+    store = LicenseStore(tmp_path / "licenses")
+    server, thread, base_url = _serve_in_thread(license_store=store)
+    try:
+        result = _post_json(
+            f"{base_url}/licenses/upload",
+            {
+                "filename": "../license.txt",
+                "content_base64": base64.b64encode(b"license-body").decode("ascii"),
+            },
+        )
+        assert result["ok"] is True
+        path = Path(str(result["path"]))
+        assert path.parent == tmp_path / "licenses"
+        assert path.name.endswith("-license.txt")
+        assert path.read_bytes() == b"license-body"
     finally:
         server.shutdown()
         thread.join(timeout=5)

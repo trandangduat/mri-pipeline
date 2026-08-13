@@ -18,6 +18,7 @@ export interface PipelineFormValues {
   workspace: string;
   key_path: string;
   password: string;
+  licensePath?: string;
   batchImageCount?: number;
   nonRecursive?: boolean;
   [key: string]: unknown;
@@ -41,6 +42,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   workspace: '~/mri-remote-jobs',
   key_path: '',
   password: '',
+  licensePath: '',
 };
 
 export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMetadata | null): Record<string, unknown> {
@@ -73,6 +75,7 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
     device: formValues.gpuMode === 'enabled' ? 'cuda' : 'cpu',
     threads: formValues.cpuThreads ?? 4,
     ram_percent: formValues.ramPercent ?? 100,
+    license_dir: formValues.licensePath || '',
   } satisfies PreparedRunRequest;
 
 }

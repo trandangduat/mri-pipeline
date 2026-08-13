@@ -145,6 +145,9 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     runtime_error = _runtime_error(config)
     if runtime_error:
         return [runtime_error]
+    license_error = _license_error(config)
+    if license_error:
+        return [license_error]
     neuroflow_error = _neuroflow_error(config)
     if neuroflow_error:
         return [neuroflow_error]
@@ -271,6 +274,19 @@ def _runtime_error(config: RunRequestInput) -> str:
         return "Threads must be at least 1."
     if config.ram_percent < 1 or config.ram_percent > 100:
         return "RAM % must be between 1 and 100."
+    return ""
+
+
+def _license_error(config: RunRequestInput) -> str:
+    from pipeline.registry import TOOL_DEFS
+
+    if not any(TOOL_DEFS.get(tool_key, {}).get("needs_license") for tool_key in _selected_tools(config).values()):
+        return ""
+    license_path = config.license_dir.strip()
+    if not license_path:
+        return "FreeSurfer license file is required for the selected pipeline tools."
+    if config.run_target != "Server" and not Path(license_path).expanduser().exists():
+        return "FreeSurfer license file or directory does not exist."
     return ""
 
 

@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from app_backend.config_store import ConfigStore
 from app_backend.environment import LocalEnvironmentService
 from app_backend.jobs import LocalJobService
+from app_backend.licenses import LicenseStore
 from app_backend.metadata import get_app_metadata
 from app_backend.progress import LocalJobProgressService
 from app_backend.remote import RemoteJobService
@@ -35,6 +36,7 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         remote_job_service: RemoteJobService | None = None,
         local_tool_service: LocalToolService | None = None,
         local_environment_service: LocalEnvironmentService | None = None,
+        license_store: LicenseStore | None = None,
     ) -> None:
         super().__init__(server_address, AppBackendRequestHandler)
         self.local_job_service = local_job_service or LocalJobService()
@@ -45,6 +47,7 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         )
         self.local_tool_service = local_tool_service or LocalToolService()
         self.local_environment_service = local_environment_service or LocalEnvironmentService()
+        self.license_store = license_store or LicenseStore()
 
 
 class AppBackendRequestHandler(BaseHTTPRequestHandler):
@@ -118,6 +121,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/run-request/prepare":
             self._write_json(HTTPStatus.OK, prepare_run_request(payload))
+            return
+        if self.path == "/licenses/upload":
+            self._write_json(HTTPStatus.OK, self._licenses().save_upload(payload))
             return
         if self.path == "/jobs/local/start":
             request = payload.get("run_request")
@@ -274,6 +280,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             raise RuntimeError("Unexpected server type")
         return server.local_environment_service
 
+    def _licenses(self) -> LicenseStore:
+        server = self.server
+        if not isinstance(server, AppBackendHTTPServer):
+            raise RuntimeError("Unexpected server type")
+        return server.license_store
+
     def _read_json_body(self) -> dict[str, object] | None:
         content_type = self.headers.get("Content-Type", "")
         media_type = content_type.split(";", 1)[0].strip().lower()
@@ -386,6 +398,7 @@ def make_server(
     remote_job_service: RemoteJobService | None = None,
     local_tool_service: LocalToolService | None = None,
     local_environment_service: LocalEnvironmentService | None = None,
+    license_store: LicenseStore | None = None,
 ) -> AppBackendHTTPServer:
     return AppBackendHTTPServer(
         (host, port),
@@ -395,6 +408,7 @@ def make_server(
         remote_job_service,
         local_tool_service,
         local_environment_service,
+        license_store,
     )
 
 
