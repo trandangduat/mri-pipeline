@@ -1,8 +1,9 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
+import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
 import {StartPipelineDialog} from '../components/StartPipelineDialog';
@@ -708,6 +709,17 @@ function ServerBrowserModal({
 
 type ScanMode = 'direct' | 'one-level' | 'recursive';
 
+type BatchScanCache = {
+  cacheKey: string;
+  scanMode: ScanMode;
+  entries: RemoteBrowseEntry[];
+  selectedPaths: string[];
+  status: string;
+  hasConflict: boolean;
+  subjectCount: number;
+  scanned: boolean;
+};
+
 const SCAN_MODE_OPTIONS: {value: ScanMode; label: string; hint: string; maxDepth: number}[] = [
   {value: 'direct', label: 'Direct files only', hint: 'Image files immediately in the input folder.', maxDepth: 0},
   {
@@ -728,6 +740,9 @@ function BatchConfigModal({
   localFileListLen,
   isConnected,
   remotePayload,
+  cacheKey,
+  batchScanCache,
+  setBatchScanCache,
 }: {
   inputSource: string;
   inputPath: string;
@@ -737,23 +752,35 @@ function BatchConfigModal({
   localFileListLen: number;
   isConnected: boolean;
   remotePayload: Record<string, unknown>;
+  cacheKey: string;
+  batchScanCache: BatchScanCache | null;
+  setBatchScanCache: React.Dispatch<React.SetStateAction<BatchScanCache | null>>;
 }) {
   const browseMutation = useRemoteBrowseMutation();
   const [count, setCount] = React.useState<number>(currentCount ?? (localFileListLen || 1));
-  const [serverEntries, setServerEntries] = React.useState<RemoteBrowseEntry[]>([]);
-  const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(new Set());
-  const [scanStatus, setScanStatus] = React.useState('');
-  const [scanMode, setScanMode] = React.useState<ScanMode>('one-level');
-  const [scanned, setScanned] = React.useState(false);
-  const [hasConflict, setHasConflict] = React.useState(false);
 
   const isServer = inputSource === 'Server';
+  const cacheMatches = batchScanCache?.cacheKey === cacheKey && batchScanCache?.scanned;
+
+  const [serverEntries, setServerEntries] = React.useState<RemoteBrowseEntry[]>(
+    cacheMatches ? batchScanCache!.entries : [],
+  );
+  const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(
+    cacheMatches ? new Set(batchScanCache!.selectedPaths) : new Set(),
+  );
+  const [scanStatus, setScanStatus] = React.useState(cacheMatches ? batchScanCache!.status : '');
+  const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'one-level');
+  const [scanned, setScanned] = React.useState(cacheMatches ? batchScanCache!.scanned : false);
+  const [hasConflict, setHasConflict] = React.useState(cacheMatches ? batchScanCache!.hasConflict : false);
   const inferred = localFileListLen > 0 ? localFileListLen : 0;
 
   const doServerScan = React.useCallback(
-    (mode: ScanMode) => {
+    (mode: ScanMode, force = false) => {
       if (!inputPath) {
         setScanStatus('Set an input location first.');
+        return;
+      }
+      if (!force && batchScanCache?.cacheKey === cacheKey && batchScanCache?.scanned && batchScanCache?.scanMode === mode) {
         return;
       }
       const modeOpt = SCAN_MODE_OPTIONS.find((o) => o.value === mode)!;
@@ -794,24 +821,34 @@ function BatchConfigModal({
             }
             setSelectedPaths(autoSelected);
             setCount(autoSelected.size || candidates.length || 1);
-            setScanStatus(
-              candidates.length === 0
-                ? 'No image files found in this directory.'
-                : `Found ${candidates.length} image file(s) across ${labelCounts.size} subject(s).`,
-            );
+            const statusText = candidates.length === 0
+              ? 'No image files found in this directory.'
+              : `${candidates.length} image${candidates.length !== 1 ? 's' : ''} found across ${labelCounts.size} subject${labelCounts.size !== 1 ? 's' : ''}.`;
+            setScanStatus(statusText);
             setScanned(true);
+            setBatchScanCache({
+              cacheKey,
+              scanMode: mode,
+              entries: candidates,
+              selectedPaths: Array.from(autoSelected),
+              status: statusText,
+              hasConflict: res.has_multi_subject_conflict ?? false,
+              subjectCount: labelCounts.size,
+              scanned: true,
+            });
           },
           onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
         },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [browseMutation, remotePayload, inputPath],
+    [browseMutation, remotePayload, inputPath, cacheKey, batchScanCache],
   );
 
+  // Hydrate from cache or scan on first open
   React.useEffect(() => {
-    if (isServer && isConnected && inputPath && !scanned) {
-      doServerScan(scanMode);
+    if (isServer && isConnected && inputPath && !cacheMatches) {
+      doServerScan(scanMode, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -825,7 +862,7 @@ function BatchConfigModal({
     });
   };
 
-  const finalCount = selectedPaths.size > 0 ? selectedPaths.size : count;
+  const finalCount = isServer && scanned ? selectedPaths.size : (selectedPaths.size > 0 ? selectedPaths.size : count);
 
   return (
     <WideModalOverlay onClose={onClose}>
@@ -846,7 +883,17 @@ function BatchConfigModal({
       {/* Server scan controls */}
       {isServer && isConnected && (
         <div className="border-b border-cursor-hairline px-6 py-4">
-          <p className="mb-2 text-[12px] font-medium text-cursor-body">Scan mode</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[12px] font-medium text-cursor-body">Scan mode</p>
+            <button
+              type="button"
+              onClick={() => doServerScan(scanMode, true)}
+              disabled={browseMutation.isPending}
+              className="rounded-lg border border-cursor-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Re-scan
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {SCAN_MODE_OPTIONS.map((opt) => (
               <button
@@ -878,9 +925,10 @@ function BatchConfigModal({
 
       {/* Candidate list */}
       {isServer && isConnected && serverEntries.length > 0 && (
-        <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
-          {/* Table header */}
-          <div className="grid border-b border-cursor-hairline px-6 py-2 text-[11px] font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem 1fr 1fr minmax(0,2fr) 4rem'}}>
+        <TooltipProvider>
+          <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
+            {/* Table header */}
+          <div className="grid border-b border-cursor-hairline px-6 py-2 text-[11px] font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(10rem,1.8fr) minmax(4.5rem,0.7fr) minmax(14rem,3fr) 4.5rem'}}>
             <span />
             <span>Subject</span>
             <span>Filename</span>
@@ -890,31 +938,50 @@ function BatchConfigModal({
           {serverEntries.map((entry) => {
             const checked = selectedPaths.has(entry.path);
             return (
-              <label
+              <div
                 key={entry.path}
+                role="button"
+                tabIndex={0}
+                onClick={() => togglePath(entry.path)}
+                onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePath(entry.path); } }}
                 className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-6 py-2 hover:bg-white"
-                style={{gridTemplateColumns: '1.5rem 1fr 1fr minmax(0,2fr) 4rem'}}
+                style={{gridTemplateColumns: '1.5rem minmax(10rem,1.8fr) minmax(4.5rem,0.7fr) minmax(14rem,3fr) 4.5rem'}}
               >
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={() => togglePath(entry.path)}
-                  className="h-3.5 w-3.5 accent-cursor-primary"
+                  readOnly
+                  className="h-3.5 w-3.5 accent-cursor-primary pointer-events-none"
                 />
-                <span className="min-w-0 truncate pr-2 text-[12px] font-medium text-cursor-ink" title={entry.subject_label ?? ''}>
-                  {entry.subject_label ?? '-'}
-                </span>
-                <span className="min-w-0 truncate pr-2 font-mono text-[12px] text-cursor-ink" title={entry.name}>
+                <Tooltip>
+                  <TooltipTrigger className="min-w-0 w-full text-left">
+                    <span className="block min-w-0 truncate pr-2 text-[12px] font-medium text-cursor-ink">
+                      {entry.subject_label ?? '-'}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="max-w-md break-all">
+                    {entry.subject_label ?? '-'}
+                  </TooltipContent>
+                </Tooltip>
+                <span className="min-w-0 truncate pr-2 font-mono text-[12px] text-cursor-ink">
                   {entry.name}
                 </span>
-                <span className="hidden min-w-0 truncate pr-2 font-mono text-[11px] text-cursor-muted sm:block" title={entry.relative_path ?? entry.path}>
-                  {entry.relative_path ?? ''}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger className="hidden min-w-0 w-full text-left sm:block">
+                    <span className="block min-w-0 truncate pr-2 font-mono text-[11px] text-cursor-muted">
+                      {entry.relative_path ?? ''}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="max-w-md break-all">
+                    {entry.relative_path ?? entry.path}
+                  </TooltipContent>
+                </Tooltip>
                 <span className="text-right text-[11px] text-cursor-muted">{fmtBytes(entry.size)}</span>
-              </label>
+              </div>
             );
           })}
-        </div>
+          </div>
+        </TooltipProvider>
       )}
 
       {/* Manual count fallback (local or not yet scanned) */}
@@ -936,18 +1003,29 @@ function BatchConfigModal({
           </label>
         )}
         {isServer && isConnected && scanned && (
-          <p className="text-[12px] text-cursor-muted">
-            {selectedPaths.size} of {serverEntries.length} selected.{' '}
-            {selectedPaths.size !== serverEntries.length && (
-              <button
-                type="button"
-                onClick={() => setSelectedPaths(new Set(serverEntries.map((e) => e.path)))}
-                className="text-cursor-primary hover:underline"
-              >
-                Select all
-              </button>
-            )}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[12px] text-cursor-muted">{selectedPaths.size} selected</p>
+            <div className="flex gap-2">
+              {selectedPaths.size !== serverEntries.length && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPaths(new Set(serverEntries.map((e) => e.path)))}
+                  className="text-[12px] text-cursor-primary hover:underline"
+                >
+                  Select all
+                </button>
+              )}
+              {selectedPaths.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPaths(new Set())}
+                  className="text-[12px] text-cursor-primary hover:underline"
+                >
+                  Unselect all
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -958,12 +1036,13 @@ function BatchConfigModal({
         </Button>
         <Button
           variant="primary"
+          disabled={isServer && scanned && selectedPaths.size === 0}
           onClick={() => {
-            const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
+            const paths = isServer && scanned ? Array.from(selectedPaths) : (selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined);
             onConfirm(finalCount, paths);
           }}
         >
-          Save ({finalCount} image{finalCount !== 1 ? 's' : ''})
+          Save selection
         </Button>
       </div>
     </WideModalOverlay>
@@ -1089,6 +1168,15 @@ export function InputOutputSection() {
   const [batchModal, setBatchModal] = React.useState(false);
   const [uploadNotice, setUploadNotice] = React.useState(false);
 
+  // Batch scan cache — persists across modal open/close
+  const [batchScanCache, setBatchScanCache] = React.useState<BatchScanCache | null>(null);
+  const batchCacheKey = `${inputSource}|${formValues.inputPath}|${JSON.stringify(remotePayload)}`;
+
+  // Invalidate cache when inputs change
+  React.useEffect(() => {
+    setBatchScanCache((prev) => (prev && prev.cacheKey !== batchCacheKey ? null : prev));
+  }, [batchCacheKey]);
+
   // Ref for hidden local file input (browser fallback for directory browse)
   const localInputRef = React.useRef<HTMLInputElement | null>(null);
   const [localFileListLen, setLocalFileListLen] = React.useState(0);
@@ -1152,6 +1240,16 @@ export function InputOutputSection() {
                   Server source is unavailable when Runtime Target is Local.
                 </p>
               )}
+              {isServerSource && remoteConnected && (
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" icon={<Upload className="h-4 w-4" />} onClick={handleUploadToServer}>
+                    Upload data to server
+                  </Button>
+                  {uploadNotice && (
+                    <span className="text-[12px] text-cursor-muted">Not wired yet - upload feature coming soon.</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Input Mode */}
@@ -1163,6 +1261,16 @@ export function InputOutputSection() {
                 value={isBatch ? 'batch_folder' : 'file'}
                 onChange={(v) => setFormField('inputMode', v)}
               />
+              {isBatch && (
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" icon={<SlidersHorizontal className="h-4 w-4" />} onClick={() => setBatchModal(true)}>
+                    Configure batch
+                  </Button>
+                  {formValues.batchImageCount !== undefined && (
+                    <span className="text-[12px] text-cursor-muted">{formValues.batchImageCount} selected</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1234,29 +1342,9 @@ export function InputOutputSection() {
                 onBrowse={() => setServerOutputModal(true)}
                 required
               />
-              {/* Upload to server */}
-              <div className="flex items-center gap-3">
-                <Button variant="ghost" onClick={handleUploadToServer}>
-                  Upload data to server
-                </Button>
-                {uploadNotice && (
-                  <span className="text-[12px] text-cursor-muted">Not wired yet - upload feature coming soon.</span>
-                )}
-              </div>
             </div>
           )}
 
-          {/* Batch settings */}
-          {isBatch && (
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" onClick={() => setBatchModal(true)}>
-                Configure batch settings
-              </Button>
-              {formValues.batchImageCount !== undefined && (
-                <span className="text-[12px] text-cursor-muted">{formValues.batchImageCount} image(s) selected</span>
-              )}
-            </div>
-          )}
         </div>
       </Panel>
 
@@ -1329,7 +1417,14 @@ export function InputOutputSection() {
           localFileListLen={localFileListLen}
           isConnected={remoteConnected}
           remotePayload={remotePayload}
+          cacheKey={batchCacheKey}
+          batchScanCache={batchScanCache}
+          setBatchScanCache={setBatchScanCache}
           onConfirm={(n, paths) => {
+            // Update cache with final selections before closing
+            setBatchScanCache((prev) =>
+              prev ? {...prev, selectedPaths: paths && paths.length > 0 ? paths : prev.selectedPaths} : prev,
+            );
             const patch: Record<string, unknown> = {batchImageCount: n};
             if (paths && paths.length > 0) {
               patch.additionalInputPaths = paths.join(',');
