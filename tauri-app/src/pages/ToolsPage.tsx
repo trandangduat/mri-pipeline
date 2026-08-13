@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu, AlertCircle} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
+import {Skeleton} from '@/components/ui/skeleton';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {isImageInstalled, isImageDownloading, isImageFailed} from '../lib/tools';
 import type {ToolImage} from '../types/backend';
@@ -13,6 +14,23 @@ import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 
 const POLL_INTERVAL_MS = 5000;
+
+function ImageStatusSkeletonGrid({columns = 'available'}: {columns?: 'available' | 'missing'}) {
+  const gridCls = columns === 'available'
+    ? 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(24rem,1fr))]'
+    : 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]';
+  return (
+    <div className={gridCls}>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="mt-3 h-3 w-1/2" />
+          <Skeleton className="mt-5 h-9 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function ToolsPage() {
   const {data: environment, refetch: refetchEnvironment} = useEnvironment();
@@ -242,6 +260,8 @@ export function ToolsPage() {
                 />
               ))}
             </div>
+          ) : busy.refreshTools && latestImages.length === 0 ? (
+            <ImageStatusSkeletonGrid columns="available" />
           ) : (
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <HardDrive className="mx-auto mb-2 h-8 w-8 text-cursor-muted" />
@@ -279,6 +299,8 @@ export function ToolsPage() {
                 />
               ))}
             </div>
+          ) : busy.refreshTools && latestImages.length === 0 ? (
+            <ImageStatusSkeletonGrid columns="missing" />
           ) : (
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-cursor-semantic-success" />
