@@ -81,7 +81,6 @@ export function AppSidebar({
               <span className="text-[11px] font-mono text-cursor-body">MRI Pipeline</span>
             </div>
           </div>
-          <SidebarTrigger className="flex-none" />
         </SidebarHeader>
 
         <SidebarContent className="px-3 py-4">
@@ -91,9 +90,9 @@ export function AppSidebar({
                 isActive={activeTab === 'pipeline'}
                 onClick={() => onSelectTab('pipeline')}
                 tooltip="Pipeline Configuration"
-                className="h-10 text-sm"
+                className="h-10 text-[15px] font-medium"
               >
-                <SlidersHorizontal className="h-4 w-4" />
+                <SlidersHorizontal className="h-4.5 w-4.5" />
                 <span className="group-data-[collapsible=icon]:hidden">Pipeline Configuration</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -103,9 +102,9 @@ export function AppSidebar({
                 isActive={activeTab === 'tools'}
                 onClick={() => onSelectTab('tools')}
                 tooltip="Tools Configuration"
-                className="h-10 text-sm"
+                className="h-10 text-[15px] font-medium"
               >
-                <Container className="h-4 w-4" />
+                <Container className="h-4.5 w-4.5" />
                 <span className="group-data-[collapsible=icon]:hidden">Tools Configuration</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -115,17 +114,17 @@ export function AppSidebar({
                 isActive={activeTab === 'jobs'}
                 onClick={() => onSelectTab('jobs')}
                 tooltip="Jobs Monitor"
-                className="h-10 text-sm"
+                className="h-10 text-[15px] font-medium"
               >
-                <Activity className="h-4 w-4" />
+                <Activity className="h-4.5 w-4.5" />
                 <span className="group-data-[collapsible=icon]:hidden">Jobs Monitor</span>
-                <SidebarMenuBadge className="bg-cursor-hairline text-cursor-ink">{jobs.length}</SidebarMenuBadge>
+                <SidebarMenuBadge className="bg-cursor-hairline text-cursor-ink text-xs">{jobs.length}</SidebarMenuBadge>
               </SidebarMenuButton>
 
               <SidebarMenuSub className="ml-4 mt-1 border-l border-cursor-hairline pl-2.5">
                 {jobs.length === 0 ? (
                   <SidebarMenuSubItem>
-                    <span className="block rounded-md bg-cursor-canvas-soft px-2.5 py-1.5 text-xs italic text-cursor-body">
+                    <span className="block rounded-md bg-cursor-canvas-soft px-2.5 py-1.5 text-[12px] italic text-cursor-body">
                       No active jobs
                     </span>
                   </SidebarMenuSubItem>
@@ -145,12 +144,12 @@ export function AppSidebar({
                             onSelectTab('jobs');
                             onSelectJob?.(String(job.job_id || ''));
                           }}
-                          className="min-h-11 text-xs flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
+                          className="min-h-11 text-[13px] flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className={`h-2 w-2 rounded-full flex-none ${stateCls}`} />
                             <span className="grid min-w-0 gap-0.5">
-                              <span className="truncate text-[12px] font-medium text-cursor-ink">{title}</span>
+                              <span className="truncate text-[13px] font-medium text-cursor-ink">{title}</span>
                               <span className="truncate text-[10px] uppercase tracking-[0.08em] text-cursor-muted">{subtitle}</span>
                             </span>
                           </div>
@@ -172,16 +171,13 @@ export function AppSidebar({
             {envText || 'Backend ready'}
           </div>
         </SidebarFooter>
-        {sidebarOpen ? (
-          <div
-            role="separator"
-            aria-label="Resize sidebar"
-            aria-orientation="vertical"
-            onPointerDown={startResize}
-            className="absolute right-0 top-0 z-30 h-full w-2 cursor-col-resize bg-transparent before:absolute before:right-0 before:top-0 before:h-full before:w-px before:bg-cursor-hairline hover:before:bg-cursor-primary group-data-[collapsible=icon]:hidden"
-          />
-        ) : null}
       </Sidebar>
+      <div
+        className="fixed top-4 z-40 transition-all duration-200"
+        style={{left: sidebarOpen ? `${sidebarWidth + 16}px` : '72px'}}
+      >
+        <SidebarTrigger className="h-10 w-10 shrink-0 rounded-lg border border-cursor-hairline bg-white shadow-none hover:bg-cursor-canvas-soft text-cursor-ink [&_svg]:size-4" />
+      </div>
     </SidebarProvider>
   );
 }

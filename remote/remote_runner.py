@@ -592,6 +592,16 @@ class RemoteRunner:
                 "input_dir": self.config.input_dir,
                 "subject_id_map": subject_id_map,
             }
+        if self.config.input_mode == "dir" and self.config.input_files:
+            ids = build_subject_id_map(self.config.input_files, self.config.input_dir)
+            for path in self.config.input_files:
+                subject_id_map[path] = ids.get(path, _derive_subject_id(path))
+            return {
+                "mode": "files",
+                "input_files": list(self.config.input_files),
+                "input_dir": self.config.input_dir,
+                "subject_id_map": subject_id_map,
+            }
         return {
             "mode": "dir",
             "input_dir": self.config.input_dir,

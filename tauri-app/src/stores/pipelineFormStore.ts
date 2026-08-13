@@ -16,7 +16,7 @@ interface PipelineFormState {
   resetForm: () => void;
   addAtlas: (statKey: string, atlasKey: string) => void;
   removeAtlas: (statKey: string, atlasKey: string, metadata?: Record<string, unknown>) => void;
-  applyWorkspaceConfig: (workspace: Record<string, unknown>) => void;
+  applyWorkspaceConfig: (workspace: Record<string, unknown>, metadata?: {presets?: Record<string, {tools?: Record<string, string>}>; stage_order?: string[]}) => void;
   applyPresetConfig: (preset: Record<string, unknown>) => void;
 }
 
@@ -58,30 +58,58 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       },
     }));
   },
-  applyWorkspaceConfig: (workspace) => {
+  applyWorkspaceConfig: (workspace, metadata) => {
     const remote = (workspace.remote as Record<string, unknown>) || {};
-    set((state) => ({
-      formValues: {
-        ...state.formValues,
-        inputSource: (workspace.input_source as string) || (workspace.run_target === 'Server' ? 'Server' : 'Local'),
-        inputMode: (workspace.input_mode as string) || 'file',
-        inputPath: (workspace.input_path as string) || '',
-        additionalInputPaths: Array.isArray(workspace.selected_files) ? workspace.selected_files.join(', ') : '',
-        outputDir: (workspace.output_dir as string) || '',
-        runtimeTarget: workspace.run_target === 'Server' ? 'Server' : 'Local',
-        ramPercent: (workspace.ram_percent as number) ?? 100,
-        cpuThreads: (workspace.threads as number) ?? 4,
-        gpuMode: workspace.device === 'cuda' || workspace.device === 'gpu' ? 'enabled' : 'disabled',
-        host: (remote.host as string) || '',
-        port: (remote.port as number) ?? 22,
-        username: (remote.username as string) || '',
-        remote_python: (remote.python as string) || 'python3',
-        workspace: (remote.workspace as string) || '~/mri-remote-jobs',
-        key_path: (remote.key_path as string) || '',
-        nonRecursive: Boolean(workspace.non_recursive),
-      },
-      preparedRequest: null,
-    }));
+    const pipelineMode = (workspace.pipeline_mode as string) || 'Custom';
+    const isCustom = pipelineMode === 'Custom';
+    const workspaceTools = (workspace.tools as Record<string, unknown>) || {};
+    set((state) => {
+      const nextFormValues = {...state.formValues};
+      nextFormValues.pipelineMode = pipelineMode;
+      nextFormValues.inputSource = (workspace.input_source as string) || (workspace.run_target === 'Server' ? 'Server' : 'Local');
+      nextFormValues.inputMode = (workspace.input_mode as string) || 'file';
+      nextFormValues.inputPath = (workspace.input_path as string) || '';
+      nextFormValues.additionalInputPaths = Array.isArray(workspace.selected_files) ? workspace.selected_files.join(', ') : '';
+      nextFormValues.outputDir = (workspace.output_dir as string) || '';
+      nextFormValues.runtimeTarget = workspace.run_target === 'Server' ? 'Server' : 'Local';
+      nextFormValues.ramPercent = (workspace.ram_percent as number) ?? 100;
+      nextFormValues.cpuThreads = (workspace.threads as number) ?? 4;
+      nextFormValues.gpuMode = workspace.device === 'cuda' || workspace.device === 'gpu' ? 'enabled' : 'disabled';
+      nextFormValues.host = (remote.host as string) || '';
+      nextFormValues.port = (remote.port as number) ?? 22;
+      nextFormValues.username = (remote.username as string) || '';
+      nextFormValues.remote_python = (remote.python as string) || 'python3';
+      nextFormValues.workspace = (remote.workspace as string) || '~/mri-remote-jobs';
+      nextFormValues.key_path = (remote.key_path as string) || '';
+      nextFormValues.nonRecursive = Boolean(workspace.non_recursive);
+      nextFormValues.licensePath = (workspace.license_dir as string) || '';
+      if (isCustom) {
+        for (const [stage, toolKey] of Object.entries(workspaceTools)) {
+          (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = String(toolKey);
+        }
+      } else if (metadata?.presets?.[pipelineMode]?.tools) {
+        const presetTools = metadata.presets[pipelineMode].tools;
+        for (const [stage, toolKey] of Object.entries(presetTools)) {
+          (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = toolKey;
+        }
+      }
+      const nextAtlases = {...state.selectedStatsAtlases};
+      const sv = workspace.stats_vectors as Record<string, unknown> | undefined;
+      if (sv && typeof sv === 'object') {
+        for (const [statKey, val] of Object.entries(sv)) {
+          if (Array.isArray(val)) {
+            nextAtlases[statKey] = val as string[];
+          } else if (val && typeof val === 'object' && Array.isArray((val as {atlases?: string[]}).atlases)) {
+            nextAtlases[statKey] = (val as {atlases: string[]}).atlases;
+          }
+        }
+      }
+      return {
+        formValues: nextFormValues,
+        selectedStatsAtlases: nextAtlases,
+        preparedRequest: null,
+      };
+    });
   },
   applyPresetConfig: (preset) => {
     set((state) => {

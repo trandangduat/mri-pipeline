@@ -12,6 +12,7 @@ import {
   Layers,
   LineChart,
   ListOrdered,
+  Loader2,
   RefreshCw,
   Search,
   Square,
@@ -266,10 +267,14 @@ export function JobsPage() {
       return;
     }
     const interval = setInterval(() => {
-      void loadJobDetails(selectedJobId);
+      const jobs = Array.isArray(latestJobs) ? latestJobs : [];
+      const targetJob = jobs.find((j) => j && (j as { job_id?: string }).job_id === selectedJobId) as
+        | Record<string, unknown>
+        | undefined;
+      void loadJobDetails(selectedJobId, targetJob);
     }, 2000);
     return () => clearInterval(interval);
-  }, [selectedJobId, normState, loadJobDetails]);
+  }, [selectedJobId, normState, loadJobDetails, latestJobs]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = (reqSummary.selected_tools as Record<string, string>) || {};
@@ -448,7 +453,15 @@ export function JobsPage() {
                 disabled={busy.refreshJobs}
                 className="bg-[#0077b6] hover:bg-[#005f92] text-white font-medium"
               >
-                <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh Jobs
+                {busy.refreshJobs ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh Jobs
+                  </>
+                )}
               </Button>
               <Button
                 variant="destructive"
@@ -617,7 +630,7 @@ export function JobsPage() {
           </div>
 
           {/* Subjects List (Micro Compact 3 Column Card Grid Layout on Desktop) */}
-          <div className="grid grid-cols-3 gap-2 max-[1280px]:grid-cols-2 max-[768px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
+          <div className="grid grid-cols-3 gap-3 max-[1280px]:grid-cols-2 max-[768px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
             {filteredBatchImages.length === 0 ? (
               <div className="col-span-full p-12 text-center text-xs text-[#807d72] italic bg-[#f7f7f4] rounded-lg border border-dashed border-[#e6e5e0]">
                 No batch subjects matching the current search or status filter.
@@ -629,26 +642,34 @@ export function JobsPage() {
                   <div
                     key={img.input_file}
                     onClick={() => setActiveModalSubjectFile(img.input_file)}
-                    className="flex items-center justify-between gap-2 rounded-md border border-[#e6e5e0] bg-[#f7f7f4] px-2.5 py-1.5 cursor-pointer hover:border-[#0077b6] hover:bg-white transition-all group text-xs"
+                    className="flex flex-col justify-between gap-3 rounded-xl border border-[#e6e5e0] bg-[#f7f7f4] p-3.5 h-32 min-w-0 cursor-pointer hover:border-[#0077b6] hover:bg-white transition-all group text-xs shadow-sm"
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="flex h-5 w-5 items-center justify-center rounded bg-white border border-[#e6e5e0] text-[10px] font-bold text-[#0077b6] flex-none">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white border border-[#e6e5e0] text-[10px] font-bold text-[#0077b6] flex-none">
                         #{img.idx}
                       </span>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="truncate font-bold text-xs text-[#26251e] group-hover:text-[#0077b6] transition-colors">
+                        <span className="truncate font-bold text-sm text-[#26251e] group-hover:text-[#0077b6] transition-colors leading-[1.3] mb-0.5">
                           {img.subject_id}
                         </span>
-                        <span className="truncate text-[10px] text-[#807d72]">
-                          {img.input_file.split('/').pop()} · <strong className="font-semibold text-[#26251e]">{currentStepText}</strong>
+                        <span className="truncate text-[11px] text-[#807d72] font-mono" title={img.input_file}>
+                          {img.input_file.split('/').pop()}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-none">
-                      {img.duration_sec && (
-                        <span className="text-[10px] text-[#807d72]">{img.duration_sec.toFixed(1)}s</span>
-                      )}
-                      <StatusPill state={img.status}>{img.status.toUpperCase()}</StatusPill>
+
+                    <div className="flex flex-col gap-1 border-t border-[#e6e5e0]/60 pt-2">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="truncate text-[#807d72]">
+                          Current: <strong className="font-semibold text-[#26251e]">{currentStepText}</strong>
+                        </span>
+                        {img.duration_sec && (
+                          <span className="text-[10px] text-[#807d72] flex-none">{img.duration_sec.toFixed(1)}s</span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex justify-end">
+                        <StatusPill state={img.status}>{img.status.toUpperCase()}</StatusPill>
+                      </div>
                     </div>
                   </div>
                 );

@@ -1,5 +1,5 @@
 import React from 'react';
-import {Cpu, ShieldCheck, ListTree, ServerCog} from 'lucide-react';
+import {Cpu, ShieldCheck, ListTree, ServerCog, Loader2} from 'lucide-react';
 import {Panel, Button, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, currentTargetHardware} from '../lib/runtime';
@@ -299,19 +299,19 @@ export function RuntimeSection() {
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Button
               variant="primary"
-              icon={<ShieldCheck className="h-4 w-4" />}
+              icon={busy.connect ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               onClick={connectRemote}
               disabled={busy.connect || busy.listRemote}
             >
-              Connect
+              {busy.connect ? 'Connecting...' : 'Connect'}
             </Button>
             <Button
               variant="ghost"
-              icon={<ListTree className="h-4 w-4" />}
+              icon={busy.listRemote ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListTree className="h-4 w-4" />}
               onClick={listRemoteJobs}
               disabled={busy.listRemote}
             >
-              List Remote Jobs
+              {busy.listRemote ? 'Listing...' : 'List Remote Jobs'}
             </Button>
           </div>
           <div

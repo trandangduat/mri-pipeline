@@ -1458,7 +1458,7 @@ export function PipelinePage() {
       if (!workspace || typeof workspace !== 'object') {
         throw new Error('Workspace JSON must be an object.');
       }
-      applyWorkspaceConfig(workspace);
+      applyWorkspaceConfig(workspace, metadata ?? undefined);
       print('Loaded workspace file', {name: file.name, type: workspace.type || 'unknown'});
     } catch (error: unknown) {
       print('Load workspace failed', {error: (error as Error).message});
@@ -1471,7 +1471,51 @@ export function PipelinePage() {
         <Button
           variant="ghost"
           icon={<Save className="h-4 w-4" />}
-          onClick={() => print('Save workspace', {ok: false, error: 'Workspace save UI is not wired in this slice.'})}
+          onClick={async () => {
+            const name = window.prompt('Workspace name:');
+            if (!name) return;
+            try {
+              const sv = usePipelineFormStore.getState().selectedStatsAtlases;
+              const fv = usePipelineFormStore.getState().formValues;
+              const tools: Record<string, string> = {};
+              if (metadata) {
+                for (const stage of metadata.stage_order || []) {
+                  const val = (fv as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
+                  if (val) tools[stage] = val;
+                }
+              }
+              const workspace: Record<string, unknown> = {
+                version: 1,
+                type: 'mri-pipeline-workspace',
+                name,
+                input_source: fv.inputSource,
+                input_mode: fv.inputMode,
+                input_path: fv.inputPath,
+                selected_files: fv.additionalInputPaths.split(',').map((s: string) => s.trim()).filter(Boolean),
+                output_dir: fv.outputDir,
+                pipeline_mode: fv.pipelineMode,
+                device: fv.gpuMode === 'enabled' ? 'cuda' : 'cpu',
+                threads: fv.cpuThreads,
+                ram_percent: fv.ramPercent,
+                non_recursive: Boolean(fv.nonRecursive),
+                run_target: fv.runtimeTarget,
+                license_dir: fv.licensePath || '',
+                stats_vectors: sv,
+                tools,
+                ...(fv.runtimeTarget === 'Server'
+                  ? {remote: {host: fv.host, port: fv.port, username: fv.username, python: fv.remote_python, workspace: fv.workspace, key_path: fv.key_path}}
+                  : {}),
+              };
+              const res = await client.saveWorkspace(name, workspace);
+              if (res.ok) {
+                print('Workspace saved', {name});
+              } else {
+                print('Save workspace failed', {error: res.error || 'Unknown error'});
+              }
+            } catch (err: unknown) {
+              print('Save workspace failed', {error: (err as Error).message});
+            }
+          }}
         >
           Save Workspace
         </Button>

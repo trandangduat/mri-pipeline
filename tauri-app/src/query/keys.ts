@@ -11,6 +11,7 @@ export const queryKeys = {
     log: (jobId: string, offset: number, maxBytes: number) => ['jobs', 'log', jobId, offset, maxBytes] as const,
   },
   tools: {
+    all: ['tools'] as const,
     images: (target: string, selectedToolsHash: string) => ['tools', 'images', target, selectedToolsHash] as const,
   },
   remote: {

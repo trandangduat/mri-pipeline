@@ -2,7 +2,7 @@ const pillBase =
   'inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]';
 
 export const BUTTON = {
-  base: 'inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors',
+  base: 'inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium leading-none transition-colors [&_svg]:block',
   primary:
     'border-cursor-primary bg-cursor-primary text-white hover:border-cursor-primary-active hover:bg-cursor-primary-active',
   ink: 'border-cursor-ink bg-cursor-ink text-cursor-canvas hover:bg-cursor-ink',

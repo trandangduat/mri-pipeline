@@ -97,7 +97,7 @@ function AppLayout() {
           <Route
             path="/pipeline"
             element={
-              <section className="min-w-0 pl-8 max-[760px]:pl-0 block" data-page="pipeline">
+              <section className="min-w-0 pl-16 max-[760px]:pl-0 block" data-page="pipeline">
                 <PipelinePage />
               </section>
             }
@@ -105,7 +105,7 @@ function AppLayout() {
           <Route
             path="/tools"
             element={
-              <section className="min-w-0 pl-8 max-[760px]:pl-0 block" data-page="tools">
+              <section className="min-w-0 pl-16 max-[760px]:pl-0 block" data-page="tools">
                 <ToolsPage />
               </section>
             }
@@ -113,7 +113,7 @@ function AppLayout() {
           <Route
             path="/jobs"
             element={
-              <section className="min-w-0 pl-8 max-[760px]:pl-0 block" data-page="jobs">
+              <section className="min-w-0 pl-16 max-[760px]:pl-0 block" data-page="jobs">
                 <JobsPage />
               </section>
             }
@@ -121,7 +121,7 @@ function AppLayout() {
           <Route
             path="/jobs/:jobId"
             element={
-              <section className="min-w-0 pl-8 max-[760px]:pl-0 block" data-page="jobs">
+              <section className="min-w-0 pl-16 max-[760px]:pl-0 block" data-page="jobs">
                 <JobsPage />
               </section>
             }
