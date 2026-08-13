@@ -154,6 +154,57 @@ def test_list_remote_jobs_returns_safe_error_without_secret() -> None:
     assert result == {"ok": False, "error": "Remote job listing failed"}
 
 
+def test_stream_start_job_blocks_when_selected_tool_image_missing() -> None:
+    class FakeRunnerMissingImage(FakeRunner):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.start_remote_detached_called = False
+
+        def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
+            return {image: False for image in image_names}
+
+        def start_remote_detached(self) -> str:
+            self.start_remote_detached_called = True
+            return "/workspace/job_1"
+
+    fake = FakeRunnerMissingImage()
+
+    def runner_factory(config: RemoteRunConfig) -> FakeRunnerMissingImage:
+        return fake
+
+    service = RemoteJobService(runner_factory=runner_factory)
+
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": {"segmentation": "fastsurfer_segmentation"},
+                    "license_dir": "/license",
+                },
+            }
+        )
+    )
+
+    step_events = [e for e in events if e.get("event") == "step"]
+    images_failed = [e for e in step_events if e["data"].get("step") == "images" and e["data"].get("status") == "failed"]
+    assert len(images_failed) == 1
+    assert "Tools Configuration" in images_failed[0]["data"]["detail"]
+
+    assert events[-1]["event"] == "complete"
+    assert events[-1]["data"]["ok"] is False
+    assert "Tools Configuration" in str(events[-1]["data"].get("error", ""))
+    assert fake.start_remote_detached_called is False
+
+
 def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None:
     license_file = tmp_path / "license.txt"
     license_file.write_text("license", encoding="utf-8")

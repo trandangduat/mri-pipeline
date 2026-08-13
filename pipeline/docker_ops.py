@@ -120,6 +120,24 @@ def build_image(image: str, context_dir: str, on_progress: ProgressCallback | No
         return False
 
 
+def require_image(tool_key: str) -> tuple[bool, str]:
+    """Validate that a tool's Docker image is available locally without pulling or building."""
+    tool = TOOL_DEFS.get(tool_key)
+    if not tool:
+        return False, f"Unknown tool: {tool_key}"
+    if not is_tool_enabled(tool_key):
+        return False, f"Tool is disabled because image is disabled: {tool_display_name(tool_key)} ({tool.get('image', '')})"
+    image = str(tool.get("image", "") or "")
+    if not image:
+        return False, f"Tool has no Docker image configured: {tool_display_name(tool_key)}"
+    if not image_exists(image):
+        return False, f"Docker image missing: {image}. Download it from Tools Configuration before starting the pipeline."
+    base_image = tool.get("base_image")
+    if base_image and not image_exists(str(base_image)):
+        return False, f"Docker base image missing: {base_image}. Download it from Tools Configuration before starting the pipeline."
+    return True, ""
+
+
 def _try_pull(image: str, on_progress: ProgressCallback | None = None, on_build_log: BuildLogCallback | None = None) -> bool:
     if on_progress:
         on_progress("build", "running", 0, f"Pulling {image}...")
@@ -137,7 +155,8 @@ def _try_pull(image: str, on_progress: ProgressCallback | None = None, on_build_
         return False
 
 
-def ensure_image(tool_key: str, on_progress: ProgressCallback | None = None, on_build_log: BuildLogCallback | None = None) -> tuple[bool, str, float]:
+def pull_or_build_image_for_tool(tool_key: str, on_progress: ProgressCallback | None = None, on_build_log: BuildLogCallback | None = None) -> tuple[bool, str, float]:
+    """Pull or build a tool's Docker image. Use only from explicit image-management flows (e.g. CLI --ensure-images-only)."""
     tool = TOOL_DEFS.get(tool_key)
     if not tool:
         return False, f"Unknown tool: {tool_key}", 0.0

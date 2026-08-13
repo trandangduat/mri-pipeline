@@ -102,7 +102,7 @@ def test_run_pipeline_executes_tool_with_execution_request(tmp_path, mocker) -> 
     input_file.write_text("input", encoding="utf-8")
     output_dir = tmp_path / "outputs"
     executor = RecordingExecutor()
-    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
 
     config = PipelineConfig(
         input_file=str(input_file),
@@ -138,7 +138,7 @@ def test_run_pipeline_passes_prior_stage_output_to_next_stage(tmp_path, mocker) 
     input_file.write_text("input", encoding="utf-8")
     output_dir = tmp_path / "outputs"
     executor = MultiStageExecutor()
-    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
 
     config = PipelineConfig(
         input_file=str(input_file),
@@ -173,7 +173,7 @@ def test_run_pipeline_uses_tool_specific_timeout_for_fs7_segmentation(tmp_path, 
     input_file.write_text("input", encoding="utf-8")
     output_dir = tmp_path / "outputs"
     executor = SegmentationExecutor()
-    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
 
     config = PipelineConfig(
         input_file=str(input_file),
@@ -203,7 +203,7 @@ def test_run_pipeline_uses_recon_style_timeout_for_fs8_bias_correction(tmp_path,
     input_file.write_text("input", encoding="utf-8")
     output_dir = tmp_path / "outputs"
     executor = Fs8BiasExecutor()
-    mocker.patch("pipeline.runner.ensure_image", return_value=(True, "", 0.0))
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
 
     config = PipelineConfig(
         input_file=str(input_file),
@@ -226,3 +226,35 @@ def test_run_pipeline_uses_recon_style_timeout_for_fs8_bias_correction(tmp_path,
 
     assert results[0].success is True
     assert executor.requests[0].timeout == FREESURFER_RECON_STYLE_TIMEOUT
+
+
+def test_run_pipeline_fails_without_pull_when_image_missing(tmp_path, mocker) -> None:
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input", encoding="utf-8")
+    output_dir = tmp_path / "outputs"
+    executor = RecordingExecutor()
+    mocker.patch("pipeline.runner.require_image", return_value=(False, "Docker image missing: test/image:latest. Download it from Tools Configuration before starting the pipeline."))
+
+    config = PipelineConfig(
+        input_file=str(input_file),
+        output_dir=str(output_dir),
+        subject_id="sub-01",
+        selected_tools={
+            "reorientation": "mri_convert_fs7",
+            "brain_extraction": "",
+            "segmentation": "",
+            "template_registration": "",
+            "bias_correction": "",
+            "white_matter_segmentation": "",
+            "surface_reconstruction": "",
+            "surface_registration": "",
+            "stats_extraction": "",
+        },
+    )
+
+    results = run_pipeline(config, executor=executor)
+
+    assert len(executor.requests) == 0
+    assert len(results) == 1
+    assert results[0].success is False
+    assert "Tools Configuration" in results[0].error

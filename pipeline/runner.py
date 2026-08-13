@@ -34,7 +34,7 @@ from .registry import (
     stage_order_for_tools,
     tool_display_name,
 )
-from .docker_ops import ensure_image
+from .docker_ops import require_image
 from .executor import ExecutionRequest, LocalDockerExecutor
 from .state import PipelineTracker, StageResult
 from .discovery import (
@@ -257,11 +257,11 @@ def run_pipeline_stage(
     progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
     tracker.mark_stage_running(stage, tool_key)
 
-    ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
+    ok, err = require_image(tool_key)
     if not ok:
         error = f"Image not available: {err}"
         tracker.mark_stage_completed(StageResult(stage=stage, tool=tool_key, success=False, error=error))
-        result = StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=build_time, error=error)
+        result = StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=0.0, error=error)
         progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {err}")
         return result, input_for_stage
 
@@ -334,7 +334,7 @@ def run_pipeline_stage(
         f"Stage: {stage}",
         f"Tool: {tool_display_name(tool_key)}",
         f"Duration: {duration:.1f}s",
-        f"Build: {build_time:.1f}s",
+        f"Build: 0.0s",
         f"RAM limit: {_format_bytes(memory_limit_bytes)} ({config.ram_percent}%)" if memory_limit_bytes else f"RAM limit: unlimited ({config.ram_percent}%)",
         f"Peak RAM: {_format_bytes(peak_ram)}",
         f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes) if metrics else 'n/a'}",
@@ -358,7 +358,7 @@ def run_pipeline_stage(
         success=success,
         duration_sec=duration,
         output_file=output_for_next if success and output_for_next else "",
-        build_duration_sec=build_time,
+        build_duration_sec=0.0,
         peak_ram_bytes=peak_ram,
         avg_ram_bytes=metrics.avg_ram_bytes if metrics else None,
         p95_ram_bytes=metrics.p95_ram_bytes if metrics else None,
@@ -372,8 +372,6 @@ def run_pipeline_stage(
     )
     if success:
         msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
-        if build_time > 0:
-            msg += f" (build: {build_time:.0f}s)"
         progress(stage, "success", (index + 1) / total if total else 1.0, msg)
     else:
         progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {error}")
@@ -532,12 +530,12 @@ def run_pipeline(
         progress(stage, "running", stage_pct, f"Starting {STAGE_LABELS[stage]} with {tool_display_name(tool_key)}")
         tracker.mark_stage_running(stage, tool_key)
 
-        ok, err, build_time = ensure_image(tool_key, on_progress=on_progress, on_build_log=on_build_log)
+        ok, err = require_image(tool_key)
         if not ok:
             error = f"Image not available: {err}"
             from .state import StageResult
             tracker.mark_stage_completed(StageResult(stage=stage, tool=tool_key, success=False, error=error))
-            results.append(StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=build_time, error=error))
+            results.append(StepResult(stage=stage, tool=tool_key, success=False, duration_sec=0, build_duration_sec=0.0, error=error))
             progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {err}")
             break
 
@@ -611,7 +609,7 @@ def run_pipeline(
             f"Stage: {stage}",
             f"Tool: {tool_display_name(tool_key)}",
             f"Duration: {duration:.1f}s",
-            f"Build: {build_time:.1f}s",
+            f"Build: 0.0s",
             f"RAM limit: {_format_bytes(memory_limit_bytes)} ({ram_percent}%)" if memory_limit_bytes else f"RAM limit: unlimited ({ram_percent}%)",
             f"Peak RAM: {_format_bytes(peak_ram)}",
             f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes)}",
@@ -629,12 +627,10 @@ def run_pipeline(
             step_log_lines.append(f"\n--- Output ---\n{output[-3000:]}")
         _append_step_log(logs_dir, tool_key, step_log_lines)
 
-        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=build_time, peak_ram_bytes=peak_ram, avg_ram_bytes=metrics.avg_ram_bytes, p95_ram_bytes=metrics.p95_ram_bytes, peak_cpu_pct=peak_cpu, avg_cpu_pct=metrics.avg_cpu_pct, p95_cpu_pct=metrics.p95_cpu_pct, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error))
+        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=0.0, peak_ram_bytes=peak_ram, avg_ram_bytes=metrics.avg_ram_bytes, p95_ram_bytes=metrics.p95_ram_bytes, peak_cpu_pct=peak_cpu, avg_cpu_pct=metrics.avg_cpu_pct, p95_cpu_pct=metrics.p95_cpu_pct, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error))
 
         if success:
             msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
-            if build_time > 0:
-                msg += f" (build: {build_time:.0f}s)"
             progress(stage, "success", (stage_idx + 1) / total_stages, msg)
             if should_stop and should_stop():
                 paused = True

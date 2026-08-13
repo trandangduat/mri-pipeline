@@ -227,7 +227,14 @@ class RemoteJobService:
                     image_statuses = runner.check_image_statuses(image_names)
                     missing = [img for img, ok in image_statuses.items() if not ok]
                     if missing:
-                        yield step_event("images", "done", f"{len(missing)} missing — pull from Tools tab: {', '.join(missing[:3])}")
+                        count = len(missing)
+                        noun = "image" if count == 1 else "images"
+                        verb = "it" if count == 1 else "them"
+                        image_list = ", ".join(missing)
+                        message = f"{count} Docker {noun} missing. Download {verb} from Tools Configuration before starting the pipeline: {image_list}"
+                        yield step_event("images", "failed", message)
+                        yield complete_event(False, error=message)
+                        return
                     else:
                         yield step_event("images", "done", "All images ready")
                 else:

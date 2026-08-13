@@ -28,7 +28,7 @@ from pipeline.config import (
     StepResult,
     ToolContext,
 )
-from pipeline.docker_ops import build_image, ensure_image, format_image_size, image_exists, image_size_bytes, remove_image
+from pipeline.docker_ops import build_image, format_image_size, image_exists, image_size_bytes, pull_or_build_image_for_tool, remove_image, require_image
 from pipeline.runner import run_batch_pipeline, run_pipeline
 from pipeline.registry import (
     STAGE_LABELS,

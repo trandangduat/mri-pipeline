@@ -463,34 +463,6 @@ class RemoteRunner:
                 self.on_log(("Deleted: " if ok else "Failed: ") + image)
         return results
 
-    def ensure_tool_images(self, tool_keys: list[str]) -> bool:
-        tool_keys = [tool for tool in dict.fromkeys(tool_keys) if tool and is_tool_enabled(tool)]
-        if not tool_keys:
-            return True
-        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            remote_code = self._remote_code_dir(ssh)
-            self._ensure_shared_code(ssh)
-            venv_python = self.ensure_remote_venv(ssh)
-            script = (
-                "import sys\n"
-                "from pipeline_runner import ensure_image, TOOL_DEFS\n"
-                "ok = True\n"
-                "for tool in sys.argv[1:]:\n"
-                "    image = TOOL_DEFS.get(tool, {}).get('image', tool)\n"
-                "    print(f'Downloading: {image}', flush=True)\n"
-                "    result, err, _ = ensure_image(tool, on_build_log=lambda l: print(f'Docker: {l}', flush=True))\n"
-                "    if result:\n"
-                "        print(f'Installed: {image}', flush=True)\n"
-                "    else:\n"
-                "        print(f'Failed: {image} {err}', flush=True)\n"
-                "        ok = False\n"
-                "sys.exit(0 if ok else 2)\n"
-            )
-            cmd = [venv_python, "-c", script, *tool_keys]
-            quoted = " ".join(shlex.quote(str(part)) for part in cmd)
-            code = ssh.run(f"cd {shlex.quote(remote_code)} && PYTHONUNBUFFERED=1 {quoted}", stream=True)
-            return code == 0
-
     def upload_job(self) -> str:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             workspace = self._remote_workspace(ssh)

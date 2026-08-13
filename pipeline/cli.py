@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import BatchImageResult, ExportConfig, PROJECT_ROOT, PipelineConfig, StatsVectorConfig
 from .registry import STAGE_ORDER, TOOL_DEFS, enabled_tools_for_stage, is_tool_enabled, tool_display_name
-from .docker_ops import ensure_image
+from .docker_ops import pull_or_build_image_for_tool
 from .runner import run_batch_pipeline, run_pipeline
 from .discovery import _derive_subject_id, _discover_mri_files, _duplicate_basenames
 
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         for tool_key in (tool for tool in dict.fromkeys(selected_tools.values()) if tool and is_tool_enabled(tool)):
             if args.json_events:
                 _emit_json_event("image_preflight", tool=tool_key, status="running")
-            result, err, _build_time = ensure_image(tool_key, on_progress=_cli_progress, on_build_log=_cli_build_log)
+            result, err, _build_time = pull_or_build_image_for_tool(tool_key, on_progress=_cli_progress, on_build_log=_cli_build_log)
             if not result:
                 ok = False
                 if args.json_events:
