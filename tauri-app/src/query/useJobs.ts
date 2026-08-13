@@ -66,7 +66,10 @@ export function useListLocalJobsMutation() {
 export function useReadLocalEventsMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: (jobId: string) => client.readLocalEvents(jobId),
+    mutationFn: (input: string | {jobId: string; offset?: number; limit?: number}) => {
+      if (typeof input === 'string') return client.readLocalEvents(input);
+      return client.readLocalEvents(input.jobId, input.offset, input.limit);
+    },
   });
 }
 

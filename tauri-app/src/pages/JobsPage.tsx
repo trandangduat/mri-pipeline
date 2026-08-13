@@ -7,23 +7,19 @@ import {
   Eye,
   EyeOff,
   FileCheck,
-  Filter,
   ImageIcon,
   Layers,
-  LineChart,
-  ListOrdered,
   Loader2,
   RefreshCw,
   Search,
   Square,
-  Terminal,
   X,
 } from 'lucide-react';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
-import {StatusPill, inputCls} from '../components/ui';
+import {StatusPill} from '../components/ui';
 import {normalizeJob, normalizeJobState} from '../jobFormatters';
 import {
   deriveBatchImages,
@@ -96,7 +92,8 @@ export function JobsPage() {
   const {jobId: urlJobId} = useParams<{jobId?: string}>();
 
   const loadJobDetails = useCallback(
-    async (jobId: string | null, targetJob?: Record<string, unknown> | null) => {
+    async (jobId: string | null, targetJob?: Record<string, unknown> | null, options: {resetUi?: boolean} = {}) => {
+      const resetUi = options.resetUi ?? true;
       const seq = ++reqSeqRef.current;
       if (!jobId) {
         if (seq === reqSeqRef.current) {
@@ -109,11 +106,13 @@ export function JobsPage() {
         return;
       }
 
-      setIsLoadingDetails(true);
-      setJobEvents([]);
-      setOutputText('');
-      setActiveModalSubjectFile(null);
-      setDownloadNotice(null);
+      if (resetUi) {
+        setIsLoadingDetails(true);
+        setJobEvents([]);
+        setOutputText('');
+        setActiveModalSubjectFile(null);
+        setDownloadNotice(null);
+      }
 
       const isRemote = String(targetJob?.target || 'Local') === 'Server';
 
@@ -126,7 +125,7 @@ export function JobsPage() {
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
           const [eventsResult, logResult] = await Promise.all([
             readRemoteEventsMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId})
+              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0, limit: 5000})
               .catch(() => ({events: []})),
             readRemoteLogMutation
               .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0})
@@ -136,7 +135,7 @@ export function JobsPage() {
           logText = logResult?.text || '';
         } else {
           const [eventsResult, logResult] = await Promise.all([
-            readEventsMutation.mutateAsync(jobId).catch(() => ({events: []})),
+            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 5000}).catch(() => ({events: []})),
             readLogMutation.mutateAsync({jobId, offset: 0, maxBytes: 65536}).catch(() => ({text: ''})),
           ]);
           events = Array.isArray(eventsResult?.events) ? (eventsResult.events as PipelineEvent[]) : [];
@@ -146,7 +145,9 @@ export function JobsPage() {
         if (seq === reqSeqRef.current) {
           setJobEvents(events);
           setOutputText(logText || '');
-          setIsLoadingDetails(false);
+          if (resetUi) {
+            setIsLoadingDetails(false);
+          }
         }
       }
     },
@@ -183,7 +184,10 @@ export function JobsPage() {
         setSelectedJobId(nextSelected);
       }
       const currentJob = jobs.find((j) => (j as {job_id?: string}).job_id === nextSelected);
-      await loadJobDetails(currentJob ? nextSelected : '', currentJob as Record<string, unknown>);
+      const selectedChanged = nextSelected !== selectedJobId;
+      await loadJobDetails(currentJob ? nextSelected : '', currentJob as Record<string, unknown>, {
+        resetUi: selectedChanged || !currentJob,
+      });
     } catch (err: unknown) {
       print('Refresh jobs failed', {error: (err as Error).message});
     } finally {
@@ -271,7 +275,7 @@ export function JobsPage() {
       const targetJob = jobs.find((j) => j && (j as { job_id?: string }).job_id === selectedJobId) as
         | Record<string, unknown>
         | undefined;
-      void loadJobDetails(selectedJobId, targetJob);
+      void loadJobDetails(selectedJobId, targetJob, {resetUi: false});
     }, 2000);
     return () => clearInterval(interval);
   }, [selectedJobId, normState, loadJobDetails, latestJobs]);
@@ -297,6 +301,11 @@ export function JobsPage() {
       }
     });
   }
+
+  const toolDisplayNames = React.useMemo(() => {
+    const tools = (metadata?.tools || {}) as Record<string, {display_name?: string}>;
+    return Object.fromEntries(Object.entries(tools).map(([key, tool]) => [key, tool.display_name || key]));
+  }, [metadata?.tools]);
 
   const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
   const batchImages = deriveBatchImages(safeEvents, job || {});
@@ -336,6 +345,14 @@ export function JobsPage() {
     return matchesStatus && matchesText;
   });
 
+  const subjectFilterCounts = {
+    all: batchImages.length,
+    success: batchSummary.success,
+    running: batchSummary.running,
+    failed: batchSummary.failed,
+    pending: batchSummary.pending,
+  };
+
   // Modal active subject
   const modalSubject = batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
   const modalImageSteps = modalSubject
@@ -343,13 +360,22 @@ export function JobsPage() {
     : [];
   const modalMetricsSeries = modalSubject ? deriveMetricsSeries(safeEvents, modalSubject) : {cpuSeries: [], ramSeries: [], latestContainer: ''};
 
+  const totalModalStages = modalImageSteps.length;
+  const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
+  const runningModalStage = modalImageSteps.find((step) => step.status === 'running');
+  const failedModalStages = modalImageSteps.filter((step) => step.status === 'failed').length;
+  const scheduledModalStages = modalImageSteps.filter((step) => step.status !== 'not_scheduled');
+
   const getSubjectCurrentStepLabel = (img: typeof batchImages[0]) => {
     if (img.status === 'success') return 'Completed';
     if (img.status === 'failed') return 'Failed';
     if (img.status === 'pending') return 'Waiting in queue';
     const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
     const runningStep = steps.find((s) => s.status === 'running');
-    return runningStep ? runningStep.label || runningStep.stage : 'Processing...';
+    if (runningStep) return runningStep.label || runningStep.stage;
+    const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
+    if (lastSuccess) return `After ${lastSuccess.label || lastSuccess.stage}`;
+    return 'Processing...';
   };
 
   // Stacked bar ratios for Batch Summary
@@ -570,7 +596,7 @@ export function JobsPage() {
 
       {/* 2. Unified Batch Subjects Panel */}
       {isLoadingDetails ? (
-        <Card className="p-8 text-center text-[#5a5852]">
+        <Card className="p-8 text-center text-cursor-body">
           <div className="space-y-3 max-w-md mx-auto">
             <Skeleton className="h-4 w-3/4 mx-auto" />
             <Skeleton className="h-4 w-1/2 mx-auto" />
@@ -578,103 +604,170 @@ export function JobsPage() {
           </div>
         </Card>
       ) : job ? (
-        <Card className="p-4 bg-white border-[#e6e5e0] flex-1 flex flex-col overflow-hidden">
-          {/* Panel Controls: Header Row 1 (Title + Count), Row 2 (Search + Status Filter) */}
-          <div className="flex flex-col gap-3 pb-3.5 border-b border-[#f2f2ee] mb-4">
-            {/* Row 1: Title & Count Badge */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f7f7f4] border border-[#e6e5e0] text-[#0077b6]">
-                  <ImageIcon className="h-4 w-4" />
-                </div>
-                <CardTitle className="text-base font-semibold text-[#26251e]">Batch Subjects Workspace</CardTitle>
+        <Card className="flex-1 overflow-hidden border-cursor-hairline bg-white p-0 shadow-none flex flex-col">
+          {/* Header */}
+          <div className="border-b border-cursor-hairline bg-white px-5 py-4 flex-none">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Batch monitor</span>
+                <h3 className="m-0 mt-1 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Batch Subjects</h3>
+                <span className="text-[13px] text-cursor-body mt-0.5 block">{batchImages.length} subjects tracked from events.jsonl</span>
               </div>
-              <Badge variant="outline" className="font-mono text-xs">
-                {filteredBatchImages.length} / {batchImages.length} subjects
-              </Badge>
+              <div className="flex items-center gap-2 flex-none mt-1">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                  {filteredBatchImages.length}/{batchImages.length} shown
+                </span>
+                {batchSummary.running + batchSummary.pending > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cursor-primary/20 bg-cursor-primary/5 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-primary">
+                    <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse" />
+                    {batchSummary.running + batchSummary.pending} active
+                  </span>
+                )}
+              </div>
             </div>
+          </div>
 
-            {/* Row 2: Search Bar + Status Filter */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              {/* Search Bar */}
-              <label className="relative m-0 block w-full max-w-[18rem]">
+          {/* Cream Interior */}
+          <div className="flex min-h-0 flex-1 flex-col bg-cursor-canvas p-4 overflow-hidden">
+            {/* Search & Filter Toolbar */}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cursor-hairline bg-white p-3 flex-none">
+              <label className="relative m-0 block w-[min(24rem,100%)]">
                 <input
                   type="search"
                   placeholder="Search subject ID or #..."
                   value={subjectSearchQuery}
                   onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                  className={`${inputCls} pr-8 text-xs h-8.5`}
+                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 pr-9 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10"
                 />
-                <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#807d72]" />
+                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
               </label>
 
-              {/* Status Filter Tabs */}
-              <div className="flex flex-wrap items-center gap-1 bg-[#f7f7f4] border border-[#e6e5e0] p-1 rounded-lg text-xs">
-                <Filter className="h-3.5 w-3.5 text-[#807d72] ml-1 mr-0.5" />
-                {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setSubjectStatusFilter(st)}
-                    className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer capitalize ${
-                      subjectStatusFilter === st
-                        ? 'bg-white text-[#0077b6] shadow-xs font-semibold'
-                        : 'text-[#807d72] hover:text-[#26251e]'
-                    }`}
-                  >
-                    {st === 'success' ? 'OK' : st}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
+                  const label = st === 'success' ? 'OK' : st;
+                  const count = subjectFilterCounts[st];
+                  return (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setSubjectStatusFilter(st)}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors cursor-pointer capitalize border ${
+                        subjectStatusFilter === st
+                          ? 'border-cursor-hairline-strong bg-white text-cursor-ink font-semibold'
+                          : 'border-transparent text-cursor-body hover:text-cursor-ink'
+                      }`}
+                    >
+                      <span>{label}</span>
+                      <span className={`rounded-full px-1.5 text-[11px] ${subjectStatusFilter === st ? 'bg-cursor-canvas-soft text-cursor-muted' : 'text-cursor-muted-soft'}`}>{count}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          </div>
 
-          {/* Subjects List (Micro Compact 3 Column Card Grid Layout on Desktop) */}
-          <div className="grid grid-cols-3 gap-3 max-[1280px]:grid-cols-2 max-[768px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
-            {filteredBatchImages.length === 0 ? (
-              <div className="col-span-full p-12 text-center text-xs text-[#807d72] italic bg-[#f7f7f4] rounded-lg border border-dashed border-[#e6e5e0]">
-                No batch subjects matching the current search or status filter.
+            {/* Summary Strip */}
+            <div className="mb-4 grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[520px]:grid-cols-1 flex-none">
+              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Total</span>
+                <span className="text-[18px] font-semibold text-cursor-ink mt-0.5 block">{batchImages.length}</span>
               </div>
-            ) : (
-              filteredBatchImages.map((img) => {
-                const currentStepText = getSubjectCurrentStepLabel(img);
-                return (
-                  <div
-                    key={img.input_file}
-                    onClick={() => setActiveModalSubjectFile(img.input_file)}
-                    className="flex flex-col justify-between gap-3 rounded-xl border border-[#e6e5e0] bg-[#f7f7f4] p-3.5 h-32 min-w-0 cursor-pointer hover:border-[#0077b6] hover:bg-white transition-all group text-xs shadow-sm"
-                  >
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white border border-[#e6e5e0] text-[10px] font-bold text-[#0077b6] flex-none">
-                        #{img.idx}
-                      </span>
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="truncate font-bold text-sm text-[#26251e] group-hover:text-[#0077b6] transition-colors leading-[1.3] mb-0.5">
-                          {img.subject_id}
-                        </span>
-                        <span className="truncate text-[11px] text-[#807d72] font-mono" title={img.input_file}>
-                          {img.input_file.split('/').pop()}
-                        </span>
-                      </div>
-                    </div>
+              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Active</span>
+                <span className="text-[18px] font-semibold text-cursor-primary mt-0.5 block">{batchSummary.running + batchSummary.pending}</span>
+              </div>
+              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Success</span>
+                <span className="text-[18px] font-semibold text-cursor-semantic-success mt-0.5 block">{batchSummary.success}</span>
+              </div>
+              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Failed</span>
+                <span className="text-[18px] font-semibold text-cursor-semantic-error mt-0.5 block">{batchSummary.failed}</span>
+              </div>
+            </div>
 
-                    <div className="flex flex-col gap-1 border-t border-[#e6e5e0]/60 pt-2">
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="truncate text-[#807d72]">
-                          Current: <strong className="font-semibold text-[#26251e]">{currentStepText}</strong>
+            {/* Subject Grid */}
+            <div className="grid grid-cols-3 gap-4 max-[1400px]:grid-cols-2 max-[900px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
+              {filteredBatchImages.length === 0 ? (
+                <div className="col-span-full flex min-h-[14rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
+                  <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
+                  <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                    {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
+                  </h4>
+                  <p className="m-0 text-[13px] text-cursor-body">
+                    {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                  </p>
+                </div>
+              ) : (
+                filteredBatchImages.map((img) => {
+                  const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
+                  const totalStages = steps.length;
+                  const completedStages = steps.filter((s) => s.status === 'success').length;
+                  const runningStep = steps.find((s) => s.status === 'running');
+                  const failedSteps = steps.filter((s) => s.status === 'failed').length;
+                  const progressPercent = totalStages ? Math.round((completedStages / totalStages) * 100) : 0;
+                  const currentStepText = getSubjectCurrentStepLabel(img);
+                  const runningToolLabel = runningStep?.tool ? (toolDisplayNames[runningStep.tool] || runningStep.tool) : '';
+
+                  return (
+                    <button
+                      key={img.input_file}
+                      type="button"
+                      onClick={() => setActiveModalSubjectFile(img.input_file)}
+                      className="group flex min-h-[11rem] cursor-pointer flex-col rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
+                    >
+                      {/* Top Row: Index + Subject ID + Status */}
+                      <div className="flex items-start gap-2.5 min-w-0 mb-2">
+                        <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-canvas-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-cursor-muted flex-none mt-0.5">
+                          #{img.idx}
                         </span>
-                        {img.duration_sec && (
-                          <span className="text-[10px] text-[#807d72] flex-none">{img.duration_sec.toFixed(1)}s</span>
-                        )}
+                        <div className="flex flex-col min-w-0 flex-1">
+                          <span className="truncate text-[15px] font-semibold leading-[1.4] text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                            {img.subject_id}
+                          </span>
+                          <span className="truncate text-[12px] text-cursor-muted font-mono mt-0.5" title={img.input_file}>
+                            {img.input_file.split('/').pop()}
+                          </span>
+                        </div>
+                        <div className="flex-none mt-0.5">
+                          <StatusPill state={img.status}>{img.status.toUpperCase()}</StatusPill>
+                        </div>
                       </div>
-                      <div className="mt-1 flex justify-end">
-                        <StatusPill state={img.status}>{img.status.toUpperCase()}</StatusPill>
+
+                      {/* Progress Section */}
+                      <div className="mt-auto pt-3 border-t border-cursor-hairline-soft space-y-2.5">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted">Stage progress</span>
+                            <span className="text-[12px] font-medium text-cursor-ink">{completedStages}/{totalStages}</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-cursor-canvas-soft overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${subjectProgressClass(img.status)}`}
+                              style={{width: `${progressPercent}%`}}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted block mb-0.5">Current stage</span>
+                          <span className="text-[13px] font-medium text-cursor-ink block">{currentStepText}</span>
+                          {runningToolLabel && (
+                            <span className="text-[12px] text-cursor-body block mt-0.5 truncate">{runningToolLabel}</span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          {img.duration_sec ? (
+                            <span className="text-[12px] text-cursor-muted font-mono">{formatElapsed(img.duration_sec)}</span>
+                          ) : <span />}
+                          <span className="text-[11px] text-cursor-muted-soft opacity-0 group-hover:opacity-100 transition-opacity">Open details</span>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         </Card>
       ) : (
@@ -701,131 +794,136 @@ export function JobsPage() {
       {/* 3. Subject Detail Modal Overlay */}
       {modalSubject && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-4"
           onClick={() => setActiveModalSubjectFile(null)}
         >
-          <div
-            className="relative bg-white border border-[#e6e5e0] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+            <div
+            className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1540px,calc(100vw-1.5rem))] max-h-[94vh] flex flex-col shadow-none overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-[#e6e5e0] px-5 py-4 bg-[#f7f7f4]">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-[#e6e5e0] font-mono text-xs font-bold text-[#0077b6]">
+            {/* Modal Header — Editorial Title Band */}
+            <div className="flex items-center justify-between border-b border-cursor-hairline px-6 py-5 bg-cursor-canvas flex-none">
+              <div className="flex items-center gap-4 min-w-0">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   #{modalSubject.idx}
                 </span>
-                <div className="flex flex-col min-w-0">
-                  <h3 className="m-0 text-base font-bold font-mono text-[#26251e] truncate">
+                <div className="flex flex-col min-w-0 gap-0.5">
+                  <h3 className="m-0 text-[22px] font-medium leading-tight tracking-[-0.01em] text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
-                  <span className="text-xs text-[#807d72] truncate">{modalSubject.input_file}</span>
+                  <span className="inline-block max-w-md truncate rounded bg-white border border-cursor-hairline-soft px-2 py-1 font-mono text-[11px] text-cursor-body" title={modalSubject.input_file}>
+                    {modalSubject.input_file}
+                  </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                  {completedModalStages}/{totalModalStages} stages
+                </span>
                 <StatusPill state={modalSubject.status}>{modalSubject.status.toUpperCase()}</StatusPill>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setActiveModalSubjectFile(null)}
-                  className="h-8 w-8 p-0 rounded-full text-[#807d72] hover:text-[#26251e] hover:bg-[#e6e5e0]"
+                  className="h-8 w-8 p-0 rounded-full text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
                 >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
-            {/* Modal Content Body */}
-            <div className="flex-1 overflow-auto p-5 space-y-5">
-              {/* Vertical Pipeline Stage Flow */}
-              <Card className="p-4 bg-white border-[#e6e5e0]">
-                <CardHeader className="p-0 pb-3 flex flex-row items-center justify-between border-b border-[#f2f2ee] mb-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ListOrdered className="h-4 w-4 text-[#0077b6] flex-none" />
-                    <CardTitle className="text-sm font-medium">Pipeline Stage Execution Flow</CardTitle>
+            {/* Modal Body: Two-Column Grid */}
+            <div className="grid flex-1 min-h-0 gap-5 overflow-hidden p-5 bg-cursor-canvas lg:grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)] max-[1024px]:overflow-auto max-[1024px]:grid-cols-1">
+              {/* Left Column: Pipeline Stages */}
+              <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none min-h-0 flex flex-col overflow-hidden max-[1024px]:overflow-visible">
+                <div className="p-0 pb-3 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-4 flex-none">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted mb-1">Pipeline</span>
+                    <h3 className="m-0 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Stage Timeline</h3>
+                    <span className="text-[13px] text-cursor-body mt-0.5">Live execution, tools, and resource usage for this subject</span>
                   </div>
-                  <Badge variant="outline" className="font-mono text-xs">
-                    {modalImageSteps.length} stages
-                  </Badge>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-[#e6e5e0]">
-                    {modalImageSteps.map((step) => (
-                      <VerticalTimelineStepRow key={step.stage} step={step} />
+                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
+                    {completedModalStages}/{totalModalStages} complete
+                  </span>
+                </div>
+                <div className="p-0 flex-1 overflow-auto min-h-0">
+                  <div className="space-y-2">
+                    {modalImageSteps.map((step, idx) => (
+                      <VerticalTimelineStepRow key={step.stage} step={step} isLast={idx === modalImageSteps.length - 1} toolDisplayNames={toolDisplayNames} />
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
-              {/* Run Telemetry */}
-              <Card className="p-4 bg-white border-[#e6e5e0]">
-                <CardHeader className="p-0 pb-2.5 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <LineChart className="h-4 w-4 text-[#0077b6]" />
-                    <CardTitle className="text-sm font-medium">Run Telemetry</CardTitle>
+              {/* Right Column: Stacked Cards */}
+              <div className="flex min-h-0 flex-col gap-4 overflow-hidden max-[1024px]:min-h-fit">
+                {/* Run Telemetry */}
+                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-none">
+                  <div className="p-0 pb-3 flex flex-row items-center justify-between">
+                    <h3 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">Run Telemetry</h3>
+                    <span className="text-[12px] text-cursor-muted">events.jsonl metrics</span>
                   </div>
-                  <span className="text-[11px] font-mono text-[#807d72]">events.jsonl metrics</span>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="grid grid-cols-2 gap-3 max-[1080px]:grid-cols-1">
-                    <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
-                    <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
+                  <div className="p-0">
+                    <div className="grid grid-cols-1 gap-3">
+                      <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
+                      <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
+                    </div>
+                    <div className="mt-3 text-[12px] text-cursor-muted rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-2 flex items-center justify-between">
+                      <span>GPU Usage: Not reported (CPU Mode)</span>
+                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
+                    </div>
                   </div>
-                  <div className="mt-2 text-[11px] font-mono text-[#807d72] bg-[#f7f7f4] border border-[#e6e5e0] px-3 py-1.5 rounded-md flex items-center justify-between">
-                    <span>GPU Usage: Not reported (CPU Mode)</span>
-                    <Badge variant="secondary" className="text-[9px]">CPU Mode</Badge>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Operator Console Terminal Log */}
-              <Card className="p-4 bg-white border-[#e6e5e0]">
-                <CardHeader className="p-0 pb-2.5 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-[#0077b6]" />
-                    <CardTitle className="text-sm font-medium">Operator Console Log</CardTitle>
+                {/* Operator Console Log */}
+                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-1 min-h-0 flex flex-col max-[1024px]:flex-none">
+                  <div className="p-0 pb-3 flex-none">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">Operator Console Log</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowRawLog(!showRawLog)}
+                        className="h-8 px-2.5 text-[12px] border-cursor-hairline text-cursor-body"
+                      >
+                        {showRawLog ? (
+                          <>
+                            <EyeOff className="h-3.5 w-3.5 mr-1" /> Sanitized
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="h-3.5 w-3.5 mr-1" /> Raw
+                          </>
+                        )}
+                      </Button>
+                      <label className="relative m-0 block w-full max-w-[10rem]">
+                        <input
+                          type="search"
+                          placeholder="Filter..."
+                          value={jobLogSearch}
+                          onChange={(e) => setJobLogSearch(e.target.value)}
+                          className="w-full rounded-md border border-cursor-hairline bg-white px-3 py-1.5 pr-8 text-[12px] text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8"
+                        />
+                        <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
+                      </label>
+                      <Button variant="ghost" size="sm" onClick={clearJobLog} className="h-8 px-2.5 text-[12px] text-cursor-body">
+                        <Eraser className="h-3.5 w-3.5 mr-1" /> Clear
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowRawLog(!showRawLog)}
-                      className="h-7 px-2 text-xs border-[#e6e5e0]"
+                  <div className="p-0 flex-1 min-h-0 max-[1024px]:flex-none overflow-hidden">
+                    <pre
+                      className="h-full min-h-[18rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3 font-mono text-[12px] leading-relaxed text-cursor-ink"
+                      aria-live="polite"
                     >
-                      {showRawLog ? (
-                        <>
-                          <EyeOff className="h-3.5 w-3.5 mr-1" /> Sanitized View
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="h-3.5 w-3.5 mr-1" /> View Raw Logs
-                        </>
-                      )}
-                    </Button>
-                    <label className="relative m-0 block w-full max-w-[12rem]">
-                      <input
-                        type="search"
-                        placeholder="Filter console..."
-                        value={jobLogSearch}
-                        onChange={(e) => setJobLogSearch(e.target.value)}
-                        className={`${inputCls} pr-8 text-xs h-7`}
-                      />
-                      <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#807d72]" />
-                    </label>
-                    <Button variant="ghost" size="sm" onClick={clearJobLog} className="h-7 px-2 text-xs">
-                      <Eraser className="h-3.5 w-3.5 mr-1" /> Clear
-                    </Button>
+                      {filteredLog || 'Log stream is empty.'}
+                    </pre>
                   </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <pre
-                    className="mt-1 min-h-48 max-h-[18rem] w-full overflow-auto whitespace-pre-wrap rounded-lg border border-[#e6e5e0] bg-[#f7f7f4] p-3 font-mono text-[12px] leading-[1.45] text-[#26251e]"
-                    aria-live="polite"
-                  >
-                    {filteredLog || 'Log stream is empty.'}
-                  </pre>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -834,66 +932,108 @@ export function JobsPage() {
   );
 }
 
-function VerticalTimelineStepRow({step}: {step: StageStepDetail}) {
-  const statusBadge =
-    step?.status === 'success' ? (
-      <Badge variant="success">OK</Badge>
-    ) : step?.status === 'running' ? (
-      <Badge variant="running">RUNNING</Badge>
-    ) : step?.status === 'failed' ? (
-      <Badge variant="destructive">FAIL</Badge>
-    ) : step?.status === 'not_scheduled' ? (
-      <Badge variant="not_scheduled">Not Scheduled</Badge>
-    ) : (
-      <Badge variant="secondary">Pending</Badge>
-    );
+function formatMetricValue(value: number | undefined, suffix: string, fractionDigits = 0) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 'Not reported';
+  return `${value.toFixed(fractionDigits)}${suffix}`;
+}
 
-  const statusBg =
-    step?.status === 'success'
-      ? 'bg-emerald-50/40 border-emerald-200'
-      : step?.status === 'running'
-        ? 'bg-blue-50/60 border-blue-200'
-        : step?.status === 'failed'
-          ? 'bg-rose-50/40 border-rose-200'
-          : step?.status === 'not_scheduled'
-            ? 'bg-[#f7f7f4]/60 border-[#e6e5e0] opacity-50'
-            : 'bg-white border-[#e6e5e0]';
+function formatMemory(bytes: number | undefined) {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return 'Not reported';
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${Math.round(mb)} MB`;
+}
+
+function formatElapsed(seconds: number | undefined) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return 'Waiting';
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${seconds.toFixed(1)}s`;
+}
+
+function StageStatusPill({status}: {status: string}) {
+  const cls =
+    status === 'success'
+      ? 'border-cursor-semantic-success/20 bg-cursor-semantic-success/5 text-cursor-semantic-success'
+      : status === 'running'
+        ? 'border-cursor-primary/20 bg-cursor-primary/5 text-cursor-primary'
+        : status === 'failed'
+          ? 'border-cursor-semantic-error/20 bg-cursor-semantic-error/5 text-cursor-semantic-error'
+          : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted';
+  const label =
+    status === 'success' ? 'OK' : status === 'running' ? 'RUNNING' : status === 'failed' ? 'FAIL' : status === 'not_scheduled' ? 'NOT SCHED.' : 'PENDING';
+  return (
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function subjectProgressClass(status: string) {
+  if (status === 'success') return 'bg-cursor-semantic-success';
+  if (status === 'failed') return 'bg-cursor-semantic-error';
+  if (status === 'running') return 'bg-cursor-primary';
+  return 'bg-cursor-hairline-strong';
+}
+
+function StageMetric({label, value}: {label: string; value: string}) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+      <span className="text-cursor-muted text-[12px]">{label}</span>
+      <span className="font-medium text-cursor-ink text-[12px]">{value}</span>
+    </span>
+  );
+}
+
+function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageStepDetail; isLast: boolean; toolDisplayNames: Record<string, string>}) {
+  const rowClass =
+    step?.status === 'running'
+      ? 'border-cursor-primary/40 bg-cursor-canvas-soft'
+      : step?.status === 'failed'
+        ? 'border-cursor-semantic-error/20 bg-cursor-canvas-soft'
+        : step?.status === 'not_scheduled'
+          ? 'border-cursor-hairline-soft bg-cursor-canvas-soft'
+          : 'border-cursor-hairline bg-white';
 
   const dotClass =
     step?.status === 'success'
-      ? 'bg-emerald-500 ring-2 ring-emerald-100'
+      ? 'bg-cursor-semantic-success ring-2 ring-cursor-semantic-success/15'
       : step?.status === 'running'
-        ? 'bg-[#0077b6] animate-pulse ring-4 ring-blue-100'
+        ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/15'
         : step?.status === 'failed'
-          ? 'bg-rose-500 ring-2 ring-rose-100'
+          ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/15'
           : step?.status === 'not_scheduled'
-            ? 'bg-[#cfcdc4]'
-            : 'bg-white border-2 border-[#807d72]';
+            ? 'bg-cursor-hairline-strong'
+            : 'bg-white border-2 border-cursor-muted-soft';
+
+  const displayTool = step?.tool ? (toolDisplayNames[step.tool] || step.tool) : '';
+  const toolLabel =
+    step?.status === 'not_scheduled'
+      ? 'No tool selected for this stage'
+      : displayTool || 'Tool not reported yet';
 
   return (
-    <div className="relative flex items-center gap-3">
-      {/* Node Dot on vertical connector line */}
-      <span className={`absolute -left-[1.375rem] h-3 w-3 rounded-full flex-none transition-all ${dotClass}`} />
-
-      <div className={`flex-1 flex items-center justify-between gap-3 rounded-lg border p-2.5 text-xs transition-colors ${statusBg}`}>
-        <div className="flex items-center gap-2.5 min-w-0">
-          {statusBadge}
-          <div className="flex flex-col min-w-0">
-            <strong className="truncate font-medium text-[#26251e]">{step?.label || step?.stage}</strong>
-            <span className="truncate text-[10px] font-mono text-[#807d72]">
-              {step?.status === 'not_scheduled'
-                ? 'Not scheduled for run'
-                : step?.tool
-                  ? step.tool
-                  : 'Default pipeline tool'}
-            </span>
+    <div className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
+      <div className="relative flex justify-center pt-4">
+        {!isLast && <span className="absolute top-7 bottom-[-1rem] w-px bg-cursor-hairline" />}
+        <span className={`h-3 w-3 rounded-full flex-none transition-all ${dotClass}`} />
+      </div>
+      <div className={`rounded-lg border p-3 transition-colors ${rowClass}`}>
+        <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">{step?.label || step?.stage}</h4>
+              <StageStatusPill status={step?.status || 'pending'} />
+            </div>
+            <p className="m-0 mt-1 text-[13px] leading-[1.4] text-cursor-body">{toolLabel}</p>
           </div>
-        </div>
-        <div className="flex items-center gap-3 flex-none text-[10px] font-mono text-[#807d72]">
-          {step?.elapsed_sec !== undefined && <span>{step.elapsed_sec.toFixed(1)}s</span>}
-          {step?.cpu_pct !== undefined && step.cpu_pct > 0 && <span>CPU: {step.cpu_pct}%</span>}
-          {step?.ram_bytes !== undefined && step.ram_bytes > 0 && (
-            <span>RAM: {Math.round(step.ram_bytes / (1024 * 1024))}MB</span>
+          {step?.status !== 'not_scheduled' && (
+            <div className="flex flex-wrap justify-end overflow-hidden rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-1 text-[12px]">
+              <StageMetric label="Elapsed" value={formatElapsed(step?.elapsed_sec)} />
+              <span className="h-4 w-px bg-cursor-hairline mx-1.5" />
+              <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
+              <span className="h-4 w-px bg-cursor-hairline mx-1.5" />
+              <StageMetric label="RAM" value={formatMemory(step?.ram_bytes)} />
+            </div>
           )}
         </div>
       </div>
@@ -902,45 +1042,84 @@ function VerticalTimelineStepRow({step}: {step: StageStepDetail}) {
 }
 
 function MetricSparkline({label, points, unit = '%'}: {label: string; points: number[]; unit?: string}) {
-  const safePoints = (Array.isArray(points) ? points : []).map((v) =>
-    typeof v === 'number' && Number.isFinite(v) ? v : 0,
+  const safePoints = (Array.isArray(points) ? points : []).filter((v) =>
+    typeof v === 'number' && Number.isFinite(v),
   );
-  const maxVal = Math.max(...safePoints, 100);
-  const minVal = 0;
-  const range = maxVal - minVal || 1;
-  const width = 200;
-  const height = 32;
 
-  const polylinePoints = safePoints.length
-    ? safePoints
-        .map((val, idx) => {
-          const x = (idx / Math.max(safePoints.length - 1, 1)) * width;
-          const y = height - ((val - minVal) / range) * (height - 6) - 3;
-          return `${x.toFixed(1)},${y.toFixed(1)}`;
-        })
-        .join(' ')
-    : `0,${height} ${width},${height}`;
+  const formatValue = (v: number) => {
+    if (unit === 'MB' && v >= 1024) return `${(v / 1024).toFixed(1)} GB`;
+    return `${v.toFixed(1)}${unit}`;
+  };
 
-  const currentVal = safePoints.length ? safePoints[safePoints.length - 1] : 0;
-  const peakVal = safePoints.length ? Math.max(...safePoints) : 0;
+  const width = 320;
+  const height = 104;
+
+  if (safePoints.length === 0) {
+    return (
+      <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-cursor-hairline-soft bg-cursor-canvas-soft p-4">
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="font-medium text-cursor-ink">{label}</span>
+          <span className="text-[12px] text-cursor-muted">No samples yet</span>
+        </div>
+        <div className="flex items-center justify-center h-24 text-[12px] text-cursor-muted italic">
+          Waiting for data...
+        </div>
+      </div>
+    );
+  }
+
+  const minPoint = Math.min(...safePoints);
+  const maxPoint = Math.max(...safePoints);
+  const padding = Math.max((maxPoint - minPoint) * 0.12, maxPoint === minPoint ? Math.max(maxPoint * 0.1, 1) : 1);
+  const yMin = Math.max(0, minPoint - padding);
+  const yMax = maxPoint + padding;
+  const range = yMax - yMin || 1;
+
+  const pointsStr = safePoints
+    .map((val, idx) => {
+      const x = (idx / Math.max(safePoints.length - 1, 1)) * width;
+      const y = height - 8 - ((val - yMin) / range) * (height - 16);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  const firstX = 0;
+  const lastX = safePoints.length > 1 ? width : 0;
+  const baselineY = height - 8;
+  const areaPoints = `${firstX},${baselineY} ${pointsStr} ${lastX},${baselineY}`;
+
+  const lastPoint = safePoints[safePoints.length - 1] ?? 0;
+  const lastXPos = safePoints.length > 1 ? width : 0;
+  const lastYPos = height - 8 - ((lastPoint - yMin) / range) * (height - 16);
+
+  const currentVal = safePoints[safePoints.length - 1] ?? 0;
+  const peakVal = Math.max(...safePoints);
+
+  const gridLines = [0, 0.5, 1].map((pct) => {
+    const y = height - 8 - pct * (height - 16);
+    const val = yMin + pct * range;
+    return {y, val};
+  });
 
   return (
-    <div className="flex flex-col justify-between gap-1 rounded-lg border border-[#e6e5e0] bg-[#f7f7f4] p-2.5 text-[#5a5852]">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-medium text-[#26251e]">{label}</span>
-        <span className="font-mono text-[#0077b6] font-semibold text-xs">
-          {currentVal}
-          {unit} <span className="text-[10px] text-[#807d72] font-normal">(peak: {peakVal}{unit})</span>
+    <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-cursor-hairline-soft bg-cursor-canvas-soft p-4">
+      <div className="flex items-center justify-between text-[13px]">
+        <span className="font-medium text-cursor-ink">{label}</span>
+        <span className="font-mono text-cursor-primary font-semibold text-[13px]">
+          {formatValue(currentVal)} <span className="text-[11px] text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
         </span>
       </div>
       <div className="relative">
-        <svg className="h-7 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`}>
-          <polyline className="fill-none stroke-[#0077b6] stroke-[1.5]" points={polylinePoints} />
+        <svg className="h-28 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+          {gridLines.map((g) => (
+            <line key={g.y} x1="0" y1={g.y} x2={width} y2={g.y} className="stroke-cursor-hairline-soft" strokeWidth="1" />
+          ))}
+          <polygon className="fill-cursor-primary/10" points={areaPoints} />
+          <polyline className="fill-none stroke-cursor-primary stroke-2" points={pointsStr} />
+          {safePoints.length > 1 && (
+            <circle cx={lastXPos} cy={lastYPos} r="3.5" className="fill-white stroke-cursor-primary stroke-2" />
+          )}
         </svg>
-        <div className="flex justify-between text-[9px] font-mono text-[#807d72] mt-0.5">
-          <span>0{unit}</span>
-          <span>Peak: {peakVal}{unit}</span>
-        </div>
       </div>
     </div>
   );

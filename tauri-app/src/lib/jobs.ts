@@ -277,6 +277,18 @@ export function deriveImageSteps(
 
   let currentActiveFile: string | null = null;
 
+  const markPriorActiveStagesSuccess = (currentStage: string) => {
+    const currentIndex = stageOrder.indexOf(currentStage);
+    if (currentIndex < 0) return;
+    for (let i = 0; i < currentIndex; i += 1) {
+      const prior = stepMap.get(stageOrder[i] || '');
+      if (!prior || prior.status === 'not_scheduled' || prior.status === 'failed') continue;
+      if (prior.status === 'running' || prior.status === 'pending') {
+        prior.status = 'success';
+      }
+    }
+  };
+
   for (const event of events) {
     const kind = String(event.kind || '');
     if (kind === 'image_start') {
@@ -299,6 +311,7 @@ export function deriveImageSteps(
         if (step) {
           const rawStatus = String(event.status || event.state || '').toLowerCase();
           if (['running', 'start', 'started'].includes(rawStatus)) {
+            markPriorActiveStagesSuccess(step.stage);
             step.status = 'running';
           } else if (['ok', 'done', 'completed', 'success'].includes(rawStatus)) {
             step.status = 'success';
@@ -329,6 +342,11 @@ export function deriveImageSteps(
           if (typeof event.gpu_pct === 'number') step.gpu_pct = Math.max(step.gpu_pct || 0, event.gpu_pct);
           if (typeof event.elapsed === 'number') step.elapsed_sec = event.elapsed;
           if (event.container_name) step.container_name = String(event.container_name);
+          if (step.status === 'pending' || step.status === 'not_scheduled') {
+            markPriorActiveStagesSuccess(step.stage);
+            step.status = 'running';
+          }
+          if (event.tool) step.tool = String(event.tool);
         }
       }
     } else if (kind === 'image_done') {
