@@ -430,6 +430,9 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 
 **`button-download`** — Larger ink-canvas CTA. Background `{colors.ink}`, text `{colors.canvas}`, padding 12px × 20px, height 44px. Used for "Download for macOS" type CTAs.
 
+**`button-pending-state`** — Action buttons triggering async processes (e.g. Connect, Refresh, Start Pipeline) MUST render a pending/loading state when clicked. Set the `disabled` property to true, replace the icon with a spinning `<Loader2 className="animate-spin" />`, and append a visual label indicating progress (e.g., "Connecting...", "Refreshing...", "Starting...") to provide immediate feedback and prevent duplicate invocations.
+
+
 ### Hero & IDE Mockups
 
 **`hero-band`** — Background `{colors.canvas}`, full-width display headline in `{typography.display-mega}` (72px / 400 / -2.16px), subhead in `{typography.body-md}`, two CTAs (`button-download` + `button-tertiary-text`), and a centered IDE-mockup card below the hero copy.

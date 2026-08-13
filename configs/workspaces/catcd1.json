@@ -2,12 +2,13 @@
   "version": 1,
   "type": "mri-pipeline-workspace",
   "input_source": "Server",
-  "input_mode": "file",
-  "input_path": "/home/catcd1/move/ADNI/002_S_2073/MPRAGE_SENSE2/2016-10-03_06_58_19.0/I780965/ADNI_002_S_2073_MR_MPRAGE_SENSE2__br_raw_20161003151826299_55_S503310_I780965.nii",
+  "input_mode": "dir",
+  "input_path": "/home/catcd1/mri-remote-jobs",
   "selected_files": [
-    "/home/catcd1/move/ADNI/002_S_2073/MPRAGE_SENSE2/2016-10-03_06_58_19.0/I780965/ADNI_002_S_2073_MR_MPRAGE_SENSE2__br_raw_20161003151826299_55_S503310_I780965.nii"
+    "/home/catcd1/mri-remote-jobs/ADNI_011_S_0241_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_20090511112048342_S65418_I143462/001.mgz",
+    "/home/catcd1/mri-remote-jobs/ADNI_013_S_0240_MR_MPR-R__GradWarp__B1_Correction__N3__Scaled_Br_20070426090948082_S12308_I51151/001.mgz"
   ],
-  "output_dir": "/home/magicianfrog/mri-pipeline/outputs",
+  "output_dir": "/home/trandangduat/mri-pipeline/outputs",
   "server_output_dir": "",
   "export_outputs": {
     "enabled": false,
@@ -39,12 +40,14 @@
   "ram_percent": 90,
   "non_recursive": false,
   "run_target": "Server",
+  "neuroflow_enabled": false,
+  "neuroflow_max_concurrent_tasks": 1,
   "remote": {
     "host": "10.8.0.1",
     "port": 19622,
     "username": "catcd1",
-    "key_path": "/home/magicianfrog/mri-pipeline/data/id_rsa",
-    "workspace": "~/mri-remote-jobs",
+    "key_path": "/mnt/c/Users/ADMIN/.ssh/duat",
+    "workspace": "~/duat-jobs",
     "python": "python3"
   },
   "name": "catcd1"
