@@ -165,3 +165,33 @@ test('deriveImageSteps distinguishes pending vs not_scheduled stages', () => {
   expect(steps[1].status).toBe('not_scheduled');
   expect(steps[2].status).toBe('not_scheduled');
 });
+
+test('deriveImageSteps keeps scheduled stages pending until events run them', () => {
+  const steps = deriveImageSteps([], {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'running'}, {preproc: 'cat_preproc', seg: 'cat_seg'}, ['preproc', 'seg'], {});
+  expect(steps[0].status).toBe('pending');
+  expect(steps[0].tool).toBe('cat_preproc');
+  expect(steps[1].status).toBe('pending');
+  expect(steps[1].tool).toBe('cat_seg');
+});
+
+test('deriveImageSteps does not promote no-tool stages from placeholder events', () => {
+  const stageOrder = ['stage1', 'stage2', 'stage3'];
+  const selectedTools = {stage1: 'tool1', stage3: 'tool3'};
+  const image = {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'failed' as const};
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {kind: 'progress', stage: 'stage2', status: 'ok'},
+    {kind: 'image_done', input_file: 'a.nii', success: false, log_text: '[stage2]  - OK'},
+  ];
+  const steps = deriveImageSteps(events, image, selectedTools, stageOrder, {});
+  expect(steps[1].status).toBe('not_scheduled');
+  expect(steps[1].tool).toBe('');
+});
+
+test('deriveImageSteps accepts event tool for stages missing selected tool metadata', () => {
+  const image = {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'running' as const};
+  const events = [{kind: 'image_start', input_file: 'a.nii'}, {kind: 'progress', stage: 'seg', status: 'running', tool: 'cat_seg'}];
+  const steps = deriveImageSteps(events, image, {}, ['seg'], {});
+  expect(steps[0].status).toBe('running');
+  expect(steps[0].tool).toBe('cat_seg');
+});

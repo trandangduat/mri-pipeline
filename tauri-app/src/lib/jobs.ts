@@ -275,6 +275,8 @@ export function deriveImageSteps(
   const stepMap = new Map<string, StageStepDetail>();
   steps.forEach((s) => stepMap.set(s.stage, s));
 
+  const isUnscheduledStep = (step: StageStepDetail) => !step.tool && (step.status === 'not_scheduled' || step.status === 'skipped');
+
   let currentActiveFile: string | null = null;
 
   const markPriorActiveStagesSuccess = (currentStage: string) => {
@@ -309,6 +311,9 @@ export function deriveImageSteps(
         }
 
         if (step) {
+          const eventTool = event.tool ? String(event.tool) : '';
+          if (eventTool) step.tool = eventTool;
+          if (isUnscheduledStep(step) && !eventTool) continue;
           const rawStatus = String(event.status || event.state || '').toLowerCase();
           if (['running', 'start', 'started'].includes(rawStatus)) {
             markPriorActiveStagesSuccess(step.stage);
@@ -317,8 +322,9 @@ export function deriveImageSteps(
             step.status = 'success';
           } else if (['failed', 'error'].includes(rawStatus)) {
             step.status = 'failed';
+          } else if (['skipped', 'skip', 'not_scheduled', 'not scheduled'].includes(rawStatus)) {
+            step.status = 'skipped';
           }
-          if (event.tool) step.tool = String(event.tool);
           if (typeof event.elapsed_sec === 'number') step.elapsed_sec = event.elapsed_sec;
           if (typeof event.pct === 'number' && event.pct === 100) step.status = 'success';
         }
@@ -337,6 +343,9 @@ export function deriveImageSteps(
           }
         }
         if (step) {
+          const eventTool = event.tool ? String(event.tool) : '';
+          if (eventTool) step.tool = eventTool;
+          if (isUnscheduledStep(step) && !eventTool) continue;
           if (typeof event.cpu_pct === 'number') step.cpu_pct = Math.max(step.cpu_pct || 0, event.cpu_pct);
           if (typeof event.ram_bytes === 'number') step.ram_bytes = Math.max(step.ram_bytes || 0, event.ram_bytes);
           if (typeof event.gpu_pct === 'number') step.gpu_pct = Math.max(step.gpu_pct || 0, event.gpu_pct);
@@ -346,7 +355,6 @@ export function deriveImageSteps(
             markPriorActiveStagesSuccess(step.stage);
             step.status = 'running';
           }
-          if (event.tool) step.tool = String(event.tool);
         }
       }
     } else if (kind === 'image_done') {
@@ -371,8 +379,10 @@ export function deriveImageSteps(
                 }
               }
               if (step) {
-                step.status = res.toUpperCase() === 'OK' ? 'success' : 'failed';
+                const toolName = (match[2] || '').trim();
                 if (toolName) step.tool = toolName;
+                if (isUnscheduledStep(step) && !toolName) continue;
+                step.status = res.toUpperCase() === 'OK' ? 'success' : 'failed';
               }
             }
           }

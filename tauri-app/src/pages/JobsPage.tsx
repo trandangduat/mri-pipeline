@@ -311,7 +311,22 @@ export function JobsPage() {
   }, [selectedJobId, normState, loadJobDetails, latestJobs]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
-  const selectedTools = (reqSummary.selected_tools as Record<string, string>) || {};
+  const selectedTools = React.useMemo(() => {
+    const fromJob = (reqSummary.selected_tools as Record<string, string>) || {};
+    const mode = String(reqSummary.pipeline_mode || job?.pipeline_mode || '');
+    const presets = (metadata?.presets || {}) as Record<string, {tools?: Record<string, string>}>;
+
+    const presetMode = presets[mode]
+      ? mode
+      : (metadata?.pipeline_modes || []).find((m) => m.id === mode || m.aliases?.includes(mode))?.id || mode;
+    const presetTools = presets[presetMode]?.tools || {};
+
+    if (presetMode && presetMode !== 'Custom' && Object.keys(presetTools).length > 0) {
+      return {...presetTools, ...fromJob};
+    }
+
+    return fromJob;
+  }, [job?.pipeline_mode, metadata?.pipeline_modes, metadata?.presets, reqSummary.pipeline_mode, reqSummary.selected_tools]);
   const stageOrder = metadata?.stage_order || [
     'format_conversion',
     'brain_extraction',
@@ -483,14 +498,6 @@ export function JobsPage() {
 
     return matchesStatus && matchesText;
   });
-
-  const subjectFilterCounts = {
-    all: batchImages.length,
-    success: batchSummary.success,
-    running: batchSummary.running,
-    failed: batchSummary.failed,
-    pending: batchSummary.pending,
-  };
 
   // Modal active subject
   const modalSubject = batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
@@ -694,15 +701,7 @@ export function JobsPage() {
       </div>
 
       {/* 2. Batch Subjects Card */}
-      {isLoadingDetails ? (
-        <Card className="flex-1 rounded-xl border-cursor-hairline bg-white shadow-none p-8 text-center text-cursor-body">
-          <div className="space-y-3 max-w-md mx-auto">
-            <Skeleton className="h-4 w-3/4 mx-auto" />
-            <Skeleton className="h-4 w-1/2 mx-auto" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        </Card>
-      ) : job ? (
+      {job ? (
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border-cursor-hairline bg-white p-0 shadow-none">
           {/* Header */}
           <div className="border-b border-cursor-hairline bg-white px-5 py-3 flex-none">
@@ -710,15 +709,6 @@ export function JobsPage() {
               <div className="flex items-center gap-3 min-w-0">
                 <Layers className="h-4 w-4 text-cursor-primary flex-none" />
                 <h3 className="m-0 text-[16px] font-semibold leading-[1.4] text-cursor-ink">Batch Subjects</h3>
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-canvas-soft px-2 py-0.5 text-[11px] font-semibold text-cursor-muted">
-                  {batchImages.length} subjects
-                </span>
-                {batchSummary.running + batchSummary.pending > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-cursor-primary/20 bg-cursor-primary/5 px-2 py-0.5 text-[11px] font-semibold text-cursor-primary">
-                    <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse" />
-                    {batchSummary.running + batchSummary.pending} active
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-1.5 flex-none">
                 <button
@@ -750,9 +740,9 @@ export function JobsPage() {
           </div>
 
           {/* Interior: Search + Filter + Grid */}
-          <div className="flex min-h-0 flex-1 flex-col bg-cursor-canvas p-4 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col bg-white p-4 overflow-hidden">
             {/* Search & Filter Toolbar */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cursor-hairline bg-white p-2.5 flex-none">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 flex-none">
               <label className="relative m-0 block w-[min(20rem,100%)]">
                 <input
                   type="search"
@@ -766,7 +756,6 @@ export function JobsPage() {
               <div className="flex flex-wrap items-center gap-1">
                 {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
                   const label = st === 'success' ? 'OK' : st;
-                  const count = subjectFilterCounts[st];
                   return (
                     <button
                       key={st}
@@ -779,7 +768,6 @@ export function JobsPage() {
                       }`}
                     >
                       <span>{label}</span>
-                      <span className={`rounded-full px-1.5 text-[11px] ${subjectStatusFilter === st ? 'bg-cursor-canvas-soft text-cursor-muted' : 'text-cursor-muted-soft'}`}>{count}</span>
                     </button>
                   );
                 })}
@@ -789,18 +777,42 @@ export function JobsPage() {
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
               <div className="grid grid-cols-3 gap-4 max-[1400px]:grid-cols-2 max-[900px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
-                {filteredBatchImages.length === 0 ? (
-                  <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
-                    <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
-                    <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
-                      {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
-                    </h4>
-                    <p className="m-0 text-[13px] text-cursor-body">
-                      {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
-                    </p>
-                  </div>
-                ) : (
-                  filteredBatchImages.map((img) => {
+                {(() => {
+                  if (filteredBatchImages.length === 0) {
+                    if (isLoadingDetails && batchImages.length === 0) {
+                      return (
+                        <>
+                          {[0, 1, 2, 3, 4, 5].map((i) => (
+                            <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4">
+                              <div className="flex items-start gap-3">
+                                <Skeleton className="h-9 w-9 rounded-lg flex-none" />
+                                <div className="flex-1 space-y-2">
+                                  <Skeleton className="h-3 w-20" />
+                                  <Skeleton className="h-4 w-3/4" />
+                                </div>
+                              </div>
+                              <div className="mt-3 pt-3 border-t border-cursor-hairline-soft space-y-2">
+                                <Skeleton className="h-3 w-full" />
+                                <Skeleton className="h-3 w-1/2" />
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      );
+                    }
+                    return (
+                      <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
+                        <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
+                        <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                          {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
+                        </h4>
+                        <p className="m-0 text-[13px] text-cursor-body">
+                          {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return filteredBatchImages.map((img) => {
                     const currentStepText = getSubjectCurrentStepLabel(img);
                     return (
                       <button
@@ -841,23 +853,42 @@ export function JobsPage() {
                         </div>
                       </button>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             ) : (
               <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0 p-1">
-                {filteredBatchImages.length === 0 ? (
-                  <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
-                    <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
-                    <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
-                      {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
-                    </h4>
-                    <p className="m-0 text-[13px] text-cursor-body">
-                      {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
-                    </p>
-                  </div>
-                ) : (
-                  filteredBatchImages.map((img) => {
+                {(() => {
+                  if (filteredBatchImages.length === 0) {
+                    if (isLoadingDetails && batchImages.length === 0) {
+                      return (
+                        <>
+                          {[0, 1, 2, 3, 4, 5].map((i) => (
+                            <div key={i} className="flex items-center gap-4 rounded-lg border border-cursor-hairline bg-white px-4 py-3">
+                              <Skeleton className="h-8 w-8 rounded-md flex-none" />
+                              <div className="flex-1 space-y-1.5">
+                                <Skeleton className="h-3 w-16" />
+                                <Skeleton className="h-4 w-2/3" />
+                              </div>
+                              <Skeleton className="h-4 w-20 flex-none" />
+                            </div>
+                          ))}
+                        </>
+                      );
+                    }
+                    return (
+                      <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
+                        <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
+                        <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                          {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
+                        </h4>
+                        <p className="m-0 text-[13px] text-cursor-body">
+                          {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return filteredBatchImages.map((img) => {
                     const currentStepText = getSubjectCurrentStepLabel(img);
                     return (
                       <button
@@ -893,8 +924,8 @@ export function JobsPage() {
                         </div>
                       </button>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -966,9 +997,7 @@ export function JobsPage() {
               <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none min-h-0 flex flex-col overflow-hidden max-[1024px]:overflow-visible">
                 <div className="p-0 pb-3 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-4 flex-none">
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted mb-1">Pipeline</span>
                     <h3 className="m-0 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Stage Timeline</h3>
-                    <span className="text-[13px] text-cursor-body mt-0.5">Live execution, tools, and resource usage for this subject</span>
                   </div>
                   <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
                     {completedModalStages}/{totalModalStages} complete
@@ -1108,6 +1137,7 @@ function formatElapsed(seconds: number | undefined) {
 }
 
 function StageStatusPill({status}: {status: string}) {
+  const isSkipped = status === 'not_scheduled' || status === 'skipped';
   const cls =
     status === 'success'
       ? 'border-cursor-semantic-success/20 bg-cursor-semantic-success/5 text-cursor-semantic-success'
@@ -1115,9 +1145,11 @@ function StageStatusPill({status}: {status: string}) {
         ? 'border-cursor-primary/20 bg-cursor-primary/5 text-cursor-primary'
         : status === 'failed'
           ? 'border-cursor-semantic-error/20 bg-cursor-semantic-error/5 text-cursor-semantic-error'
-          : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted';
+          : isSkipped
+            ? 'border-cursor-hairline-soft bg-cursor-canvas-soft text-cursor-muted-soft'
+            : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted';
   const label =
-    status === 'success' ? 'OK' : status === 'running' ? 'RUNNING' : status === 'failed' ? 'FAIL' : status === 'not_scheduled' ? 'NOT SCHED.' : 'PENDING';
+    status === 'success' ? 'OK' : status === 'running' ? 'RUNNING' : status === 'failed' ? 'FAIL' : isSkipped ? 'SKIPPED' : 'PENDING';
   return (
     <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${cls}`}>
       {label}
@@ -1142,13 +1174,15 @@ function StageMetric({label, value}: {label: string; value: string}) {
 }
 
 function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageStepDetail; isLast: boolean; toolDisplayNames: Record<string, string>}) {
+  const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
+
   const rowClass =
     step?.status === 'running'
       ? 'border-cursor-primary/40 bg-cursor-canvas-soft'
       : step?.status === 'failed'
         ? 'border-cursor-semantic-error/20 bg-cursor-canvas-soft'
-        : step?.status === 'not_scheduled'
-          ? 'border-cursor-hairline-soft bg-cursor-canvas-soft'
+        : isSkipped
+          ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 opacity-60'
           : 'border-cursor-hairline bg-white';
 
   const dotClass =
@@ -1158,15 +1192,12 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
         ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/15'
         : step?.status === 'failed'
           ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/15'
-          : step?.status === 'not_scheduled'
+          : isSkipped
             ? 'bg-cursor-hairline-strong'
             : 'bg-white border-2 border-cursor-muted-soft';
 
   const displayTool = step?.tool ? (toolDisplayNames[step.tool] || step.tool) : '';
-  const toolLabel =
-    step?.status === 'not_scheduled'
-      ? 'No tool selected for this stage'
-      : displayTool || 'Tool not reported yet';
+  const toolLabel = isSkipped ? 'Not available' : displayTool || 'Not available';
 
   return (
     <div className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
@@ -1178,12 +1209,12 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
         <div className="flex min-w-0 items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h4 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">{step?.label || step?.stage}</h4>
+              <h4 className={`m-0 text-[15px] font-semibold leading-[1.4] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{step?.label || step?.stage}</h4>
               <StageStatusPill status={step?.status || 'pending'} />
             </div>
-            <p className="m-0 mt-1 text-[13px] leading-[1.4] text-cursor-body">{toolLabel}</p>
+            <p className={`m-0 mt-1 text-[13px] leading-[1.4] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}>{toolLabel}</p>
           </div>
-          {step?.status !== 'not_scheduled' && (
+          {!isSkipped && step?.status !== 'not_scheduled' && (
             <div className="flex flex-wrap justify-end overflow-hidden rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-1 text-[12px]">
               <StageMetric label="Elapsed" value={formatElapsed(step?.elapsed_sec)} />
               <span className="h-4 w-px bg-cursor-hairline mx-1.5" />
