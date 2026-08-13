@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pipeline.config import ToolContext
-from pipeline.presets import FREESURFER_8_SURFACE_TOOLS, PRESET_CONFIGS
+from pipeline.presets import FREESURFER_8_SURFACE_TOOLS, FREESURFER_8_VOLUME_TOOLS, PRESET_CONFIGS
 from pipeline.registry import (
     FREESURFER_RECON_STYLE_TIMEOUT,
     STAGE_ORDER,
@@ -26,9 +26,17 @@ def test_freesurfer8_surface_presets_use_surface_tools() -> None:
     }
 
     assert FREESURFER_8_SURFACE_TOOLS == expected_tools
-    assert PRESET_CONFIGS["FreeSurfer 8 + Volume"]["tools"] == expected_tools
     assert PRESET_CONFIGS["FreeSurfer 8 + Cortical Thickness"]["tools"] == expected_tools
     assert PRESET_CONFIGS["FreeSurfer 8 + Volume + Cortical Thickness"]["tools"] == expected_tools
+
+
+def test_freesurfer8_volume_preset_blanks_surface_stages() -> None:
+    assert PRESET_CONFIGS["FreeSurfer 8 + Volume"]["tools"] == FREESURFER_8_VOLUME_TOOLS
+    assert FREESURFER_8_VOLUME_TOOLS["reorientation"] == "fs8_reduced54_reorientation"
+    assert FREESURFER_8_VOLUME_TOOLS["segmentation"] == "synthseg_freesurfer_fs8"
+    assert FREESURFER_8_VOLUME_TOOLS["stats_extraction"] == "fs8_reduced54_stats"
+    for stage in ("brain_extraction", "template_registration", "bias_correction", "white_matter_segmentation", "surface_reconstruction", "surface_registration"):
+        assert FREESURFER_8_VOLUME_TOOLS[stage] == "", f"{stage} should be blank for volume-only preset"
 
 
 def test_freesurfer8_surface_tools_cover_all_pipeline_stages() -> None:

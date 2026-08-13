@@ -50,7 +50,15 @@ export function ToolsPage() {
       setRefreshMessage('Connect SSH before checking server Docker images.');
       return;
     }
-    const selectedTools = metadata?.presets?.[formValues.pipelineMode]?.tools || {};
+    let selectedTools: Record<string, string> = {};
+    if (formValues.pipelineMode === 'Custom') {
+      for (const stage of metadata?.stage_order || []) {
+        const val = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
+        if (val) selectedTools[stage] = val;
+      }
+    } else {
+      selectedTools = metadata?.presets?.[formValues.pipelineMode]?.tools || {};
+    }
     setRefreshMessage(`Checking ${target} Docker images...`);
     setBusyKey('refreshTools', true);
     try {

@@ -104,7 +104,12 @@ FREESURFER_8_SURFACE_TOOLS = {
     "stats_extraction": "fs8_reduced54_stats",
 }
 
-FREESURFER_8_TOOLS = FREESURFER_8_SURFACE_TOOLS
+FREESURFER_8_VOLUME_TOOLS = {
+    **FREESURFER_8_SURFACE_TOOLS,
+    **{stage: "" for stage in VOLUME_SKIPPED_STAGES},
+}
+
+FREESURFER_8_TOOLS = FREESURFER_8_VOLUME_TOOLS
 
 FASTSURFER_TOOLS = {
     "reorientation": "fastsurfer_reorientation",

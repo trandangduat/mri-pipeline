@@ -14,7 +14,7 @@ import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
-import {normalizeJob} from '../jobFormatters';
+import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry} from '../types/backend';
 
 
@@ -65,6 +65,9 @@ export function PipelineStepsSection() {
     const preset = metadata?.presets?.[mode];
     if (preset) {
       const formFields: Record<string, string> = {pipelineMode: mode};
+      for (const stageKey of metadata?.stage_order || []) {
+        formFields[`stage_${stageKey}`] = '';
+      }
       for (const [stageKey, toolKey] of Object.entries(preset.tools || {})) {
         formFields[`stage_${stageKey}`] = toolKey;
       }
@@ -72,6 +75,14 @@ export function PipelineStepsSection() {
     } else {
       setFormField('pipelineMode', mode);
     }
+  };
+
+  const handleStageToolChange = (stageId: string, toolKey: string) => {
+    if (formValues.pipelineMode === 'Custom') {
+      setFormField(`stage_${stageId}`, toolKey);
+      return;
+    }
+    setFormFields({pipelineMode: 'Custom', [`stage_${stageId}`]: toolKey});
   };
 
   async function handlePresetFile(file?: File | null) {
@@ -175,21 +186,23 @@ export function PipelineStepsSection() {
           )}
           {(metadata?.stages || []).map((stage) => {
             const tools = metadata?.tools_by_stage?.[stage.id] || [];
+            const selectedToolKey = ((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || '';
+            const isUnavailable = selectedToolKey === '';
             return (
               <div
                 key={stage.id}
-                className="grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1"
+                className={`grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1 ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
               >
                 <div className="flex min-h-11 items-center">
-                  <strong className="font-semibold text-cursor-ink text-[13.5px] leading-none">{stage.label}</strong>
+                  <strong className={`font-semibold text-[13.5px] leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
                 </div>
                 <select
                   name={`stage_${stage.id}`}
-                  value={((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || ''}
-                  onChange={(e) => setFormField(`stage_${stage.id}`, e.target.value)}
-                  className={`${inputCls} max-[1080px]:w-full`}
+                  value={selectedToolKey}
+                  onChange={(e) => handleStageToolChange(stage.id, e.target.value)}
+                  className={`${inputCls} max-[1080px]:w-full ${isUnavailable ? 'opacity-70' : ''}`}
                 >
-                  <option value="">Disabled / Skip</option>
+                  <option value="">Not available</option>
                   {tools.map((toolKey) => {
                     const tool = metadata?.tools?.[toolKey];
                     return (
@@ -1399,7 +1412,7 @@ export function PipelinePage() {
     try {
       const res = await client.listLocalJobs();
       const rawJobs = res.jobs || [];
-      const jobs = rawJobs.map((j) => normalizeJob(j, 'Local'));
+      const jobs = sortJobsByStartedAtDesc(rawJobs.map((j) => normalizeJob(j, 'Local')));
       setLatestJobs(jobs);
       let nextSelected = selectedJobId;
       if (!nextSelected && jobs.length > 0) {
