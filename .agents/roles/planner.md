@@ -13,4 +13,5 @@ For every user task:
    "Implement the plan at <absolute-or-workspace-relative-path>."
 6. Do not repeat the planning session context to the Executor.
 7. The plan file is the handoff contract and source of truth.
-8. Once the Executor has been instructed, your task is complete.
+8. Use simplified technical english to sum up the plan for user.
+9. Your job here is done and you may stop.
