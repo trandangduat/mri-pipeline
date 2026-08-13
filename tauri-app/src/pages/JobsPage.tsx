@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useParams} from 'react-router';
 import {
-  Activity,
+  BrainCircuit,
   Download,
   Eraser,
   Eye,
@@ -9,6 +9,8 @@ import {
   FileCheck,
   ImageIcon,
   Layers,
+  LayoutGrid,
+  List,
   Loader2,
   RefreshCw,
   Search,
@@ -60,6 +62,7 @@ export function JobsPage() {
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
   const [showRawLog, setShowRawLog] = useState<boolean>(false);
+  const [subjectViewMode, setSubjectViewMode] = useState<'grid' | 'list'>('grid');
 
   // Subject panel search, filter & modal state
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
@@ -362,9 +365,6 @@ export function JobsPage() {
 
   const totalModalStages = modalImageSteps.length;
   const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
-  const runningModalStage = modalImageSteps.find((step) => step.status === 'running');
-  const failedModalStages = modalImageSteps.filter((step) => step.status === 'failed').length;
-  const scheduledModalStages = modalImageSteps.filter((step) => step.status !== 'not_scheduled');
 
   const getSubjectCurrentStepLabel = (img: typeof batchImages[0]) => {
     if (img.status === 'success') return 'Completed';
@@ -378,35 +378,29 @@ export function JobsPage() {
     return 'Processing...';
   };
 
-  // Stacked bar ratios for Batch Summary
+  // Stacked bar ratios for Batch Summary (four-segment)
   const totalCount = batchSummary.total || 1;
-  const successPct = Math.round((batchSummary.success / totalCount) * 100);
-  const failedPct = Math.round((batchSummary.failed / totalCount) * 100);
-  const activeCount = batchSummary.running + batchSummary.pending;
-  const activePct = Math.max(0, 100 - successPct - failedPct);
+  const successPct = (batchSummary.success / totalCount) * 100;
+  const failedPct = (batchSummary.failed / totalCount) * 100;
+  const runningPct = (batchSummary.running / totalCount) * 100;
+  const pendingPct = (batchSummary.pending / totalCount) * 100;
 
   return (
-    <div className="flex flex-col gap-3 text-[#26251e] max-w-full h-full overflow-hidden flex-1">
-      {/* 1. Header Row: Job Overview (Left 8 cols) + Batch Summary Card (Right 4 cols) */}
-      <div className="grid grid-cols-12 gap-4 max-[1080px]:grid-cols-1 flex-none">
-        {/* Left Column (8 cols): Basic Job Info Header Card */}
-        <Card className="col-span-8 max-[1080px]:col-span-1 p-4 bg-white border-[#e6e5e0]">
-          {/* Line 1: Job Title + Status Pill */}
-          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-[#f2f2ee]">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink">
+      {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
+      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4 max-[1180px]:grid-cols-1">
+        {/* Left: Job Detail Card */}
+        <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5">
+          {/* Header: Icon + Title + Status Pills */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-cursor-hairline-soft">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f7f7f4] border border-[#e6e5e0] text-[#0077b6]">
-                <Activity className="h-5 w-5" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-canvas border border-cursor-hairline text-cursor-primary">
+                <BrainCircuit className="h-5 w-5" />
               </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#807d72]">
-                  Job Overview
-                </span>
-                <h2 className="m-0 text-xl font-semibold tracking-tight text-[#26251e] truncate">
-                  {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
-                </h2>
-              </div>
+              <h2 className="m-0 text-xl font-semibold tracking-tight text-cursor-ink truncate">
+                {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
+              </h2>
             </div>
-
             <div className="flex items-center gap-2">
               <StatusPill state={displayMeta.status_reconciled}>
                 {displayJobState(displayMeta.status_reconciled).toUpperCase()}
@@ -418,66 +412,110 @@ export function JobsPage() {
             </div>
           </div>
 
-          {/* Line 2 & 3: Metadata Table */}
-          <div className="my-3 overflow-hidden rounded-lg border border-[#e6e5e0]">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#f7f7f4] border-b border-[#e6e5e0] text-[10px] uppercase font-semibold text-[#807d72] tracking-wider">
-                  <th className="py-1.5 px-3 w-1/3">Field</th>
-                  <th className="py-1.5 px-3">Value</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e6e5e0] text-[#26251e]">
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Started</td>
-                  <td className="py-1.5 px-3">{displayMeta.started_at_str}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Process PID</td>
-                  <td className="py-1.5 px-3">{String(job?.pid || 'None')}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Mode / Device</td>
-                  <td className="py-1.5 px-3">{`${String(reqSummary.mode || 'N/A')} / ${String(reqSummary.device || 'cpu')}`}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Threads</td>
-                  <td className="py-1.5 px-3">{String(reqSummary.threads || 4)}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">RAM Alloc</td>
-                  <td className="py-1.5 px-3">{`${String(reqSummary.ram_percent || 100)}%`}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Container</td>
-                  <td className="py-1.5 px-3">{modalMetricsSeries.latestContainer || 'None'}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Input Path</td>
-                  <td className="py-1.5 px-3 truncate max-w-[20rem]">{displayMeta.input_path_str}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">Output Path</td>
-                  <td className="py-1.5 px-3 truncate max-w-[20rem]">{displayMeta.output_dir_str}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 px-3 font-bold">NeuroFlow</td>
-                  <td className="py-1.5 px-3">{reqSummary.neuroflow_enabled ? 'Enabled' : 'Disabled'}</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Metadata Table */}
+          <div className="mt-4 overflow-hidden rounded-lg border border-cursor-hairline">
+            <div className="divide-y divide-cursor-hairline-soft text-[14px]">
+              {[
+                ['Started', displayMeta.started_at_str],
+                ['Process PID', String(job?.pid || 'None')],
+                ['Mode / Device', `${String(reqSummary.mode || 'N/A')} / ${String(reqSummary.device || 'cpu')}`],
+                ['Threads', String(reqSummary.threads || 4)],
+                ['RAM Alloc', `${String(reqSummary.ram_percent || 100)}%`],
+                ['Container', modalMetricsSeries.latestContainer || 'None'],
+                ['Input Path', displayMeta.input_path_str],
+                ['Output Path', displayMeta.output_dir_str],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[10rem_minmax(0,1fr)]">
+                  <span className="py-2 px-3 font-semibold text-cursor-ink border-r border-cursor-hairline-soft bg-cursor-canvas-soft">{label}</span>
+                  <span className={`py-2 px-3 text-cursor-body ${label === 'Input Path' || label === 'Output Path' ? 'font-mono truncate' : ''}`} title={String(value)}>
+                    {String(value)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
+        </Card>
 
-          {/* Line 4: Action Controls Row (Default Button Padding) */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#f2f2ee] pt-3">
-            <div className="flex flex-wrap items-center gap-2.5">
+        {/* Right: Batch Summary / Actions Card */}
+        {job ? (
+          <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-2 pb-3 border-b border-cursor-hairline-soft mb-4">
+                <Layers className="h-4 w-4 text-cursor-primary" />
+                <CardTitle className="text-sm font-semibold text-cursor-ink">Batch Summary</CardTitle>
+              </div>
+
+              {/* Four-Segment Stacked Bar */}
+              {batchSummary.total > 0 ? (
+                <div className="flex w-full h-6 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-3">
+                  {successPct > 0 && (
+                    <div
+                      style={{width: `${successPct}%`}}
+                      className="bg-cursor-semantic-success transition-all"
+                      title={`Success: ${batchSummary.success}`}
+                    />
+                  )}
+                  {failedPct > 0 && (
+                    <div
+                      style={{width: `${failedPct}%`}}
+                      className="bg-cursor-semantic-error transition-all"
+                      title={`Failed: ${batchSummary.failed}`}
+                    />
+                  )}
+                  {runningPct > 0 && (
+                    <div
+                      style={{width: `${runningPct}%`}}
+                      className="bg-cursor-primary transition-all"
+                      title={`Running: ${batchSummary.running}`}
+                    />
+                  )}
+                  {pendingPct > 0 && (
+                    <div
+                      style={{width: `${pendingPct}%`}}
+                      className="bg-cursor-hairline-strong transition-all"
+                      title={`Pending: ${batchSummary.pending}`}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="flex w-full h-6 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-3 items-center justify-center">
+                  <span className="text-[11px] text-cursor-muted">No subjects yet</span>
+                </div>
+              )}
+
+              {/* Legend */}
+              <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-cursor-semantic-success flex-none" />
+                  <span className="text-cursor-body">Success</span>
+                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.success}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-cursor-semantic-error flex-none" />
+                  <span className="text-cursor-body">Failed</span>
+                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.failed}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-cursor-primary flex-none" />
+                  <span className="text-cursor-body">Running</span>
+                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.running}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-cursor-hairline-strong flex-none" />
+                  <span className="text-cursor-body">Pending</span>
+                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.pending}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2">
               <Button
                 id="refreshJobsButton"
                 variant="default"
-                size="default"
                 onClick={refreshJobs}
                 disabled={busy.refreshJobs}
-                className="bg-[#0077b6] hover:bg-[#005f92] text-white font-medium"
+                className="w-full h-11 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium"
               >
                 {busy.refreshJobs ? (
                   <>
@@ -490,113 +528,38 @@ export function JobsPage() {
                 )}
               </Button>
               <Button
-                variant="destructive"
-                size="default"
                 onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
                 disabled={!job || normState !== 'running'}
-                className="font-medium"
+                className="w-full h-11 border-cursor-semantic-error text-cursor-semantic-error bg-white hover:bg-cursor-semantic-error/5 font-medium"
               >
                 <Square className="h-4 w-4 mr-1.5" /> Stop Job
               </Button>
               <Button
-                variant="outline"
-                size="default"
+                variant="ghost"
                 onClick={handleDownloadClick}
                 disabled={!job || !isTerminal}
-                className="font-medium"
+                className="w-full h-11 border-cursor-hairline text-cursor-body bg-white hover:bg-cursor-canvas-soft font-medium"
               >
                 <Download className="h-4 w-4 mr-1.5" /> Download Outputs
               </Button>
-            </div>
-            {downloadNotice && (
-              <div className="flex items-center gap-2 rounded-md border border-[#e6e5e0] bg-[#f7f7f4] px-3 py-1.5 text-xs text-[#26251e]">
-                <FileCheck className="h-4 w-4 text-emerald-600 flex-none" />
-                <span>{downloadNotice}</span>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Right Column (4 cols): Separate Batch Summary Card with Stacked Bar Chart */}
-        {job ? (
-          <Card className="col-span-4 max-[1080px]:col-span-1 p-4 bg-white border-[#e6e5e0] flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between border-b border-[#f2f2ee] pb-2.5 mb-3">
-                <div className="flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-[#0077b6]" />
-                  <CardTitle className="text-sm font-semibold text-[#26251e]">Batch Summary</CardTitle>
+              {downloadNotice && (
+                <div className="flex items-center gap-2 rounded-md border border-cursor-hairline bg-cursor-canvas px-3 py-2 text-xs text-cursor-body mt-1">
+                  <FileCheck className="h-4 w-4 text-cursor-semantic-success flex-none" />
+                  <span>{downloadNotice}</span>
                 </div>
-              </div>
-
-              {/* Stacked Progress Bar */}
-              <div className="flex w-full h-7 rounded-full overflow-hidden bg-[#f7f7f4] border border-[#e6e5e0] my-3">
-                {successPct > 0 && (
-                  <div
-                    style={{width: `${successPct}%`}}
-                    className="bg-emerald-500 flex items-center justify-center text-[10px] font-bold text-white transition-all"
-                    title={`Success: ${successPct}%`}
-                  >
-                    {successPct > 8 ? `${successPct}%` : ''}
-                  </div>
-                )}
-                {failedPct > 0 && (
-                  <div
-                    style={{width: `${failedPct}%`}}
-                    className="bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white transition-all"
-                    title={`Failed: ${failedPct}%`}
-                  >
-                    {failedPct > 8 ? `${failedPct}%` : ''}
-                  </div>
-                )}
-                {activePct > 0 && (
-                  <div
-                    style={{width: `${activePct}%`}}
-                    className="bg-[#0077b6] flex items-center justify-center text-[10px] font-bold text-white transition-all"
-                    title={`Running / Pending: ${activePct}%`}
-                  >
-                    {activePct > 8 ? `${activePct}%` : ''}
-                  </div>
-                )}
-              </div>
-
-              {/* Legend List */}
-              <div className="flex flex-col gap-2 pt-2 border-t border-[#f2f2ee] text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 flex-none" />
-                    <span className="text-[#5a5852]">Success</span>
-                  </span>
-                  <span className="font-semibold text-[#26251e]">{batchSummary.success}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-rose-500 flex-none" />
-                    <span className="text-[#5a5852]">Failed</span>
-                  </span>
-                  <span className="font-semibold text-[#26251e]">{batchSummary.failed}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#0077b6] flex-none" />
-                    <span className="text-[#5a5852]">Running / Pending</span>
-                  </span>
-                  <span className="font-semibold text-[#26251e]">{activeCount}</span>
-                </div>
-              </div>
+              )}
             </div>
           </Card>
         ) : (
-          <Card className="col-span-4 max-[1080px]:col-span-1 p-4 bg-white border-[#e6e5e0] flex items-center justify-center text-[#807d72] text-xs italic">
+          <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5 flex items-center justify-center text-cursor-muted text-xs italic">
             No active batch job
           </Card>
         )}
       </div>
 
-      {/* 2. Unified Batch Subjects Panel */}
+      {/* 2. Batch Subjects Card */}
       {isLoadingDetails ? (
-        <Card className="p-8 text-center text-cursor-body">
+        <Card className="flex-1 rounded-xl border-cursor-hairline bg-white shadow-none p-8 text-center text-cursor-body">
           <div className="space-y-3 max-w-md mx-auto">
             <Skeleton className="h-4 w-3/4 mx-auto" />
             <Skeleton className="h-4 w-1/2 mx-auto" />
@@ -604,34 +567,57 @@ export function JobsPage() {
           </div>
         </Card>
       ) : job ? (
-        <Card className="flex-1 overflow-hidden border-cursor-hairline bg-white p-0 shadow-none flex flex-col">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border-cursor-hairline bg-white p-0 shadow-none">
           {/* Header */}
-          <div className="border-b border-cursor-hairline bg-white px-5 py-4 flex-none">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Batch monitor</span>
-                <h3 className="m-0 mt-1 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Batch Subjects</h3>
-                <span className="text-[13px] text-cursor-body mt-0.5 block">{batchImages.length} subjects tracked from events.jsonl</span>
-              </div>
-              <div className="flex items-center gap-2 flex-none mt-1">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
-                  {filteredBatchImages.length}/{batchImages.length} shown
+          <div className="border-b border-cursor-hairline bg-white px-5 py-3 flex-none">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <Layers className="h-4 w-4 text-cursor-primary flex-none" />
+                <h3 className="m-0 text-[16px] font-semibold leading-[1.4] text-cursor-ink">Batch Subjects</h3>
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-canvas-soft px-2 py-0.5 text-[11px] font-semibold text-cursor-muted">
+                  {batchImages.length} subjects
                 </span>
                 {batchSummary.running + batchSummary.pending > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-cursor-primary/20 bg-cursor-primary/5 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-primary">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cursor-primary/20 bg-cursor-primary/5 px-2 py-0.5 text-[11px] font-semibold text-cursor-primary">
                     <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse" />
                     {batchSummary.running + batchSummary.pending} active
                   </span>
                 )}
               </div>
+              <div className="flex items-center gap-1.5 flex-none">
+                <button
+                  type="button"
+                  onClick={() => setSubjectViewMode('grid')}
+                  className={`inline-flex items-center justify-center h-8 w-8 rounded-md border transition-colors ${
+                    subjectViewMode === 'grid'
+                      ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
+                      : 'border-transparent text-cursor-muted hover:text-cursor-ink'
+                  }`}
+                  aria-label="Grid view"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubjectViewMode('list')}
+                  className={`inline-flex items-center justify-center h-8 w-8 rounded-md border transition-colors ${
+                    subjectViewMode === 'list'
+                      ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
+                      : 'border-transparent text-cursor-muted hover:text-cursor-ink'
+                  }`}
+                  aria-label="List view"
+                >
+                  <List className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Cream Interior */}
+          {/* Interior: Search + Filter + Grid */}
           <div className="flex min-h-0 flex-1 flex-col bg-cursor-canvas p-4 overflow-hidden">
             {/* Search & Filter Toolbar */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cursor-hairline bg-white p-3 flex-none">
-              <label className="relative m-0 block w-[min(24rem,100%)]">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cursor-hairline bg-white p-2.5 flex-none">
+              <label className="relative m-0 block w-[min(20rem,100%)]">
                 <input
                   type="search"
                   placeholder="Search subject ID or #..."
@@ -641,8 +627,7 @@ export function JobsPage() {
                 />
                 <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
               </label>
-
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1">
                 {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
                   const label = st === 'success' ? 'OK' : st;
                   const count = subjectFilterCounts[st];
@@ -651,7 +636,7 @@ export function JobsPage() {
                       key={st}
                       type="button"
                       onClick={() => setSubjectStatusFilter(st)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors cursor-pointer capitalize border ${
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors cursor-pointer capitalize border ${
                         subjectStatusFilter === st
                           ? 'border-cursor-hairline-strong bg-white text-cursor-ink font-semibold'
                           : 'border-transparent text-cursor-body hover:text-cursor-ink'
@@ -665,126 +650,133 @@ export function JobsPage() {
               </div>
             </div>
 
-            {/* Summary Strip */}
-            <div className="mb-4 grid grid-cols-4 gap-3 max-[900px]:grid-cols-2 max-[520px]:grid-cols-1 flex-none">
-              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Total</span>
-                <span className="text-[18px] font-semibold text-cursor-ink mt-0.5 block">{batchImages.length}</span>
+            {/* Subject Grid or List */}
+            {subjectViewMode === 'grid' ? (
+              <div className="grid grid-cols-3 gap-4 max-[1400px]:grid-cols-2 max-[900px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
+                {filteredBatchImages.length === 0 ? (
+                  <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
+                    <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
+                    <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                      {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
+                    </h4>
+                    <p className="m-0 text-[13px] text-cursor-body">
+                      {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredBatchImages.map((img) => {
+                    const currentStepText = getSubjectCurrentStepLabel(img);
+                    return (
+                      <button
+                        key={img.input_file}
+                        type="button"
+                        onClick={() => setActiveModalSubjectFile(img.input_file)}
+                        className="group flex cursor-pointer flex-col rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className={`flex h-9 w-9 items-center justify-center rounded-lg border flex-none ${subjectAccentClasses(img.status)}`}>
+                            <BrainCircuit className="h-4 w-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted">
+                              Subject #{String(img.idx).padStart(3, '0')}
+                            </span>
+                            <span className="truncate text-[14px] font-semibold leading-[1.4] text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                              {img.subject_id}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-cursor-hairline-soft space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted w-12 flex-none">Stage</span>
+                            <span className="text-[13px] text-cursor-ink truncate">{currentStepText}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted w-12 flex-none">Status</span>
+                            <span className={`text-[12px] font-semibold uppercase tracking-[0.06em] ${
+                              img.status === 'success' ? 'text-cursor-semantic-success' :
+                              img.status === 'failed' ? 'text-cursor-semantic-error' :
+                              img.status === 'running' ? 'text-cursor-primary' :
+                              'text-cursor-muted'
+                            }`}>
+                              {img.status.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
-              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Active</span>
-                <span className="text-[18px] font-semibold text-cursor-primary mt-0.5 block">{batchSummary.running + batchSummary.pending}</span>
-              </div>
-              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Success</span>
-                <span className="text-[18px] font-semibold text-cursor-semantic-success mt-0.5 block">{batchSummary.success}</span>
-              </div>
-              <div className="rounded-xl border border-cursor-hairline bg-white p-3">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted block">Failed</span>
-                <span className="text-[18px] font-semibold text-cursor-semantic-error mt-0.5 block">{batchSummary.failed}</span>
-              </div>
-            </div>
-
-            {/* Subject Grid */}
-            <div className="grid grid-cols-3 gap-4 max-[1400px]:grid-cols-2 max-[900px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
-              {filteredBatchImages.length === 0 ? (
-                <div className="col-span-full flex min-h-[14rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
-                  <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
-                  <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
-                    {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
-                  </h4>
-                  <p className="m-0 text-[13px] text-cursor-body">
-                    {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
-                  </p>
-                </div>
-              ) : (
-                filteredBatchImages.map((img) => {
-                  const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
-                  const totalStages = steps.length;
-                  const completedStages = steps.filter((s) => s.status === 'success').length;
-                  const runningStep = steps.find((s) => s.status === 'running');
-                  const failedSteps = steps.filter((s) => s.status === 'failed').length;
-                  const progressPercent = totalStages ? Math.round((completedStages / totalStages) * 100) : 0;
-                  const currentStepText = getSubjectCurrentStepLabel(img);
-                  const runningToolLabel = runningStep?.tool ? (toolDisplayNames[runningStep.tool] || runningStep.tool) : '';
-
-                  return (
-                    <button
-                      key={img.input_file}
-                      type="button"
-                      onClick={() => setActiveModalSubjectFile(img.input_file)}
-                      className="group flex min-h-[11rem] cursor-pointer flex-col rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
-                    >
-                      {/* Top Row: Index + Subject ID + Status */}
-                      <div className="flex items-start gap-2.5 min-w-0 mb-2">
-                        <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-canvas-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-cursor-muted flex-none mt-0.5">
-                          #{img.idx}
-                        </span>
+            ) : (
+              <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0 p-1">
+                {filteredBatchImages.length === 0 ? (
+                  <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
+                    <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
+                    <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                      {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
+                    </h4>
+                    <p className="m-0 text-[13px] text-cursor-body">
+                      {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredBatchImages.map((img) => {
+                    const currentStepText = getSubjectCurrentStepLabel(img);
+                    return (
+                      <button
+                        key={img.input_file}
+                        type="button"
+                        onClick={() => setActiveModalSubjectFile(img.input_file)}
+                        className="group flex items-center gap-4 cursor-pointer rounded-lg border border-cursor-hairline bg-white px-4 py-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
+                      >
+                        <div className={`flex h-8 w-8 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
+                          <BrainCircuit className="h-3.5 w-3.5" />
+                        </div>
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="truncate text-[15px] font-semibold leading-[1.4] text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                          <span className="text-[11px] text-cursor-muted">
+                            #{String(img.idx).padStart(3, '0')}
+                          </span>
+                          <span className="truncate text-[14px] font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
                             {img.subject_id}
                           </span>
-                          <span className="truncate text-[12px] text-cursor-muted font-mono mt-0.5" title={img.input_file}>
-                            {img.input_file.split('/').pop()}
+                        </div>
+                        <div className="flex items-center gap-6 flex-none">
+                          <div className="flex flex-col items-end">
+                            <span className="text-[10px] uppercase tracking-[0.06em] text-cursor-muted">Stage</span>
+                            <span className="text-[13px] text-cursor-ink">{currentStepText}</span>
+                          </div>
+                          <span className={`text-[12px] font-semibold uppercase tracking-[0.06em] min-w-[4.5rem] text-right ${
+                            img.status === 'success' ? 'text-cursor-semantic-success' :
+                            img.status === 'failed' ? 'text-cursor-semantic-error' :
+                            img.status === 'running' ? 'text-cursor-primary' :
+                            'text-cursor-muted'
+                          }`}>
+                            {img.status.toUpperCase()}
                           </span>
                         </div>
-                        <div className="flex-none mt-0.5">
-                          <StatusPill state={img.status}>{img.status.toUpperCase()}</StatusPill>
-                        </div>
-                      </div>
-
-                      {/* Progress Section */}
-                      <div className="mt-auto pt-3 border-t border-cursor-hairline-soft space-y-2.5">
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted">Stage progress</span>
-                            <span className="text-[12px] font-medium text-cursor-ink">{completedStages}/{totalStages}</span>
-                          </div>
-                          <div className="h-1.5 w-full rounded-full bg-cursor-canvas-soft overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${subjectProgressClass(img.status)}`}
-                              style={{width: `${progressPercent}%`}}
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted block mb-0.5">Current stage</span>
-                          <span className="text-[13px] font-medium text-cursor-ink block">{currentStepText}</span>
-                          {runningToolLabel && (
-                            <span className="text-[12px] text-cursor-body block mt-0.5 truncate">{runningToolLabel}</span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          {img.duration_sec ? (
-                            <span className="text-[12px] text-cursor-muted font-mono">{formatElapsed(img.duration_sec)}</span>
-                          ) : <span />}
-                          <span className="text-[11px] text-cursor-muted-soft opacity-0 group-hover:opacity-100 transition-opacity">Open details</span>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
         </Card>
       ) : (
-        <Card className="p-10 text-center text-[#5a5852] bg-white border-[#e6e5e0]">
-          <Activity className="mx-auto mb-3 h-8 w-8 text-[#807d72]" />
-          <h3 className="m-0 text-base font-medium text-[#26251e] mb-1">No Job Selected</h3>
-          <p className="m-0 text-xs text-[#807d72] max-w-sm mx-auto mb-4">
+        <Card className="p-10 text-center text-cursor-body bg-white border-cursor-hairline rounded-xl shadow-none">
+          <BrainCircuit className="mx-auto mb-3 h-8 w-8 text-cursor-muted" />
+          <h3 className="m-0 text-base font-semibold text-cursor-ink mb-1">No Job Selected</h3>
+          <p className="m-0 text-xs text-cursor-muted max-w-sm mx-auto mb-4">
             {jobsList.length === 0
               ? 'There are no active or recent pipeline jobs. Run a pipeline from the Configuration tab or refresh jobs.'
               : 'Select a job from the sidebar list to view its execution progress and details.'}
           </p>
           <Button
             variant="default"
-            size="sm"
             onClick={refreshJobs}
             disabled={busy.refreshJobs}
-            className="bg-[#0077b6] hover:bg-[#005f92] text-white"
+            className="bg-cursor-primary hover:bg-cursor-primary-active text-white h-10"
           >
             <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh Jobs List
           </Button>
@@ -797,11 +789,11 @@ export function JobsPage() {
           className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-4"
           onClick={() => setActiveModalSubjectFile(null)}
         >
-            <div
+          <div
             className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1540px,calc(100vw-1.5rem))] max-h-[94vh] flex flex-col shadow-none overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header — Editorial Title Band */}
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-cursor-hairline px-6 py-5 bg-cursor-canvas flex-none">
               <div className="flex items-center gap-4 min-w-0">
                 <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
@@ -816,7 +808,6 @@ export function JobsPage() {
                   </span>
                 </div>
               </div>
-
               <div className="flex items-center gap-3">
                 <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   {completedModalStages}/{totalModalStages} stages
@@ -968,11 +959,11 @@ function StageStatusPill({status}: {status: string}) {
   );
 }
 
-function subjectProgressClass(status: string) {
-  if (status === 'success') return 'bg-cursor-semantic-success';
-  if (status === 'failed') return 'bg-cursor-semantic-error';
-  if (status === 'running') return 'bg-cursor-primary';
-  return 'bg-cursor-hairline-strong';
+function subjectAccentClasses(status: string) {
+  if (status === 'success') return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
+  if (status === 'failed') return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
+  if (status === 'running') return 'text-cursor-primary border-cursor-primary/25 bg-cursor-primary/5';
+  return 'text-cursor-muted border-cursor-hairline bg-cursor-canvas-soft';
 }
 
 function StageMetric({label, value}: {label: string; value: string}) {
