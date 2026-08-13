@@ -68,3 +68,16 @@ export function normalizeJob(job: Record<string, unknown>, fallbackTarget = 'Loc
     pid: typeof job.pid === 'string' || typeof job.pid === 'number' ? job.pid : '',
   };
 }
+
+export function jobStartedAtValue(job: Record<string, unknown>): number {
+  const startedAt = Number(job.started_at || job.created_at || 0);
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+  const updatedAt = Number(job.updated_at || 0);
+  return Number.isFinite(updatedAt) ? updatedAt : 0;
+}
+
+export function sortJobsByStartedAtDesc<T extends Record<string, unknown>>(jobs: T[]): T[] {
+  return [...jobs].sort((a, b) => jobStartedAtValue(b) - jobStartedAtValue(a));
+}

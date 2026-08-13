@@ -175,6 +175,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/jobs/start/stream":
             self._handle_remote_start_stream(payload)
             return
+        if self.path == "/remote/jobs/download/stream":
+            self._handle_remote_download_stream(payload)
+            return
         if self.path == "/jobs/local/start/stream":
             self._handle_local_start_stream(payload)
             return
@@ -361,6 +364,17 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+
+    def _handle_remote_download_stream(self, payload: dict[str, JsonValue]) -> None:
+        self._write_sse_headers()
+        try:
+            for sse_event in self._remote_jobs().stream_download_outputs(payload):  # type: ignore[arg-type]
+                self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except Exception as exc:
+            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+        finally:
+            self.close_connection = True
 
     def _handle_local_start_stream(self, payload: dict[str, JsonValue]) -> None:
         self._write_sse_headers()

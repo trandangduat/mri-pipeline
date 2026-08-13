@@ -10,6 +10,7 @@ import {useUiStore} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {buildRemotePayload} from '../api/runConfig';
 import {useRemoteValidateMutation, useListRemoteJobsMutation} from '../query/useRemote';
+import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary} from '../types/backend';
 
 export function RuntimeSection() {
@@ -23,12 +24,20 @@ export function RuntimeSection() {
   const busy = useUiStore((s) => s.busy);
   const setBusyKey = useUiStore((s) => s.setBusyKey);
   const appendOutput = useJobsStore((s) => s.appendOutput);
+  const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
 
   const print = (label: string, payload: unknown) => {
     appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
   };
 
   const remotePayload = () => buildRemotePayload(formValues);
+
+  const replaceServerJobs = (remoteJobs: RemoteJobSummary[] = []) => {
+    const currentJobs = useJobsStore.getState().latestJobs || [];
+    const localJobs = currentJobs.filter((job) => String(job.target || 'Local') !== 'Server');
+    const serverJobs = remoteJobs.map((job) => normalizeJob(job as Record<string, unknown>, 'Server'));
+    setLatestJobs(sortJobsByStartedAtDesc([...localJobs, ...serverJobs]));
+  };
 
   function renderRemoteResult(result: {
     ok?: boolean | undefined;
@@ -55,7 +64,7 @@ export function RuntimeSection() {
     if (Array.isArray(result.jobs)) {
       setRemoteResult({
         ok: true,
-        connected: remoteResult.connected,
+        connected: result.connected ?? remoteResult.connected,
         config: result.config || remoteResult.config,
         hardware: result.hardware || remoteResult.hardware,
         error: '',
@@ -98,6 +107,22 @@ export function RuntimeSection() {
     try {
       const result = await validateRemoteMutation.mutateAsync(remotePayload());
       renderRemoteResult(result);
+      if (result.connected === true) {
+        try {
+          const jobsResult = await listRemoteJobsMutation.mutateAsync(remotePayload());
+          renderRemoteResult({
+            ...jobsResult,
+            connected: true,
+            config: result.config || null,
+            hardware: result.hardware || null,
+            warnings: result.warnings,
+          });
+          replaceServerJobs(jobsResult.jobs || []);
+        } catch (error: unknown) {
+          replaceServerJobs([]);
+          print('Remote jobs failed', {error: (error as Error).message});
+        }
+      }
     } catch (error: unknown) {
       renderRemoteResult({ok: false, connected: false, error: (error as Error).message || 'SSH connection failed.'});
       print('Remote connect failed', {error: (error as Error).message});
@@ -112,6 +137,7 @@ export function RuntimeSection() {
     try {
       const result = await listRemoteJobsMutation.mutateAsync(remotePayload());
       renderRemoteResult(result);
+      replaceServerJobs(result.jobs || []);
       print('Remote jobs', result);
     } catch (error: unknown) {
       renderRemoteResult({

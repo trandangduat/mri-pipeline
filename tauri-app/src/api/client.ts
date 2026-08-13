@@ -232,6 +232,14 @@ export class BackendClient {
     }
   }
 
+  async startRemoteDownloadStream(
+    payload: Record<string, unknown>,
+    onEvent: (event: string, data: Record<string, unknown>) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    return this.startPipelineStream('/remote/jobs/download/stream', payload, onEvent, onError);
+  }
+
   async get(path: string): Promise<unknown> {
     return this.request(path, {method: 'GET'});
   }
