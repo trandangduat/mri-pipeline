@@ -22,7 +22,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
 import {StatusPill} from '../components/ui';
-import {normalizeJob, normalizeJobState} from '../jobFormatters';
+import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc} from '../jobFormatters';
 import {
   deriveBatchImages,
   deriveBatchSummary,
@@ -42,6 +42,20 @@ import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 import type {PipelineEvent} from '../types/backend';
+import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
+import type {DownloadStep} from '../components/DownloadOutputsDialog';
+import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
+
+function hasTauriInternals() {
+  if (typeof window === 'undefined') return false;
+  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
+  return typeof internals?.invoke === 'function';
+}
+
+function selectedDialogPath(selected: unknown) {
+  if (Array.isArray(selected)) return selected[0] || '';
+  return (selected as string) || '';
+}
 
 export function JobsPage() {
   const storeLatestJobs = useJobsStore((s) => s.latestJobs);
@@ -68,6 +82,19 @@ export function JobsPage() {
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
   const [subjectStatusFilter, setSubjectStatusFilter] = useState<'all' | 'success' | 'running' | 'failed' | 'pending'>('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
+
+  // Download dialog state
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [downloadLocalDir, setDownloadLocalDir] = useState('');
+  const [downloadPhase, setDownloadPhase] = useState<'select' | 'running' | 'success' | 'failed'>('select');
+  const [downloadSteps, setDownloadSteps] = useState<DownloadStep[]>([]);
+  const [downloadLogs, setDownloadLogs] = useState<string[]>([]);
+  const [downloadCopiedFiles, setDownloadCopiedFiles] = useState<number | undefined>(undefined);
+  const [downloadTotalFiles, setDownloadTotalFiles] = useState<number | undefined>(undefined);
+  const [downloadFinalPath, setDownloadFinalPath] = useState<string | undefined>(undefined);
+  const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
+  const [downloadRunning, setDownloadRunning] = useState(false);
+  const [webBrowseHint, setWebBrowseHint] = useState(false);
 
   const reqSeqRef = useRef<number>(0);
   const hasInitialRefreshed = useRef<boolean>(false);
@@ -178,7 +205,7 @@ export function JobsPage() {
       const remoteJobs = (Array.isArray(remoteRes?.jobs) ? remoteRes.jobs : []).map((j) =>
         normalizeJob(j as Record<string, unknown>, 'Server'),
       );
-      const jobs = [...localJobs, ...remoteJobs];
+      const jobs = sortJobsByStartedAtDesc([...localJobs, ...remoteJobs] as Record<string, unknown>[]);
       setLatestJobs(jobs as Record<string, unknown>[]);
 
       let nextSelected = selectedJobId;
@@ -320,11 +347,120 @@ export function JobsPage() {
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
   const handleDownloadClick = () => {
-    const effDir = String(displayMeta.output_dir_str);
-    const subDir = String(job?.download_subdir || '');
-    const fullPath = subDir && subDir !== 'N/A' ? `${effDir}/${subDir}` : effDir;
-    setDownloadNotice(isServerJob ? `Remote output path: ${fullPath}` : `Local output directory: ${fullPath}`);
-    print('Download Outputs', {ok: true, output_path: fullPath, target: isServerJob ? 'Server' : 'Local'});
+    if (!job || !isTerminal) return;
+    if (isServerJob) {
+      const effDir = String(displayMeta.output_dir_str);
+      const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
+      const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
+      const remotePath = rawOutputDir && rawOutputDir !== 'N/A'
+        ? rawOutputDir
+        : remoteJobDir
+          ? `${remoteJobDir}/outputs`
+          : '';
+      setDownloadDialogOpen(true);
+      setDownloadLocalDir(formValues.outputDir || '');
+      setDownloadPhase('select');
+      setDownloadSteps([]);
+      setDownloadLogs([]);
+      setDownloadCopiedFiles(undefined);
+      setDownloadTotalFiles(undefined);
+      setDownloadFinalPath(undefined);
+      setDownloadError(undefined);
+      setDownloadRunning(false);
+      setWebBrowseHint(false);
+      setDownloadNotice(remotePath ? `Remote output path: ${remotePath}` : null);
+    } else {
+      const effDir = String(displayMeta.output_dir_str);
+      const subDir = String(job?.download_subdir || '');
+      const fullPath = subDir && subDir !== 'N/A' ? `${effDir}/${subDir}` : effDir;
+      setDownloadNotice(`Local output directory: ${fullPath}`);
+      print('Download Outputs', {ok: true, output_path: fullPath, target: 'Local'});
+    }
+  };
+
+  const handleBrowseDownloadDir = async () => {
+    if (!hasTauriInternals()) {
+      setWebBrowseHint(true);
+      return;
+    }
+    try {
+      const {open} = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({directory: true, multiple: false});
+      const path = selectedDialogPath(selected);
+      if (path) setDownloadLocalDir(path);
+    } catch {
+      // ignore picker errors
+    }
+  };
+
+  const handleStartServerDownload = () => {
+    const trimmedDir = downloadLocalDir.trim();
+    if (!trimmedDir || !job) return;
+
+    const initialSteps: DownloadStep[] = [
+      {id: 'connect', label: 'Connecting to server', status: 'pending'},
+      {id: 'count', label: 'Counting remote files', status: 'pending'},
+      {id: 'copy', label: 'Copying outputs', status: 'pending'},
+    ];
+    setDownloadSteps(initialSteps);
+    setDownloadPhase('running');
+    setDownloadLogs([]);
+    setDownloadCopiedFiles(undefined);
+    setDownloadTotalFiles(undefined);
+    setDownloadFinalPath(undefined);
+    setDownloadError(undefined);
+    setDownloadRunning(true);
+    setWebBrowseHint(false);
+
+    const remotePayload = buildRemotePayload(formValues);
+    const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
+    const rawRemoteOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
+    const remoteOutputDir = rawRemoteOutputDir && rawRemoteOutputDir !== 'N/A' ? rawRemoteOutputDir : '';
+    const jobId = String(job?.job_id || '');
+    const payload = {
+      ...remotePayload,
+      job_id: jobId,
+      remote_job_dir: remoteJobDir,
+      remote_output_dir: remoteOutputDir,
+      local_target_dir: trimmedDir,
+      download_subdir: String(job?.download_subdir || ''),
+    };
+
+    const client = new BackendClient(DEFAULT_BACKEND_URL);
+    client.startRemoteDownloadStream(
+      payload,
+      (event, data) => {
+        if (event === 'step') {
+          const stepId = data.step as string;
+          const status = data.status as DownloadStep['status'];
+          const detail = (data.detail as string) || '';
+          setDownloadSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail} : s)));
+          if (detail && status === 'running') {
+            setDownloadLogs((prev) => [...prev, detail]);
+          }
+          if (data.copied_files != null) setDownloadCopiedFiles(data.copied_files as number);
+          if (data.total_files != null) setDownloadTotalFiles(data.total_files as number);
+        } else if (event === 'complete') {
+          const ok = data.ok as boolean;
+          setDownloadRunning(false);
+          if (ok) {
+            setDownloadPhase('success');
+            setDownloadFinalPath(data.local_path as string);
+            setDownloadCopiedFiles(data.copied_files as number);
+            setDownloadTotalFiles(data.total_files as number);
+            setDownloadNotice(`Downloaded to: ${data.local_path}`);
+          } else {
+            setDownloadPhase('failed');
+            setDownloadError((data.error as string) || 'Download failed');
+          }
+        }
+      },
+      (error) => {
+        setDownloadRunning(false);
+        setDownloadPhase('failed');
+        setDownloadError(error);
+      },
+    );
   };
 
   // Filter batch images by search query & status filter
@@ -442,7 +578,7 @@ export function JobsPage() {
             <div>
               <div className="flex items-center gap-2 pb-3 border-b border-cursor-hairline-soft mb-4">
                 <Layers className="h-4 w-4 text-cursor-primary" />
-                <CardTitle className="text-sm font-semibold text-cursor-ink">Batch Summary</CardTitle>
+                <CardTitle className="font-semibold text-cursor-ink">Batch Summary</CardTitle>
               </div>
 
               {/* Four-Segment Stacked Bar */}
@@ -537,7 +673,7 @@ export function JobsPage() {
               <Button
                 variant="ghost"
                 onClick={handleDownloadClick}
-                disabled={!job || !isTerminal}
+                disabled={!job || !isTerminal || downloadRunning}
                 className="w-full h-11 border-cursor-hairline text-cursor-body bg-white hover:bg-cursor-canvas-soft font-medium"
               >
                 <Download className="h-4 w-4 mr-1.5" /> Download Outputs
@@ -919,6 +1055,36 @@ export function JobsPage() {
           </div>
         </div>
       )}
+
+      {/* 4. Download Outputs Dialog */}
+      <DownloadOutputsDialog
+        open={downloadDialogOpen}
+        jobId={String(job?.job_id || '')}
+        remotePath={
+          (() => {
+            const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
+            if (rawOutputDir && rawOutputDir !== 'N/A') return rawOutputDir;
+            const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
+            return remoteJobDir ? `${remoteJobDir}/outputs` : '';
+          })()
+        }
+        localDir={downloadLocalDir}
+        onLocalDirChange={setDownloadLocalDir}
+        phase={downloadPhase}
+        steps={downloadSteps}
+        logs={downloadLogs}
+        copiedFiles={downloadCopiedFiles}
+        totalFiles={downloadTotalFiles}
+        finalPath={downloadFinalPath}
+        errorMessage={downloadError}
+        onBrowse={handleBrowseDownloadDir}
+        onStart={handleStartServerDownload}
+        onClose={() => {
+          if (!downloadRunning) setDownloadDialogOpen(false);
+        }}
+        canClose={!downloadRunning}
+        webBrowseHint={webBrowseHint}
+      />
     </div>
   );
 }

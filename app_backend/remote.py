@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 import stat
+import threading
 from pathlib import Path
+from queue import Queue, Empty
 from typing import Callable, Iterator, Protocol, TypeAlias
 
 from app_backend.sse_utils import step_event, complete_event, SSEEvent
@@ -310,6 +313,148 @@ class RemoteJobService:
         except Exception as exc:
             yield step_event("start", "failed", _safe_error_message(exc))
             yield complete_event(False, error=_safe_error_message(exc))
+
+    def stream_download_outputs(self, data: dict[str, object]) -> Iterator[SSEEvent]:
+        local_target_dir = str(data.get("local_target_dir", "") or "").strip()
+        if not local_target_dir:
+            yield step_event("connect", "failed", "local_target_dir is required")
+            yield complete_event(False, error="local_target_dir is required")
+            return
+        if "\x00" in local_target_dir:
+            yield step_event("connect", "failed", "Invalid local target path")
+            yield complete_event(False, error="Invalid local target path")
+            return
+
+        remote_job_dir = str(data.get("remote_job_dir", "") or "").strip()
+        if not remote_job_dir:
+            yield step_event("connect", "failed", "remote_job_dir is required")
+            yield complete_event(False, error="remote_job_dir is required")
+            return
+        if "\x00" in remote_job_dir:
+            yield step_event("connect", "failed", "Invalid remote job path")
+            yield complete_event(False, error="Invalid remote job path")
+            return
+
+        remote_output_dir = str(data.get("remote_output_dir", "") or "").strip()
+        download_subdir = str(data.get("download_subdir", "") or "").strip()
+        job_id = str(data.get("job_id", "") or "").strip()
+
+        # Compute final local job folder: <local_target_dir>/<safe_job_folder>
+        safe_job_folder = _safe_job_folder(job_id, remote_job_dir)
+        final_local_dir = str(Path(local_target_dir) / safe_job_folder)
+
+        yield step_event("connect", "running", "Connecting to server...")
+        parsed = parse_remote_config(data)
+        if parsed.get("errors"):
+            yield step_event("connect", "failed", "; ".join(str(e) for e in parsed["errors"]))
+            yield complete_event(False, errors=parsed["errors"])
+            return
+        config: RemoteRunConfig = parsed["config"]  # type: ignore[assignment]
+
+        try:
+            runner = self.runner_factory(config)
+            if hasattr(runner, "attach_job"):
+                runner.attach_job(remote_job_dir, remote_output_dir)
+            elif hasattr(runner, "remote_job_dir"):
+                runner.remote_job_dir = remote_job_dir.rstrip("/")
+                runner.remote_output_dir = remote_output_dir or remote_job_dir.rstrip("/") + "/outputs"
+            yield step_event("connect", "done", f"Connected to {config.ssh.host}")
+        except Exception as exc:
+            yield step_event("connect", "failed", _safe_error_message(exc, config))
+            yield complete_event(False, error=_safe_error_message(exc, config))
+            return
+
+        total_files = 0
+        yield step_event("count", "running", "Counting remote files...")
+        try:
+            if hasattr(runner, "count_download_files"):
+                total_files = runner.count_download_files()
+            yield step_event("count", "done", f"Found {total_files} file(s)")
+        except Exception as exc:
+            yield step_event("count", "done", f"Could not count files: {_safe_error_message(exc, config)}")
+
+        download_config = RemoteRunConfig(
+            ssh=config.ssh,
+            remote_workspace=config.remote_workspace,
+            remote_python=config.remote_python,
+            output_dir=final_local_dir,
+            download_subdir=download_subdir,
+        )
+
+        download_runner = self.runner_factory(download_config)
+        if hasattr(download_runner, "attach_job"):
+            download_runner.attach_job(remote_job_dir, remote_output_dir)
+        elif hasattr(download_runner, "remote_job_dir"):
+            download_runner.remote_job_dir = remote_job_dir.rstrip("/")
+            download_runner.remote_output_dir = remote_output_dir or remote_job_dir.rstrip("/") + "/outputs"
+
+        copied_files = 0
+        progress_queue: Queue[dict[str, object]] = Queue()
+        download_error: list[Exception | None] = [None]
+
+        def on_log(line: str) -> None:
+            nonlocal copied_files
+            if line.startswith("Downloading file:"):
+                copied_files += 1
+                pct = round(copied_files / total_files * 100) if total_files > 0 else 0
+                progress_queue.put({
+                    "step": "copy",
+                    "status": "running",
+                    "detail": line,
+                    "copied_files": copied_files,
+                    "total_files": total_files,
+                    "pct": pct,
+                })
+
+        download_runner.on_log = on_log  # type: ignore[union-attr]
+
+        def run_download() -> None:
+            try:
+                download_runner.download_outputs(final_local_dir)
+            except Exception as exc:
+                download_error[0] = exc
+            finally:
+                progress_queue.put(None)
+
+        download_thread = threading.Thread(target=run_download, daemon=True)
+        download_thread.start()
+
+        yield {"event": "step", "data": {"step": "copy", "status": "running", "detail": "Copying outputs...", "copied_files": 0, "total_files": total_files, "pct": 0}}
+
+        while True:
+            try:
+                event_data = progress_queue.get(timeout=0.5)
+            except Empty:
+                continue
+            if event_data is None:
+                break
+            yield {"event": "step", "data": event_data}  # type: ignore[dict-item]
+
+        download_thread.join(timeout=5)
+
+        # Drain any remaining events
+        while True:
+            try:
+                event_data = progress_queue.get_nowait()
+            except Empty:
+                break
+            if event_data is not None:
+                yield {"event": "step", "data": event_data}  # type: ignore[dict-item]
+
+        if download_error[0] is not None:
+            yield step_event("copy", "failed", _safe_error_message(download_error[0], config))
+            yield complete_event(False, error=_safe_error_message(download_error[0], config))
+        else:
+            pct = round(copied_files / total_files * 100) if total_files > 0 else 100
+            yield {"event": "step", "data": {"step": "copy", "status": "done", "detail": f"Copied {copied_files} file(s)", "copied_files": copied_files, "total_files": total_files, "pct": pct}}
+            yield complete_event(True, local_path=final_local_dir, copied_files=copied_files, total_files=total_files)
+
+
+def _safe_job_folder(job_id: str, remote_job_dir: str) -> str:
+    """Derive a filesystem-safe folder name for a job download."""
+    raw = job_id if job_id else Path(remote_job_dir).name if remote_job_dir else "server_job_outputs"
+    sanitized = re.sub(r"[/\\:*?\"<>|]", "_", raw).strip("_")
+    return sanitized or "server_job_outputs"
 
 
 _IMAGE_EXTENSIONS = {".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom"}

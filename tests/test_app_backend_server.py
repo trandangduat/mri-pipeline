@@ -455,3 +455,237 @@ def test_sidecar_unsupported_methods_return_json_error() -> None:
     finally:
         server.shutdown()
         thread.join(timeout=5)
+
+
+def test_sidecar_remote_download_stream_endpoint() -> None:
+    class FakeRemoteService(RemoteJobService):
+        def stream_download_outputs(self, data: dict[str, object]):
+            yield {"event": "step", "data": {"step": "connect", "status": "running", "detail": "Connecting..."}}
+            yield {"event": "step", "data": {"step": "connect", "status": "done", "detail": "Connected"}}
+            yield {"event": "step", "data": {"step": "copy", "status": "done", "detail": "Copied 3 file(s)", "copied_files": 3, "total_files": 3, "pct": 100}}
+            yield {"event": "complete", "data": {"ok": True, "local_path": "/tmp/outputs", "copied_files": 3, "total_files": 3}}
+
+    server, thread, base_url = _serve_in_thread(remote_job_service=FakeRemoteService())
+    try:
+        import http.client
+        parsed = urlparse(f"{base_url}/remote/jobs/download/stream")
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        try:
+            body = json.dumps({
+                "host": "server",
+                "port": 22,
+                "username": "tester",
+                "password": "",
+                "key_path": "",
+                "workspace": "~/mri-remote-jobs",
+                "remote_python": "python3",
+                "remote_job_dir": "/workspace/job_1",
+                "local_target_dir": "/tmp/outputs",
+            }).encode("utf-8")
+            conn.putrequest("POST", parsed.path)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(len(body)))
+            conn.endheaders()
+            conn.send(body)
+            response = conn.getresponse()
+            raw = response.read().decode("utf-8")
+        finally:
+            conn.close()
+
+        assert response.status == 200
+        assert response.getheader("Content-Type", "").startswith("text/event-stream")
+        assert "event: step" in raw
+        assert "event: complete" in raw
+        assert '"ok": true' in raw
+        assert "/tmp/outputs" in raw
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_sidecar_remote_download_stream_missing_local_target() -> None:
+    class FakeRemoteService(RemoteJobService):
+        def stream_download_outputs(self, data: dict[str, object]):
+            yield {"event": "step", "data": {"step": "connect", "status": "failed", "detail": "local_target_dir is required"}}
+            yield {"event": "complete", "data": {"ok": False, "error": "local_target_dir is required"}}
+
+    server, thread, base_url = _serve_in_thread(remote_job_service=FakeRemoteService())
+    try:
+        import http.client
+        parsed = urlparse(f"{base_url}/remote/jobs/download/stream")
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        try:
+            body = json.dumps({
+                "host": "server",
+                "port": 22,
+                "username": "tester",
+                "remote_job_dir": "/workspace/job_1",
+            }).encode("utf-8")
+            conn.putrequest("POST", parsed.path)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(len(body)))
+            conn.endheaders()
+            conn.send(body)
+            response = conn.getresponse()
+            raw = response.read().decode("utf-8")
+        finally:
+            conn.close()
+
+        assert response.status == 200
+        assert '"ok": false' in raw
+        assert "local_target_dir is required" in raw
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def _make_download_service(runner_factory=None):
+    """Create a RemoteJobService with a custom runner_factory for download tests."""
+    from remote.remote_runner import RemoteRunConfig
+
+    class FakeRunner:
+        def __init__(self, config: RemoteRunConfig, on_log=None):
+            self.config = config
+            self.on_log = on_log or (lambda _line: None)
+            self.remote_job_dir = ""
+            self.remote_output_dir = ""
+            self.attached = False
+            self.downloaded_to = None
+            self.download_count = 3
+
+        def list_background_jobs(self):
+            return []
+
+        def attach_job(self, remote_job_dir, remote_output_dir=""):
+            self.remote_job_dir = remote_job_dir
+            self.remote_output_dir = remote_output_dir
+            self.attached = True
+
+        def count_download_files(self):
+            return self.download_count
+
+        def download_outputs(self, local_target_dir=None):
+            self.downloaded_to = local_target_dir
+            from pathlib import Path
+            p = Path(local_target_dir)
+            p.mkdir(parents=True, exist_ok=True)
+            for i in range(self.download_count):
+                self.on_log(f"Downloading file: /remote/file{i}.nii -> {p}/file{i}.nii")
+                (p / f"file{i}.nii").write_text(f"data{i}")
+            return p
+
+    created_runners: list[FakeRunner] = []
+
+    def factory(config: RemoteRunConfig):
+        r = FakeRunner(config)
+        created_runners.append(r)
+        return r
+
+    service = RemoteJobService(runner_factory=runner_factory or factory)
+    return service, created_runners
+
+
+def test_download_service_valid_payload(tmp_path) -> None:
+    from app_backend.remote import RemoteJobService
+
+    service, runners = _make_download_service()
+    events = list(service.stream_download_outputs({
+        "host": "server",
+        "port": 22,
+        "username": "tester",
+        "password": "",
+        "key_path": "",
+        "workspace": "~/mri-remote-jobs",
+        "remote_python": "python3",
+        "remote_job_dir": "/workspace/job_abc",
+        "local_target_dir": str(tmp_path / "outputs"),
+        "job_id": "remote_job_abc",
+    }))
+
+    event_types = [(e["event"], e["data"].get("step"), e["data"].get("status")) for e in events]
+    assert ("step", "connect", "running") in event_types
+    assert ("step", "connect", "done") in event_types
+    assert ("step", "count", "running") in event_types
+    assert ("step", "count", "done") in event_types
+    assert ("step", "copy", "running") in event_types
+    assert ("step", "copy", "done") in event_types
+
+    complete_events = [e for e in events if e["event"] == "complete"]
+    assert len(complete_events) == 1
+    assert complete_events[0]["data"]["ok"] is True
+    local_path = complete_events[0]["data"]["local_path"]
+    assert "remote_job_abc" in local_path
+
+    download_runner = runners[1]
+    assert download_runner.downloaded_to is not None
+    assert "remote_job_abc" in str(download_runner.downloaded_to)
+
+
+def test_download_service_missing_local_target(tmp_path) -> None:
+    service, _ = _make_download_service()
+    events = list(service.stream_download_outputs({
+        "host": "server",
+        "port": 22,
+        "username": "tester",
+        "remote_job_dir": "/workspace/job_1",
+    }))
+    complete_events = [e for e in events if e["event"] == "complete"]
+    assert len(complete_events) == 1
+    assert complete_events[0]["data"]["ok"] is False
+    assert "local_target_dir" in str(complete_events[0]["data"].get("error", ""))
+
+
+def test_download_service_missing_remote_job_dir(tmp_path) -> None:
+    service, _ = _make_download_service()
+    events = list(service.stream_download_outputs({
+        "host": "server",
+        "port": 22,
+        "username": "tester",
+        "local_target_dir": str(tmp_path / "outputs"),
+    }))
+    complete_events = [e for e in events if e["event"] == "complete"]
+    assert len(complete_events) == 1
+    assert complete_events[0]["data"]["ok"] is False
+    assert "remote_job_dir" in str(complete_events[0]["data"].get("error", ""))
+
+
+def test_download_service_uses_job_id_for_final_path(tmp_path) -> None:
+    service, runners = _make_download_service()
+    events = list(service.stream_download_outputs({
+        "host": "server",
+        "port": 22,
+        "username": "tester",
+        "password": "",
+        "key_path": "",
+        "workspace": "~/mri-remote-jobs",
+        "remote_python": "python3",
+        "remote_job_dir": "/workspace/job_xyz",
+        "local_target_dir": str(tmp_path / "dest"),
+        "job_id": "my_job_123",
+    }))
+    complete_events = [e for e in events if e["event"] == "complete"]
+    assert complete_events[0]["data"]["ok"] is True
+    local_path = str(complete_events[0]["data"]["local_path"])
+    assert "my_job_123" in local_path
+
+    download_runner = runners[1]
+    assert "my_job_123" in str(download_runner.downloaded_to)
+
+
+def test_download_service_falls_back_to_remote_dir_basename(tmp_path) -> None:
+    service, runners = _make_download_service()
+    events = list(service.stream_download_outputs({
+        "host": "server",
+        "port": 22,
+        "username": "tester",
+        "password": "",
+        "key_path": "",
+        "workspace": "~/mri-remote-jobs",
+        "remote_python": "python3",
+        "remote_job_dir": "/workspace/job_fallback_test",
+        "local_target_dir": str(tmp_path / "dest"),
+    }))
+    complete_events = [e for e in events if e["event"] == "complete"]
+    assert complete_events[0]["data"]["ok"] is True
+    local_path = str(complete_events[0]["data"]["local_path"])
+    assert "job_fallback_test" in local_path
