@@ -1,0 +1,5 @@
+{
+  "plugin": [
+    "opencode-cache-hit@latest"
+  ]
+}
