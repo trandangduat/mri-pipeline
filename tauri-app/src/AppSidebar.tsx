@@ -1,4 +1,4 @@
-import React, {useCallback} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -17,7 +17,9 @@ import {
 import {Activity, BrainCircuit, Container, SlidersHorizontal} from 'lucide-react';
 import type {AppTab} from './stores/uiStore';
 import {displayJobState, sidebarDotClass} from './lib/jobs';
-import {jobBasename} from './jobFormatters';
+import {jobBasename, sortJobsByStartedAtDesc} from './jobFormatters';
+
+const SIDEBAR_JOBS_PER_GROUP = 3;
 
 export interface AppSidebarProps {
   activeTab: AppTab;
@@ -44,6 +46,13 @@ export function AppSidebar({
   sidebarWidth,
   onSidebarWidthChange,
 }: AppSidebarProps) {
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const sortedJobs = sortJobsByStartedAtDesc((jobs as Record<string, unknown>[]).filter(Boolean));
+  const groupedJobs = [
+    {label: 'Local', jobs: sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server')},
+    {label: 'Server', jobs: sortedJobs.filter((job) => String(job.target || 'Local') === 'Server')},
+  ];
+
   const startResize = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!sidebarOpen) return;
@@ -129,35 +138,63 @@ export function AppSidebar({
                     </span>
                   </SidebarMenuSubItem>
                 ) : (
-                  jobs.map((jobItem) => {
-                    const job = jobItem as Record<string, unknown>;
-                    const isSelected = selectedJobId === job.job_id;
-                    const stateCls = sidebarDotClass(job);
-                    const title = jobBasename(job.display_name || job.job_id || job.remote_job_dir || job.job_dir);
-                    const subtitle = displayJobState(job.state);
+                  groupedJobs.map((group) => {
+                    if (group.jobs.length === 0) return null;
+                    const isExpanded = Boolean(expandedGroups[group.label]);
+                    const visibleJobs = isExpanded ? group.jobs : group.jobs.slice(0, SIDEBAR_JOBS_PER_GROUP);
+                    const hiddenCount = group.jobs.length - SIDEBAR_JOBS_PER_GROUP;
 
                     return (
-                      <SidebarMenuSubItem key={String(job.job_id || '')}>
-                        <SidebarMenuSubButton
-                          isActive={isSelected}
-                          onClick={() => {
-                            onSelectTab('jobs');
-                            onSelectJob?.(String(job.job_id || ''));
-                          }}
-                          className="min-h-11 text-[13px] flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`h-2 w-2 rounded-full flex-none ${stateCls}`} />
-                            <span className="grid min-w-0 gap-0.5">
-                              <span className="truncate text-[13px] font-medium text-cursor-ink">{title}</span>
-                              <span className="truncate text-[10px] uppercase tracking-[0.08em] text-cursor-muted">{subtitle}</span>
-                            </span>
-                          </div>
-                          <span className="rounded border border-cursor-hairline bg-white px-1.5 py-0.5 text-[10px] font-mono uppercase text-cursor-body">
-                            {String(job.target || 'Local')}
+                      <React.Fragment key={group.label}>
+                        <SidebarMenuSubItem>
+                          <span className="mt-2 block px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-cursor-muted">
+                            {group.label}
                           </span>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
+                        </SidebarMenuSubItem>
+                        {visibleJobs.map((job) => {
+                          const isSelected = selectedJobId === job.job_id;
+                          const stateCls = sidebarDotClass(job);
+                          const title = jobBasename(job.display_name || job.job_id || job.remote_job_dir || job.job_dir);
+                          const subtitle = displayJobState(job.state);
+
+                          return (
+                            <SidebarMenuSubItem key={String(job.job_id || job.remote_job_dir || job.job_dir || title)}>
+                              <SidebarMenuSubButton
+                                isActive={isSelected}
+                                onClick={() => {
+                                  onSelectTab('jobs');
+                                  onSelectJob?.(String(job.job_id || ''));
+                                }}
+                                className="min-h-11 text-[13px] flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`h-2 w-2 rounded-full flex-none ${stateCls}`} />
+                                  <span className="grid min-w-0 gap-0.5">
+                                    <span className="truncate text-[13px] font-medium text-cursor-ink">{title}</span>
+                                    <span className="truncate text-[10px] uppercase tracking-[0.08em] text-cursor-muted">{subtitle}</span>
+                                  </span>
+                                </div>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          );
+                        })}
+                        {hiddenCount > 0 ? (
+                          <SidebarMenuSubItem>
+                            <SidebarMenuSubButton
+                              onClick={(event) => {
+                                event.preventDefault();
+                                onSelectTab('jobs');
+                                setExpandedGroups((prev) => ({...prev, [group.label]: !prev[group.label]}));
+                              }}
+                              className="h-8 cursor-pointer rounded-lg px-2 text-[12px] text-cursor-body hover:bg-cursor-canvas-soft"
+                            >
+                              {isExpanded
+                                ? 'Show fewer server jobs'
+                                : `View all ${group.label.toLowerCase()} jobs (${hiddenCount} more)`}
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ) : null}
+                      </React.Fragment>
                     );
                   })
                 )}
