@@ -85,6 +85,12 @@ export const toolImageSchema = z.object({
   repo_size: z.string().nullable().optional(),
   uncompressed_size: z.string().nullable().optional(),
   image_id: z.string().nullable().optional(),
+  pull_status: z.string().optional(),
+  pull_pid: z.union([z.string(), z.number()]).optional(),
+  pull_started_at: z.number().optional(),
+  pull_updated_at: z.number().optional(),
+  pull_error: z.string().nullable().optional(),
+  pull_log_tail: z.string().optional(),
 });
 
 export const toolsImageResponseSchema = z.object({
@@ -99,11 +105,17 @@ export const toolsImageResponseSchema = z.object({
 export const pullImageResponseSchema = z.object({
   ok: z.boolean(),
   error: z.string().optional(),
+  target: z.string().optional(),
+  image: z.string().optional(),
+  status: z.string().optional(),
+  already_running: z.boolean().optional(),
+  pid: z.union([z.string(), z.number()]).optional(),
 });
 
 export const removeImageResponseSchema = z.object({
   ok: z.boolean(),
-  error: z.string().optional(),
+  error: z.string().nullable().optional(),
+  target: z.string().optional(),
 });
 
 export const remoteConfigSummarySchema = z.object({
@@ -132,11 +144,22 @@ export const remoteValidateResponseSchema = z.object({
 });
 
 export const remoteJobSummarySchema = z.object({
+  job_id: z.string().optional(),
   target: z.string(),
   state: z.string(),
-  pid: z.string(),
+  pid: z.union([z.string(), z.number()]),
+  exit_code: z.number().nullable().optional(),
   remote_job_dir: z.string(),
-});
+  job_dir: z.string().optional(),
+  started_at: z.number().optional(),
+  updated_at: z.number().optional(),
+  finished_at: z.number().nullable().optional(),
+  output_dir: z.string().optional(),
+  effective_output_dir: z.string().optional(),
+  download_subdir: z.string().optional(),
+  input_files: z.array(z.string()).optional(),
+  run_request_summary: runRequestSummarySchema,
+}).passthrough();
 
 export const remoteJobsResponseSchema = z.object({
   ok: z.boolean(),

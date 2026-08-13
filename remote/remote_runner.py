@@ -1032,6 +1032,135 @@ class RemoteRunner:
             self.on_log("Uploading license directory...")
             ssh.upload_dir(local_license, remote_license_dir, skip_dirs={"__pycache__"})
 
+    @staticmethod
+    def image_pull_key(image: str) -> str:
+        return hashlib.sha256(image.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def remote_pull_paths(image: str) -> dict[str, str]:
+        key = RemoteRunner.image_pull_key(image)
+        base = f"/tmp/neuroflow-image-pulls/{key}"
+        return {"json": f"{base}.json", "log": f"{base}.log", "sh": f"{base}.sh"}
+
+    def check_image_states(self, images: list[str]) -> dict[str, dict[str, object]]:
+        states: dict[str, dict[str, object]] = {}
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            for image in dict.fromkeys(images):
+                states[image] = self._check_single_image_state(ssh, image)
+        return states
+
+    def _check_single_image_state(self, ssh: RemoteSSHClient, image: str) -> dict[str, object]:
+        code = ssh.run(f"docker image inspect {shlex.quote(image)} >/dev/null 2>&1", stream=False)
+        if code == 0:
+            return {"status": "Installed", "pull_status": None}
+
+        paths = self.remote_pull_paths(image)
+        json_code, json_text = ssh.read_text(f"cat {shlex.quote(paths['json'])} 2>/dev/null")
+        if json_code != 0 or not json_text.strip():
+            return {"status": "Missing", "pull_status": None}
+
+        try:
+            track = json.loads(json_text.strip())
+        except (json.JSONDecodeError, ValueError):
+            return {"status": "Missing", "pull_status": None}
+
+        pull_status = str(track.get("status", "")).lower()
+        pid = str(track.get("pid", "")).strip()
+
+        if pull_status == "pulling" and pid:
+            alive = ssh.run(f"kill -0 {shlex.quote(pid)} >/dev/null 2>&1", stream=False, check=False)
+            if alive == 0:
+                marker = f"neuroflow-image-pull-{self.image_pull_key(image)}"
+                ps_code, ps_text = ssh.read_text(f"ps -p {shlex.quote(pid)} -o args= 2>/dev/null")
+                if ps_code == 0 and marker in ps_text:
+                    return {
+                        "status": "Downloading",
+                        "pull_status": "pulling",
+                        "pull_pid": track.get("pid"),
+                        "pull_started_at": track.get("started_at"),
+                        "pull_updated_at": track.get("updated_at"),
+                        "pull_error": None,
+                    }
+
+        if pull_status == "success":
+            return {"status": "Missing", "pull_status": None}
+
+        return {
+            "status": "Missing",
+            "pull_status": pull_status if pull_status in {"failed", "stale"} else None,
+            "pull_pid": track.get("pid"),
+            "pull_started_at": track.get("started_at"),
+            "pull_updated_at": track.get("updated_at"),
+            "pull_error": track.get("error"),
+        }
+
+    def start_remote_image_pull(self, image: str) -> dict[str, object]:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            code = ssh.run(f"docker image inspect {shlex.quote(image)} >/dev/null 2>&1", stream=False)
+            if code == 0:
+                return {"ok": True, "target": "Server", "image": image, "status": "installed", "already_running": False}
+
+            existing = self._check_single_image_state(ssh, image)
+            if existing.get("pull_status") == "pulling":
+                return {
+                    "ok": True,
+                    "target": "Server",
+                    "image": image,
+                    "status": "pulling",
+                    "already_running": True,
+                    "pull_pid": existing.get("pull_pid"),
+                }
+
+            paths = self.remote_pull_paths(image)
+            key = self.image_pull_key(image)
+            marker = f"neuroflow-image-pull-{key}"
+            quoted_image = shlex.quote(image)
+
+            ssh.run("mkdir -p /tmp/neuroflow-image-pulls && chmod 1777 /tmp/neuroflow-image-pulls || true", stream=False, check=False)
+
+            shell_script = f"""\
+set +e
+pid=$$
+started=$(date +%s)
+cat > {shlex.quote(paths['json'])}.tmp <<JSONEOF
+{{"image": {json.dumps(image)}, "status": "pulling", "pid": $pid, "started_at": $started, "updated_at": $started, "exit_code": null, "error": null, "log_path": {json.dumps(paths['log'])}}}
+JSONEOF
+mv {shlex.quote(paths['json'])}.tmp {shlex.quote(paths['json'])}
+docker pull {quoted_image} >> {shlex.quote(paths['log'])} 2>&1
+code=$?
+updated=$(date +%s)
+if [ $code -eq 0 ]; then
+  status="success"
+  err="null"
+else
+  status="failed"
+  err="\\\"Pull failed (exit $code)\\\""
+fi
+cat > {shlex.quote(paths['json'])}.tmp <<JSONEOF2
+{{"image": {json.dumps(image)}, "status": "$status", "pid": $pid, "started_at": $started, "updated_at": $updated, "exit_code": $code, "error": $err, "log_path": {json.dumps(paths['log'])}}}
+JSONEOF2
+mv {shlex.quote(paths['json'])}.tmp {shlex.quote(paths['json'])}
+exit $code
+"""
+            ssh.run(f"cat > {shlex.quote(paths['sh'])} <<'SCREOF'\n{shell_script}\nSCREOF", stream=False, check=False)
+            ssh.run(f"chmod +x {shlex.quote(paths['sh'])}", stream=False, check=False)
+
+            sh_path = paths['sh']
+            start_cmd = (
+                f"nohup bash -c 'exec -a {shlex.quote(marker)} bash {shlex.quote(sh_path)}' "
+                f">/dev/null 2>&1 < /dev/null &"
+            )
+            ssh.run(start_cmd, stream=False, check=False)
+
+            self.on_log(f"Started detached remote image pull: {image}")
+            return {
+                "ok": True,
+                "target": "Server",
+                "image": image,
+                "status": "pulling",
+                "already_running": False,
+            }
+
     def _tool_args(self) -> list[str]:
         args: list[str] = []
         option_map = {

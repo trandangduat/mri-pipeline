@@ -62,7 +62,8 @@ export function usePullImage() {
   const client = useClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (image: string) => client.pullImage(image),
+    mutationFn: ({image, target = 'Local', remote = null}: {image: string; target?: string; remote?: unknown}) =>
+      client.pullImage(image, {target, remote}),
     onSuccess: () => {
       void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
     },
@@ -73,7 +74,8 @@ export function useRemoveImage() {
   const client = useClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (image: string) => client.removeImage(image),
+    mutationFn: ({image, target = 'Local', remote = null}: {image: string; target?: string; remote?: unknown}) =>
+      client.removeImage(image, {target, remote}),
     onSuccess: () => {
       void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
     },
@@ -84,25 +86,27 @@ export interface PullStreamState {
   status: 'idle' | 'pulling' | 'success' | 'failed';
   logs: string[];
   error: string | null;
+  image: string | null;
+  target: string;
 }
 
 export function usePullImageStream() {
   const queryClient = useQueryClient();
-  const [state, setState] = useState<PullStreamState>({status: 'idle', logs: [], error: null});
+  const [state, setState] = useState<PullStreamState>({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
   const abortRef = useRef<AbortController | null>(null);
 
   const pull = useCallback(
-    async (image: string) => {
+    async (image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      setState({status: 'pulling', logs: [], error: null});
+      setState({status: 'pulling', logs: [], error: null, image, target});
 
       try {
         const response = await fetch(`${DEFAULT_BACKEND_URL}/tools/local/pull`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({image}),
+          body: JSON.stringify({image, target, remote}),
           signal: controller.signal,
         });
 
@@ -137,7 +141,11 @@ export function usePullImageStream() {
                   setState((s) => ({...s, logs: [...s.logs, data.detail]}));
                 } else if (currentEvent === 'complete') {
                   if (data.ok) {
-                    setState((s) => ({...s, status: 'success'}));
+                    if (target === 'Server' && data.status === 'pulling') {
+                      setState((s) => ({...s, status: 'pulling', logs: [...s.logs, 'Server pull is running in the background.']}));
+                    } else {
+                      setState((s) => ({...s, status: 'success'}));
+                    }
                     void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
                   } else {
                     setState((s) => ({...s, status: 'failed', error: data.error || 'Pull failed'}));
@@ -161,7 +169,7 @@ export function usePullImageStream() {
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
-    setState({status: 'idle', logs: [], error: null});
+    setState({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
   }, []);
 
   return {...state, pull, reset};

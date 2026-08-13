@@ -198,15 +198,28 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             if not image:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
                 return
-            self._handle_tools_pull_stream(image)
+            target = str(payload.get("target", "Local") or "Local")
+            remote = payload.get("remote")
+            if target == "Server":
+                self._write_sse_headers()
+                try:
+                    self._send_sse_event("step", {"step": "pull", "status": "running", "detail": f"Server pull status for {image}"})
+                    result = self._local_tools().pull_image(image, target=target, remote=remote if isinstance(remote, dict) else None)
+                    self._send_sse_event("complete", result)
+                except Exception as exc:
+                    self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            else:
+                self._handle_tools_pull_stream(image)
             return
         if self.path == "/tools/local/remove":
             image = str(payload.get("image", "") or "")
             if not image:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
                 return
-            ok, error = self._local_tools().remove_image(image)
-            self._write_json(HTTPStatus.OK, {"ok": ok, "error": error or None})
+            target = str(payload.get("target", "Local") or "Local")
+            remote = payload.get("remote")
+            result = self._local_tools().remove_image(image, target=target, remote=remote if isinstance(remote, dict) else None)
+            self._write_json(HTTPStatus.OK, result)
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 

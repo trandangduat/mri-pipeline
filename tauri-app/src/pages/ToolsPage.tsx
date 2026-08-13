@@ -1,11 +1,10 @@
-import React, {useState} from 'react';
-import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu} from 'lucide-react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu, AlertCircle} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
-import {ImageCard} from '../components/ImageCard';
-import {DownloadProgress} from '../components/DownloadProgress';
-import {isImageInstalled} from '../lib/tools';
+import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
+import {isImageInstalled, isImageDownloading, isImageFailed} from '../lib/tools';
 import type {ToolImage} from '../types/backend';
-import {useEnvironment, useMetadata} from '../query/useEnvironment';
+import {useEnvironment} from '../query/useEnvironment';
 import {useLocalImageStatusMutation, useRemoveImage, usePullImageStream} from '../query/useTools';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useToolsStore} from '../stores/toolsStore';
@@ -13,9 +12,10 @@ import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 
+const POLL_INTERVAL_MS = 5000;
+
 export function ToolsPage() {
   const {data: environment, refetch: refetchEnvironment} = useEnvironment();
-  const {data: metadata} = useMetadata();
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
@@ -31,7 +31,6 @@ export function ToolsPage() {
   const localImageStatusMutation = useLocalImageStatusMutation();
 
   const [removingImage, setRemovingImage] = useState<string | null>(null);
-  const [refreshMessage, setRefreshMessage] = useState<string>('');
 
   const selectedRuntimeTarget = () => (formValues.runtimeTarget === 'Server' ? 'Server' : 'Local');
 
@@ -43,23 +42,14 @@ export function ToolsPage() {
   const images = (latestImages || []) as ToolImage[];
   const installedImages = images.filter(isImageInstalled);
   const missingImages = images.filter((img) => !isImageInstalled(img));
+  const hasDownloading = images.some(isImageDownloading);
 
-  const refreshTools = async () => {
+  const refreshTools = useCallback(async ({manual = true}: {manual?: boolean} = {}) => {
     const target = selectedRuntimeTarget();
     if (target === 'Server' && !remoteResult.connected) {
-      setRefreshMessage('Connect SSH before checking server Docker images.');
       return;
     }
-    let selectedTools: Record<string, string> = {};
-    if (formValues.pipelineMode === 'Custom') {
-      for (const stage of metadata?.stage_order || []) {
-        const val = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
-        if (val) selectedTools[stage] = val;
-      }
-    } else {
-      selectedTools = metadata?.presets?.[formValues.pipelineMode]?.tools || {};
-    }
-    setRefreshMessage(`Checking ${target} Docker images...`);
+    const selectedTools: Record<string, string> = {};
     setBusyKey('refreshTools', true);
     try {
       const result = await localImageStatusMutation.mutateAsync({
@@ -70,20 +60,42 @@ export function ToolsPage() {
         },
       });
       if (!result.ok) {
-        setRefreshMessage(result.error || `${target} Docker image check failed.`);
         setLatestImages([]);
         return;
       }
       const imgs = Array.isArray(result.images) ? result.images : [];
       setLatestImages(imgs);
-      setRefreshMessage(`Found ${imgs.length} images — ${imgs.filter(isImageInstalled).length} installed, ${imgs.filter((i) => !isImageInstalled(i)).length} missing.`);
+
     } catch (error: unknown) {
-      setRefreshMessage(`${target} Docker check failed: ${(error as Error).message || 'unknown error'}`);
       setLatestImages([]);
     } finally {
       setBusyKey('refreshTools', false);
     }
-  };
+  }, [formValues, remoteResult.connected, localImageStatusMutation, setBusyKey, setLatestImages]);
+
+  const autoCheckKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    const target = selectedRuntimeTarget();
+    const key = target === 'Server'
+      ? `Server:${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}:${remoteResult.config?.username || ''}:${remoteResult.config?.workspace || ''}`
+      : 'Local';
+    if (autoCheckKeyRef.current === key) return;
+    autoCheckKeyRef.current = key;
+    setLatestImages([]);
+    if (target === 'Server' && !remoteResult.connected) {
+      return;
+    }
+    void refreshTools({manual: false});
+  }, [formValues.runtimeTarget, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, remoteResult.config?.workspace, refreshTools, setLatestImages]);
+
+  useEffect(() => {
+    if (!hasDownloading) return;
+    const interval = setInterval(() => {
+      void refreshTools({manual: false});
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [hasDownloading, refreshTools]);
 
   const refreshEnvironment = async () => {
     setBusyKey('checkEnv', true);
@@ -95,11 +107,16 @@ export function ToolsPage() {
   };
 
   const handleRemove = async (image: string) => {
+    const target = selectedRuntimeTarget();
     setRemovingImage(image);
     try {
-      const result = await removeImageMutation.mutateAsync(image);
+      const result = await removeImageMutation.mutateAsync({
+        image,
+        target,
+        remote: target === 'Server' ? buildRemotePayload(formValues) : null,
+      });
       if (result.ok) {
-        await refreshTools();
+        await refreshTools({manual: false});
       }
     } finally {
       setRemovingImage(null);
@@ -107,8 +124,24 @@ export function ToolsPage() {
   };
 
   const handleDownload = (image: string) => {
-    pullStream.pull(image);
+    const target = selectedRuntimeTarget();
+    if (target === 'Server' && !remoteResult.connected) {
+      return;
+    }
+    void pullStream.pull(image, {
+      target,
+      remote: target === 'Server' ? buildRemotePayload(formValues) : null,
+    });
   };
+
+  const emptyMessage = () => {
+    const target = selectedRuntimeTarget();
+    if (busy.refreshTools) return 'Checking Docker image status...';
+    if (target === 'Server' && !remoteResult.connected) return 'Connect SSH to load server Docker image status.';
+    return 'Docker image status will load automatically.';
+  };
+
+  const target = selectedRuntimeTarget();
 
   return (
     <div className="h-full overflow-y-auto pr-2 pb-8">
@@ -133,26 +166,26 @@ export function ToolsPage() {
 
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))]">
             <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-timeline-read">
-                <Cpu className="h-5 w-5 text-cursor-ink" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-primary/10">
+                <Cpu className="h-5 w-5 text-cursor-primary" />
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Runtime Target</span>
                 <span className="inline-flex rounded-full border border-cursor-hairline bg-cursor-hairline-soft px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-ink">
-                  {selectedRuntimeTarget()}
+                  {target}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-timeline-grep">
-                {python.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-ink" /> : <XCircle className="h-5 w-5 text-cursor-ink" />}
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-semantic-success/10">
+                {python.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-semantic-success" /> : <XCircle className="h-5 w-5 text-cursor-semantic-error" />}
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Python</span>
                 <div className="flex items-center gap-2">
                   <StatusPill state={python.ok ? 'installed' : 'missing'}>
-                    {python.ok ? `Ready` : 'Missing'}
+                    {python.ok ? 'Ready' : 'Missing'}
                   </StatusPill>
                   {python.ok && python.version && (
                     <code className="font-mono text-xs text-cursor-muted">{python.version}</code>
@@ -162,8 +195,8 @@ export function ToolsPage() {
             </div>
 
             <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-timeline-edit">
-                {docker.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-ink" /> : <XCircle className="h-5 w-5 text-cursor-ink" />}
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-semantic-success/10">
+                {docker.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-semantic-success" /> : <XCircle className="h-5 w-5 text-cursor-semantic-error" />}
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Docker</span>
@@ -190,25 +223,20 @@ export function ToolsPage() {
             <Button
               variant="ghost"
               icon={busy.refreshTools ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              onClick={refreshTools}
+              onClick={() => void refreshTools({manual: true})}
               disabled={busy.refreshTools}
             >
               {busy.refreshTools ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
 
-          {refreshMessage && (
-            <div className="mb-4 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3 text-xs text-cursor-body">
-              {refreshMessage}
-            </div>
-          )}
-
           {installedImages.length > 0 ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(24rem,1fr))]">
               {installedImages.map((image) => (
-                <ImageCard
+                <InstalledImageCard
                   key={image.image}
                   image={image}
+                  target={target}
                   onRemove={handleRemove}
                   isRemoving={removingImage === image.image}
                 />
@@ -218,9 +246,7 @@ export function ToolsPage() {
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <HardDrive className="mx-auto mb-2 h-8 w-8 text-cursor-muted" />
               <p className="text-sm text-cursor-body">
-                {latestImages.length === 0
-                  ? 'Click "Refresh" to check Docker image status.'
-                  : 'No installed images found.'}
+                {latestImages.length === 0 ? emptyMessage() : 'No installed images found.'}
               </p>
             </div>
           )}
@@ -230,10 +256,10 @@ export function ToolsPage() {
         <section>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-[18px] font-semibold leading-[1.4] text-cursor-ink">
-              <Download className="h-5 w-5 text-cursor-muted" />
+              <AlertCircle className="h-5 w-5 text-cursor-semantic-error" />
               Not Available
               {missingImages.length > 0 && (
-                <span className="ml-1 inline-flex rounded-full bg-cursor-muted/10 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-muted">
+                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-error/10 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-semantic-error">
                   {missingImages.length}
                 </span>
               )}
@@ -241,13 +267,15 @@ export function ToolsPage() {
           </div>
 
           {missingImages.length > 0 ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
               {missingImages.map((image) => (
-                <ImageCard
+                <MissingImageCard
                   key={image.image}
                   image={image}
+                  target={target}
+                  isDownloading={isImageDownloading(image)}
+                  isFrontendPulling={pullStream.status === 'pulling' && pullStream.image === image.image}
                   onDownload={handleDownload}
-                  isDownloading={pullStream.status === 'pulling' && pullStream.logs.length > 0}
                 />
               ))}
             </div>
@@ -255,21 +283,32 @@ export function ToolsPage() {
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-cursor-semantic-success" />
               <p className="text-sm text-cursor-body">
-                {latestImages.length === 0
-                  ? 'Click "Refresh" to check Docker image status.'
-                  : 'All required images are installed.'}
+                {latestImages.length === 0 ? emptyMessage() : 'All required images are installed.'}
               </p>
             </div>
           )}
 
-          {/* Download Progress */}
-          {pullStream.status !== 'idle' && (
-            <div className="mt-4">
-              <DownloadProgress
-                image="docker-pull"
-                state={{status: pullStream.status, logs: pullStream.logs, error: pullStream.error}}
-                onClear={pullStream.reset}
-              />
+          {pullStream.status !== 'idle' && pullStream.logs.length > 0 && (
+            <div className="mt-4 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <code className="font-mono text-xs text-cursor-ink">{pullStream.image}</code>
+                <StatusPill state={pullStream.status === 'pulling' ? 'running' : pullStream.status === 'success' ? 'success' : 'failed'}>
+                  {pullStream.status === 'pulling'
+                    ? (pullStream.target === 'Server' ? 'Running in background' : 'Pulling')
+                    : pullStream.status === 'success' ? 'Done' : 'Failed'}
+                </StatusPill>
+                {pullStream.status === 'failed' && pullStream.error && (
+                  <span className="text-xs text-cursor-semantic-error">{pullStream.error}</span>
+                )}
+              </div>
+              <pre className="max-h-32 overflow-auto rounded-md border border-cursor-hairline-soft bg-white p-2 font-mono text-[11px] leading-relaxed text-cursor-body">
+                {pullStream.logs.slice(-10).join('\n')}
+              </pre>
+              {(pullStream.status === 'success' || pullStream.status === 'failed') && (
+                <Button variant="ghost" className="mt-2 h-6 px-2 text-[11px]" onClick={pullStream.reset}>
+                  Dismiss
+                </Button>
+              )}
             </div>
           )}
         </section>

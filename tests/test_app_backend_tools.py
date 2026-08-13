@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app_backend.tools import CommandResult, ImageInfo, LocalToolService
+from pipeline.registry import tool_display_name
 
 
 class FakeCommandRunner:
@@ -32,7 +33,7 @@ def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
                 "image": "mkdayyyy/mri-fs7-all:latest",
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
-                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": "FS7 Recon Style Segmentation"}],
+                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": tool_display_name("fs7_recon_style_segmentation")}],
                 "repo_size": "100.0 MB",
                 "uncompressed_size": "100.0 MB",
                 "image_id": "sha256:abc123def45",
@@ -86,6 +87,16 @@ class FakeRemoteRunner:
         self.checked_images = images
         return {img: (img in self.installed_images) for img in images}
 
+    def check_image_states(self, images: list[str]) -> dict[str, dict[str, object]]:
+        self.checked_images = images
+        states: dict[str, dict[str, object]] = {}
+        for img in images:
+            if img in self.installed_images:
+                states[img] = {"status": "Installed", "pull_status": None}
+            else:
+                states[img] = {"status": "Missing", "pull_status": None}
+        return states
+
 
 def test_tool_service_checks_server_target_images() -> None:
     fake_remote = FakeRemoteRunner(installed_images={"mkdayyyy/mri-fs7-all:latest"})
@@ -109,7 +120,7 @@ def test_tool_service_checks_server_target_images() -> None:
                 "image": "mkdayyyy/mri-fs7-all:latest",
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
-                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": "FS7 Recon Style Segmentation"}],
+                "tool_details": [{"key": "fs7_recon_style_segmentation", "name": tool_display_name("fs7_recon_style_segmentation")}],
                 "repo_size": None,
                 "uncompressed_size": None,
                 "image_id": None,

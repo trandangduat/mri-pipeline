@@ -60,23 +60,33 @@ class LocalToolService:
             config = parsed["config"]
             assert isinstance(config, RemoteRunConfig)
             try:
-                runner = self.remote_runner_factory(config)
-                statuses = runner.check_image_statuses(list(image_tools.keys()))  # type: ignore[attr-defined]
+                runner: RemoteRunner = self.remote_runner_factory(config)  # type: ignore[assignment]
+                image_list = list(image_tools.keys())
+                states = runner.check_image_states(image_list)
             except Exception:
                 return {"ok": False, "target": "Server", "error": "Remote Docker image check failed"}
 
             images: list[JsonValue] = []
             for image, tools in image_tools.items():
-                installed = bool(statuses.get(image, False))
-                images.append({
+                state = states.get(image, {"status": "Missing"})
+                status = str(state.get("status", "Missing"))
+                entry: dict[str, JsonValue] = {
                     "image": image,
-                    "status": "Installed" if installed else "Missing",
+                    "status": status,
                     "tools": tools,
                     "tool_details": image_tool_details.get(image, []),
                     "repo_size": None,
                     "uncompressed_size": None,
                     "image_id": None,
-                })
+                }
+                pull_status = state.get("pull_status")
+                if pull_status:
+                    entry["pull_status"] = pull_status
+                    entry["pull_pid"] = state.get("pull_pid")
+                    entry["pull_started_at"] = state.get("pull_started_at")
+                    entry["pull_updated_at"] = state.get("pull_updated_at")
+                    entry["pull_error"] = state.get("pull_error")
+                images.append(entry)
             return {"ok": True, "target": "Server", "images": images, "warnings": warnings}
 
         images: list[JsonValue] = []
@@ -107,7 +117,17 @@ class LocalToolService:
     def local_image_status(self, selected_tools: dict[str, object] | None = None) -> dict[str, JsonValue]:
         return self.image_status(selected_tools=selected_tools, target="Local")
 
-    def pull_image(self, image: str) -> tuple[bool, str]:
+    def pull_image(
+        self,
+        image: str,
+        target: str = "Local",
+        remote: dict[str, object] | None = None,
+    ) -> dict[str, JsonValue]:
+        if target == "Server":
+            return self._pull_image_server(image, remote)
+        return self._pull_image_local(image)
+
+    def _pull_image_local(self, image: str) -> dict[str, JsonValue]:
         try:
             proc = subprocess.Popen(
                 ["docker", "pull", image],
@@ -123,14 +143,59 @@ class LocalToolService:
                     logs.append(line)
             proc.wait()
             if proc.returncode == 0:
-                return True, ""
-            return False, "\n".join(logs[-5:]) if logs else f"Pull failed (exit {proc.returncode})"
+                return {"ok": True, "target": "Local", "image": image, "status": "success"}
+            return {"ok": False, "error": "\n".join(logs[-5:]) if logs else f"Pull failed (exit {proc.returncode})"}
         except Exception as exc:
-            return False, str(exc)
+            return {"ok": False, "error": str(exc)}
 
-    def remove_image(self, image: str) -> tuple[bool, str]:
+    def _pull_image_server(
+        self,
+        image: str,
+        remote: dict[str, object] | None = None,
+    ) -> dict[str, JsonValue]:
+        if not isinstance(remote, dict):
+            return {"ok": False, "error": "remote config is required for Server target"}
+        parsed = parse_remote_config(remote)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        try:
+            runner: RemoteRunner = self.remote_runner_factory(config)  # type: ignore[assignment]
+            result = runner.start_remote_image_pull(image)
+            return result  # type: ignore[return-value]
+        except Exception as exc:
+            return {"ok": False, "target": "Server", "error": str(exc)}
+
+    def remove_image(self, image: str, target: str = "Local", remote: dict[str, object] | None = None) -> dict[str, JsonValue]:
+        if target == "Server":
+            return self._remove_image_server(image, remote)
+        ok, error = self._remove_image_local(image)
+        return {"ok": ok, "error": error or None}
+
+    def _remove_image_local(self, image: str) -> tuple[bool, str]:
         from pipeline.docker_ops import remove_image as _remove_image
         return _remove_image(image)
+
+    def _remove_image_server(
+        self,
+        image: str,
+        remote: dict[str, object] | None = None,
+    ) -> dict[str, JsonValue]:
+        if not isinstance(remote, dict):
+            return {"ok": False, "error": "remote config is required for Server target"}
+        parsed = parse_remote_config(remote)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        try:
+            runner: RemoteRunner = self.remote_runner_factory(config)  # type: ignore[assignment]
+            results = runner.remove_images([image])
+            ok, msg = results.get(image, (False, "Unknown error"))
+            return {"ok": ok, "target": "Server", "error": msg or None}
+        except Exception as exc:
+            return {"ok": False, "target": "Server", "error": str(exc)}
 
 
 def _default_command_runner(command: list[str]) -> CommandResult:

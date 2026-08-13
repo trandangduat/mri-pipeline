@@ -171,12 +171,12 @@ export class BackendClient {
     return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
   }
 
-  async pullImage(image: string): Promise<PullImageResponse> {
-    return pullImageResponseSchema.parse(await this.post('/tools/local/pull', {image}));
+  async pullImage(image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}): Promise<PullImageResponse> {
+    return pullImageResponseSchema.parse(await this.post('/tools/local/pull', {image, target, remote}));
   }
 
-  async removeImage(image: string): Promise<RemoveImageResponse> {
-    return removeImageResponseSchema.parse(await this.post('/tools/local/remove', {image}));
+  async removeImage(image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}): Promise<RemoveImageResponse> {
+    return removeImageResponseSchema.parse(await this.post('/tools/local/remove', {image, target, remote}));
   }
 
   async saveWorkspace(name: string, data: Record<string, unknown>): Promise<GenericResponse> {

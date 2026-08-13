@@ -105,7 +105,7 @@ function AppLayout() {
           <Route
             path="/tools"
             element={
-              <section className="min-w-0 pl-16 max-[760px]:pl-0 block" data-page="tools">
+              <section className="min-w-0 pl-16 max-[760px]:pl-0 block h-full overflow-y-auto" data-page="tools">
                 <ToolsPage />
               </section>
             }
