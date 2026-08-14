@@ -1,0 +1,14 @@
+Brain Stem
+CSF
+Gray Matter
+White Matter
+Left Cerebellum
+Right Cerebellum
+Left Cerebral Cortex
+Right Cerebral Cortex
+Left Cerebral White Matter
+Right Cerebral White Matter
+Left Hippocampus
+Right Hippocampus
+Left Lateral Ventricle
+Right Lateral Ventricle

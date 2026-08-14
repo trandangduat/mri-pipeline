@@ -202,6 +202,25 @@ def _fs8r_stage8(ctx: ToolContext) -> str:
     )
 
 
+def _fs8r_atlas_projection_suffix(ctx: ToolContext) -> str:
+    needs_sclimbic = "mni_sclimbic" in ctx.enabled_stats.get("selected_atlases", [])
+    if not needs_sclimbic:
+        return ""
+    return (
+        "mkdir -p /output/stats/atlas_mapping; "
+        "SCLIMBIC_ATLAS=\"$FREESURFER_HOME/average/sclimbic.t1.nii.gz\"; "
+        "if [ -s \"$SCLIMBIC_ATLAS\" ]; then "
+        "MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.mgz\"; "
+        "if [ -f \"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\" ]; then MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\"; fi; "
+        "if [ ! -s /output/stats/atlas_mapping/mni152_to_subject.affine.lta ]; then "
+        "mri_synthmorph register -m affine -t /output/stats/atlas_mapping/mni152_to_subject.affine.lta \"$MNI152_TEMPLATE\" \"$SD/mri/norm.mgz\"; "
+        "fi; "
+        "mri_vol2vol --mov \"$SCLIMBIC_ATLAS\" --targ \"$SD/mri/norm.mgz\" --o /output/stats/atlas_mapping/mni_sclimbic.mgz --lta /output/stats/atlas_mapping/mni152_to_subject.affine.lta --nearest; "
+        "mri_segstats --seg /output/stats/atlas_mapping/mni_sclimbic.mgz --sum /output/stats/atlas_mapping/mni_sclimbic.stats; "
+        "fi; "
+    )
+
+
 def _fs8r_stage9(ctx: ToolContext) -> str:
     volume_only = not ctx.enabled_stats.get("cortical_thickness", False)
     if volume_only:
@@ -211,7 +230,8 @@ def _fs8r_stage9(ctx: ToolContext) -> str:
             "mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats; "
             "python3 /app/normalize_volumes.py mri/synthseg.vol.csv /output/stats/subcortical_volume.tsv /output/stats/cortical_volume.tsv \"$SUBJ\" FreeSurferSynthSeg; "
             "cp mri/synthseg.vol.csv /output/stats/ 2>/dev/null || true; "
-            "test -s stats/aseg.stats; test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv"
+            + _fs8r_atlas_projection_suffix(ctx)
+            + "test -s stats/aseg.stats; test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv"
         )
     return (
         _fs8r_common(ctx)
@@ -669,6 +689,8 @@ def _cat12_stats(ctx: ToolContext, include_thickness: bool = False) -> str:
         + "--output-subcortical /output/stats/subcortical_volume.tsv "
         "--output-cortical /output/stats/cortical_volume.tsv "
         + ("--output-thickness /output/stats/cat12_cortical_thickness.tsv " if include_thickness else "")
+        + "--output-subcortical-by-atlas /output/stats/cat12_subcortical_volume_by_atlas.tsv "
+        "--output-cortical-by-atlas /output/stats/cat12_cortical_volume_by_atlas.tsv "
         + "--tool CAT12; "
         "test -s /output/stats/subcortical_volume.tsv; test -s /output/stats/cortical_volume.tsv; "
         + ('test "$(wc -l < /output/stats/cat12_cortical_thickness.tsv)" -gt 1' if include_thickness else "true")
@@ -681,6 +703,35 @@ def _cat12_volume_stats(ctx: ToolContext) -> str:
 
 def _cat12_full_stats(ctx: ToolContext) -> str:
     return _cat12_stats(ctx, include_thickness=True)
+
+
+def _fs8_mni_atlas_projection(ctx: ToolContext) -> str:
+    subject = _q(ctx.subject_id)
+    return (
+        "set -e; "
+        "export SUBJECTS_DIR=/output/freesurfer; "
+        "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
+        f"SUBJ={subject}; "
+        "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
+        "mkdir -p /output/stats/atlas_mapping; "
+        "WORK=/output/stats/atlas_mapping; "
+        "NORM=\"$SD/mri/norm.mgz\"; "
+        "test -s \"$NORM\" || { echo norm.mgz not found; exit 1; }; "
+        "MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.mgz\"; "
+        "if [ -f \"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\" ]; then MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\"; fi; "
+        "SCLIMBIC_ATLAS=\"$FREESURFER_HOME/average/sclimbic.t1.nii.gz\"; "
+        "if [ ! -s \"$SCLIMBIC_ATLAS\" ]; then echo SCLimbic atlas not found, skipping; exit 0; fi; "
+        "if [ ! -s \"$WORK/mni152_to_subject.affine.lta\" ]; then "
+        "mri_synthmorph register -m affine -t \"$WORK/mni152_to_subject.affine.lta\" \"$MNI152_TEMPLATE\" \"$NORM\"; "
+        "fi; "
+        "test -s \"$WORK/mni152_to_subject.affine.lta\"; "
+        "if [ ! -s \"$WORK/mni_sclimbic.mgz\" ]; then "
+        "mri_vol2vol --mov \"$SCLIMBIC_ATLAS\" --targ \"$NORM\" --o \"$WORK/mni_sclimbic.mgz\" --lta \"$WORK/mni152_to_subject.affine.lta\" --nearest; "
+        "fi; "
+        "test -s \"$WORK/mni_sclimbic.mgz\"; "
+        "mri_segstats --seg \"$WORK/mni_sclimbic.mgz\" --sum \"$WORK/mni_sclimbic.stats\"; "
+        "test -s \"$WORK/mni_sclimbic.stats\""
+    )
 
 
 TOOL_DEFS: dict[str, dict] = {
@@ -740,7 +791,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": False,
         "command_builder": _cat12_volume_stats,
         "output_files": ["subcortical_volume.tsv", "cortical_volume.tsv"],
-        "output_globs": ["stats/subcortical_volume.tsv", "stats/cortical_volume.tsv"],
+        "output_globs": ["stats/subcortical_volume.tsv", "stats/cortical_volume.tsv", "stats/cat12_*_by_atlas.tsv"],
     },
     "cat12_full_stats_extraction": {
         "entrypoint": "",
@@ -754,6 +805,7 @@ TOOL_DEFS: dict[str, dict] = {
             "stats/subcortical_volume.tsv",
             "stats/cortical_volume.tsv",
             "stats/cat12_cortical_thickness.tsv",
+            "stats/cat12_*_by_atlas.tsv",
         ],
     },
     "fastsurfer_reorientation": {
@@ -854,6 +906,15 @@ TOOL_DEFS: dict[str, dict] = {
             "freesurfer/*/stats/aseg.stats",
             "stats/*.tsv",
         ],
+    },
+    "fs8_mni_atlas_projection": {
+        "display_name": "MNI Atlas Projection (FS8)",
+        "image": FS8_REDUCED54_IMAGE,
+        "stage": "stats_extraction",
+        "needs_license": True,
+        "command_builder": _fs8_mni_atlas_projection,
+        "output_files": [],
+        "output_globs": ["stats/atlas_mapping/*.stats", "stats/atlas_mapping/*.mgz"],
     },
     "fs8_reduced54_reorientation": {
         "display_name": "FreeSurfer 8 Reorientation",

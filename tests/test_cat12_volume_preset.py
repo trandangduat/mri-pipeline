@@ -19,7 +19,11 @@ def test_cat12_volume_preset_runs_cat_segmentation_and_stats_only() -> None:
     }
 
     assert CAT12_VOLUME_TOOLS == expected_tools
-    assert PRESET_CONFIGS["CAT12 + Volume"] == {"tools": expected_tools, "stats": VOLUME_STATS}
+    preset = PRESET_CONFIGS["CAT12 + Volume"]
+    assert preset["tools"] == expected_tools
+    assert preset["stats"] == VOLUME_STATS
+    assert preset["default_atlases"]["subcortical_volume"] == ["cat12_neuromorphometrics"]
+    assert preset["default_atlases"]["cortical_volume"] == ["cat12_schaefer2018_200parcels_17networks"]
 
 
 def test_cat12_full_preset_runs_monolithic_surface_segmentation_and_stats() -> None:
@@ -36,10 +40,12 @@ def test_cat12_full_preset_runs_monolithic_surface_segmentation_and_stats() -> N
     }
 
     assert CAT12_FULL_TOOLS == expected_tools
-    assert PRESET_CONFIGS["CAT12 + Volume + Cortical Thickness"] == {
-        "tools": expected_tools,
-        "stats": VOLUME_STATS | THICKNESS_STATS,
-    }
+    preset = PRESET_CONFIGS["CAT12 + Volume + Cortical Thickness"]
+    assert preset["tools"] == expected_tools
+    assert preset["stats"] == VOLUME_STATS | THICKNESS_STATS
+    assert preset["default_atlases"]["subcortical_volume"] == ["cat12_neuromorphometrics"]
+    assert preset["default_atlases"]["cortical_volume"] == ["cat12_schaefer2018_200parcels_17networks"]
+    assert preset["default_atlases"]["cortical_thickness"] == ["aparc"]
 
 
 def test_cat12_volume_tools_use_standalone_image_without_surface_processing() -> None:

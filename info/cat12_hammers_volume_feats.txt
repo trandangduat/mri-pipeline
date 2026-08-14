@@ -1,0 +1,23 @@
+Left Amygdala
+Right Amygdala
+Left Caudate Nucleus
+Right Caudate Nucleus
+Left Cerebellum
+Right Cerebellum
+Left Hippocampus
+Right Hippocampus
+Left Lateral Ventricle
+Right Lateral Ventricle
+Left Pallidum
+Right Pallidum
+Left Putamen
+Right Putamen
+Left Thalamus
+Right Thalamus
+Brain Stem
+Brainstem Interior
+3rd Ventricle
+4th Ventricle
+CSF
+Left Inferior Lateral Ventricle
+Right Inferior Lateral Ventricle

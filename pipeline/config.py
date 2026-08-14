@@ -13,7 +13,7 @@ class ToolContext:
     threads: int
     device: str
     dicom_list_path: str = ""
-    enabled_stats: dict[str, bool] = field(default_factory=dict)
+    enabled_stats: dict[str, bool | list[str]] = field(default_factory=dict)
 
 @dataclass
 class ExportConfig:
@@ -96,6 +96,78 @@ CORTICAL_THICKNESS_ATLASES: tuple[str, ...] = (
     *(key for key, _parcels, _networks, _stem in SCHAEFER2018_ATLAS_VARIANTS),
 )
 
+FREESURFER_VOLUME_ATLASES: tuple[str, ...] = (
+    "freesurfer_aseg",
+    "freesurfer_aparc",
+)
+
+FASTSURFER_VOLUME_ATLASES: tuple[str, ...] = (
+    "fastsurfer_dkt",
+)
+
+CAT12_SUBCORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    "cat12_neuromorphometrics",
+    "cat12_ibsr",
+    "cat12_cobra",
+    "cat12_hammers",
+    "cat12_suit",
+    "cat12_thalamic_nuclei",
+    "cat12_thalamus",
+)
+
+CAT12_CORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    "cat12_schaefer2018_100parcels_17networks",
+    "cat12_schaefer2018_200parcels_17networks",
+    "cat12_schaefer2018_400parcels_17networks",
+    "cat12_schaefer2018_600parcels_17networks",
+    "cat12_aal3",
+    "cat12_anatomy3",
+    "cat12_hammers",
+    "cat12_julichbrain3",
+    "cat12_lpba40",
+    "cat12_mori",
+)
+
+EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    "mni_sclimbic",
+    "harvard_oxford_subcortical",
+    "cerebra",
+    "tian_subcortex",
+)
+
+EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    "harvard_oxford_cortical",
+    "brainnetome246",
+)
+
+EXTERNAL_MNI_HYBRID_VOLUME_ATLASES: tuple[str, ...] = (
+    "jhu_icbm_dti81",
+    "suit_cerebellum",
+)
+
+FREESURFER_BUILTIN_SUBREGION_ATLASES: tuple[str, ...] = (
+    "fs_hippo_amygdala",
+    "fs_brainstem",
+    "fs_thalamic_nuclei",
+    "fs_sclimbic",
+)
+
+SUBCORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    *FREESURFER_VOLUME_ATLASES[:1],
+    *FASTSURFER_VOLUME_ATLASES,
+    *CAT12_SUBCORTICAL_VOLUME_ATLASES,
+    *EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES,
+    *FREESURFER_BUILTIN_SUBREGION_ATLASES,
+)
+
+CORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
+    *FREESURFER_VOLUME_ATLASES[1:],
+    *FASTSURFER_VOLUME_ATLASES,
+    *CAT12_CORTICAL_VOLUME_ATLASES,
+    *EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES,
+    *EXTERNAL_MNI_HYBRID_VOLUME_ATLASES,
+)
+
 STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_thickness": {
         "label": "Cortical thickness",
@@ -105,12 +177,12 @@ STAT_VECTOR_DEFS: dict[str, dict[str, object]] = {
     "cortical_volume": {
         "label": "Cortical volume",
         "value_column": "volume_mm3",
-        "atlases": ("freesurfer_aseg",),
+        "atlases": CORTICAL_VOLUME_ATLASES,
     },
     "subcortical_volume": {
         "label": "Subcortical volume",
         "value_column": "volume_mm3",
-        "atlases": ("freesurfer_aseg",),
+        "atlases": SUBCORTICAL_VOLUME_ATLASES,
     },
 }
 
@@ -118,6 +190,8 @@ ATLAS_DEFS: dict[str, str] = {
     "aparc": "Desikan-Killiany (aparc)",
     "aparc_a2009s": "Destrieux (aparc.a2009s)",
     "freesurfer_aseg": "FreeSurfer Aseg Atlas",
+    "freesurfer_aparc": "FreeSurfer Aparc Cortical Volumes",
+    "fastsurfer_dkt": "FastSurfer DKT Atlas",
     "yale": "Yale Brain Atlas - 696 parcels",
     **{
         key: f"Kong 2022 - {parcels} parcels / {networks} networks"
@@ -127,6 +201,34 @@ ATLAS_DEFS: dict[str, str] = {
         key: f"Schaefer 2018 - {parcels} parcels / {networks} networks"
         for key, parcels, networks, _stem in SCHAEFER2018_ATLAS_VARIANTS
     },
+    "cat12_neuromorphometrics": "CAT12 Neuromorphometrics",
+    "cat12_schaefer2018_100parcels_17networks": "CAT12 Schaefer 2018 - 100 parcels / 17 networks",
+    "cat12_schaefer2018_200parcels_17networks": "CAT12 Schaefer 2018 - 200 parcels / 17 networks",
+    "cat12_schaefer2018_400parcels_17networks": "CAT12 Schaefer 2018 - 400 parcels / 17 networks",
+    "cat12_schaefer2018_600parcels_17networks": "CAT12 Schaefer 2018 - 600 parcels / 17 networks",
+    "cat12_aal3": "CAT12 AAL3",
+    "cat12_anatomy3": "CAT12 Anatomy3",
+    "cat12_cobra": "CAT12 COBRA",
+    "cat12_hammers": "CAT12 Hammers",
+    "cat12_ibsr": "CAT12 IBSR",
+    "cat12_julichbrain3": "CAT12 Julich Brain 3",
+    "cat12_lpba40": "CAT12 LPBA40",
+    "cat12_mori": "CAT12 Mori",
+    "cat12_suit": "CAT12 SUIT",
+    "cat12_thalamic_nuclei": "CAT12 Thalamic Nuclei",
+    "cat12_thalamus": "CAT12 Thalamus",
+    "mni_sclimbic": "FreeSurfer SCLimbic (MNI152 projection)",
+    "harvard_oxford_subcortical": "Harvard-Oxford Subcortical (MNI152 projection)",
+    "harvard_oxford_cortical": "Harvard-Oxford Cortical (MNI152 projection)",
+    "cerebra": "CerebrA (MNI-ICBM152 projection)",
+    "brainnetome246": "Brainnetome 246 (MNI projection)",
+    "tian_subcortex": "Tian Subcortical Atlas (MNI projection)",
+    "jhu_icbm_dti81": "JHU ICBM-DTI-81 White Matter (MNI projection)",
+    "suit_cerebellum": "SUIT Cerebellum (MNI projection)",
+    "fs_hippo_amygdala": "FreeSurfer Hippocampal/Amygdala Subregions",
+    "fs_brainstem": "FreeSurfer Brainstem Substructures",
+    "fs_thalamic_nuclei": "FreeSurfer Thalamic Nuclei",
+    "fs_sclimbic": "FreeSurfer SCLimbic Segmentation",
 }
 
 @dataclass
@@ -138,6 +240,8 @@ class StatsVectorConfig:
     })
     atlases: dict[str, list[str]] = field(default_factory=lambda: {
         "cortical_thickness": [],
+        "cortical_volume": [],
+        "subcortical_volume": [],
     })
 
     @classmethod

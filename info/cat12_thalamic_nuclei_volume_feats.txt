@@ -1,0 +1,28 @@
+Left Anterior
+Right Anterior
+Left Central
+Right Central
+Left Lateral Geniculate Body
+Right Lateral Geniculate Body
+Left Lateral Posterior
+Right Lateral Posterior
+Left Medial Geniculate Body
+Right Medial Geniculate Body
+Left Mediodorsal
+Right Mediodorsal
+Left Pulvinar Anterior
+Right Pulvinar Anterior
+Left Pulvinar Lateral
+Right Pulvinar Lateral
+Left Pulvinar Medial
+Right Pulvinar Medial
+Left Pulvinar Posterior
+Right Pulvinar Posterior
+Left Ventral Anterior
+Right Ventral Anterior
+Left Ventral Lateral
+Right Ventral Lateral
+Left Ventral Posterior Lateral
+Right Ventral Posterior Lateral
+Left Ventral Posterior Medial
+Right Ventral Posterior Medial

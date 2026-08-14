@@ -27,6 +27,183 @@ VECTOR_SPECS = {
         "features": "cortical_volume_feats.txt",
         "value": "volume_mm3",
     },
+    "freesurfer_aseg": {
+        "column": "freesurfer_aseg_subcortical_volume",
+        "features": "freesurfer_aseg_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "freesurfer_aparc": {
+        "column": "freesurfer_aparc_cortical_volume",
+        "features": "freesurfer_aparc_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "fastsurfer_dkt": {
+        "column": "fastsurfer_dkt_volume",
+        "features": "fastsurfer_dkt_volume_feats.txt",
+        "value": "volume_mm3",
+    },
+    "cat12_neuromorphometrics": {
+        "column": "cat12_neuromorphometrics_volume",
+        "features": "cat12_neuromorphometrics_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_schaefer2018_100parcels_17networks": {
+        "column": "cat12_schaefer2018_100parcels_17networks_cortical_volume",
+        "features": "cat12_schaefer2018_100parcels_17networks_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_schaefer2018_200parcels_17networks": {
+        "column": "cat12_schaefer2018_200parcels_17networks_cortical_volume",
+        "features": "cat12_schaefer2018_200parcels_17networks_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_schaefer2018_400parcels_17networks": {
+        "column": "cat12_schaefer2018_400parcels_17networks_cortical_volume",
+        "features": "cat12_schaefer2018_400parcels_17networks_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_schaefer2018_600parcels_17networks": {
+        "column": "cat12_schaefer2018_600parcels_17networks_cortical_volume",
+        "features": "cat12_schaefer2018_600parcels_17networks_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_aal3": {
+        "column": "cat12_aal3_cortical_volume",
+        "features": "cat12_aal3_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_anatomy3": {
+        "column": "cat12_anatomy3_cortical_volume",
+        "features": "cat12_anatomy3_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_cobra": {
+        "column": "cat12_cobra_volume",
+        "features": "cat12_cobra_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_hammers": {
+        "column": "cat12_hammers_volume",
+        "features": "cat12_hammers_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_ibsr": {
+        "column": "cat12_ibsr_volume",
+        "features": "cat12_ibsr_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_julichbrain3": {
+        "column": "cat12_julichbrain3_cortical_volume",
+        "features": "cat12_julichbrain3_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_lpba40": {
+        "column": "cat12_lpba40_cortical_volume",
+        "features": "cat12_lpba40_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_mori": {
+        "column": "cat12_mori_cortical_volume",
+        "features": "cat12_mori_cortical_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_suit": {
+        "column": "cat12_suit_volume",
+        "features": "cat12_suit_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_thalamic_nuclei": {
+        "column": "cat12_thalamic_nuclei_volume",
+        "features": "cat12_thalamic_nuclei_volume_feats.txt",
+        "value": "volume",
+    },
+    "cat12_thalamus": {
+        "column": "cat12_thalamus_volume",
+        "features": "cat12_thalamus_volume_feats.txt",
+        "value": "volume",
+    },
+    "mni_sclimbic": {
+        "column": "mni_sclimbic_subcortical_volume",
+        "features": "mni_sclimbic_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+        "atlas_volume": "$FREESURFER_HOME/average/sclimbic.t1.nii.gz",
+        "stats_basename": "mni_sclimbic.stats",
+    },
+    "harvard_oxford_subcortical": {
+        "column": "harvard_oxford_subcortical_volume",
+        "features": "harvard_oxford_subcortical_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "harvard_oxford_cortical": {
+        "column": "harvard_oxford_cortical_volume",
+        "features": "harvard_oxford_cortical_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "cerebra": {
+        "column": "cerebra_subcortical_volume",
+        "features": "cerebra_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "brainnetome246": {
+        "column": "brainnetome246_cortical_volume",
+        "features": "brainnetome246_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "tian_subcortex": {
+        "column": "tian_subcortex_subcortical_volume",
+        "features": "tian_subcortex_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "jhu_icbm_dti81": {
+        "column": "jhu_icbm_dti81_volume",
+        "features": "jhu_icbm_dti81_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "suit_cerebellum": {
+        "column": "suit_cerebellum_volume",
+        "features": "suit_cerebellum_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+    },
+    "fs_hippo_amygdala": {
+        "column": "fs_hippo_amygdala_subcortical_volume",
+        "features": "fs_hippo_amygdala_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_native_segmentation": True,
+    },
+    "fs_brainstem": {
+        "column": "fs_brainstem_subcortical_volume",
+        "features": "fs_brainstem_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_native_segmentation": True,
+    },
+    "fs_thalamic_nuclei": {
+        "column": "fs_thalamic_nuclei_subcortical_volume",
+        "features": "fs_thalamic_nuclei_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_native_segmentation": True,
+    },
+    "fs_sclimbic": {
+        "column": "fs_sclimbic_subcortical_volume",
+        "features": "fs_sclimbic_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_native_segmentation": True,
+    },
     "aparc": {
         "column": "aparc_cortical_thickness",
         "features": "aparc_cortical_thickness_feats.txt",
@@ -87,7 +264,7 @@ def _sanitize_vector_feature(value: str) -> str:
     return safe.strip("_") or "feature"
 
 def _stats_source_candidates(stats_dir: Path, stat: str, atlas: str = "") -> list[Path]:
-    if stat == "subcortical_volume":
+    if stat == "subcortical_volume" and not atlas:
         return [stats_dir / "subcortical_volume.tsv"]
     if stat == "cortical_volume" and not atlas:
         return [stats_dir / "cortical_volume.tsv"]
@@ -104,6 +281,12 @@ def _stats_source_candidates(stats_dir: Path, stat: str, atlas: str = "") -> lis
             stats_dir / f"{atlas}_cortical_thickness.tsv",
             stats_dir / f"cortical_thickness_{atlas}.tsv",
             stats_dir / f"{atlas}_thickness.tsv",
+        ]
+    if stat == "subcortical_volume":
+        return [
+            stats_dir / f"{atlas}_subcortical_volume.tsv",
+            stats_dir / f"subcortical_volume_{atlas}.tsv",
+            stats_dir / f"{atlas}_volume.tsv",
         ]
     return []
 
@@ -282,6 +465,131 @@ def _read_cortical_volume_values(stats_dir: Path) -> dict[str, str]:
             _put_value(values, key, row.get("volume_mm3", ""))
     return values
 
+
+def _read_freesurfer_aparc_cortical_values(stats_dir: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for hemi in ("lh", "rh"):
+        for path in [stats_dir / f"{hemi}.aparc.stats", stats_dir / f"{hemi}.aparc.DKTatlas.stats",
+                     stats_dir / f"{hemi}.aparc.DKTatlas.mapped.stats"]:
+            _headers, rows = _parse_freesurfer_stats_table(path)
+            for row in rows:
+                name = row.get("StructName", "")
+                volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+                if name and volume:
+                    _put_value(values, _cortical_feature_key(name, hemi), volume)
+
+    for row in _read_tsv_dict_rows(stats_dir / "cortical_volume.tsv"):
+        hemi = row.get("hemisphere", "")
+        region = row.get("region", "")
+        key = _cortical_feature_key(region, hemi)
+        if key:
+            _put_value(values, key, row.get("volume_mm3", ""))
+    return values
+
+
+def _read_fastsurfer_dkt_values(stats_dir: Path, stat: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for path in [stats_dir / "aparc.DKTatlas+aseg.deep.stats", stats_dir / "aseg+DKT.stats",
+                 stats_dir / "aseg+DKT.VINN.stats"]:
+        _headers, rows = _parse_freesurfer_stats_table(path)
+        for row in rows:
+            name = row.get("StructName", "")
+            volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+            if not name or not volume:
+                continue
+            cortical = _cortical_feature_key(name)
+            if cortical:
+                if stat == "cortical_volume":
+                    _put_value(values, cortical, volume)
+            else:
+                if stat == "subcortical_volume":
+                    _put_value(values, name, volume)
+        for key, value in _parse_freesurfer_measures(path).items():
+            if stat == "subcortical_volume":
+                _put_value(values, key, value)
+
+    if stat == "subcortical_volume":
+        tsv = stats_dir / "subcortical_volume.tsv"
+        if tsv.exists():
+            with open(tsv, "r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f, delimiter="\t"):
+                    _put_value(values, row.get("structure", ""), row.get("volume_mm3", ""))
+    elif stat == "cortical_volume":
+        for hemi in ("lh", "rh"):
+            for path in [stats_dir / f"{hemi}.aparc.DKTatlas.mapped.stats",
+                         stats_dir / f"{hemi}.aparc.DKTatlas.stats"]:
+                _headers, rows = _parse_freesurfer_stats_table(path)
+                for row in rows:
+                    name = row.get("StructName", "")
+                    volume = row.get("GrayVol") or row.get("Volume_mm3") or row.get("Volume")
+                    if name and volume:
+                        _put_value(values, _cortical_feature_key(name, hemi), volume)
+        for row in _read_tsv_dict_rows(stats_dir / "cortical_volume.tsv"):
+            hemi = row.get("hemisphere", "")
+            region = row.get("region", "")
+            key = _cortical_feature_key(region, hemi)
+            if key:
+                _put_value(values, key, row.get("volume_mm3", ""))
+    return values
+
+
+def _read_cat12_atlas_values(stats_dir: Path, atlas: str, stat: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    atlas_tsv = stats_dir / f"cat12_{stat}_by_atlas.tsv"
+    if not atlas_tsv.exists():
+        atlas_tsv = stats_dir / "cat12_subcortical_volume_by_atlas.tsv" if stat == "subcortical_volume" else stats_dir / "cat12_cortical_volume_by_atlas.tsv"
+    if atlas_tsv.exists():
+        for row in _read_tsv_dict_rows(atlas_tsv):
+            row_atlas = row.get("atlas", "")
+            if row_atlas != atlas:
+                continue
+            if stat == "subcortical_volume":
+                structure = row.get("structure", "")
+                volume = row.get("volume", "")
+                if structure and volume:
+                    _put_value(values, structure, volume)
+            else:
+                region = row.get("region", "")
+                hemi = row.get("hemisphere", "both")
+                volume = row.get("volume", "")
+                if region and volume:
+                    key = _cortical_feature_key(region, hemi)
+                    if key:
+                        _put_value(values, key, volume)
+                    else:
+                        _put_value(values, region, volume)
+
+    if not values:
+        for row in _read_tsv_dict_rows(stats_dir / "subcortical_volume.tsv"):
+            structure = row.get("structure", "")
+            volume = row.get("volume_mm3", "")
+            if structure and volume:
+                _put_value(values, structure, volume)
+        for row in _read_tsv_dict_rows(stats_dir / "cortical_volume.tsv"):
+            hemi = row.get("hemisphere", "")
+            region = row.get("region", "")
+            volume = row.get("volume_mm3", "")
+            key = _cortical_feature_key(region, hemi)
+            if key and volume:
+                _put_value(values, key, volume)
+    return values
+
+
+def _read_projected_atlas_values(stats_dir: Path, atlas: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    mapping_dir = stats_dir / "atlas_mapping"
+    stats_file = mapping_dir / f"{atlas}.stats"
+    if not stats_file.exists():
+        stats_file = stats_dir / f"{atlas}.stats"
+    if stats_file.exists():
+        _headers, rows = _parse_freesurfer_stats_table(stats_file)
+        for row in rows:
+            name = row.get("StructName", "")
+            volume = row.get("Volume_mm3") or row.get("NVoxels")
+            if name and volume:
+                _put_value(values, name, volume)
+    return values
+
 def _atlas_stats_candidates(stats_dir: Path, atlas: str, hemi: str) -> list[Path]:
     stem = str(VECTOR_SPECS[atlas].get("stats_stem", atlas))
     candidates = [
@@ -315,12 +623,30 @@ def _read_atlas_thickness_values(stats_dir: Path, atlas: str) -> dict[str, str]:
     return values
 
 def _values_for_vector(stats_dir: Path, stat: str, atlas: str = "") -> dict[str, str]:
-    handlers = {
-        "subcortical_volume": lambda d, a: _read_subcortical_values(d),
-        "cortical_volume": lambda d, a: _read_cortical_volume_values(d),
-        "cortical_thickness": lambda d, a: _read_atlas_thickness_values(d, a) if a else {}
-    }
-    return handlers.get(stat, lambda d, a: {})(stats_dir, atlas)
+    spec = VECTOR_SPECS.get(atlas, {})
+    if spec.get("requires_projection"):
+        return _read_projected_atlas_values(stats_dir, atlas)
+    if stat == "subcortical_volume":
+        if atlas == "freesurfer_aseg" or not atlas:
+            return _read_subcortical_values(stats_dir)
+        if atlas == "fastsurfer_dkt":
+            return _read_fastsurfer_dkt_values(stats_dir, stat)
+        if atlas.startswith("cat12_"):
+            return _read_cat12_atlas_values(stats_dir, atlas, stat)
+        return _read_subcortical_values(stats_dir)
+    if stat == "cortical_volume":
+        if atlas == "freesurfer_aparc":
+            return _read_freesurfer_aparc_cortical_values(stats_dir)
+        if atlas == "fastsurfer_dkt":
+            return _read_fastsurfer_dkt_values(stats_dir, stat)
+        if atlas.startswith("cat12_"):
+            return _read_cat12_atlas_values(stats_dir, atlas, stat)
+        if not atlas:
+            return _read_cortical_volume_values(stats_dir)
+        return _read_cortical_volume_values(stats_dir)
+    if stat == "cortical_thickness":
+        return _read_atlas_thickness_values(stats_dir, atlas) if atlas else {}
+    return {}
 
 def _lookup_feature(values: dict[str, str], feature: str) -> str:
     if feature in values:
@@ -401,9 +727,17 @@ class StatsGenerator:
 
         requested: list[tuple[str, str, str]] = []
         if config.enabled_stats.get("subcortical_volume"):
-            requested.append(("subcortical_volume", "", "subcortical_volume"))
+            sub_atlases = list(config.atlases.get("subcortical_volume", []))
+            if not sub_atlases:
+                sub_atlases = ["freesurfer_aseg"]
+            for atlas in sub_atlases:
+                requested.append(("subcortical_volume", atlas, atlas))
         if config.enabled_stats.get("cortical_volume"):
-            requested.append(("cortical_volume", "", "cortical_volume"))
+            cort_atlases = list(config.atlases.get("cortical_volume", []))
+            if not cort_atlases:
+                cort_atlases = ["cortical_volume"]
+            for atlas in cort_atlases:
+                requested.append(("cortical_volume", atlas, atlas))
         if config.enabled_stats.get("cortical_thickness"):
             atlases = list(config.atlases.get("cortical_thickness", []))
             if not atlases:
@@ -458,8 +792,10 @@ def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[s
     for stat in ["subcortical_volume", "cortical_volume", "cortical_thickness"]:
         if config.enabled_stats.get(stat):
             requested.append(stat)
-            
+
     requested.extend(atlas for atlas in config.atlases.get("cortical_thickness", []) if atlas in VECTOR_SPECS)
+    requested.extend(atlas for atlas in config.atlases.get("subcortical_volume", []) if atlas in VECTOR_SPECS)
+    requested.extend(atlas for atlas in config.atlases.get("cortical_volume", []) if atlas in VECTOR_SPECS)
 
     out: dict[str, list[str]] = {}
     for spec_key in requested:

@@ -148,7 +148,14 @@ def _build_execution_request(
             threads=config.threads,
             device=config.device,
             dicom_list_path=dicom_list_path,
-            enabled_stats=dict(config.stats_vector_config.enabled_stats),
+            enabled_stats={
+                **dict(config.stats_vector_config.enabled_stats),
+                "selected_atlases": [
+                    atlas
+                    for atlases in config.stats_vector_config.atlases.values()
+                    for atlas in atlases
+                ],
+            },
         )
         command = [tool.get("shell", "bash"), "-c", tool["command_builder"](ctx)]
         args = []

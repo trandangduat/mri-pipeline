@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import argparse
 import csv
@@ -43,7 +42,7 @@ def _xml_tag(element: ET.Element) -> str:
     return element.tag.rsplit("}", 1)[-1]
 
 
-def _numeric_tokens(value: str | None) -> List[str]:
+def _numeric_tokens(value: Optional[str]) -> List[str]:
     return re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", value or "")
 
 
@@ -79,6 +78,25 @@ def _text_items(element: ET.Element) -> List[str]:
 
 
 CAT12_CORTICAL_ATLAS_MARKERS = ("schaefer", "aal", "anatomy", "hammers", "julich", "lpba", "mori")
+
+CAT12_ATLAS_NODE_TO_KEY: Dict[str, str] = {
+    "Schaefer2018_100Parcels_17Networks_order": "cat12_schaefer2018_100parcels_17networks",
+    "Schaefer2018_200Parcels_17Networks_order": "cat12_schaefer2018_200parcels_17networks",
+    "Schaefer2018_400Parcels_17Networks_order": "cat12_schaefer2018_400parcels_17networks",
+    "Schaefer2018_600Parcels_17Networks_order": "cat12_schaefer2018_600parcels_17networks",
+    "neuromorphometrics": "cat12_neuromorphometrics",
+    "aal3": "cat12_aal3",
+    "anatomy3": "cat12_anatomy3",
+    "cobra": "cat12_cobra",
+    "hammers": "cat12_hammers",
+    "ibsr": "cat12_ibsr",
+    "julichbrain3": "cat12_julichbrain3",
+    "lpba40": "cat12_lpba40",
+    "mori": "cat12_mori",
+    "suit": "cat12_suit",
+    "thalamic_nuclei": "cat12_thalamic_nuclei",
+    "thalamus": "cat12_thalamus",
+}
 
 
 def _classify_cat12_region(name: str, atlas: str = "") -> str:
@@ -199,6 +217,68 @@ def _cat12_roi_rows(roi_xml: Path, subject_id: str, tool: str) -> Tuple[List[Lis
     return sub_rows, cort_rows
 
 
+def _cat12_atlas_roi_rows(
+    roi_xml: Path, subject_id: str, tool: str
+) -> Tuple[List[List[str]], List[List[str]]]:
+    if not roi_xml.exists():
+        return [], []
+    root = ET.parse(roi_xml).getroot()
+    sub_rows: List[List[str]] = []
+    cort_rows: List[List[str]] = []
+    for parent in root.iter():
+        region_names: List[str] = []
+        for child in list(parent):
+            if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
+                region_names.extend(_text_items(child))
+        if region_names:
+            atlas_tag = _xml_tag(parent)
+            atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag, "")
+            if not atlas_key:
+                atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag.lower(), "")
+            if not atlas_key:
+                atlas_key = f"cat12_{_norm_name(atlas_tag)}"
+            for child in _cat12_vector_value_elements(parent, _is_volume_tag):
+                numbers = _numeric_tokens(child.text)
+                if len(numbers) != len(region_names):
+                    continue
+                for region, value in zip(region_names, numbers):
+                    if _classify_cat12_region(region, atlas_tag) == "cortical":
+                        cortical = _split_cortical_name(region)
+                        if cortical:
+                            cort_rows.append([subject_id, atlas_key, cortical[0], cortical[1], value, tool])
+                        else:
+                            cort_rows.append([subject_id, atlas_key, region, "both", value, tool])
+                    else:
+                        sub_rows.append([subject_id, atlas_key, region, value, tool])
+
+        region = _child_text(parent, "name", "label", "roi", "region")
+        if not region:
+            continue
+        parent_tag = _xml_tag(parent)
+        parent_key = CAT12_ATLAS_NODE_TO_KEY.get(parent_tag, "")
+        if not parent_key:
+            parent_key = CAT12_ATLAS_NODE_TO_KEY.get(parent_tag.lower(), "")
+        if not parent_key:
+            parent_key = f"cat12_{_norm_name(parent_tag)}"
+        for child in list(parent):
+            tag = _xml_tag(child)
+            if not _is_volume_tag(tag):
+                continue
+            numbers = _numeric_tokens(child.text)
+            if not numbers:
+                continue
+            value = numbers[0]
+            if _classify_cat12_region(region, parent_tag) == "cortical":
+                cortical = _split_cortical_name(region)
+                if cortical:
+                    cort_rows.append([subject_id, parent_key, cortical[0], cortical[1], value, tool])
+                else:
+                    cort_rows.append([subject_id, parent_key, region, "both", value, tool])
+            else:
+                sub_rows.append([subject_id, parent_key, region, value, tool])
+    return sub_rows, cort_rows
+
+
 def _cat12_roi_thickness_rows(roi_xml: Path, subject_id: str, tool: str) -> List[List[str]]:
     if not roi_xml.exists():
         return []
@@ -267,6 +347,8 @@ def _write_cat12_xml(
     tool: str = "CAT12",
     out_thickness: str = "",
     surf_dir: str = "",
+    out_sub_by_atlas: str = "",
+    out_cort_by_atlas: str = "",
 ) -> None:
     sub_rows = _cat12_report_rows(Path(report_xml), subject_id, tool)
     roi_sub_rows, cort_rows = _cat12_roi_rows(Path(roi_xml), subject_id, tool)
@@ -282,6 +364,22 @@ def _write_cat12_xml(
         writer = csv.writer(f, delimiter="\t")
         writer.writerow(["subject", "region", "hemisphere", "volume_mm3", "tool"])
         writer.writerows(cort_rows)
+
+    if out_sub_by_atlas or out_cort_by_atlas:
+        atlas_sub_rows, atlas_cort_rows = _cat12_atlas_roi_rows(Path(roi_xml), subject_id, tool)
+        if out_sub_by_atlas:
+            Path(out_sub_by_atlas).parent.mkdir(parents=True, exist_ok=True)
+            with open(out_sub_by_atlas, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerow(["subject", "atlas", "structure", "volume", "tool"])
+                writer.writerows(atlas_sub_rows)
+        if out_cort_by_atlas:
+            Path(out_cort_by_atlas).parent.mkdir(parents=True, exist_ok=True)
+            with open(out_cort_by_atlas, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerow(["subject", "atlas", "region", "hemisphere", "volume", "tool"])
+                writer.writerows(atlas_cort_rows)
+
     if out_thickness:
         thickness_rows = _cat12_roi_thickness_rows(Path(roi_xml), subject_id, tool)
         if not thickness_rows and surf_dir:
@@ -474,6 +572,8 @@ def main():
     parser.add_argument("--output-subcortical", required=True)
     parser.add_argument("--output-cortical", required=True)
     parser.add_argument("--output-thickness")
+    parser.add_argument("--output-subcortical-by-atlas")
+    parser.add_argument("--output-cortical-by-atlas")
     parser.add_argument("--tool", default="FastSurferVINN")
     args = parser.parse_args()
 
@@ -487,6 +587,8 @@ def main():
             args.tool,
             args.output_thickness or "",
             args.cat_surf_dir or "",
+            args.output_subcortical_by_atlas or "",
+            args.output_cortical_by_atlas or "",
         )
     elif args.stats_dir:
         _write_from_stats_dir(args.stats_dir, args.output_subcortical, args.output_cortical, args.subject_id, args.tool)

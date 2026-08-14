@@ -1,0 +1,33 @@
+Left Accumbens Area
+Left Amygdala
+Brain Stem
+Right Accumbens Area
+Right Amygdala
+Left Caudate
+Right Caudate
+Left Cerebellum Cortex
+Right Cerebellum Cortex
+Left Cerebellum White Matter
+Right Cerebellum White Matter
+Left Cerebral Cortex
+Right Cerebral Cortex
+Left Cerebral White Matter
+Right Cerebral White Matter
+Right Hippocampus
+Left Hippocampus
+Right Inf Lat Vent
+Left Inf Lat Vent
+Right Lateral Ventricle
+Left Lateral Ventricle
+Right Pallidum
+Left Pallidum
+Right Putamen
+Left Putamen
+Right Thalamus
+Left Thalamus
+Right VentralDC
+Left VentralDC
+3rd Ventricle
+4th Ventricle
+CSF
+5th Ventricle

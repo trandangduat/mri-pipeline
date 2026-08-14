@@ -28,6 +28,10 @@ def _preset_metadata(mode: str) -> dict[str, JsonValue]:
     return {
         "tools": dict(preset.get("tools", {})),
         "stats": sorted(str(stat) for stat in preset.get("stats", set())),
+        "default_atlases": {
+            str(stat): [str(atlas) for atlas in atlases]
+            for stat, atlases in preset.get("default_atlases", {}).items()
+        },
     }
 
 

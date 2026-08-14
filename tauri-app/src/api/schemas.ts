@@ -186,13 +186,14 @@ export const pipelineModeMetadataSchema = z.object({
   aliases: z.array(z.string()),
   tools: z.record(z.string(), z.string()),
   stats: z.array(z.string()),
+  default_atlases: z.record(z.string(), z.array(z.string())).optional(),
 });
 
 export const appMetadataSchema = z.object({
   version: z.number(),
   project_root: z.string(),
   pipeline_modes: z.array(pipelineModeMetadataSchema),
-  presets: z.record(z.string(), z.object({tools: z.record(z.string(), z.string()), stats: z.array(z.string())})),
+  presets: z.record(z.string(), z.object({tools: z.record(z.string(), z.string()), stats: z.array(z.string()), default_atlases: z.record(z.string(), z.array(z.string())).optional()})),
   stages: z.array(z.object({id: z.string(), label: z.string()})),
   stage_order: z.array(z.string()),
   fs7_recon_style_stage_order: z.array(z.string()),

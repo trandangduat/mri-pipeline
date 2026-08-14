@@ -217,7 +217,9 @@ def _stats_vector_config(config: RunRequestInput) -> dict[str, JsonValue]:
     if config.pipeline_mode == "Custom" or config.pipeline_mode not in PRESET_CONFIGS:
         return dict(config.stats_vector_config)
 
-    enabled = {str(stat) for stat in PRESET_CONFIGS[config.pipeline_mode]["stats"]}
+    preset = PRESET_CONFIGS[config.pipeline_mode]
+    enabled = {str(stat) for stat in preset["stats"]}
+    default_atlases = preset.get("default_atlases", {})
     raw_atlases = config.stats_vector_config.get("atlases", {})
     atlas_config = raw_atlases if isinstance(raw_atlases, dict) else {}
     atlases: dict[str, JsonValue] = {}
@@ -226,8 +228,15 @@ def _stats_vector_config(config: RunRequestInput) -> dict[str, JsonValue]:
         if isinstance(existing, list) and existing:
             atlases[stat] = [str(atlas) for atlas in existing]
             continue
-        allowed = [str(atlas) for atlas in stat_def.get("atlases", ())]
-        atlases[stat] = allowed[:1] if stat in enabled and allowed else []
+        allowed = set(str(atlas) for atlas in stat_def.get("atlases", ()))
+        preset_defaults = default_atlases.get(stat, [])
+        valid_defaults = [str(atlas) for atlas in preset_defaults if atlas in allowed]
+        if stat in enabled and valid_defaults:
+            atlases[stat] = valid_defaults
+        elif stat in enabled and allowed:
+            atlases[stat] = [str(atlas) for atlas in stat_def.get("atlases", ()) if atlas in allowed][:1]
+        else:
+            atlases[stat] = []
 
     return {
         "enabled_stats": {stat: stat in enabled for stat in STAT_VECTOR_DEFS},

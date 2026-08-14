@@ -1,0 +1,8 @@
+lh_7Networks_LH_Vis
+lh_7Networks_LH_SomMot
+lh_7Networks_LH_DorsAttn
+lh_7Networks_LH_SalVentAttn
+rh_7Networks_RH_Vis
+rh_7Networks_RH_SomMot
+rh_7Networks_RH_DorsAttn
+rh_7Networks_RH_SalVentAttn

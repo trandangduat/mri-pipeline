@@ -1,0 +1,16 @@
+Left Caudate
+Right Caudate
+Left Cerebellum
+Right Cerebellum
+Left Hippocampus
+Right Hippocampus
+Left Putamen
+Right Putamen
+Left Thalamus
+Right Thalamus
+Brain Stem
+CSF
+3rd Ventricle
+4th Ventricle
+Left Lateral Ventricle
+Right Lateral Ventricle

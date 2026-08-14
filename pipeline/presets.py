@@ -155,15 +155,92 @@ SUBCORTICAL_VOLUME_STATS = {"subcortical_volume"}
 THICKNESS_STATS = {"cortical_thickness"}
 
 PRESET_CONFIGS = {
-    "CAT12 + Volume": {"tools": CAT12_VOLUME_TOOLS, "stats": VOLUME_STATS},
-    "CAT12 + Volume + Cortical Thickness": {"tools": CAT12_FULL_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
-    "FreeSurfer 8 + Volume": {"tools": FREESURFER_8_TOOLS, "stats": VOLUME_STATS},
-    "FreeSurfer 8 + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": THICKNESS_STATS},
-    "FreeSurfer 8 + Volume + Cortical Thickness": {"tools": FREESURFER_8_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
-    "FreeSurfer 7 + Volume": {"tools": FREESURFER_7_VOLUME_TOOLS, "stats": SUBCORTICAL_VOLUME_STATS},
-    "FreeSurfer 7 + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": THICKNESS_STATS},
-    "FreeSurfer 7 + Volume + Cortical Thickness": {"tools": FREESURFER_7_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
-    "FastSurfer + Volume": {"tools": FASTSURFER_TOOLS, "stats": VOLUME_STATS},
-    "FastSurfer + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": THICKNESS_STATS},
-    "FastSurfer + Volume + Cortical Thickness": {"tools": FASTSURFER_SURFACE_TOOLS, "stats": VOLUME_STATS | THICKNESS_STATS},
+    "CAT12 + Volume": {
+        "tools": CAT12_VOLUME_TOOLS,
+        "stats": VOLUME_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["cat12_neuromorphometrics"],
+            "cortical_volume": ["cat12_schaefer2018_200parcels_17networks"],
+        },
+    },
+    "CAT12 + Volume + Cortical Thickness": {
+        "tools": CAT12_FULL_TOOLS,
+        "stats": VOLUME_STATS | THICKNESS_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["cat12_neuromorphometrics"],
+            "cortical_volume": ["cat12_schaefer2018_200parcels_17networks"],
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FreeSurfer 8 + Volume": {
+        "tools": FREESURFER_8_TOOLS,
+        "stats": VOLUME_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["freesurfer_aseg"],
+            "cortical_volume": ["freesurfer_aparc"],
+        },
+    },
+    "FreeSurfer 8 + Cortical Thickness": {
+        "tools": FREESURFER_8_SURFACE_TOOLS,
+        "stats": THICKNESS_STATS,
+        "default_atlases": {
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FreeSurfer 8 + Volume + Cortical Thickness": {
+        "tools": FREESURFER_8_SURFACE_TOOLS,
+        "stats": VOLUME_STATS | THICKNESS_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["freesurfer_aseg"],
+            "cortical_volume": ["freesurfer_aparc"],
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FreeSurfer 7 + Volume": {
+        "tools": FREESURFER_7_VOLUME_TOOLS,
+        "stats": SUBCORTICAL_VOLUME_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["freesurfer_aseg"],
+        },
+    },
+    "FreeSurfer 7 + Cortical Thickness": {
+        "tools": FREESURFER_7_SURFACE_TOOLS,
+        "stats": THICKNESS_STATS,
+        "default_atlases": {
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FreeSurfer 7 + Volume + Cortical Thickness": {
+        "tools": FREESURFER_7_SURFACE_TOOLS,
+        "stats": VOLUME_STATS | THICKNESS_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["freesurfer_aseg"],
+            "cortical_volume": ["freesurfer_aparc"],
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FastSurfer + Volume": {
+        "tools": FASTSURFER_TOOLS,
+        "stats": VOLUME_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["fastsurfer_dkt"],
+            "cortical_volume": ["fastsurfer_dkt"],
+        },
+    },
+    "FastSurfer + Cortical Thickness": {
+        "tools": FASTSURFER_SURFACE_TOOLS,
+        "stats": THICKNESS_STATS,
+        "default_atlases": {
+            "cortical_thickness": ["aparc"],
+        },
+    },
+    "FastSurfer + Volume + Cortical Thickness": {
+        "tools": FASTSURFER_SURFACE_TOOLS,
+        "stats": VOLUME_STATS | THICKNESS_STATS,
+        "default_atlases": {
+            "subcortical_volume": ["fastsurfer_dkt"],
+            "cortical_volume": ["fastsurfer_dkt"],
+            "cortical_thickness": ["aparc"],
+        },
+    },
 }
