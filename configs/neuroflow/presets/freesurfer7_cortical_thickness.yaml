@@ -2,8 +2,9 @@ schema_version: 1
 pipeline_id: freesurfer7_cortical_thickness
 display_name: FreeSurfer 7 - Cortical Thickness
 pipeline_version: 2.0.0
-description: Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Cortical Thickness'. Dependencies use a safe file-level
-  DAG so independent stages can be scheduled concurrently when resources allow.
+description: Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Cortical Thickness'.
+  Dependencies use a safe file-level DAG so independent stages can be scheduled concurrently
+  when resources allow.
 status: draft
 metadata:
   validated: false
@@ -70,6 +71,55 @@ stages:
     output_files: []
     output_globs:
     - freesurfer/*/mri/orig.mgz
+- id: template_registration
+  display_name: Template Registration
+  operation: template_registration
+  implementation: fs7_recon_style_template_registration
+  implementation_version: 7.4.1
+  enabled: true
+  depends_on:
+  - reorient_resize
+  execution_configurations:
+  - id: cpu_1
+    mode: cpu
+    cpu_threads: 1
+    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_1
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fs7_recon_style_template_registration
+      docker_image: mkdayyyy/mri-fs7-all:latest
+      provisional: true
+  - id: cpu_2
+    mode: cpu
+    cpu_threads: 2
+    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_2
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fs7_recon_style_template_registration
+      docker_image: mkdayyyy/mri-fs7-all:latest
+      provisional: true
+  - id: cpu_4
+    mode: cpu
+    cpu_threads: 4
+    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_4
+    metadata:
+      executor: cpu
+      pipeline_stage: template_registration
+      pipeline_tool_key: fs7_recon_style_template_registration
+      docker_image: mkdayyyy/mri-fs7-all:latest
+      provisional: true
+  metadata:
+    pipeline_stage: template_registration
+    pipeline_tool_key: fs7_recon_style_template_registration
+    pipeline_stage_order: 2
+    docker_image: mkdayyyy/mri-fs7-all:latest
+    needs_license: true
+    output_files: []
+    output_globs:
+    - freesurfer/*/mri/transforms/talairach.lta
+    - freesurfer/*/mri/transforms/talairach.xfm
 - id: brain_extraction
   display_name: Brain Extraction
   operation: brain_extraction
@@ -77,7 +127,7 @@ stages:
   implementation_version: 7.4.1
   enabled: true
   depends_on:
-  - reorient_resize
+  - template_registration
   execution_configurations:
   - id: cpu_1
     mode: cpu
@@ -112,7 +162,7 @@ stages:
   metadata:
     pipeline_stage: brain_extraction
     pipeline_tool_key: fs7_recon_style_brain_extraction
-    pipeline_stage_order: 2
+    pipeline_stage_order: 3
     docker_image: mkdayyyy/mri-fs7-all:latest
     needs_license: true
     output_files: []
@@ -160,62 +210,13 @@ stages:
   metadata:
     pipeline_stage: segmentation
     pipeline_tool_key: fs7_recon_style_segmentation
-    pipeline_stage_order: 3
+    pipeline_stage_order: 4
     docker_image: mkdayyyy/mri-fs7-all:latest
     needs_license: true
     output_files: []
     output_globs:
     - freesurfer/*/mri/aseg.presurf.mgz
     - freesurfer/*/mri/aseg.auto.mgz
-- id: template_registration
-  display_name: Template Registration
-  operation: template_registration
-  implementation: fs7_recon_style_template_registration
-  implementation_version: 7.4.1
-  enabled: true
-  depends_on:
-  - subcortical_segmentation
-  execution_configurations:
-  - id: cpu_1
-    mode: cpu
-    cpu_threads: 1
-    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_1
-    metadata:
-      executor: cpu
-      pipeline_stage: template_registration
-      pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_2
-    mode: cpu
-    cpu_threads: 2
-    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_2
-    metadata:
-      executor: cpu
-      pipeline_stage: template_registration
-      pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  - id: cpu_4
-    mode: cpu
-    cpu_threads: 4
-    profile_ref: freesurfer7_cortical_thickness_default_template_registration_cpu_4
-    metadata:
-      executor: cpu
-      pipeline_stage: template_registration
-      pipeline_tool_key: fs7_recon_style_template_registration
-      docker_image: mkdayyyy/mri-fs7-all:latest
-      provisional: true
-  metadata:
-    pipeline_stage: template_registration
-    pipeline_tool_key: fs7_recon_style_template_registration
-    pipeline_stage_order: 4
-    docker_image: mkdayyyy/mri-fs7-all:latest
-    needs_license: true
-    output_files: []
-    output_globs:
-    - freesurfer/*/mri/transforms/talairach.lta
-    - freesurfer/*/mri/transforms/talairach.xfm
 - id: image_standardization
   display_name: Image Standardization
   operation: image_standardization
@@ -223,7 +224,7 @@ stages:
   implementation_version: 7.4.1
   enabled: true
   depends_on:
-  - template_registration
+  - subcortical_segmentation
   execution_configurations:
   - id: cpu_1
     mode: cpu

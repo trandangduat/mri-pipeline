@@ -2,8 +2,9 @@ schema_version: 1
 pipeline_id: freesurfer7_volumetrics
 display_name: FreeSurfer 7 - Volumetrics
 pipeline_version: 2.0.0
-description: Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Volume'. Dependencies use a safe file-level DAG so
-  independent stages can be scheduled concurrently when resources allow.
+description: Mirrors the current MRI Pipeline preset 'FreeSurfer 7 + Volume'. Dependencies
+  use a safe file-level DAG so independent stages can be scheduled concurrently when
+  resources allow.
 status: draft
 metadata:
   validated: false

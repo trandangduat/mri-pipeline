@@ -20,12 +20,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 30000
-    upper_ms: 37500
+    point_ms: 8896
+    upper_ms: 11120
   memory:
-    peak_mib: 256
-    reservation_mib: 320
-  sample_count: 0
+    peak_mib: 48
+    reservation_mib: 60
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer8_volumetrics_default_reorient_resize_cpu_2
@@ -37,12 +37,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 19500
-    upper_ms: 24375
+    point_ms: 9114
+    upper_ms: 11392
   memory:
-    peak_mib: 282
-    reservation_mib: 353
-  sample_count: 0
+    peak_mib: 59
+    reservation_mib: 73
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer8_volumetrics_default_subcortical_segmentation_cpu_1
@@ -54,12 +54,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 600000
-    upper_ms: 750000
+    point_ms: 1884901
+    upper_ms: 2356126
   memory:
-    peak_mib: 4096
-    reservation_mib: 5120
-  sample_count: 0
+    peak_mib: 13793
+    reservation_mib: 17241
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer8_volumetrics_default_subcortical_segmentation_cpu_2
@@ -71,12 +71,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 390000
-    upper_ms: 487500
+    point_ms: 972636
+    upper_ms: 1215795
   memory:
-    peak_mib: 4506
-    reservation_mib: 5633
-  sample_count: 0
+    peak_mib: 13946
+    reservation_mib: 17432
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer8_volumetrics_default_subcortical_segmentation_cpu_4
@@ -88,12 +88,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 270000
-    upper_ms: 337500
+    point_ms: 574239
+    upper_ms: 717798
   memory:
-    peak_mib: 5120
-    reservation_mib: 6400
-  sample_count: 0
+    peak_mib: 16506
+    reservation_mib: 20632
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer8_volumetrics_default_statistics_atlas_mapping_cpu_1
@@ -122,11 +122,11 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 117000
-    upper_ms: 146250
+    point_ms: 27153
+    upper_ms: 33941
   memory:
-    peak_mib: 1126
-    reservation_mib: 1408
-  sample_count: 0
+    peak_mib: 176
+    reservation_mib: 220
+  sample_count: 1
   source: provisional_ui_integration
   status: draft

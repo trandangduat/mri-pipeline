@@ -20,12 +20,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 34500
-    upper_ms: 43125
+    point_ms: 10570
+    upper_ms: 13212
   memory:
-    peak_mib: 294
-    reservation_mib: 368
-  sample_count: 0
+    peak_mib: 51
+    reservation_mib: 63
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_reorient_resize_cpu_2
@@ -37,12 +37,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 22425
-    upper_ms: 28032
+    point_ms: 10827
+    upper_ms: 13533
   memory:
-    peak_mib: 324
-    reservation_mib: 405
-  sample_count: 0
+    peak_mib: 58
+    reservation_mib: 72
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_brain_extraction_cpu_1
@@ -54,12 +54,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 138000
-    upper_ms: 172500
+    point_ms: 1583330
+    upper_ms: 1979162
   memory:
-    peak_mib: 2355
-    reservation_mib: 2944
-  sample_count: 0
+    peak_mib: 822
+    reservation_mib: 1027
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_brain_extraction_cpu_2
@@ -71,12 +71,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 89700
-    upper_ms: 112125
+    point_ms: 1581718
+    upper_ms: 1977147
   memory:
-    peak_mib: 2591
-    reservation_mib: 3239
-  sample_count: 0
+    peak_mib: 810
+    reservation_mib: 1012
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_brain_extraction_cpu_4
@@ -88,12 +88,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 62100
-    upper_ms: 77625
+    point_ms: 1554159
+    upper_ms: 1942698
   memory:
-    peak_mib: 2944
-    reservation_mib: 3680
-  sample_count: 0
+    peak_mib: 809
+    reservation_mib: 1011
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_subcortical_segmentation_cpu_1
@@ -105,12 +105,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 690000
-    upper_ms: 862500
+    point_ms: 14130605
+    upper_ms: 17663256
   memory:
-    peak_mib: 4710
-    reservation_mib: 5888
-  sample_count: 0
+    peak_mib: 2049
+    reservation_mib: 2561
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_subcortical_segmentation_cpu_2
@@ -122,12 +122,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 448500
-    upper_ms: 560625
+    point_ms: 10438191
+    upper_ms: 13047738
   memory:
-    peak_mib: 5182
-    reservation_mib: 6478
-  sample_count: 0
+    peak_mib: 2038
+    reservation_mib: 2547
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_subcortical_segmentation_cpu_4
@@ -139,12 +139,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 310500
-    upper_ms: 388125
+    point_ms: 8560784
+    upper_ms: 10700980
   memory:
-    peak_mib: 5888
-    reservation_mib: 7360
-  sample_count: 0
+    peak_mib: 2038
+    reservation_mib: 2547
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_template_registration_cpu_1
@@ -156,12 +156,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 103500
-    upper_ms: 129375
+    point_ms: 314828
+    upper_ms: 393535
   memory:
-    peak_mib: 1178
-    reservation_mib: 1473
-  sample_count: 0
+    peak_mib: 500
+    reservation_mib: 625
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_template_registration_cpu_2
@@ -173,12 +173,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 67275
-    upper_ms: 84094
+    point_ms: 313567
+    upper_ms: 391958
   memory:
-    peak_mib: 1295
-    reservation_mib: 1619
-  sample_count: 0
+    peak_mib: 499
+    reservation_mib: 623
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_template_registration_cpu_4
@@ -190,12 +190,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 46575
-    upper_ms: 58219
+    point_ms: 314478
+    upper_ms: 393097
   memory:
-    peak_mib: 1472
-    reservation_mib: 1840
-  sample_count: 0
+    peak_mib: 497
+    reservation_mib: 621
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_image_standardization_cpu_1
@@ -207,12 +207,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 69000
-    upper_ms: 86250
+    point_ms: 253327
+    upper_ms: 316658
   memory:
-    peak_mib: 589
-    reservation_mib: 737
-  sample_count: 0
+    peak_mib: 1130
+    reservation_mib: 1412
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_image_standardization_cpu_2
@@ -224,12 +224,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 44850
-    upper_ms: 56063
+    point_ms: 258524
+    upper_ms: 323155
   memory:
-    peak_mib: 647
-    reservation_mib: 809
-  sample_count: 0
+    peak_mib: 1145
+    reservation_mib: 1431
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_wm_segmentation_cpu_1
@@ -241,12 +241,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 345000
-    upper_ms: 431250
+    point_ms: 253051
+    upper_ms: 316313
   memory:
-    peak_mib: 4710
-    reservation_mib: 5888
-  sample_count: 0
+    peak_mib: 891
+    reservation_mib: 1113
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_wm_segmentation_cpu_2
@@ -258,12 +258,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 224250
-    upper_ms: 280313
+    point_ms: 259493
+    upper_ms: 324366
   memory:
-    peak_mib: 5182
-    reservation_mib: 6478
-  sample_count: 0
+    peak_mib: 911
+    reservation_mib: 1138
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_wm_segmentation_cpu_4
@@ -275,12 +275,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 155250
-    upper_ms: 194063
+    point_ms: 255312
+    upper_ms: 319140
   memory:
-    peak_mib: 5888
-    reservation_mib: 7360
-  sample_count: 0
+    peak_mib: 919
+    reservation_mib: 1148
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_wm_segmentation_cpu_8
@@ -309,12 +309,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 2070000
-    upper_ms: 2587500
+    point_ms: 1435947
+    upper_ms: 1794933
   memory:
-    peak_mib: 9421
-    reservation_mib: 11777
-  sample_count: 0
+    peak_mib: 1762
+    reservation_mib: 2202
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_surface_reconstruction_cpu_2
@@ -326,12 +326,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 1345500
-    upper_ms: 1681875
+    point_ms: 1460407
+    upper_ms: 1825508
   memory:
-    peak_mib: 10363
-    reservation_mib: 12954
-  sample_count: 0
+    peak_mib: 1762
+    reservation_mib: 2202
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_surface_reconstruction_cpu_4
@@ -343,12 +343,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 931500
-    upper_ms: 1164375
+    point_ms: 1454981
+    upper_ms: 1818726
   memory:
-    peak_mib: 11776
-    reservation_mib: 14720
-  sample_count: 0
+    peak_mib: 1765
+    reservation_mib: 2206
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_surface_reconstruction_cpu_8
@@ -377,12 +377,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 690000
-    upper_ms: 862500
+    point_ms: 2722174
+    upper_ms: 3402717
   memory:
-    peak_mib: 2355
-    reservation_mib: 2944
-  sample_count: 0
+    peak_mib: 747
+    reservation_mib: 933
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_surface_registration_cpu_2
@@ -394,12 +394,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 448500
-    upper_ms: 560625
+    point_ms: 2729580
+    upper_ms: 3411975
   memory:
-    peak_mib: 2591
-    reservation_mib: 3239
-  sample_count: 0
+    peak_mib: 760
+    reservation_mib: 950
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_surface_registration_cpu_4
@@ -411,12 +411,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 310500
-    upper_ms: 388125
+    point_ms: 2740847
+    upper_ms: 3426058
   memory:
-    peak_mib: 2944
-    reservation_mib: 3680
-  sample_count: 0
+    peak_mib: 998
+    reservation_mib: 1247
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_statistics_atlas_mapping_cpu_1
@@ -428,12 +428,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 207000
-    upper_ms: 258750
+    point_ms: 804971
+    upper_ms: 1006213
   memory:
-    peak_mib: 1178
-    reservation_mib: 1473
-  sample_count: 0
+    peak_mib: 1260
+    reservation_mib: 1575
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_all_default_statistics_atlas_mapping_cpu_2
@@ -445,11 +445,11 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 134550
-    upper_ms: 168188
+    point_ms: 2159336
+    upper_ms: 2699170
   memory:
-    peak_mib: 1295
-    reservation_mib: 1619
-  sample_count: 0
+    peak_mib: 1630
+    reservation_mib: 2037
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
