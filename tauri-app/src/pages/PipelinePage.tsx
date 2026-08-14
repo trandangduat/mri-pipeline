@@ -293,6 +293,9 @@ export function StatsAtlasSection() {
   const addAtlas = usePipelineFormStore((s) => s.addAtlas);
   const order = ['subcortical_volume', 'cortical_volume', 'cortical_thickness'];
 
+  const [atlasPickerStatKey, setAtlasPickerStatKey] = React.useState<string | null>(null);
+  const [atlasSearch, setAtlasSearch] = React.useState('');
+
   const removeAtlas = (statKey: string, atlasKey: string) =>
     removeAtlasStore(statKey, atlasKey, metadata as Record<string, unknown>);
 
@@ -311,53 +314,40 @@ export function StatsAtlasSection() {
           const stat = metadata?.stats_vectors?.[statKey];
           const selectedAtlases = selectedStatsAtlases[statKey] || [];
           const atlasKeys = Array.isArray(stat?.atlases) ? stat.atlases : [];
-          
+
           return (
             <div key={statKey} className="py-4 first:pt-0 last:pb-0">
               <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2.5">
-                <span className="flex min-h-8 items-center gap-2 text-[13px] font-semibold text-cursor-ink">
+                <span className="flex min-h-8 items-center gap-2 text-[12px] font-semibold uppercase text-cursor-ink">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-cursor-primary" />
-                  {stat?.label || statKey}
+                  {(stat?.label || statKey).toUpperCase()}
                 </span>
 
-                <select
-                  className="h-8 w-[6.75rem] shrink-0 rounded-lg border border-cursor-hairline bg-white px-2.5 text-[11px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong focus:outline-none"
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      addAtlas(statKey, e.target.value);
-                      e.target.value = '';
-                    }
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAtlasPickerStatKey(statKey);
+                    setAtlasSearch('');
                   }}
+                  className="inline-flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-semibold text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
                 >
-                  <option value="" disabled>
-                    + Add Atlas
-                  </option>
-                  {atlasKeys.map((k) => {
-                    const atlas = metadata?.atlases?.[k] || {key: k, label: k};
-                    const isSelected = selectedAtlases.includes(k);
-                    return (
-                      <option key={k} value={k} disabled={isSelected}>
-                        {atlas.label || atlas.key} {isSelected ? '(selected)' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                  + Add Atlas
+                </button>
 
-                <div className="col-span-2 flex flex-wrap gap-1.5 pl-4">
+                <div className="col-span-2 flex flex-wrap gap-2 pl-4">
                 {selectedAtlases.length ? (
                   selectedAtlases.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
                     return (
                       <span
                         key={atlasKey}
-                        className="inline-flex items-center gap-1 rounded-md border border-cursor-hairline bg-white pl-2.5 pr-1.5 py-1 text-[12px] font-medium text-cursor-ink"
+                        className="inline-flex items-center gap-2 rounded-lg border border-cursor-hairline bg-white py-1.5 pl-3 pr-2 text-sm font-medium text-cursor-ink"
                       >
                         {atlas.label || atlas.key}
                         <button
                           type="button"
                           onClick={() => removeAtlas(statKey, atlas.key)}
-                          className="h-4.5 w-4.5 rounded hover:bg-cursor-canvas-soft text-cursor-muted hover:text-cursor-semantic-error flex items-center justify-center font-bold text-[10px]"
+                          className="flex h-5 w-5 items-center justify-center rounded hover:bg-cursor-canvas-soft text-cursor-muted hover:text-cursor-semantic-error font-bold text-[11px]"
                           title="Remove atlas"
                         >
                           ✕
@@ -374,6 +364,75 @@ export function StatsAtlasSection() {
           );
         })}
       </div>
+
+      {atlasPickerStatKey && (() => {
+        const pickerStat = metadata?.stats_vectors?.[atlasPickerStatKey];
+        const pickerAtlasKeys = Array.isArray(pickerStat?.atlases) ? pickerStat.atlases : [];
+        const pickerSelectedAtlases = selectedStatsAtlases[atlasPickerStatKey] || [];
+        const pickerLabel = pickerStat?.label || atlasPickerStatKey;
+        const filteredAtlasKeys = pickerAtlasKeys.filter((atlasKey) => {
+          const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
+          const query = atlasSearch.trim().toLowerCase();
+          if (!query) return true;
+          return `${atlas.label || ''} ${atlas.key || atlasKey}`.toLowerCase().includes(query);
+        });
+
+        return (
+          <ModalOverlay onClose={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="atlas-picker-title">
+              <h3 id="atlas-picker-title" className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">
+                Add Atlas to {pickerLabel.toUpperCase()}
+              </h3>
+              <input
+                type="text"
+                value={atlasSearch}
+                onChange={(e) => setAtlasSearch(e.target.value)}
+                placeholder="Search atlases…"
+                autoFocus
+                className={`${inputCls} mb-3`}
+              />
+              <div className="max-h-[min(34rem,calc(100vh-6rem))] space-y-1.5 overflow-y-auto pr-1">
+                {filteredAtlasKeys.length ? (
+                  filteredAtlasKeys.map((atlasKey) => {
+                    const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
+                    const isSelected = pickerSelectedAtlases.includes(atlasKey);
+                    return (
+                      <button
+                        key={atlasKey}
+                        type="button"
+                        disabled={isSelected}
+                        onClick={() => addAtlas(atlasPickerStatKey, atlasKey)}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                          isSelected
+                            ? 'cursor-default border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted'
+                            : 'cursor-pointer border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{atlas.label || atlas.key}</span>
+                          <span className="block truncate text-[12px] text-cursor-muted">{atlas.key}</span>
+                        </span>
+                        {isSelected ? <span className="shrink-0 rounded-full bg-cursor-hairline px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-body">Selected</span> : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="py-6 text-center text-sm italic text-cursor-muted">No atlases match this search.</p>
+                )}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </ModalOverlay>
+        );
+      })()}
     </Panel>
   );
 }
