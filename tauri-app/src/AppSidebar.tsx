@@ -78,9 +78,9 @@ export function AppSidebar({
     <SidebarProvider open={sidebarOpen} onOpenChange={onSidebarOpenChange} style={{'--sidebar-width': `${sidebarWidth}px`} as React.CSSProperties}>
       <Sidebar
         collapsible="icon"
-        className="font-sans border-r border-cursor-hairline bg-cursor-canvas text-cursor-ink"
+        className="font-sans border-r border-cursor-hairline bg-sidebar text-cursor-ink"
       >
-        <SidebarHeader className="border-b border-cursor-hairline px-4 py-3 flex flex-row items-center justify-between gap-2">
+        <SidebarHeader className="border-b border-cursor-hairline px-4 py-3 flex flex-row items-center justify-between gap-2 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-cursor-primary text-white">
               <BrainCircuit className="h-5 w-5" />
@@ -92,8 +92,8 @@ export function AppSidebar({
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="px-3 py-4">
-          <SidebarMenu>
+        <SidebarContent className="px-3 py-4 group-data-[collapsible=icon]:px-0">
+          <SidebarMenu className="gap-2">
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={activeTab === 'pipeline'}
@@ -165,7 +165,7 @@ export function AppSidebar({
                                   onSelectTab('jobs');
                                   onSelectJob?.(String(job.job_id || ''));
                                 }}
-                                className="min-h-11 text-[13px] flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:border-cursor-hairline data-active:bg-white"
+                                className="min-h-11 text-[13px] flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-transparent px-2 py-2 data-active:bg-cursor-primary/10 data-active:text-cursor-ink data-active:hover:bg-cursor-primary/15"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className={`h-2 w-2 rounded-full flex-none ${stateCls}`} />
@@ -210,10 +210,10 @@ export function AppSidebar({
         </SidebarFooter>
       </Sidebar>
       <div
-        className="fixed top-4 z-40 transition-all duration-200"
+        className="fixed top-4 z-40"
         style={{left: sidebarOpen ? `${sidebarWidth + 16}px` : '72px'}}
       >
-        <SidebarTrigger className="h-10 w-10 shrink-0 rounded-lg border border-cursor-hairline bg-white shadow-none hover:bg-cursor-canvas-soft text-cursor-ink [&_svg]:size-4" />
+        <SidebarTrigger className="h-10 w-10 shrink-0 rounded-lg border border-cursor-hairline bg-white shadow-none transition-none hover:bg-cursor-canvas-soft text-cursor-ink [&_svg]:size-4" />
       </div>
     </SidebarProvider>
   );
