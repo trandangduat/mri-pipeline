@@ -83,6 +83,9 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.key_path = (remote.key_path as string) || '';
       nextFormValues.nonRecursive = Boolean(workspace.non_recursive);
       nextFormValues.licensePath = (workspace.license_dir as string) || '';
+      nextFormValues.neuroflowEnabled = Boolean(workspace.neuroflow_enabled);
+      nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 1);
+      nextFormValues.neuroflowMachineProfileId = (workspace.neuroflow_machine_profile_id as string) || 'application_default';
       if (isCustom) {
         for (const [stage, toolKey] of Object.entries(workspaceTools)) {
           (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = String(toolKey);

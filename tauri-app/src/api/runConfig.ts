@@ -21,6 +21,9 @@ export interface PipelineFormValues {
   licensePath?: string;
   batchImageCount?: number;
   nonRecursive?: boolean;
+  neuroflowEnabled?: boolean;
+  neuroflowMaxConcurrentTasks?: number;
+  neuroflowMachineProfileId?: string;
   [key: string]: unknown;
 }
 
@@ -43,6 +46,9 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   key_path: '',
   password: '',
   licensePath: '',
+  neuroflowEnabled: false,
+  neuroflowMaxConcurrentTasks: 1,
+  neuroflowMachineProfileId: 'application_default',
 };
 
 export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMetadata | null): Record<string, unknown> {
@@ -76,6 +82,9 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
     threads: formValues.cpuThreads ?? 4,
     ram_percent: formValues.ramPercent ?? 100,
     license_dir: formValues.licensePath || '',
+    neuroflow_enabled: Boolean(formValues.neuroflowEnabled),
+    neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 1)),
+    neuroflow_machine_profile_id: String(formValues.neuroflowMachineProfileId || 'application_default'),
   } satisfies PreparedRunRequest;
 
 }

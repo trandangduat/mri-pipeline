@@ -437,6 +437,67 @@ export function StatsAtlasSection() {
   );
 }
 
+export function AdvancedSettingsSection() {
+  const formValues = usePipelineFormStore((s) => s.formValues);
+  const setFormField = usePipelineFormStore((s) => s.setFormField);
+  const neuroflowEnabled = Boolean(formValues.neuroflowEnabled);
+
+  return (
+    <Panel
+      icon={<SlidersHorizontal className="h-5 w-5 text-cursor-primary" />}
+      title="Advanced Settings"
+      className="min-w-0"
+    >
+      <div className="grid gap-4">
+        <label className="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={neuroflowEnabled}
+            onChange={(e) => setFormField('neuroflowEnabled', e.target.checked)}
+            className="h-4 w-4 accent-cursor-primary"
+          />
+          <span className="text-base font-medium text-cursor-ink">Enable NeuroFLOW scheduler</span>
+        </label>
+        <p className="text-sm text-cursor-muted -mt-2 pl-7">
+          Use NeuroFLOW to schedule supported preset pipeline runs across images and stages.
+        </p>
+
+        {neuroflowEnabled && (
+          <>
+            <label className={labelCls}>
+              Max concurrent tasks
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={formValues.neuroflowMaxConcurrentTasks ?? 1}
+                onChange={(e) => setFormField('neuroflowMaxConcurrentTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className={inputCls}
+              />
+              <span className="text-[11px] text-cursor-muted mt-1">
+                Maximum scheduler launches to execute at the same time.
+              </span>
+            </label>
+
+            <label className={labelCls}>
+              Machine profile
+              <input
+                type="text"
+                value={formValues.neuroflowMachineProfileId ?? 'application_default'}
+                disabled
+                className={`${inputCls} opacity-70 cursor-not-allowed`}
+              />
+              <span className="text-[11px] text-cursor-muted mt-1">
+                Currently fixed to application_default.
+              </span>
+            </label>
+          </>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function BarChartIcon() {
   return (
     <svg
@@ -1643,6 +1704,9 @@ export function PipelinePage() {
                 non_recursive: Boolean(fv.nonRecursive),
                 run_target: fv.runtimeTarget,
                 license_dir: fv.licensePath || '',
+                neuroflow_enabled: Boolean(fv.neuroflowEnabled),
+                neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 1)),
+                neuroflow_machine_profile_id: String(fv.neuroflowMachineProfileId || 'application_default'),
                 stats_vectors: sv,
                 tools,
                 ...(fv.runtimeTarget === 'Server'
@@ -1710,6 +1774,7 @@ export function PipelinePage() {
           <div className="grid min-h-0 content-start gap-6 overflow-y-auto pr-4 [scrollbar-gutter:stable] max-[1080px]:overflow-visible max-[1080px]:pr-0">
             <PipelineStepsSection />
             <StatsAtlasSection />
+            <AdvancedSettingsSection />
           </div>
         }
         right={

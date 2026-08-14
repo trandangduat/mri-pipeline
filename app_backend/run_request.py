@@ -33,6 +33,7 @@ class RunRequestInput:
     stats_vector_config: dict[str, JsonValue] = field(default_factory=lambda: StatsVectorConfig().to_dict())
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_machine_profile_id: str = "application_default"
     batch_timestamp: str = ""
 
     @classmethod
@@ -58,6 +59,7 @@ class RunRequestInput:
             stats_vector_config=_json_dict(data.get("stats_vector_config", StatsVectorConfig().to_dict())),
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
             neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 1)),
+            neuroflow_machine_profile_id=str(data.get("neuroflow_machine_profile_id", "") or "application_default"),
             batch_timestamp=str(data.get("batch_timestamp", "") or ""),
         )
 
@@ -203,7 +205,7 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "pipeline_mode": config.pipeline_mode,
         "neuroflow_enabled": config.neuroflow_enabled,
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
-        "neuroflow_machine_profile_id": "application_default",
+        "neuroflow_machine_profile_id": config.neuroflow_machine_profile_id.strip() or "application_default",
     }
 
 
