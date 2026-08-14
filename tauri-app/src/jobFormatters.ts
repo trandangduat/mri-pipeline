@@ -56,13 +56,16 @@ export function normalizeJob(job: Record<string, unknown>, fallbackTarget = 'Loc
   const target = String(job.target || fallbackTarget);
   const rawIdentity = job.job_id || job.remote_job_dir || job.job_dir || job.pid || 'unknown-job';
   const jobId = job.job_id || jobBasename(rawIdentity);
+  const displayName = target === 'Server'
+    ? jobBasename(job.remote_job_dir || job.job_dir || jobId)
+    : jobBasename(jobId);
 
   return {
     ...job,
     job_id: String(jobId),
     target,
     state: normalizeJobState(job.state || job.status),
-    display_name: jobBasename(jobId),
+    display_name: displayName,
     started_at: Number(job.started_at || job.created_at || 0),
     updated_at: Number(job.updated_at || 0),
     pid: typeof job.pid === 'string' || typeof job.pid === 'number' ? job.pid : '',

@@ -64,3 +64,18 @@ test('normalizeJob uses remote job basename as route-safe id', () => {
   expect(job.display_name).toBe('job_20260730_164556');
   expect(job.remote_job_dir).toBe('/home/catcd1/duat-jobs2/job_20260730_164556');
 });
+
+test('normalizeJob shows real remote folder name while keeping stable remote id', () => {
+  const job = normalizeJob(
+    {
+      job_id: 'remote_job_20260814_102225',
+      remote_job_dir: '/home/catcd1/mri-remote-jobs/job_20260814_102225',
+      target: 'Server',
+      state: 'running',
+    },
+    'Server',
+  );
+
+  expect(job.job_id).toBe('remote_job_20260814_102225');
+  expect(job.display_name).toBe('job_20260814_102225');
+});

@@ -722,46 +722,63 @@ class RemoteRunner:
     def list_background_jobs(self) -> list[dict[str, object]]:
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             workspace = self._remote_workspace(ssh)
-            script = (
-                "import glob, json, os; "
-                f"ws = {shlex.quote(workspace)!r}; "
-                "jobs = []; "
-                "for d in sorted(glob.glob(os.path.join(ws, 'job_*')), reverse=True):\n"
-                "  if not os.path.isdir(d): continue\n"
-                "  cfg, meta, st = {}, {}, {}\n"
-                "  for fn, var in (('job_config.json', cfg), ('job_metadata.json', meta), ('job_status.json', st)):\n"
-                "    try:\n"
-                "      with open(os.path.join(d, fn), 'r', encoding='utf-8') as f: var.update(json.load(f))\n"
-                "    except Exception: pass\n"
-                "  pid = ''; exit_code = None\n"
-                "  try:\n"
-                "    with open(os.path.join(d, 'pid.txt'), 'r', encoding='utf-8') as f: pid = f.read().strip()\n"
-                "  except Exception: pass\n"
-                "  try:\n"
-                "    with open(os.path.join(d, 'exit_code.txt'), 'r', encoding='utf-8') as f: exit_code = int(f.read().strip())\n"
-                "  except Exception: pass\n"
-                "  state = 'uploaded'\n"
-                "  if exit_code is not None: state = 'completed' if exit_code == 0 else 'failed'\n"
-                "  elif pid:\n"
-                "    try:\n"
-                "      os.kill(int(pid), 0); state = 'running'\n"
-                "    except Exception: state = 'failed'\n"
-                "  elif st.get('state'): state = str(st.get('state'))\n"
-                "  jobs.append({\n"
-                "    'job_id': os.path.basename(d),\n"
-                "    'remote_job_dir': d,\n"
-                "    'state': state,\n"
-                "    'pid': pid,\n"
-                "    'exit_code': exit_code,\n"
-                "    'started_at': st.get('started_at') or meta.get('created_at') or 0,\n"
-                "    'finished_at': st.get('finished_at'),\n"
-                "    'output_dir': cfg.get('output_dir') or meta.get('output_dir') or '',\n"
-                "    'effective_output_dir': cfg.get('effective_output_dir') or cfg.get('output_dir') or meta.get('output_dir') or '',\n"
-                "    'download_subdir': meta.get('download_subdir') or '',\n"
-                "    'input_files': cfg.get('input_files') or ([cfg.get('input_file')] if cfg.get('input_file') else []),\n"
-                "    'run_request_summary': cfg,\n"
-                "  })\n"
-                "print(json.dumps(jobs))"
+            script = "\n".join(
+                [
+                    "import glob, json, os",
+                    f"ws = {json.dumps(workspace)}",
+                    "jobs = []",
+                    "for d in sorted(glob.glob(os.path.join(ws, 'job_*')), reverse=True):",
+                    "    if not os.path.isdir(d):",
+                    "        continue",
+                    "    cfg, meta, st = {}, {}, {}",
+                    "    for fn, var in (('job_config.json', cfg), ('job_metadata.json', meta), ('job_status.json', st)):",
+                    "        try:",
+                    "            with open(os.path.join(d, fn), 'r', encoding='utf-8') as f:",
+                    "                var.update(json.load(f))",
+                    "        except Exception:",
+                    "            pass",
+                    "    pid = ''",
+                    "    exit_code = None",
+                    "    try:",
+                    "        with open(os.path.join(d, 'pid.txt'), 'r', encoding='utf-8') as f:",
+                    "            pid = f.read().strip()",
+                    "    except Exception:",
+                    "        pass",
+                    "    try:",
+                    "        with open(os.path.join(d, 'exit_code.txt'), 'r', encoding='utf-8') as f:",
+                    "            exit_code = int(f.read().strip())",
+                    "    except Exception:",
+                    "        pass",
+                    "    state = 'uploaded'",
+                    "    if exit_code is not None:",
+                    "        state = 'completed' if exit_code == 0 else 'failed'",
+                    "    elif pid:",
+                    "        try:",
+                    "            os.kill(int(pid), 0)",
+                    "            state = 'running'",
+                    "        except Exception:",
+                    "            state = 'failed'",
+                    "    elif st.get('state'):",
+                    "        state = str(st.get('state'))",
+                    "    folder = os.path.basename(d)",
+                    "    meta_job_id = str(meta.get('job_id') or '')",
+                    "    job_id = meta_job_id if meta_job_id.startswith('remote_') else 'remote_' + folder",
+                    "    jobs.append({",
+                    "        'job_id': job_id,",
+                    "        'remote_job_dir': d,",
+                    "        'state': state,",
+                    "        'pid': pid,",
+                    "        'exit_code': exit_code,",
+                    "        'started_at': st.get('started_at') or meta.get('created_at') or 0,",
+                    "        'finished_at': st.get('finished_at'),",
+                    "        'output_dir': cfg.get('output_dir') or meta.get('output_dir') or '',",
+                    "        'effective_output_dir': cfg.get('effective_output_dir') or cfg.get('output_dir') or meta.get('output_dir') or '',",
+                    "        'download_subdir': meta.get('download_subdir') or '',",
+                    "        'input_files': cfg.get('input_files') or ([cfg.get('input_file')] if cfg.get('input_file') else []),",
+                    "        'run_request_summary': cfg,",
+                    "    })",
+                    "print(json.dumps(jobs))",
+                ]
             )
             code, text = ssh.read_text(f"python3 -c {shlex.quote(script)} 2>/dev/null")
             if code == 0 and text.strip():
@@ -795,7 +812,7 @@ class RemoteRunner:
                 continue
             state, pid, remote_job_dir = parts
             jobs.append({
-                "job_id": posixpath.basename(remote_job_dir),
+                "job_id": f"remote_{posixpath.basename(remote_job_dir)}",
                 "state": state,
                 "pid": pid,
                 "remote_job_dir": remote_job_dir,

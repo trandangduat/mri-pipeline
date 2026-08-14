@@ -774,7 +774,7 @@ def _json_value(value: object) -> JsonValue:
 
 def _job_summary(job: dict[str, object]) -> dict[str, JsonValue]:
     remote_dir = str(job.get("remote_job_dir", "") or "")
-    job_id = str(job.get("job_id", "") or (Path(remote_dir).name if remote_dir else "remote-job"))
+    job_id = _remote_job_id(job.get("job_id"), remote_dir)
     run_req = job.get("run_request_summary")
     req_dict = run_req if isinstance(run_req, dict) else {}
     from app_backend.jobs import _make_run_request_summary
@@ -794,3 +794,11 @@ def _job_summary(job: dict[str, object]) -> dict[str, JsonValue]:
         "input_files": _json_value(job.get("input_files", [])) if isinstance(job.get("input_files"), list) else [],
         "run_request_summary": _make_run_request_summary(req_dict),
     }
+
+
+def _remote_job_id(raw_job_id: object, remote_dir: str) -> str:
+    job_id = str(raw_job_id or "").strip()
+    if job_id.startswith("remote_"):
+        return job_id
+    folder = Path(remote_dir).name if remote_dir else job_id
+    return f"remote_{folder}" if folder else "remote-job"

@@ -139,7 +139,7 @@ def test_list_remote_jobs_uses_injected_runner_and_normalizes_response() -> None
     assert job["state"] == "running"
     assert job["pid"] == "123"
     assert job["remote_job_dir"] == "/workspace/job_1"
-    assert job["job_id"] == "job_1"
+    assert job["job_id"] == "remote_job_1"
     assert "run_request_summary" in job
     assert calls == [{"host": "server", "password": "secret"}]
 

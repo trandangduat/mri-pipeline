@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import shlex
+import subprocess
+
 import pytest
 from pathlib import Path
 from remote.remote_runner import RemoteRunner, RemoteRunConfig
@@ -72,6 +76,16 @@ class FakeRemoteSSHClient:
         allowed_extensions: set[str] | None = None,
     ) -> None:
         self.uploaded_dirs.append((Path(local_dir), remote_dir))
+
+
+class ExecPythonListSSHClient(FakeRemoteSSHClient):
+    def read_text(self, command: str) -> tuple[int, str]:
+        if command.startswith("python3 -c "):
+            stripped = command.removesuffix(" 2>/dev/null")
+            parts = shlex.split(stripped)
+            result = subprocess.run(parts, check=False, capture_output=True, text=True)
+            return result.returncode, result.stdout + result.stderr
+        return super().read_text(command)
 
 
 def test_remote_runner_clean_guardrail(dummy_ssh_server):
@@ -208,6 +222,73 @@ def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path)
         tmp_path / "batch_123" / "run.log",
     ) in FakeRemoteSSHClient.downloaded_files
     FakeRemoteSSHClient.existing_download_files = set()
+
+
+def test_remote_runner_lists_rich_background_jobs_with_stable_remote_id(mocker, tmp_path) -> None:
+    workspace = tmp_path / "mri-remote-jobs"
+    job_dir = workspace / "job_20260814_102225"
+    job_dir.mkdir(parents=True)
+    (job_dir / "job_metadata.json").write_text(
+        json.dumps({"job_id": "job_20260814_102225", "created_at": 1786702948.0}),
+        encoding="utf-8",
+    )
+    (job_dir / "job_status.json").write_text(
+        json.dumps({"state": "running", "started_at": 1786702948.0}),
+        encoding="utf-8",
+    )
+    (job_dir / "job_config.json").write_text(
+        json.dumps(
+            {
+                "mode": "files",
+                "input_files": ["/data/sub-001.nii.gz"],
+                "output_dir": "/remote/output",
+                "effective_output_dir": "/remote/output/batch_20260814_102225",
+                "device": "cpu",
+                "threads": 8,
+                "ram_percent": 90,
+                "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
+                "selected_tools": {"segmentation": "freesurfer8_segmentation"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=str(workspace),
+        )
+    )
+
+    jobs = runner.list_background_jobs()
+
+    assert jobs == [
+        {
+            "job_id": "remote_job_20260814_102225",
+            "remote_job_dir": str(job_dir),
+            "state": "running",
+            "pid": "",
+            "exit_code": None,
+            "started_at": 1786702948.0,
+            "finished_at": None,
+            "output_dir": "/remote/output",
+            "effective_output_dir": "/remote/output/batch_20260814_102225",
+            "download_subdir": "",
+            "input_files": ["/data/sub-001.nii.gz"],
+            "run_request_summary": {
+                "mode": "files",
+                "input_files": ["/data/sub-001.nii.gz"],
+                "output_dir": "/remote/output",
+                "effective_output_dir": "/remote/output/batch_20260814_102225",
+                "device": "cpu",
+                "threads": 8,
+                "ram_percent": 90,
+                "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
+                "selected_tools": {"segmentation": "freesurfer8_segmentation"},
+            },
+        }
+    ]
 
 
 def test_remote_runner_write_config_rejects_attached_job_outside_workspace(mocker) -> None:

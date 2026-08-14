@@ -280,7 +280,7 @@ def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
     req_dict = run_req if isinstance(run_req, dict) else {}
     return {
         "job_id": str(entry.get("job_id", "")),
-        "target": "Local",
+        "target": str(entry.get("target", "Local")),
         "state": str(entry.get("state", "unknown")),
         "job_dir": str(entry.get("job_dir", "")),
         "pid": int(entry.get("pid", 0) or 0),
