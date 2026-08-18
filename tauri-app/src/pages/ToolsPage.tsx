@@ -3,7 +3,7 @@ import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircl
 import {Button, StatusPill} from '../components/ui';
 import {Skeleton} from '@/components/ui/skeleton';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
-import {isImageInstalled, isImageDownloading, isImageFailed} from '../lib/tools';
+import {isImageInstalled, isImageDownloading} from '../lib/tools';
 import type {ToolImage} from '../types/backend';
 import {useEnvironment} from '../query/useEnvironment';
 import {useLocalImageStatusMutation, useRemoveImage, usePullImageStream} from '../query/useTools';
@@ -14,18 +14,26 @@ import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 
 const POLL_INTERVAL_MS = 5000;
+const GRID_CLASSES = 'grid gap-4.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))] max-[640px]:[grid-template-columns:1fr]';
 
-function ImageStatusSkeletonGrid({columns = 'available'}: {columns?: 'available' | 'missing'}) {
-  const gridCls = columns === 'available'
-    ? 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(24rem,1fr))]'
-    : 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]';
+function ImageStatusSkeletonGrid() {
   return (
-    <div className={gridCls}>
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4">
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="mt-3 h-3 w-1/2" />
-          <Skeleton className="mt-5 h-9 w-full" />
+    <div className={GRID_CLASSES}>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4.5 min-h-[220px]">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="flex-1">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="mt-1.5 h-3 w-1/3" />
+            </div>
+          </div>
+          <Skeleton className="mt-4 h-3 w-1/2" />
+          <div className="mt-3 flex gap-1.5">
+            <Skeleton className="h-6 w-20 rounded-md" />
+            <Skeleton className="h-6 w-24 rounded-md" />
+          </div>
+          <Skeleton className="mt-8 h-9 w-full rounded-lg" />
         </div>
       ))}
     </div>
@@ -38,6 +46,7 @@ export function ToolsPage() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
 
+  const cachedImagesByKey = useToolsStore((s) => s.cachedImagesByKey);
   const latestImages = useToolsStore((s) => s.latestImages);
   const setLatestImages = useToolsStore((s) => s.setLatestImages);
 
@@ -67,6 +76,9 @@ export function ToolsPage() {
     if (target === 'Server' && !remoteResult.connected) {
       return;
     }
+    const cacheKey = target === 'Server'
+      ? `Server:${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}:${remoteResult.config?.username || ''}`
+      : 'Local';
     const selectedTools: Record<string, string> = {};
     setBusyKey('refreshTools', true);
     try {
@@ -78,34 +90,39 @@ export function ToolsPage() {
         },
       });
       if (!result.ok) {
-        setLatestImages([]);
         return;
       }
       const imgs = Array.isArray(result.images) ? result.images : [];
-      setLatestImages(imgs);
-
+      setLatestImages(imgs, cacheKey);
     } catch (error: unknown) {
-      setLatestImages([]);
+      // Keep existing cached data
     } finally {
       setBusyKey('refreshTools', false);
     }
-  }, [formValues, remoteResult.connected, localImageStatusMutation, setBusyKey, setLatestImages]);
+  }, [formValues, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, localImageStatusMutation, setBusyKey, setLatestImages]);
 
   const autoCheckKeyRef = useRef<string>('');
 
   useEffect(() => {
     const target = selectedRuntimeTarget();
     const key = target === 'Server'
-      ? `Server:${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}:${remoteResult.config?.username || ''}:${remoteResult.config?.workspace || ''}`
+      ? `Server:${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}:${remoteResult.config?.username || ''}`
       : 'Local';
+
+    // Immediately restore cached images if present to avoid skeleton flicker
+    const cached = cachedImagesByKey[key];
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      setLatestImages(cached);
+    }
+
     if (autoCheckKeyRef.current === key) return;
     autoCheckKeyRef.current = key;
-    setLatestImages([]);
+
     if (target === 'Server' && !remoteResult.connected) {
       return;
     }
     void refreshTools({manual: false});
-  }, [formValues.runtimeTarget, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, remoteResult.config?.workspace, refreshTools, setLatestImages]);
+  }, [formValues.runtimeTarget, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, cachedImagesByKey, refreshTools, setLatestImages]);
 
   useEffect(() => {
     if (!hasDownloading) return;
@@ -155,7 +172,7 @@ export function ToolsPage() {
   const emptyMessage = () => {
     const target = selectedRuntimeTarget();
     if (busy.refreshTools) return 'Checking Docker image status...';
-    if (target === 'Server' && !remoteResult.connected) return 'Connect SSH to load server Docker image status.';
+    if (target === 'Server' && !remoteResult.connected) return 'Connect SSH in Runtime to check server Docker images.';
     return 'Docker image status will load automatically.';
   };
 
@@ -163,14 +180,14 @@ export function ToolsPage() {
 
   return (
     <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4">
-      <div className="grid gap-8">
+      <div className="grid gap-7">
 
         {/* Section 1: Environment Check */}
         <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-[18px] font-semibold leading-[1.4] text-cursor-ink">
-              <Container className="h-5 w-5 text-cursor-primary" />
-              Environment
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
+              <Container className="h-4.5 w-4.5 text-cursor-primary" />
+              Environment Status
             </h2>
             <Button
               variant="primary"
@@ -182,14 +199,14 @@ export function ToolsPage() {
             </Button>
           </div>
 
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))]">
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))]">
             <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-primary/10">
                 <Cpu className="h-5 w-5 text-cursor-primary" />
               </div>
               <div className="min-w-0 flex-1">
                 <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Runtime Target</span>
-                <span className="inline-flex rounded-full border border-cursor-hairline bg-cursor-hairline-soft px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-ink">
+                <span className="inline-flex rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-0.5 text-xs font-semibold text-cursor-ink font-mono">
                   {target}
                 </span>
               </div>
@@ -228,12 +245,12 @@ export function ToolsPage() {
 
         {/* Section 2: Available Images */}
         <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-[18px] font-semibold leading-[1.4] text-cursor-ink">
-              <CheckCircle2 className="h-5 w-5 text-cursor-semantic-success" />
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
+              <CheckCircle2 className="h-4.5 w-4.5 text-cursor-semantic-success" />
               Available Images
               {installedImages.length > 0 && (
-                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-success/10 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-semantic-success">
+                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-success/10 px-2.5 py-0.5 text-xs font-semibold text-cursor-semantic-success">
                   {installedImages.length}
                 </span>
               )}
@@ -249,7 +266,7 @@ export function ToolsPage() {
           </div>
 
           {installedImages.length > 0 ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(24rem,1fr))]">
+            <div className={GRID_CLASSES}>
               {installedImages.map((image) => (
                 <InstalledImageCard
                   key={image.image}
@@ -260,13 +277,13 @@ export function ToolsPage() {
                 />
               ))}
             </div>
-          ) : busy.refreshTools && latestImages.length === 0 ? (
-            <ImageStatusSkeletonGrid columns="available" />
+          ) : busy.refreshTools && images.length === 0 ? (
+            <ImageStatusSkeletonGrid />
           ) : (
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <HardDrive className="mx-auto mb-2 h-8 w-8 text-cursor-muted" />
               <p className="text-sm text-cursor-body">
-                {latestImages.length === 0 ? emptyMessage() : 'No installed images found.'}
+                {images.length === 0 ? emptyMessage() : 'No installed images found.'}
               </p>
             </div>
           )}
@@ -274,12 +291,12 @@ export function ToolsPage() {
 
         {/* Section 3: Not Available Images */}
         <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-[18px] font-semibold leading-[1.4] text-cursor-ink">
-              <AlertCircle className="h-5 w-5 text-cursor-semantic-error" />
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
+              <AlertCircle className="h-4.5 w-4.5 text-cursor-semantic-error" />
               Not Available
               {missingImages.length > 0 && (
-                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-error/10 px-2.5 py-0.5 text-[11px] font-semibold text-cursor-semantic-error">
+                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-error/10 px-2.5 py-0.5 text-xs font-semibold text-cursor-semantic-error">
                   {missingImages.length}
                 </span>
               )}
@@ -287,7 +304,7 @@ export function ToolsPage() {
           </div>
 
           {missingImages.length > 0 ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
+            <div className={GRID_CLASSES}>
               {missingImages.map((image) => (
                 <MissingImageCard
                   key={image.image}
@@ -299,13 +316,13 @@ export function ToolsPage() {
                 />
               ))}
             </div>
-          ) : busy.refreshTools && latestImages.length === 0 ? (
-            <ImageStatusSkeletonGrid columns="missing" />
+          ) : busy.refreshTools && images.length === 0 ? (
+            <ImageStatusSkeletonGrid />
           ) : (
             <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
               <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-cursor-semantic-success" />
               <p className="text-sm text-cursor-body">
-                {latestImages.length === 0 ? emptyMessage() : 'All required images are installed.'}
+                {images.length === 0 ? emptyMessage() : 'All required images are installed.'}
               </p>
             </div>
           )}

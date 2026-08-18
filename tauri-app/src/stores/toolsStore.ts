@@ -8,16 +8,24 @@ export interface ImageDownloadState {
 
 interface ToolsState {
   latestImages: unknown[];
+  cachedImagesByKey: Record<string, unknown[]>;
   downloadStates: Record<string, ImageDownloadState>;
-  setLatestImages: (images: unknown[]) => void;
+  setLatestImages: (images: unknown[], cacheKey?: string) => void;
   setDownloadState: (image: string, state: Partial<ImageDownloadState>) => void;
   clearDownloadState: (image: string) => void;
 }
 
 export const useToolsStore = create<ToolsState>((set) => ({
   latestImages: [],
+  cachedImagesByKey: {},
   downloadStates: {},
-  setLatestImages: (latestImages) => set({latestImages}),
+  setLatestImages: (latestImages, cacheKey) =>
+    set((prev) => ({
+      latestImages,
+      cachedImagesByKey: cacheKey
+        ? {...prev.cachedImagesByKey, [cacheKey]: latestImages}
+        : prev.cachedImagesByKey,
+    })),
   setDownloadState: (image, state) =>
     set((prev) => ({
       downloadStates: {
