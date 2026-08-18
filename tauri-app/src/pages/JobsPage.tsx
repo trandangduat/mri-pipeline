@@ -96,6 +96,9 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
         })
       : 'Not started';
 
+  const req = (job.run_request_summary as Record<string, unknown>) || {};
+  const mode = String(req.pipeline_mode || job.pipeline_mode || 'Default');
+
   return (
     <div
       role="button"
@@ -107,23 +110,29 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           onClick();
         }
       }}
-      className="group flex items-center justify-between gap-4 rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group flex flex-col justify-between gap-3 rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+      <div className="flex items-center gap-3 min-w-0">
         <span className={statusDotLargeClasses(normState)} />
-        <div className="min-w-0 flex-1">
-          <strong className="block truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
-            {title}
-          </strong>
-          <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-cursor-muted">
-            <Clock className="h-3.5 w-3.5" />
-            {startedStr}
-          </span>
-        </div>
+        <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors flex-1">
+          {title}
+        </strong>
       </div>
 
-      <div className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity flex-none">
-        <ChevronRight className="h-4 w-4" />
+      <div className="flex items-center">
+        <span className="inline-flex max-w-full truncate rounded-md bg-cursor-canvas px-2.5 py-0.5 text-[11px] font-medium text-cursor-body border border-cursor-hairline">
+          {mode}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between pt-2 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
+        <span className="flex items-center gap-1.5 font-mono text-[11px]">
+          <Clock className="h-3.5 w-3.5" />
+          {startedStr}
+        </span>
+        <span className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
+          <ChevronRight className="h-4 w-4" />
+        </span>
       </div>
     </div>
   );
