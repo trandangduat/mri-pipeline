@@ -1,12 +1,17 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useParams} from 'react-router';
+import {useParams, useNavigate} from 'react-router';
 import {
+  Activity,
+  ArrowLeft,
   BrainCircuit,
+  ChevronRight,
+  Clock,
   Download,
   Eraser,
   Eye,
   EyeOff,
   FileCheck,
+  HardDrive,
   ImageIcon,
   Layers,
   LayoutGrid,
@@ -14,6 +19,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Server,
   Square,
   X,
 } from 'lucide-react';
@@ -21,8 +27,8 @@ import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
-import {StatusPill} from '../components/ui';
-import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc} from '../jobFormatters';
+import {StatusPill, statusDotClasses} from '../components/ui';
+import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
   deriveBatchImages,
   deriveBatchSummary,
@@ -55,6 +61,179 @@ function hasTauriInternals() {
 function selectedDialogPath(selected: unknown) {
   if (Array.isArray(selected)) return selected[0] || '';
   return (selected as string) || '';
+}
+
+function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => void}) {
+  const normState = normalizeJobState(job.state);
+  const title = jobBasename(job.display_name || job.job_id);
+  const startedAt = Number(job.started_at || job.created_at || 0);
+  const startedStr =
+    startedAt > 0
+      ? new Date(startedAt * 1000).toLocaleString(undefined, {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      : 'Not started';
+  const req = (job.run_request_summary as Record<string, unknown>) || {};
+  const mode = String(req.pipeline_mode || job.pipeline_mode || 'Default');
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="group flex flex-col justify-between gap-3.5 rounded-xl border border-cursor-hairline bg-white p-4.5 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft cursor-pointer"
+    >
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className={statusDotClasses(normState)} />
+          <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
+            {title}
+          </strong>
+        </div>
+        <StatusPill state={normState}>{displayJobState(normState).toUpperCase()}</StatusPill>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs text-cursor-body">
+        <span className="inline-flex rounded-md bg-cursor-canvas px-2.5 py-0.5 text-[11px] font-medium text-cursor-body border border-cursor-hairline">
+          {mode}
+        </span>
+        {job.target ? (
+          <span className="inline-flex rounded-md bg-cursor-surface-strong px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-ink">
+            {String(job.target)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between pt-2.5 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
+        <span className="flex items-center gap-1.5 font-mono text-[11px]">
+          <Clock className="h-3.5 w-3.5" />
+          {startedStr}
+        </span>
+        <span className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
+          View Progress
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function JobsListView({
+  jobs,
+  onSelectJob,
+  onRefresh,
+  isRefreshing,
+}: {
+  jobs: Record<string, unknown>[];
+  onSelectJob: (jobId: string) => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  const sortedJobs = sortJobsByStartedAtDesc(jobs);
+  const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
+  const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
+
+  return (
+    <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4 flex flex-col gap-6 text-cursor-ink">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-cursor-hairline">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-primary text-white">
+            <Activity className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-cursor-ink">Jobs Monitor</h1>
+            <p className="text-xs text-cursor-body">
+              {jobs.length} total jobs across local and server runtimes
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="default"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="bg-cursor-primary hover:bg-cursor-primary-active text-white"
+          >
+            {isRefreshing ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Refreshing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh Jobs
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Local Jobs Section */}
+      <section>
+        <div className="flex items-center gap-2 mb-3.5">
+          <HardDrive className="h-4.5 w-4.5 text-cursor-primary" />
+          <h2 className="text-base font-semibold text-cursor-ink">Local Jobs</h2>
+          <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
+            {localJobs.length}
+          </span>
+        </div>
+
+        {localJobs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center text-xs text-cursor-muted">
+            No local jobs found. Run a local pipeline to start.
+          </div>
+        ) : (
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+            {localJobs.map((j) => (
+              <JobCard
+                key={String(j.job_id || j.display_name)}
+                job={j}
+                onClick={() => onSelectJob(String(j.job_id))}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Server Jobs Section */}
+      <section>
+        <div className="flex items-center gap-2 mb-3.5">
+          <Server className="h-4.5 w-4.5 text-cursor-primary" />
+          <h2 className="text-base font-semibold text-cursor-ink">Server Jobs</h2>
+          <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
+            {serverJobs.length}
+          </span>
+        </div>
+
+        {serverJobs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center text-xs text-cursor-muted">
+            No server jobs found. Connect SSH and start a remote pipeline.
+          </div>
+        ) : (
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+            {serverJobs.map((j) => (
+              <JobCard
+                key={String(j.job_id || j.display_name)}
+                job={j}
+                onClick={() => onSelectJob(String(j.job_id))}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
 export function JobsPage() {
@@ -120,6 +299,8 @@ export function JobsPage() {
   const readRemoteLogMutation = useReadRemoteLogMutation();
 
   const {jobId: urlJobId} = useParams<{jobId?: string}>();
+
+  const navigate = useNavigate();
 
   const loadJobDetails = useCallback(
     async (jobId: string | null, targetJob?: Record<string, unknown> | null, options: {resetUi?: boolean} = {}) => {
@@ -208,16 +389,15 @@ export function JobsPage() {
       const jobs = sortJobsByStartedAtDesc([...localJobs, ...remoteJobs] as Record<string, unknown>[]);
       setLatestJobs(jobs as Record<string, unknown>[]);
 
-      let nextSelected = selectedJobId;
-      if (jobs.length && (!nextSelected || !jobs.some((j) => (j as {job_id?: string}).job_id === nextSelected))) {
-        nextSelected = (jobs[0] as {job_id?: string})?.job_id || null;
-        setSelectedJobId(nextSelected);
+      if (urlJobId || selectedJobId) {
+        const targetId = urlJobId || selectedJobId;
+        const currentJob = jobs.find((j) => (j as {job_id?: string}).job_id === targetId);
+        if (currentJob) {
+          await loadJobDetails(targetId, currentJob as Record<string, unknown>, {
+            resetUi: false,
+          });
+        }
       }
-      const currentJob = jobs.find((j) => (j as {job_id?: string}).job_id === nextSelected);
-      const selectedChanged = nextSelected !== selectedJobId;
-      await loadJobDetails(currentJob ? nextSelected : '', currentJob as Record<string, unknown>, {
-        resetUi: selectedChanged || !currentJob,
-      });
     } catch (err: unknown) {
       print('Refresh jobs failed', {error: (err as Error).message});
     } finally {
@@ -227,8 +407,14 @@ export function JobsPage() {
 
   // Sync URL jobId with selectedJobId
   useEffect(() => {
-    if (urlJobId && urlJobId !== selectedJobId) {
-      setSelectedJobId(urlJobId);
+    if (urlJobId) {
+      if (urlJobId !== selectedJobId) {
+        setSelectedJobId(urlJobId);
+      }
+    } else {
+      if (selectedJobId) {
+        setSelectedJobId(null);
+      }
     }
   }, [urlJobId, selectedJobId, setSelectedJobId]);
 
@@ -257,19 +443,12 @@ export function JobsPage() {
     }
   }, [selectedJobId, latestJobs, loadJobDetails, setJobEvents, setOutputText]);
 
-  // Initial mount auto-refresh / auto-select
+  // Initial mount auto-refresh if empty
   useEffect(() => {
     if (hasInitialRefreshed.current) return;
     hasInitialRefreshed.current = true;
     const jobs = Array.isArray(latestJobs) ? latestJobs : [];
-    if (jobs.length > 0) {
-      if (!selectedJobId) {
-        const firstId = String((jobs[0] as {job_id?: string})?.job_id || '');
-        if (firstId) {
-          setSelectedJobId(firstId);
-        }
-      }
-    } else {
+    if (jobs.length === 0) {
       queueMicrotask(() => {
         void refreshJobs();
       });
@@ -528,8 +707,40 @@ export function JobsPage() {
   const runningPct = (batchSummary.running / totalCount) * 100;
   const pendingPct = (batchSummary.pending / totalCount) * 100;
 
+  if (!selectedJobId && !urlJobId) {
+    return (
+      <JobsListView
+        jobs={jobsList}
+        onSelectJob={(id) => {
+          setSelectedJobId(id);
+          navigate(`/jobs/${encodeURIComponent(id)}`);
+        }}
+        onRefresh={refreshJobs}
+        isRefreshing={busy.refreshJobs}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6 max-[760px]:p-4">
+      {/* Back Button Bar */}
+      <div className="flex items-center justify-between gap-4 flex-none">
+        <Button
+          variant="outline"
+          onClick={() => {
+            setSelectedJobId(null);
+            navigate('/jobs');
+          }}
+          className="h-9 px-3.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1.5 text-cursor-body" />
+          Back to Jobs
+        </Button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-cursor-muted font-mono">{String(job?.job_id || selectedJobId || '')}</span>
+        </div>
+      </div>
+
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4 max-[1180px]:grid-cols-1">
         {/* Left: Job Detail Card */}

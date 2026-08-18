@@ -1,7 +1,7 @@
 import React, {type ReactNode, type ButtonHTMLAttributes} from 'react';
-import {BUTTON, inputCls, labelCls, statusPillClasses} from '../lib/uiTokens';
+import {BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses} from '../lib/uiTokens';
 
-export {BUTTON, inputCls, labelCls, statusPillClasses};
+export {BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses};
 
 export interface PanelProps {
   icon?: ReactNode;

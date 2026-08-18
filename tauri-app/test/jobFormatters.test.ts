@@ -1,5 +1,13 @@
 import {expect, test} from 'vitest';
-import {formatDuration, jobBasename, normalizeJob, normalizeJobState, shortJobName, statusClass} from '../src/jobFormatters';
+import {
+  formatDuration,
+  jobBasename,
+  normalizeJob,
+  normalizeJobState,
+  shortJobName,
+  sortJobsByStartedAtDesc,
+  statusClass,
+} from '../src/jobFormatters';
 
 test('normalizeJobState maps common backend states correctly', () => {
   expect(normalizeJobState('running')).toBe('running');
@@ -78,4 +86,14 @@ test('normalizeJob shows real remote folder name while keeping stable remote id'
 
   expect(job.job_id).toBe('remote_job_20260814_102225');
   expect(job.display_name).toBe('job_20260814_102225');
+});
+
+test('sortJobsByStartedAtDesc sorts jobs with most recently started first', () => {
+  const jobs = [
+    {job_id: 'job_old', started_at: 1000},
+    {job_id: 'job_new', started_at: 5000},
+    {job_id: 'job_mid', started_at: 3000},
+  ];
+  const sorted = sortJobsByStartedAtDesc(jobs);
+  expect(sorted.map((j) => j.job_id)).toEqual(['job_new', 'job_mid', 'job_old']);
 });
