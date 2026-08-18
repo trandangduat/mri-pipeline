@@ -63,6 +63,23 @@ function selectedDialogPath(selected: unknown) {
   return (selected as string) || '';
 }
 
+function statusDotLargeClasses(state: unknown): string {
+  const norm = normalizeJobState(state);
+  if (norm === 'running') {
+    return 'h-3.5 w-3.5 rounded-full bg-cursor-primary ring-4 ring-cursor-primary/20 animate-pulse flex-none';
+  }
+  if (norm === 'completed') {
+    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-success ring-4 ring-cursor-semantic-success/20 flex-none';
+  }
+  if (norm === 'failed') {
+    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-error ring-4 ring-cursor-semantic-error/20 flex-none';
+  }
+  if (norm === 'stopped') {
+    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-warn ring-4 ring-cursor-semantic-warn/20 flex-none';
+  }
+  return 'h-3.5 w-3.5 rounded-full bg-cursor-hairline-strong ring-4 ring-cursor-hairline/30 flex-none';
+}
+
 function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => void}) {
   const normState = normalizeJobState(job.state);
   const title = jobBasename(job.display_name || job.job_id);
@@ -78,8 +95,6 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           second: '2-digit',
         })
       : 'Not started';
-  const req = (job.run_request_summary as Record<string, unknown>) || {};
-  const mode = String(req.pipeline_mode || job.pipeline_mode || 'Default');
 
   return (
     <div
@@ -92,38 +107,23 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           onClick();
         }
       }}
-      className="group flex flex-col justify-between gap-3.5 rounded-xl border border-cursor-hairline bg-white p-4.5 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft cursor-pointer"
+      className="group flex items-center justify-between gap-4 rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className={statusDotClasses(normState)} />
-          <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
+      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+        <span className={statusDotLargeClasses(normState)} />
+        <div className="min-w-0 flex-1">
+          <strong className="block truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
             {title}
           </strong>
-        </div>
-        <StatusPill state={normState}>{displayJobState(normState).toUpperCase()}</StatusPill>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs text-cursor-body">
-        <span className="inline-flex rounded-md bg-cursor-canvas px-2.5 py-0.5 text-[11px] font-medium text-cursor-body border border-cursor-hairline">
-          {mode}
-        </span>
-        {job.target ? (
-          <span className="inline-flex rounded-md bg-cursor-surface-strong px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-ink">
-            {String(job.target)}
+          <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-cursor-muted">
+            <Clock className="h-3.5 w-3.5" />
+            {startedStr}
           </span>
-        ) : null}
+        </div>
       </div>
 
-      <div className="flex items-center justify-between pt-2.5 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
-        <span className="flex items-center gap-1.5 font-mono text-[11px]">
-          <Clock className="h-3.5 w-3.5" />
-          {startedStr}
-        </span>
-        <span className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
-          View Progress
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
+      <div className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity flex-none">
+        <ChevronRight className="h-4 w-4" />
       </div>
     </div>
   );
@@ -146,55 +146,41 @@ function JobsListView({
 
   return (
     <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4 flex flex-col gap-6 text-cursor-ink">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-cursor-hairline">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-primary text-white">
-            <Activity className="h-5 w-5" />
+      {/* Local Jobs Section */}
+      <section>
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div className="flex items-center gap-2">
+            <HardDrive className="h-4.5 w-4.5 text-cursor-primary" />
+            <h2 className="text-base font-semibold text-cursor-ink">Local Jobs</h2>
+            <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
+              {localJobs.length}
+            </span>
           </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-cursor-ink">Jobs Monitor</h1>
-            <p className="text-xs text-cursor-body">
-              {jobs.length} total jobs across local and server runtimes
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
           <Button
-            variant="default"
+            variant="outline"
+            size="sm"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="bg-cursor-primary hover:bg-cursor-primary-active text-white"
+            className="h-8 px-2.5 text-xs font-medium border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
           >
             {isRefreshing ? (
               <>
-                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Refreshing...
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
               </>
             ) : (
               <>
-                <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh Jobs
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
               </>
             )}
           </Button>
         </div>
-      </div>
-
-      {/* Local Jobs Section */}
-      <section>
-        <div className="flex items-center gap-2 mb-3.5">
-          <HardDrive className="h-4.5 w-4.5 text-cursor-primary" />
-          <h2 className="text-base font-semibold text-cursor-ink">Local Jobs</h2>
-          <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
-            {localJobs.length}
-          </span>
-        </div>
 
         {localJobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center text-xs text-cursor-muted">
+          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-6 text-center text-xs text-cursor-muted">
             No local jobs found. Run a local pipeline to start.
           </div>
         ) : (
-          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
             {localJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}
@@ -208,7 +194,7 @@ function JobsListView({
 
       {/* Server Jobs Section */}
       <section>
-        <div className="flex items-center gap-2 mb-3.5">
+        <div className="flex items-center gap-2 mb-3">
           <Server className="h-4.5 w-4.5 text-cursor-primary" />
           <h2 className="text-base font-semibold text-cursor-ink">Server Jobs</h2>
           <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
@@ -217,11 +203,11 @@ function JobsListView({
         </div>
 
         {serverJobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center text-xs text-cursor-muted">
+          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-6 text-center text-xs text-cursor-muted">
             No server jobs found. Connect SSH and start a remote pipeline.
           </div>
         ) : (
-          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
             {serverJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}

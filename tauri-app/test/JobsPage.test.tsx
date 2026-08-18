@@ -60,7 +60,6 @@ describe('JobsPage Redesign', () => {
   it('renders Jobs Overview list with Local Jobs and Server Jobs sections when no job is selected', () => {
     renderJobsPage('/jobs');
 
-    expect(screen.getByText('Jobs Monitor')).toBeDefined();
     expect(screen.getByText('Local Jobs')).toBeDefined();
     expect(screen.getByText('Server Jobs')).toBeDefined();
 
@@ -68,11 +67,6 @@ describe('JobsPage Redesign', () => {
     expect(screen.getByText('job_local_01')).toBeDefined();
     expect(screen.getByText('job_local_02')).toBeDefined();
     expect(screen.getByText('job_server_01')).toBeDefined();
-
-    // Check status pills
-    expect(screen.getByText('RUNNING')).toBeDefined();
-    expect(screen.getByText('SUCCESS')).toBeDefined();
-    expect(screen.getByText('FAILED')).toBeDefined();
   });
 
   it('navigates to job detail view when a job card is clicked', () => {
@@ -94,7 +88,6 @@ describe('JobsPage Redesign', () => {
     fireEvent.click(backButton);
 
     // Should return to the overview list
-    expect(screen.getByText('Jobs Monitor')).toBeDefined();
     expect(screen.getByText('Local Jobs')).toBeDefined();
     expect(screen.getByText('Server Jobs')).toBeDefined();
   });
