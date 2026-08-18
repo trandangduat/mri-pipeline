@@ -50,19 +50,6 @@ export function PipelineStepsSection() {
     setShowTools(formValues.pipelineMode === 'Custom');
   }, [formValues.pipelineMode]);
 
-  const activeToolsList = React.useMemo(() => {
-    if (!metadata?.tools) return [];
-    const stageKeys = metadata.stage_order || [];
-    const result: string[] = [];
-    for (const stage of stageKeys) {
-      const toolKey = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
-      if (toolKey && metadata.tools[toolKey]) {
-        result.push(metadata.tools[toolKey].display_name || toolKey);
-      }
-    }
-    return result;
-  }, [metadata, formValues]);
-
   const needsLicense = React.useMemo(() => {
     if (!metadata?.tools) return false;
     const stageKeys = metadata.stage_order || [];
@@ -147,16 +134,6 @@ export function PipelineStepsSection() {
     <Panel
       icon={<Workflow className="h-5 w-5 text-cursor-primary" />}
       title="Pipeline Steps"
-      titleRight={
-        <Button
-          variant="ghost"
-          icon={showTools ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          onClick={() => setShowTools((prev) => !prev)}
-          className="h-8 px-2.5 text-xs text-cursor-body hover:text-cursor-ink"
-        >
-          {showTools ? 'Hide Tools' : 'Show Tools'}
-        </Button>
-      }
       className="min-w-0"
     >
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -219,32 +196,6 @@ export function PipelineStepsSection() {
           </p>
         </div>
       )}
-      {!metaLoading && !metaError && !showTools && (
-        <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <span className="font-semibold text-cursor-ink mr-1">Active Tools ({activeToolsList.length}):</span>
-            {activeToolsList.length === 0 ? (
-              <span className="text-cursor-muted italic">No tools selected</span>
-            ) : (
-              activeToolsList.map((toolName) => (
-                <span
-                  key={toolName}
-                  className="inline-flex items-center rounded-md border border-cursor-hairline bg-white px-2 py-0.5 font-medium text-cursor-body text-[11px]"
-                >
-                  {toolName}
-                </span>
-              ))
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowTools(true)}
-            className="text-xs font-semibold text-cursor-primary hover:underline cursor-pointer flex-none ml-auto"
-          >
-            Show Tools →
-          </button>
-        </div>
-      )}
       {!metaLoading && !metaError && showTools && (
         <div className="grid border border-cursor-hairline">
           {(metadata?.stages || []).length === 0 && (
@@ -284,17 +235,23 @@ export function PipelineStepsSection() {
         </div>
       )}
       {needsLicense && (
-        <div className="mt-4 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-3">
-          <div className="flex items-center gap-2">
-            <FileKey className="h-4 w-4 text-cursor-primary" />
-            <span className="text-[13px] font-medium text-cursor-ink">FreeSurfer License</span>
-          </div>
-          <p className="mt-1 mb-2 text-[12px] text-cursor-muted">
-            A selected tool requires a FreeSurfer license file. Provide the path to your license.txt.
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
+            FreeSurfer license (license.txt)
+            <input
+              id="licensePath"
+              name="licensePath"
+              type="text"
+              value={licensePath || ''}
+              onChange={(event) => setFormField('licensePath', event.target.value)}
+              placeholder="Select or enter path to license.txt"
+              className={inputCls}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              icon={uploadingLicense ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
               disabled={uploadingLicense}
               onClick={async () => {
                 if (!hasTauriInternals()) {
@@ -314,38 +271,28 @@ export function PipelineStepsSection() {
                   print('License browse failed', {error: (err as Error).message});
                 }
               }}
-              className="inline-flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg border border-cursor-hairline bg-white px-3 text-[12px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <FolderOpen className="h-3.5 w-3.5" />
               {uploadingLicense ? 'Uploading...' : 'Browse'}
-            </button>
-            <input
-              ref={licenseFileInput}
-              className="hidden"
-              type="file"
-              accept=".txt,text/plain"
-              onChange={(event) => {
-                void handleBrowserLicenseFile(event.target.files?.[0]);
-                event.target.value = '';
-              }}
-            />
-            <input
-              value={licensePath || ''}
-              onChange={(event) => setFormField('licensePath', event.target.value)}
-              placeholder="/path/to/license.txt"
-              title={licensePath || ''}
-              className={`${inputCls} h-9 min-w-0 flex-1 text-[12px]`}
-            />
+            </Button>
             {licensePath && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => setFormField('licensePath', '')}
-                className="text-[12px] text-cursor-muted hover:text-cursor-semantic-error"
               >
                 Clear
-              </button>
+              </Button>
             )}
           </div>
+          <input
+            ref={licenseFileInput}
+            className="hidden"
+            type="file"
+            accept=".txt,text/plain"
+            onChange={(event) => {
+              void handleBrowserLicenseFile(event.target.files?.[0]);
+              event.target.value = '';
+            }}
+          />
         </div>
       )}
     </Panel>
