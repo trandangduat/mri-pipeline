@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
@@ -43,6 +43,25 @@ export function PipelineStepsSection() {
   const licensePath = usePipelineFormStore((s) => s.formValues.licensePath as string | undefined);
   const licenseFileInput = useRef<HTMLInputElement>(null);
   const [uploadingLicense, setUploadingLicense] = React.useState(false);
+  const [showTools, setShowTools] = React.useState(formValues.pipelineMode === 'Custom');
+
+  // Automatically show tools when in Custom mode, hide when built-in preset is selected
+  React.useEffect(() => {
+    setShowTools(formValues.pipelineMode === 'Custom');
+  }, [formValues.pipelineMode]);
+
+  const activeToolsList = React.useMemo(() => {
+    if (!metadata?.tools) return [];
+    const stageKeys = metadata.stage_order || [];
+    const result: string[] = [];
+    for (const stage of stageKeys) {
+      const toolKey = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
+      if (toolKey && metadata.tools[toolKey]) {
+        result.push(metadata.tools[toolKey].display_name || toolKey);
+      }
+    }
+    return result;
+  }, [metadata, formValues]);
 
   const needsLicense = React.useMemo(() => {
     if (!metadata?.tools) return false;
@@ -72,12 +91,15 @@ export function PipelineStepsSection() {
         formFields[`stage_${stageKey}`] = toolKey;
       }
       setFormFields(formFields);
+      setShowTools(false);
     } else {
       setFormField('pipelineMode', mode);
+      setShowTools(mode === 'Custom');
     }
   };
 
   const handleStageToolChange = (stageId: string, toolKey: string) => {
+    setShowTools(true);
     if (formValues.pipelineMode === 'Custom') {
       setFormField(`stage_${stageId}`, toolKey);
       return;
@@ -97,6 +119,7 @@ export function PipelineStepsSection() {
         }
       }
       setFormFields(formFields);
+      setShowTools(true);
       print('Loaded preset file', {name: file.name, selected_tools: preset.selected_tools});
     } catch (err: unknown) {
       print('Load preset failed', {error: (err as Error).message});
@@ -124,6 +147,16 @@ export function PipelineStepsSection() {
     <Panel
       icon={<Workflow className="h-5 w-5 text-cursor-primary" />}
       title="Pipeline Steps"
+      titleRight={
+        <Button
+          variant="ghost"
+          icon={showTools ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          onClick={() => setShowTools((prev) => !prev)}
+          className="h-8 px-2.5 text-xs text-cursor-body hover:text-cursor-ink"
+        >
+          {showTools ? 'Hide Tools' : 'Show Tools'}
+        </Button>
+      }
       className="min-w-0"
     >
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -144,6 +177,13 @@ export function PipelineStepsSection() {
           </select>
         </label>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            icon={showTools ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            onClick={() => setShowTools((prev) => !prev)}
+          >
+            {showTools ? 'Hide Tools' : 'Show Tools'}
+          </Button>
           <Button variant="ghost" icon={<FolderOpen className="h-4 w-4" />} onClick={() => browseJsonFile(presetFileInput)}>
             Load Preset
           </Button>
@@ -179,7 +219,33 @@ export function PipelineStepsSection() {
           </p>
         </div>
       )}
-      {!metaLoading && !metaError && (
+      {!metaLoading && !metaError && !showTools && (
+        <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-cursor-ink mr-1">Active Tools ({activeToolsList.length}):</span>
+            {activeToolsList.length === 0 ? (
+              <span className="text-cursor-muted italic">No tools selected</span>
+            ) : (
+              activeToolsList.map((toolName) => (
+                <span
+                  key={toolName}
+                  className="inline-flex items-center rounded-md border border-cursor-hairline bg-white px-2 py-0.5 font-medium text-cursor-body text-[11px]"
+                >
+                  {toolName}
+                </span>
+              ))
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTools(true)}
+            className="text-xs font-semibold text-cursor-primary hover:underline cursor-pointer flex-none ml-auto"
+          >
+            Show Tools →
+          </button>
+        </div>
+      )}
+      {!metaLoading && !metaError && showTools && (
         <div className="grid border border-cursor-hairline">
           {(metadata?.stages || []).length === 0 && (
             <div className="px-4 py-6 text-center text-[13px] text-cursor-muted">No pipeline stages found.</div>
