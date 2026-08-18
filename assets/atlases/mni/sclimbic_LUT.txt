@@ -1,0 +1,14 @@
+0  Unknown                        0   0   0    0
+26 Left-Nucleus-Accumbens         0 100   0    0
+58 Right-Nucleus-Accumbens        0 100   0    0
+819 Left-HypoThal-noMB           50 100 150    0
+820 Right-HypoThal-noMB          50 100 150    0
+821 Left-Fornix                  200  20 100    0
+822 Right-Fornix                 200  20 100    0
+843 Left-MammillaryBody          150  60  60    0
+844 Right-MammillaryBody         150  60  60    0
+853 Mid-AntCom                   100 100 100    0
+865 Left-Basal-Forebrain          50 150 150    0
+866 Right-Basal-Forebrain         50 150 150    0
+869 Left-SeptalNuc               100  50 150    0
+870 Right-SeptalNuc              100  50 150    0

@@ -63,3 +63,10 @@ export function useRemoteBrowseMutation() {
   });
 }
 
+export function useLocalBrowseMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (payload: {path: string; max_depth?: number}) => client.browseLocalPath(payload),
+  });
+}
+

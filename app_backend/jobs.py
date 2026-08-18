@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, TypeAlias
 
+from app_backend import paths
 from app_backend.sse_utils import step_event, complete_event, SSEEvent
 from pipeline.config import PROJECT_ROOT
 from pipeline.jobs import read_json, write_json
@@ -31,7 +31,7 @@ class LocalJobService:
         process_runner: ProcessRunner | None = None,
         clock: Clock | None = None,
     ) -> None:
-        self.jobs_root = Path(jobs_root) if jobs_root is not None else PROJECT_ROOT / "outputs" / "jobs"
+        self.jobs_root = Path(jobs_root) if jobs_root is not None else paths.jobs_root()
         self.registry_path = self.jobs_root / "job_registry.json"
         self.process_runner = process_runner or _default_process_runner
         self.clock = clock or time.time
@@ -44,7 +44,7 @@ class LocalJobService:
         config_path = job_dir / "job_config.json"
         write_json(config_path, request)
 
-        command = [sys.executable, "-m", "pipeline.job_worker", "--job-config", str(config_path)]
+        command = paths.worker_command(str(config_path))
         process = self.process_runner(command)
         now = self.clock()
         write_json(job_dir / "launcher_status.json", {"pid": process.pid, "started_at": now, "command": command})
@@ -230,7 +230,7 @@ class LocalJobService:
 
 def _default_process_runner(command: list[str]) -> ProcessHandle:
     kwargs: dict[str, object] = {
-        "cwd": str(PROJECT_ROOT),
+        "cwd": str(paths.backend_cwd()),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,

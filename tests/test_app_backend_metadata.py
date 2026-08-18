@@ -62,6 +62,16 @@ def test_app_metadata_exposes_pipeline_sources_of_truth() -> None:
     assert set(metadata["atlases"]) == set(ATLAS_DEFS)
 
 
+def test_app_metadata_exposes_mni_atlas_metadata() -> None:
+    metadata = _get_app_metadata()
+
+    mni_atlases = metadata["mni_atlases"]
+    assert "harvard_oxford_subcortical" in mni_atlases
+    assert mni_atlases["harvard_oxford_subcortical"]["atlas_nifti"] == "HarvardOxford-subl-maxprob-thr0-1mm.nii.gz"
+    assert mni_atlases["harvard_oxford_cortical"]["atlas_nifti"] == "HarvardOxford-cortl-maxprob-thr0-1mm.nii.gz"
+    assert mni_atlases["harvard_oxford_cortical"]["atlas_lut"] == "harvard_oxford_cort_LUT.txt"
+
+
 def test_app_metadata_exposes_visible_tools_without_non_serializable_fields() -> None:
     metadata = _get_app_metadata()
 

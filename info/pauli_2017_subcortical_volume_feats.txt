@@ -1,0 +1,15 @@
+Pu-Putamen
+Ca-Caudate
+NAC-Nucleus-Accumbens
+EXA-Extended-Amygdala
+GPe-Globus-Pallidus-Ext
+GPi-Globus-Pallidus-Int
+SNc-Substantia-Nigra-pars
+RN-Red-Nucleus
+SNr-Substantia-Nigra-ret
+PBP-Parabrachial-Pigmented
+VTA-Ventral-Tegmental-Area
+VeP-Ventral-Pallidum
+HN-Habenula
+HTH-Hypothalamus
+MN-Mammillary-Nucleus

@@ -51,10 +51,15 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   neuroflowMachineProfileId: 'application_default',
 };
 
-export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMetadata | null): Record<string, unknown> {
+export function buildRunConfig(
+  formValues: PipelineFormValues,
+  metadata: AppMetadata | null,
+  selectedStatsAtlases?: Record<string, string[]>,
+): Record<string, unknown> {
   const mode = formValues.pipelineMode || 'Custom';
   const preset = metadata?.presets?.[mode];
   const inputMode = formValues.inputMode || 'file';
+  const normalizedInputMode = inputMode === 'batch_folder' ? 'dir' : inputMode;
   const inputPath = formValues.inputPath || '';
   const additionalPaths = String(formValues.additionalInputPaths || '')
     .split(',')
@@ -63,12 +68,12 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
   return {
     input_source: formValues.inputSource || 'Local',
     run_target: formValues.runtimeTarget || 'Local',
-    input_mode: inputMode,
+    input_mode: normalizedInputMode,
     input_path: inputPath,
     input_paths:
-      inputMode === 'multi_file'
+      normalizedInputMode === 'multi_file'
         ? [inputPath, ...additionalPaths].filter(Boolean)
-        : inputMode === 'batch_folder' && additionalPaths.length > 0
+        : normalizedInputMode === 'dir' && additionalPaths.length > 0
           ? additionalPaths
           : [],
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
@@ -76,7 +81,7 @@ export function buildRunConfig(formValues: PipelineFormValues, metadata: AppMeta
     pipeline_mode: mode,
     selected_tools: preset?.tools || {},
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},
-    stats_vector_config: {enabled_stats: {}, atlases: {}},
+    stats_vector_config: {enabled_stats: {}, atlases: selectedStatsAtlases || {}},
     non_recursive: Boolean(formValues.nonRecursive),
     device: formValues.gpuMode === 'enabled' ? 'cuda' : 'cpu',
     threads: formValues.cpuThreads ?? 4,

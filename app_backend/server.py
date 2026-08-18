@@ -12,6 +12,7 @@ from app_backend.config_store import ConfigStore
 from app_backend.environment import LocalEnvironmentService
 from app_backend.jobs import LocalJobService
 from app_backend.licenses import LicenseStore
+from app_backend.local_browse import browse_local_path
 from app_backend.metadata import get_app_metadata
 from app_backend.progress import LocalJobProgressService
 from app_backend.remote import RemoteJobService
@@ -159,6 +160,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/browse":
             self._write_json(HTTPStatus.OK, self._remote_jobs().browse_path(payload))
+            return
+        if self.path == "/local/browse":
+            self._write_json(HTTPStatus.OK, browse_local_path(payload))
             return
         if self.path == "/remote/validate":
             self._write_json(HTTPStatus.OK, self._remote_jobs().validate_config(payload))

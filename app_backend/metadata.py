@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TypeAlias
 
-from pipeline.config import ATLAS_DEFS, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, ExportConfig
+from app_backend import paths
+from pipeline.config import ATLAS_DEFS, EXTERNAL_MNI_VOLUME_ATLASES, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, ExportConfig
 from pipeline.presets import PIPELINE_MODE_ALIASES, PIPELINE_MODES, PRESET_CONFIGS
 from pipeline.registry import (
     FS7_RECON_STYLE_STAGE_ORDER,
@@ -57,12 +58,33 @@ def _tool_metadata(tool_key: str, tool: dict[str, object]) -> dict[str, JsonValu
     }
 
 
+def _mni_atlas_metadata() -> dict[str, JsonValue]:
+    atlas_types = {
+        atlas: stat
+        for stat, stat_def in STAT_VECTOR_DEFS.items()
+        for atlas in stat_def.get("atlases", ())
+        if atlas in EXTERNAL_MNI_VOLUME_ATLASES
+    }
+    return {
+        atlas: {
+            "key": atlas,
+            "label": ATLAS_DEFS.get(atlas, atlas),
+            "type": atlas_types.get(atlas, ""),
+            "source": "MNI",
+            "atlas_nifti": str(VECTOR_SPECS.get(atlas, {}).get("atlas_nifti", "")),
+            "atlas_lut": str(VECTOR_SPECS.get(atlas, {}).get("atlas_lut", "")),
+            "stats_basename": str(VECTOR_SPECS.get(atlas, {}).get("stats_basename", f"{atlas}.stats")),
+        }
+        for atlas in EXTERNAL_MNI_VOLUME_ATLASES
+    }
+
+
 def get_app_metadata() -> dict[str, JsonValue]:
     """Return JSON-compatible metadata for non-Tk frontends."""
 
     return {
         "version": 1,
-        "project_root": str(PROJECT_ROOT),
+        "project_root": str(paths.portable_root() or PROJECT_ROOT),
         "pipeline_modes": [
             {
                 "id": mode,
@@ -97,6 +119,7 @@ def get_app_metadata() -> dict[str, JsonValue]:
             for stat, stat_def in STAT_VECTOR_DEFS.items()
         },
         "atlases": {atlas: {"key": atlas, "label": label} for atlas, label in ATLAS_DEFS.items()},
+        "mni_atlases": _mni_atlas_metadata(),
         "vector_specs": {
             key: {spec_key: str(spec_value) for spec_key, spec_value in spec.items()}
             for key, spec in VECTOR_SPECS.items()

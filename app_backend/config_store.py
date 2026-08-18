@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import TypeAlias
 
-from pipeline.config import PROJECT_ROOT
+from app_backend import paths
 from pipeline.jobs import read_json, write_json
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -13,7 +13,7 @@ JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dic
 
 class ConfigStore:
     def __init__(self, config_root: str | Path | None = None) -> None:
-        self.config_root = Path(config_root) if config_root is not None else PROJECT_ROOT / "configs"
+        self.config_root = Path(config_root) if config_root is not None else paths.config_root()
 
     def save_workspace(self, name: str, data: dict[str, object]) -> dict[str, JsonValue]:
         return self._save("workspaces", "mri-pipeline-workspace", name, data)

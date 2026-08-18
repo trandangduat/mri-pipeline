@@ -9,13 +9,13 @@ import {RuntimeSection} from '../components/RuntimeSection';
 import {StartPipelineDialog} from '../components/StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient} from '../query/useEnvironment';
-import {useRemoteBrowseMutation} from '../query/useRemote';
+import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
-import type {RemoteBrowseEntry} from '../types/backend';
+import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 
 
 function browseJsonFile(inputRef: React.RefObject<HTMLInputElement | null>) {
@@ -875,10 +875,13 @@ function BatchConfigModal({
   batchScanCache: BatchScanCache | null;
   setBatchScanCache: React.Dispatch<React.SetStateAction<BatchScanCache | null>>;
 }) {
-  const browseMutation = useRemoteBrowseMutation();
+  const remoteBrowseMutation = useRemoteBrowseMutation();
+  const localBrowseMutation = useLocalBrowseMutation();
   const [count, setCount] = React.useState<number>(currentCount ?? (localFileListLen || 1));
 
   const isServer = inputSource === 'Server';
+  const canScan = isServer ? isConnected : !!inputPath;
+  const scanPending = isServer ? remoteBrowseMutation.isPending : localBrowseMutation.isPending;
   const cacheMatches = batchScanCache?.cacheKey === cacheKey && batchScanCache?.scanned;
 
   const [serverEntries, setServerEntries] = React.useState<RemoteBrowseEntry[]>(
@@ -891,9 +894,8 @@ function BatchConfigModal({
   const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'one-level');
   const [scanned, setScanned] = React.useState(cacheMatches ? batchScanCache!.scanned : false);
   const [hasConflict, setHasConflict] = React.useState(cacheMatches ? batchScanCache!.hasConflict : false);
-  const inferred = localFileListLen > 0 ? localFileListLen : 0;
 
-  const doServerScan = React.useCallback(
+  const doScan = React.useCallback(
     (mode: ScanMode, force = false) => {
       if (!inputPath) {
         setScanStatus('Set an input location first.');
@@ -907,67 +909,80 @@ function BatchConfigModal({
       setServerEntries([]);
       setSelectedPaths(new Set());
       setScanned(false);
-      browseMutation.mutate(
-        {
-          ...remotePayload,
-          path: inputPath,
-          purpose: 'batch',
-          recursive: true,
-          max_depth: modeOpt.maxDepth,
-        } as Parameters<typeof browseMutation.mutate>[0],
-        {
-          onSuccess: (res) => {
-            if (!res.ok) {
-              setScanStatus(remoteBrowseErrorMessage(res.error));
-              return;
-            }
-            const candidates = (res.entries ?? []).filter((e) => e.kind === 'file' && e.selectable);
-            setServerEntries(candidates);
-            setHasConflict(res.has_multi_subject_conflict ?? false);
 
-            // Auto-select: all candidates whose subject_label is unique (exactly 1 image per folder)
-            const labelCounts = new Map<string, number>();
-            for (const e of candidates) {
-              const lbl = e.subject_label ?? e.name;
-              labelCounts.set(lbl, (labelCounts.get(lbl) ?? 0) + 1);
-            }
-            const autoSelected = new Set<string>();
-            for (const e of candidates) {
-              const lbl = e.subject_label ?? e.name;
-              if ((labelCounts.get(lbl) ?? 0) === 1) {
-                autoSelected.add(e.path);
-              }
-            }
-            setSelectedPaths(autoSelected);
-            setCount(autoSelected.size || candidates.length || 1);
-            const statusText = candidates.length === 0
-              ? 'No image files found in this directory.'
-              : `${candidates.length} image${candidates.length !== 1 ? 's' : ''} found across ${labelCounts.size} subject${labelCounts.size !== 1 ? 's' : ''}.`;
-            setScanStatus(statusText);
-            setScanned(true);
-            setBatchScanCache({
-              cacheKey,
-              scanMode: mode,
-              entries: candidates,
-              selectedPaths: Array.from(autoSelected),
-              status: statusText,
-              hasConflict: res.has_multi_subject_conflict ?? false,
-              subjectCount: labelCounts.size,
-              scanned: true,
-            });
+      const handleSuccess = (res: RemoteBrowseResponse) => {
+        if (!res.ok) {
+          setScanStatus(remoteBrowseErrorMessage(res.error));
+          return;
+        }
+        const candidates = (res.entries ?? []).filter((e) => e.kind === 'file' && e.selectable);
+        setServerEntries(candidates);
+        setHasConflict(res.has_multi_subject_conflict ?? false);
+
+        // Auto-select: all candidates whose subject_label is unique (exactly 1 image per folder)
+        const labelCounts = new Map<string, number>();
+        for (const e of candidates) {
+          const lbl = e.subject_label ?? e.name;
+          labelCounts.set(lbl, (labelCounts.get(lbl) ?? 0) + 1);
+        }
+        const autoSelected = new Set<string>();
+        for (const e of candidates) {
+          const lbl = e.subject_label ?? e.name;
+          if ((labelCounts.get(lbl) ?? 0) === 1) {
+            autoSelected.add(e.path);
+          }
+        }
+        setSelectedPaths(autoSelected);
+        setCount(autoSelected.size || candidates.length || 1);
+        const statusText = candidates.length === 0
+          ? 'No image files found in this directory.'
+          : `${candidates.length} image${candidates.length !== 1 ? 's' : ''} found across ${labelCounts.size} subject${labelCounts.size !== 1 ? 's' : ''}.`;
+        setScanStatus(statusText);
+        setScanned(true);
+        setBatchScanCache({
+          cacheKey,
+          scanMode: mode,
+          entries: candidates,
+          selectedPaths: Array.from(autoSelected),
+          status: statusText,
+          hasConflict: res.has_multi_subject_conflict ?? false,
+          subjectCount: labelCounts.size,
+          scanned: true,
+        });
+      };
+
+      if (isServer) {
+        remoteBrowseMutation.mutate(
+          {
+            ...remotePayload,
+            path: inputPath,
+            purpose: 'batch',
+            recursive: true,
+            max_depth: modeOpt.maxDepth,
+          } as Parameters<typeof remoteBrowseMutation.mutate>[0],
+          {
+            onSuccess: handleSuccess,
+            onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
           },
-          onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
-        },
-      );
+        );
+      } else {
+        localBrowseMutation.mutate(
+          {path: inputPath, max_depth: modeOpt.maxDepth},
+          {
+            onSuccess: handleSuccess,
+            onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
+          },
+        );
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [browseMutation, remotePayload, inputPath, cacheKey, batchScanCache],
+    [isServer, remoteBrowseMutation, localBrowseMutation, remotePayload, inputPath, cacheKey, batchScanCache],
   );
 
   // Hydrate from cache or scan on first open
   React.useEffect(() => {
-    if (isServer && isConnected && inputPath && !cacheMatches) {
-      doServerScan(scanMode, true);
+    if (canScan && inputPath && !cacheMatches) {
+      doScan(scanMode, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -981,7 +996,7 @@ function BatchConfigModal({
     });
   };
 
-  const finalCount = isServer && scanned ? selectedPaths.size : (selectedPaths.size > 0 ? selectedPaths.size : count);
+  const finalCount = scanned ? selectedPaths.size : (selectedPaths.size > 0 ? selectedPaths.size : count);
 
   return (
     <WideModalOverlay onClose={onClose}>
@@ -989,25 +1004,21 @@ function BatchConfigModal({
       <div className="border-b border-cursor-hairline px-6 py-4">
         <h3 className="m-0 text-[15px] font-semibold text-cursor-ink">Configure Batch Settings</h3>
         <p className="mt-1 text-[12px] text-cursor-muted">
-          {isServer && isConnected
-            ? `Input path: ${inputPath || '(not set)'}`
-            : isServer
-              ? 'Connect to the server first to scan the directory.'
-              : inferred > 0
-                ? `${inferred} file(s) picked via browser.`
-                : `Input path: ${inputPath || '(not set)'}`}
+          {isServer && !isConnected
+            ? 'Connect to the server first to scan the directory.'
+            : `Input path: ${inputPath || '(not set)'}`}
         </p>
       </div>
 
-      {/* Server scan controls */}
-      {isServer && isConnected && (
+      {/* Scan controls */}
+      {canScan && (
         <div className="border-b border-cursor-hairline px-6 py-4">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-[12px] font-medium text-cursor-body">Scan mode</p>
             <button
               type="button"
-              onClick={() => doServerScan(scanMode, true)}
-              disabled={browseMutation.isPending}
+              onClick={() => doScan(scanMode, true)}
+              disabled={scanPending}
               className="rounded-lg border border-cursor-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               Re-scan
@@ -1020,7 +1031,7 @@ function BatchConfigModal({
                 type="button"
                 onClick={() => {
                   setScanMode(opt.value);
-                  doServerScan(opt.value);
+                  doScan(opt.value);
                 }}
                 title={opt.hint}
                 className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
@@ -1043,7 +1054,7 @@ function BatchConfigModal({
       )}
 
       {/* Candidate list */}
-      {isServer && isConnected && serverEntries.length > 0 && (
+      {canScan && serverEntries.length > 0 && (
         <TooltipProvider>
           <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
             {/* Table header */}
@@ -1105,7 +1116,7 @@ function BatchConfigModal({
 
       {/* Manual count fallback (local or not yet scanned) */}
       <div className="px-6 py-4">
-        {(!isServer || !isConnected || !scanned) && (
+        {(!canScan || !scanned) && (
           <label className={labelCls}>
             Number of images to process
             <input
@@ -1121,7 +1132,7 @@ function BatchConfigModal({
             />
           </label>
         )}
-        {isServer && isConnected && scanned && (
+        {canScan && scanned && (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[12px] text-cursor-muted">{selectedPaths.size} selected</p>
             <div className="flex gap-2">
@@ -1155,9 +1166,9 @@ function BatchConfigModal({
         </Button>
         <Button
           variant="primary"
-          disabled={isServer && scanned && selectedPaths.size === 0}
+          disabled={canScan && scanned && selectedPaths.size === 0}
           onClick={() => {
-            const paths = isServer && scanned ? Array.from(selectedPaths) : (selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined);
+            const paths = scanned && selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
             onConfirm(finalCount, paths);
           }}
         >
@@ -1319,8 +1330,23 @@ export function InputOutputSection() {
     {label: 'Server', value: 'Server', hint: 'Files on the remote server.'},
   ];
 
-  const handleLocalBrowseInput = () => {
-    localInputRef.current?.click();
+  const handleLocalBrowseInput = async () => {
+    if (isBatch) {
+      if (!hasTauriInternals()) {
+        alert('Folder picker is not available in browser mode. Please type the folder path manually.');
+        return;
+      }
+      try {
+        const selected = await open({directory: true, multiple: false});
+        if (selected) {
+          setFormField('inputPath', selected);
+        }
+      } catch {
+        // dialog cancelled or unavailable
+      }
+    } else {
+      localInputRef.current?.click();
+    }
   };
 
   const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1561,237 +1587,22 @@ export function InputOutputSection() {
 
 
 export function PipelinePage() {
-  const client = useClient();
-  const navigate = useNavigate();
-  const {data: metadata} = useMetadata();
-  const formValues = usePipelineFormStore((s) => s.formValues);
-  const applyWorkspaceConfig = usePipelineFormStore((s) => s.applyWorkspaceConfig);
-
-  const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
-  const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
-  const appendOutput = useJobsStore((s) => s.appendOutput);
-
-  const remoteResult = useRemoteStore();
-  const [starting, setStarting] = React.useState(false);
-
-  const needsLicense = React.useMemo(() => {
-    if (!metadata?.tools) return false;
-    const stageKeys = metadata.stage_order || [];
-    for (const stage of stageKeys) {
-      const toolKey = (formValues as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
-      if (toolKey && metadata.tools[toolKey]?.needs_license) return true;
-    }
-    return false;
-  }, [metadata, formValues]);
-
-  const {
-    open: dialogOpen,
-    steps: dialogSteps,
-    complete: dialogComplete,
-    success: dialogSuccess,
-    job: dialogJob,
-    errorMessage: dialogError,
-    start: startStream,
-    close: closeDialog,
-  } = useStartPipelineStream();
-
-  const workspaceFileInput = useRef<HTMLInputElement>(null);
-
-  const print = (label: string, payload: unknown) => {
-    appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
-  };
-
-  const startPipeline = async () => {
-    setStarting(true);
-    try {
-      if (needsLicense && !formValues.licensePath) {
-        print('Start pipeline failed', {
-          error: 'FreeSurfer license file is required. Select a license.txt in the Pipeline Steps section.',
-        });
-        return;
-      }
-      const isRemote = formValues.runtimeTarget === 'Server';
-      const config = buildRunConfig(formValues, metadata ?? null);
-      if (isRemote) {
-        const payload = {
-          ...buildRemotePayload(formValues),
-          run_request: config,
-        };
-        await startStream('/remote/jobs/start/stream', payload, true);
-      } else {
-        await startStream('/jobs/local/start/stream', config, false);
-      }
-    } catch (err: unknown) {
-      print('Start pipeline failed', {error: (err as Error).message});
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const handleDialogClose = () => {
-    closeDialog();
-    if (!dialogSuccess) return;
-
-    if (dialogJob) {
-      const target = String(dialogJob.target || formValues.runtimeTarget || 'Local');
-      const normalized = normalizeJob(dialogJob, target === 'Server' ? 'Server' : 'Local');
-      const newJobId = String(normalized.job_id || '');
-      if (newJobId) {
-        const existing = useJobsStore.getState().latestJobs || [];
-        const existingJob = existing.find((j) => String(j.job_id || '') === newJobId) || {};
-        const mergedStartedJob = {...existingJob, ...normalized};
-        const merged = sortJobsByStartedAtDesc([
-          mergedStartedJob,
-          ...existing.filter((j) => String(j.job_id || '') !== newJobId),
-        ] as Record<string, unknown>[]);
-        setLatestJobs(merged);
-        setSelectedJobId(newJobId);
-        navigate(`/jobs/${encodeURIComponent(newJobId)}`);
-        return;
-      }
-    }
-
-    navigate('/jobs');
-  };
-
-  async function handleWorkspaceFile(file?: File | null) {
-    if (!file) return;
-    try {
-      const content = await file.text();
-      const workspace = JSON.parse(content);
-      if (!workspace || typeof workspace !== 'object') {
-        throw new Error('Workspace JSON must be an object.');
-      }
-      applyWorkspaceConfig(workspace, metadata ?? undefined);
-      print('Loaded workspace file', {name: file.name, type: workspace.type || 'unknown'});
-    } catch (error: unknown) {
-      print('Load workspace failed', {error: (error as Error).message});
-    }
-  }
-
   return (
-    <>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Button
-          variant="ghost"
-          icon={<Save className="h-4 w-4" />}
-          onClick={async () => {
-            const name = window.prompt('Workspace name:');
-            if (!name) return;
-            try {
-              const sv = usePipelineFormStore.getState().selectedStatsAtlases;
-              const fv = usePipelineFormStore.getState().formValues;
-              const tools: Record<string, string> = {};
-              if (metadata) {
-                for (const stage of metadata.stage_order || []) {
-                  const val = (fv as Record<string, unknown>)[`stage_${stage}`] as string | undefined;
-                  if (val) tools[stage] = val;
-                }
-              }
-              const workspace: Record<string, unknown> = {
-                version: 1,
-                type: 'mri-pipeline-workspace',
-                name,
-                input_source: fv.inputSource,
-                input_mode: fv.inputMode,
-                input_path: fv.inputPath,
-                selected_files: fv.additionalInputPaths.split(',').map((s: string) => s.trim()).filter(Boolean),
-                output_dir: fv.outputDir,
-                pipeline_mode: fv.pipelineMode,
-                device: fv.gpuMode === 'enabled' ? 'cuda' : 'cpu',
-                threads: fv.cpuThreads,
-                ram_percent: fv.ramPercent,
-                non_recursive: Boolean(fv.nonRecursive),
-                run_target: fv.runtimeTarget,
-                license_dir: fv.licensePath || '',
-                neuroflow_enabled: Boolean(fv.neuroflowEnabled),
-                neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 1)),
-                neuroflow_machine_profile_id: String(fv.neuroflowMachineProfileId || 'application_default'),
-                stats_vectors: sv,
-                tools,
-                ...(fv.runtimeTarget === 'Server'
-                  ? {remote: {host: fv.host, port: fv.port, username: fv.username, python: fv.remote_python, workspace: fv.workspace, key_path: fv.key_path}}
-                  : {}),
-              };
-              const res = await client.saveWorkspace(name, workspace);
-              if (res.ok) {
-                print('Workspace saved', {name});
-              } else {
-                print('Save workspace failed', {error: res.error || 'Unknown error'});
-              }
-            } catch (err: unknown) {
-              print('Save workspace failed', {error: (err as Error).message});
-            }
-          }}
-        >
-          Save Workspace
-        </Button>
-        <Button
-          variant="ghost"
-          icon={<FolderOpen className="h-4 w-4" />}
-          onClick={() => browseJsonFile(workspaceFileInput)}
-        >
-          Load Workspace
-        </Button>
-        <input
-          ref={workspaceFileInput}
-          className="hidden"
-          type="file"
-          accept="application/json,.json"
-          onChange={(e) => handleWorkspaceFile(e.target.files?.[0])}
-        />
-        <Button
-          id="startButton"
-          variant="primary"
-          icon={starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          onClick={startPipeline}
-          disabled={starting || (formValues.runtimeTarget === 'Server' && !remoteResult.connected) || (needsLicense && !formValues.licensePath)}
-        >
-          {starting
-            ? 'Starting...'
-            : formValues.runtimeTarget === 'Server' && !remoteResult.connected
-              ? 'Connect SSH first'
-              : needsLicense && !formValues.licensePath
-                ? 'License required'
-                : 'Start Pipeline'}
-        </Button>
-        <Button
-          variant="danger"
-          icon={<Square className="h-4 w-4" />}
-          onClick={() =>
-            print('Stop pipeline', {
-              ok: false,
-              error: 'Select a running job in Jobs Monitor to stop it in a later slice.',
-            })
-          }
-        >
-          Stop Pipeline
-        </Button>
-      </div>
-
-      <SplitPaneForm
-        left={
-          <div className="grid min-h-0 content-start gap-6 overflow-y-auto pr-4 [scrollbar-gutter:stable] max-[1080px]:overflow-visible max-[1080px]:pr-0">
-            <PipelineStepsSection />
-            <StatsAtlasSection />
-            <AdvancedSettingsSection />
-          </div>
-        }
-        right={
-          <div className="grid min-h-0 content-start gap-6 overflow-y-auto pl-4 pr-0 [scrollbar-gutter:stable] max-[1080px]:overflow-visible max-[1080px]:pl-0">
-            <InputOutputSection />
-            <RuntimeSection />
-          </div>
-        }
-      />
-      <StartPipelineDialog
-        open={dialogOpen}
-        onClose={handleDialogClose}
-        steps={dialogSteps}
-        complete={dialogComplete}
-        success={dialogSuccess}
-        errorMessage={dialogError}
-      />
-    </>
+    <SplitPaneForm
+      left={
+        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-6 pt-6 pb-6 pr-4 [scrollbar-gutter:stable] max-[1080px]:h-auto max-[1080px]:overflow-visible max-[1080px]:px-4 max-[1080px]:py-4">
+          <PipelineStepsSection />
+          <StatsAtlasSection />
+          <AdvancedSettingsSection />
+        </div>
+      }
+      right={
+        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-4 pt-6 pb-6 pr-6 [scrollbar-gutter:stable] max-[1080px]:h-auto max-[1080px]:overflow-visible max-[1080px]:px-4 max-[1080px]:py-4">
+          <InputOutputSection />
+          <RuntimeSection />
+        </div>
+      }
+    />
   );
 }
+

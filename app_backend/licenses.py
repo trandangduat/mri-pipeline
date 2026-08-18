@@ -6,6 +6,7 @@ import re
 import time
 from pathlib import Path
 
+from app_backend import paths
 from app_backend.config_store import ConfigStore
 
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -15,7 +16,7 @@ MAX_LICENSE_BYTES = 64 * 1024
 
 class LicenseStore:
     def __init__(self, root: Path | None = None) -> None:
-        self.root = root or ConfigStore().config_root / "licenses"
+        self.root = root or paths.license_root()
 
     def save_upload(self, payload: dict[str, object]) -> dict[str, JsonValue]:
         filename = _safe_license_filename(str(payload.get("filename", "license.txt") or "license.txt"))

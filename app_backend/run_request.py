@@ -227,10 +227,10 @@ def _stats_vector_config(config: RunRequestInput) -> dict[str, JsonValue]:
     atlases: dict[str, JsonValue] = {}
     for stat, stat_def in STAT_VECTOR_DEFS.items():
         existing = atlas_config.get(stat, [])
-        if isinstance(existing, list) and existing:
-            atlases[stat] = [str(atlas) for atlas in existing]
-            continue
         allowed = set(str(atlas) for atlas in stat_def.get("atlases", ()))
+        if isinstance(existing, list) and existing:
+            atlases[stat] = [str(atlas) for atlas in existing if atlas in allowed]
+            continue
         preset_defaults = default_atlases.get(stat, [])
         valid_defaults = [str(atlas) for atlas in preset_defaults if atlas in allowed]
         if stat in enabled and valid_defaults:

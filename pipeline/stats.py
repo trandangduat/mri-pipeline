@@ -7,7 +7,9 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from .config import (
+    ATLAS_SHORT_NAMES,
     BatchImageResult,
+    EXTERNAL_MNI_VOLUME_ATLASES,
     KONG2022_ATLAS_VARIANTS,
     PROJECT_ROOT,
     SCHAEFER2018_ATLAS_VARIANTS,
@@ -137,6 +139,9 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "atlas_nifti": "HarvardOxford-subl-maxprob-thr0-1mm.nii.gz",
+        "atlas_lut": "harvard_oxford_sub_LUT.txt",
+        "stats_basename": "harvard_oxford_sub.stats",
     },
     "harvard_oxford_cortical": {
         "column": "harvard_oxford_cortical_volume",
@@ -144,6 +149,9 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "atlas_nifti": "HarvardOxford-cortl-maxprob-thr0-1mm.nii.gz",
+        "atlas_lut": "harvard_oxford_cort_LUT.txt",
+        "stats_basename": "harvard_oxford_cort.stats",
     },
     "cerebra": {
         "column": "cerebra_subcortical_volume",
@@ -151,6 +159,7 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "stats_basename": "cerebra.stats",
     },
     "brainnetome246": {
         "column": "brainnetome246_cortical_volume",
@@ -158,6 +167,49 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "atlas_nifti": "BN_Atlas_246_1mm.nii.gz",
+        "atlas_lut": "BN_Atlas_246_LUT.txt",
+        "stats_basename": "brainnetome246.stats",
+    },
+    "pauli_2017": {
+        "column": "pauli_2017_subcortical_volume",
+        "features": "pauli_2017_subcortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+        "atlas_nifti": "pauli_2017_labels.nii.gz",
+        "atlas_lut": "pauli_2017_LUT.txt",
+        "stats_basename": "pauli_2017.stats",
+    },
+    "juelich": {
+        "column": "juelich_cortical_volume",
+        "features": "juelich_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+        "atlas_nifti": "juelich_maxprob-thr0-1mm.nii.gz",
+        "atlas_lut": "juelich_LUT.txt",
+        "stats_basename": "juelich.stats",
+    },
+    "aal": {
+        "column": "aal_cortical_volume",
+        "features": "aal_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+        "atlas_nifti": "aal.nii.gz",
+        "atlas_lut": "aal_LUT.txt",
+        "stats_basename": "aal.stats",
+    },
+    "schaefer2018_100_7": {
+        "column": "schaefer2018_100_7_cortical_volume",
+        "features": "schaefer2018_100_7_cortical_volume_feats.txt",
+        "value": "volume_mm3",
+        "requires_projection": True,
+        "template_space": "mni152",
+        "atlas_nifti": "schaefer2018_100_7.nii.gz",
+        "atlas_lut": "schaefer2018_100_7_LUT.txt",
+        "stats_basename": "schaefer2018_100_7.stats",
     },
     "tian_subcortex": {
         "column": "tian_subcortex_subcortical_volume",
@@ -165,6 +217,7 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "stats_basename": "tian_subcortex.stats",
     },
     "jhu_icbm_dti81": {
         "column": "jhu_icbm_dti81_volume",
@@ -172,6 +225,7 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "stats_basename": "jhu_icbm_dti81.stats",
     },
     "suit_cerebellum": {
         "column": "suit_cerebellum_volume",
@@ -179,6 +233,7 @@ VECTOR_SPECS = {
         "value": "volume_mm3",
         "requires_projection": True,
         "template_space": "mni152",
+        "stats_basename": "suit_cerebellum.stats",
     },
     "fs_hippo_amygdala": {
         "column": "fs_hippo_amygdala_subcortical_volume",
@@ -298,6 +353,13 @@ def _load_vector_features(filename: str) -> list[str]:
     if not path.exists():
         return []
     return [line.strip() for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines() if line.strip()]
+
+
+def _atlas_column_name(vector_type: str, atlas: str, is_default: bool) -> str:
+    if is_default:
+        return vector_type
+    short_name = ATLAS_SHORT_NAMES.get(atlas) or atlas
+    return f"{vector_type}_{short_name}"
 
 def _as_number(value: str | float | int | None) -> float | str:
     if value is None:
@@ -576,18 +638,29 @@ def _read_cat12_atlas_values(stats_dir: Path, atlas: str, stat: str) -> dict[str
 
 
 def _read_projected_atlas_values(stats_dir: Path, atlas: str) -> dict[str, str]:
+    return _read_mni_atlas_values(stats_dir, atlas)
+
+
+def _read_mni_atlas_values(stats_dir: Path, atlas: str) -> dict[str, str]:
     values: dict[str, str] = {}
+    spec = VECTOR_SPECS.get(atlas, {})
     mapping_dir = stats_dir / "atlas_mapping"
-    stats_file = mapping_dir / f"{atlas}.stats"
-    if not stats_file.exists():
-        stats_file = stats_dir / f"{atlas}.stats"
-    if stats_file.exists():
-        _headers, rows = _parse_freesurfer_stats_table(stats_file)
-        for row in rows:
-            name = row.get("StructName", "")
-            volume = row.get("Volume_mm3") or row.get("NVoxels")
-            if name and volume:
-                _put_value(values, name, volume)
+    stats_basename = str(spec.get("stats_basename") or f"{atlas}.stats")
+    candidates = [
+        mapping_dir / stats_basename,
+        stats_dir / stats_basename,
+        mapping_dir / f"{atlas}.stats",
+        stats_dir / f"{atlas}.stats",
+    ]
+    stats_file = next((path for path in candidates if path.exists()), None)
+    if not stats_file:
+        return values
+    _headers, rows = _parse_freesurfer_stats_table(stats_file)
+    for row in rows:
+        name = row.get("StructName", "")
+        volume = row.get("Volume_mm3") or row.get("Volume") or row.get("NVoxels")
+        if name and name != "Unknown" and volume:
+            _put_value(values, name, volume)
     return values
 
 def _atlas_stats_candidates(stats_dir: Path, atlas: str, hemi: str) -> list[Path]:
@@ -624,8 +697,8 @@ def _read_atlas_thickness_values(stats_dir: Path, atlas: str) -> dict[str, str]:
 
 def _values_for_vector(stats_dir: Path, stat: str, atlas: str = "") -> dict[str, str]:
     spec = VECTOR_SPECS.get(atlas, {})
-    if spec.get("requires_projection"):
-        return _read_projected_atlas_values(stats_dir, atlas)
+    if spec.get("requires_projection") or atlas in EXTERNAL_MNI_VOLUME_ATLASES:
+        return _read_mni_atlas_values(stats_dir, atlas)
     if stat == "subcortical_volume":
         if atlas == "freesurfer_aseg" or not atlas:
             return _read_subcortical_values(stats_dir)
@@ -725,32 +798,32 @@ class StatsGenerator:
         vectors_dir = stats_dir / "vectors"
         vector_columns: dict[str, str] = {}
 
-        requested: list[tuple[str, str, str]] = []
+        requested: list[tuple[str, str, str, bool]] = []
         if config.enabled_stats.get("subcortical_volume"):
-            sub_atlases = list(config.atlases.get("subcortical_volume", []))
-            if not sub_atlases:
-                sub_atlases = ["freesurfer_aseg"]
-            for atlas in sub_atlases:
-                requested.append(("subcortical_volume", atlas, atlas))
+            requested.append(("subcortical_volume", "freesurfer_aseg", "freesurfer_aseg", True))
+            for atlas in config.atlases.get("subcortical_volume", []):
+                if atlas == "freesurfer_aseg":
+                    continue
+                requested.append(("subcortical_volume", atlas, atlas, False))
         if config.enabled_stats.get("cortical_volume"):
-            cort_atlases = list(config.atlases.get("cortical_volume", []))
-            if not cort_atlases:
-                cort_atlases = ["cortical_volume"]
-            for atlas in cort_atlases:
-                requested.append(("cortical_volume", atlas, atlas))
+            requested.append(("cortical_volume", "freesurfer_aparc", "freesurfer_aparc", True))
+            for atlas in config.atlases.get("cortical_volume", []):
+                if atlas == "freesurfer_aparc":
+                    continue
+                requested.append(("cortical_volume", atlas, atlas, False))
         if config.enabled_stats.get("cortical_thickness"):
             atlases = list(config.atlases.get("cortical_thickness", []))
             if not atlases:
                 warnings.append("cortical_thickness: no atlas selected")
-            for atlas in atlases:
-                requested.append(("cortical_thickness", atlas, atlas))
+            for index, atlas in enumerate(atlases):
+                requested.append(("cortical_thickness", atlas, atlas, index == 0))
 
-        for stat, atlas, spec_key in requested:
+        for stat, atlas, spec_key, is_default in requested:
             spec = VECTOR_SPECS.get(spec_key)
             if not spec:
                 warnings.append(f"{stat}:{atlas or 'default'}: no vector spec")
                 continue
-            column = str(spec["column"])
+            column = _atlas_column_name(stat, atlas, is_default)
             features = _load_vector_features(str(spec["features"]))
             if not features:
                 warnings.append(f"{column}: missing feature list info/{spec['features']}")
@@ -788,21 +861,27 @@ class StatsGenerator:
         return StatsResult(files=generated, warnings=warnings)
 
 def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[str]]:
-    requested: list[str] = []
-    for stat in ["subcortical_volume", "cortical_volume", "cortical_thickness"]:
-        if config.enabled_stats.get(stat):
-            requested.append(stat)
-
-    requested.extend(atlas for atlas in config.atlases.get("cortical_thickness", []) if atlas in VECTOR_SPECS)
-    requested.extend(atlas for atlas in config.atlases.get("subcortical_volume", []) if atlas in VECTOR_SPECS)
-    requested.extend(atlas for atlas in config.atlases.get("cortical_volume", []) if atlas in VECTOR_SPECS)
-
     out: dict[str, list[str]] = {}
-    for spec_key in requested:
-        spec = VECTOR_SPECS.get(spec_key)
-        if not spec:
+    defaults = {"subcortical_volume": "freesurfer_aseg", "cortical_volume": "freesurfer_aparc"}
+    for stat in ["subcortical_volume", "cortical_volume", "cortical_thickness"]:
+        if not config.enabled_stats.get(stat):
             continue
-        out[str(spec["column"])] = _load_vector_features(str(spec["features"]))
+        if stat in defaults:
+            spec = VECTOR_SPECS.get(defaults[stat])
+            if spec:
+                out[stat] = _load_vector_features(str(spec["features"]))
+            for atlas in config.atlases.get(stat, []):
+                if atlas == defaults[stat]:
+                    continue
+                spec = VECTOR_SPECS.get(atlas)
+                if not spec:
+                    continue
+                out[_atlas_column_name(stat, atlas, False)] = _load_vector_features(str(spec["features"]))
+            continue
+        for index, atlas in enumerate(config.atlases.get(stat, [])):
+            spec = VECTOR_SPECS.get(atlas)
+            if not spec:
+                continue
+            out[_atlas_column_name(stat, atlas, index == 0)] = _load_vector_features(str(spec["features"]))
     return out
-
 

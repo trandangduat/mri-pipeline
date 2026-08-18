@@ -9,17 +9,19 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
-from .stats import StatsGenerator, StatsResult
+from .stats import StatsGenerator, StatsResult, VECTOR_SPECS
 from .reports import write_batch_reports, BatchReportContext
 
 from .export import _export_stage_outputs, _safe_export_stem
 from .config import (
     BatchImageResult,
+    EXTERNAL_MNI_VOLUME_ATLASES,
     EXPORT_OUTPUT_ITEMS,
     ExportConfig,
     STAT_VECTOR_DEFS,
     StatsVectorConfig,
     MetricsCallback,
+    MNI_ATLAS_DIR,
     PipelineConfig,
     ProgressCallback,
     PROJECT_ROOT,
@@ -67,6 +69,18 @@ from .hardware import (
 
 
 log = logging.getLogger(__name__)
+
+
+def _resolve_mni_atlas_dir() -> Path:
+    return Path(os.environ.get("MRI_PIPELINE_MNI_ATLAS_DIR", str(MNI_ATLAS_DIR))).expanduser()
+
+
+def _selected_stats_atlases(config: PipelineConfig) -> list[str]:
+    return [
+        atlas
+        for atlases in config.stats_vector_config.atlases.values()
+        for atlas in atlases
+    ]
 
 
 
@@ -125,6 +139,15 @@ def _build_execution_request(
     norm_vol = PROJECT_ROOT / "normalize_volumes.py"
     if norm_vol.exists():
         mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
+    selected_atlases = _selected_stats_atlases(config)
+    needs_mni_atlas_assets = any(
+        atlas in EXTERNAL_MNI_VOLUME_ATLASES and VECTOR_SPECS.get(atlas, {}).get("atlas_nifti")
+        for atlas in selected_atlases
+    )
+    if needs_mni_atlas_assets:
+        atlas_dir = _resolve_mni_atlas_dir()
+        if atlas_dir.exists():
+            mounts.append((str(atlas_dir), "/atlases"))
 
     args = [
         "--input",
@@ -150,11 +173,7 @@ def _build_execution_request(
             dicom_list_path=dicom_list_path,
             enabled_stats={
                 **dict(config.stats_vector_config.enabled_stats),
-                "selected_atlases": [
-                    atlas
-                    for atlases in config.stats_vector_config.atlases.values()
-                    for atlas in atlases
-                ],
+                "selected_atlases": selected_atlases,
             },
         )
         command = [tool.get("shell", "bash"), "-c", tool["command_builder"](ctx)]

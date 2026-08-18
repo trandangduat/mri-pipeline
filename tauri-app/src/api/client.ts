@@ -171,6 +171,10 @@ export class BackendClient {
     return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
   }
 
+  async browseLocalPath(payload: {path: string; max_depth?: number}): Promise<RemoteBrowseResponse> {
+    return remoteBrowseResponseSchema.parse(await this.post('/local/browse', {...payload}));
+  }
+
   async pullImage(image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}): Promise<PullImageResponse> {
     return pullImageResponseSchema.parse(await this.post('/tools/local/pull', {image, target, remote}));
   }

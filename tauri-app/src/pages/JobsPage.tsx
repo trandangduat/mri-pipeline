@@ -529,22 +529,43 @@ export function JobsPage() {
   const pendingPct = (batchSummary.pending / totalCount) * 100;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6 max-[760px]:p-4">
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4 max-[1180px]:grid-cols-1">
         {/* Left: Job Detail Card */}
         <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5">
           {/* Header: Icon + Title + Status Pills */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-cursor-hairline-soft">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-canvas border border-cursor-hairline text-cursor-primary">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
                 <BrainCircuit className="h-5 w-5" />
               </div>
-              <h2 className="m-0 text-xl font-semibold tracking-tight text-cursor-ink truncate">
-                {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
-              </h2>
+              <div className="min-w-0 flex-1">
+                {jobsList.length > 1 ? (
+                  <select
+                    value={selectedJobId || ''}
+                    onChange={(e) => setSelectedJobId(e.target.value)}
+                    className="w-full text-base font-semibold text-cursor-ink bg-transparent border border-cursor-hairline rounded-md px-2 py-1 outline-none focus:border-cursor-primary"
+                  >
+                    {jobsList.map((j) => {
+                      const id = (j as {job_id?: string})?.job_id || '';
+                      const name = (j as {display_name?: string})?.display_name || id;
+                      const target = (j as {target?: string})?.target || 'Local';
+                      return (
+                        <option key={id} value={id}>
+                          [{target}] {name}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <h2 className="m-0 text-xl font-semibold tracking-tight text-cursor-ink truncate">
+                    {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
+                  </h2>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-none">
               <StatusPill state={displayMeta.status_reconciled}>
                 {displayJobState(displayMeta.status_reconciled).toUpperCase()}
               </StatusPill>
@@ -937,7 +958,7 @@ export function JobsPage() {
           <p className="m-0 text-xs text-cursor-muted max-w-sm mx-auto mb-4">
             {jobsList.length === 0
               ? 'There are no active or recent pipeline jobs. Run a pipeline from the Configuration tab or refresh jobs.'
-              : 'Select a job from the sidebar list to view its execution progress and details.'}
+              : 'Select a job from the jobs list above to view its execution progress and details.'}
           </p>
           <Button
             variant="default"

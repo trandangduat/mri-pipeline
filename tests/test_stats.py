@@ -25,7 +25,7 @@ def test_stats_generator_reads_fastsurfer_aparc_mapped_thickness(tmp_path):
     )
     StatsGenerator(config).generate(str(subject_dir), "subject")
 
-    with open(stats_dir / "vectors" / "aparc_cortical_thickness_features.tsv", encoding="utf-8", newline="") as f:
+    with open(stats_dir / "vectors" / "cortical_thickness_features.tsv", encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f, delimiter="\t"))
 
     values = {row["feature"]: row["value"] for row in rows}

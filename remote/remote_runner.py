@@ -109,7 +109,11 @@ class RemoteRunner:
     def _local_code_signature(self) -> str:
         hasher = hashlib.sha256()
         roots: list[Path] = [PROJECT_ROOT / "pipeline_runner.py", PROJECT_ROOT / "requirements.txt", PROJECT_ROOT / "normalize_volumes.py"]
-        for folder, extensions in ((PROJECT_ROOT / "pipeline", {".py"}), (PROJECT_ROOT / "info", {".txt"})):
+        for folder, extensions in (
+            (PROJECT_ROOT / "pipeline", {".py"}),
+            (PROJECT_ROOT / "info", {".txt"}),
+            (PROJECT_ROOT / "assets" / "atlases" / "mni", {".nii.gz", ".txt", ".csv", ".md"}),
+        ):
             if folder.exists():
                 for root, dirs, files in os.walk(folder):
                     dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -982,6 +986,14 @@ class RemoteRunner:
         info_dir = PROJECT_ROOT / "info"
         if info_dir.exists():
             ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
+        mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
+        if mni_atlas_dir.exists():
+            ssh.upload_dir(
+                mni_atlas_dir,
+                posixpath.join(remote_code, "assets", "atlases", "mni"),
+                skip_dirs={"__pycache__"},
+                allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
+            )
         neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
         if neuroflow.exists():
             remote_neuroflow = posixpath.join(remote_code, "NeuroFLOW-private")

@@ -1,3 +1,6 @@
+# Communication & Language
+Follow ISO24495
+
 # Agent Environment
 
 This Herdr workspace uses a Planner → Executor workflow.

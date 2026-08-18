@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MNI_ATLAS_DIR = PROJECT_ROOT / "assets" / "atlases" / "mni"
 
 @dataclass
 class ToolContext:
@@ -88,6 +89,49 @@ SURFACE_ATLAS_STEMS: tuple[str, ...] = (
     *(stem for _key, _parcels, _networks, stem in SCHAEFER2018_ATLAS_VARIANTS),
 )
 
+ATLAS_SHORT_NAMES: dict[str, str] = {
+    "freesurfer_aseg": "",
+    "freesurfer_aparc": "",
+    "fastsurfer_dkt": "",
+    "aparc": "",
+    "aparc_a2009s": "aparc_a2009s",
+    "yale": "yale",
+    "mni_sclimbic": "sclimbic",
+    "harvard_oxford_subcortical": "harvard_oxford_sub",
+    "harvard_oxford_cortical": "harvard_oxford_cort",
+    "brainnetome246": "brainnetome246",
+    "pauli_2017": "pauli_2017",
+    "juelich": "juelich",
+    "aal": "aal",
+    "schaefer2018_100_7": "schaefer2018",
+    "cerebra": "cerebra",
+    "tian_subcortex": "tian_subcortex",
+    "jhu_icbm_dti81": "jhu_icbm_dti81",
+    "suit_cerebellum": "suit_cerebellum",
+    "fs_hippo_amygdala": "fs_hippo_amygdala",
+    "fs_brainstem": "fs_brainstem",
+    "fs_thalamic_nuclei": "fs_thalamic_nuclei",
+    "fs_sclimbic": "fs_sclimbic",
+    **{key: stem for key, _parcels, _networks, stem in KONG2022_ATLAS_VARIANTS},
+    **{key: stem for key, _parcels, _networks, stem in SCHAEFER2018_ATLAS_VARIANTS},
+    "cat12_neuromorphometrics": "",
+    "cat12_schaefer2018_100parcels_17networks": "cat12_schaefer2018_100parcels_17networks",
+    "cat12_schaefer2018_200parcels_17networks": "",
+    "cat12_schaefer2018_400parcels_17networks": "cat12_schaefer2018_400parcels_17networks",
+    "cat12_schaefer2018_600parcels_17networks": "cat12_schaefer2018_600parcels_17networks",
+    "cat12_aal3": "cat12_aal3",
+    "cat12_anatomy3": "cat12_anatomy3",
+    "cat12_cobra": "cat12_cobra",
+    "cat12_hammers": "cat12_hammers",
+    "cat12_ibsr": "cat12_ibsr",
+    "cat12_julichbrain3": "cat12_julichbrain3",
+    "cat12_lpba40": "cat12_lpba40",
+    "cat12_mori": "cat12_mori",
+    "cat12_suit": "cat12_suit",
+    "cat12_thalamic_nuclei": "cat12_thalamic_nuclei",
+    "cat12_thalamus": "cat12_thalamus",
+}
+
 CORTICAL_THICKNESS_ATLASES: tuple[str, ...] = (
     "aparc",
     "aparc_a2009s",
@@ -131,6 +175,9 @@ CAT12_CORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
 EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
     "mni_sclimbic",
     "harvard_oxford_subcortical",
+    "brainnetome246",
+    "pauli_2017",
+    "aal",
     "cerebra",
     "tian_subcortex",
 )
@@ -138,11 +185,24 @@ EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
 EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES: tuple[str, ...] = (
     "harvard_oxford_cortical",
     "brainnetome246",
+    "juelich",
+    "aal",
+    "schaefer2018_100_7",
 )
 
 EXTERNAL_MNI_HYBRID_VOLUME_ATLASES: tuple[str, ...] = (
     "jhu_icbm_dti81",
     "suit_cerebellum",
+)
+
+EXTERNAL_MNI_VOLUME_ATLASES: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        (
+            *EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES,
+            *EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES,
+            *EXTERNAL_MNI_HYBRID_VOLUME_ATLASES,
+        )
+    )
 )
 
 FREESURFER_BUILTIN_SUBREGION_ATLASES: tuple[str, ...] = (
@@ -222,6 +282,10 @@ ATLAS_DEFS: dict[str, str] = {
     "harvard_oxford_cortical": "Harvard-Oxford Cortical (MNI152 projection)",
     "cerebra": "CerebrA (MNI-ICBM152 projection)",
     "brainnetome246": "Brainnetome 246 (MNI projection)",
+    "pauli_2017": "Pauli 2017 Subcortical Atlas (MNI projection)",
+    "juelich": "Juelich Atlas (MNI projection)",
+    "aal": "AAL Atlas (MNI projection)",
+    "schaefer2018_100_7": "Schaefer 2018 - 100 parcels / 7 networks (MNI projection)",
     "tian_subcortex": "Tian Subcortical Atlas (MNI projection)",
     "jhu_icbm_dti81": "JHU ICBM-DTI-81 White Matter (MNI projection)",
     "suit_cerebellum": "SUIT Cerebellum (MNI projection)",

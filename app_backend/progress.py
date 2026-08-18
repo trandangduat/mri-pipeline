@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import TypeAlias
 
-from pipeline.config import PROJECT_ROOT
+from app_backend import paths
 from pipeline.jobs import read_json
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -15,7 +15,7 @@ MAX_EVENT_LINE_BYTES = 262_144
 
 class LocalJobProgressService:
     def __init__(self, jobs_root: str | Path | None = None) -> None:
-        self.jobs_root = Path(jobs_root) if jobs_root is not None else PROJECT_ROOT / "outputs" / "jobs"
+        self.jobs_root = Path(jobs_root) if jobs_root is not None else paths.jobs_root()
         self.registry_path = self.jobs_root / "job_registry.json"
 
     def read_events(self, job_id: str, offset: int = 0, limit: int = 500) -> dict[str, JsonValue]:

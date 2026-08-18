@@ -162,7 +162,7 @@ export function ToolsPage() {
   const target = selectedRuntimeTarget();
 
   return (
-    <div className="h-full overflow-y-auto pr-2 pb-8">
+    <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4">
       <div className="grid gap-8">
 
         {/* Section 1: Environment Check */}

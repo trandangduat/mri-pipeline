@@ -1,10 +1,11 @@
 import React, {useEffect, useCallback, useRef} from 'react';
 import {HashRouter, Routes, Route, Navigate, useNavigate, useLocation} from 'react-router';
-import {AppSidebar} from '../AppSidebar';
+import {AppHeader} from '../components/AppHeader';
+import {AppFooter} from '../components/AppFooter';
 import {PipelinePage} from '../pages/PipelinePage';
 import {ToolsPage} from '../pages/ToolsPage';
 import {JobsPage} from '../pages/JobsPage';
-import {useUiStore, type AppTab} from '../stores/uiStore';
+import type {AppTab} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useEnvironment, useClient} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
@@ -14,16 +15,10 @@ function AppLayout() {
   const navigate = useNavigate();
   const client = useClient();
 
-  const sidebarOpen = useUiStore((s) => s.sidebarOpen);
-  const sidebarWidth = useUiStore((s) => s.sidebarWidth);
-  const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
-  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth);
   const {data: environment} = useEnvironment();
-
   const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
 
   const latestJobs = useJobsStore((s) => s.latestJobs);
-  const selectedJobId = useJobsStore((s) => s.selectedJobId);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const activeTab: AppTab = location.pathname.startsWith('/tools')
@@ -36,6 +31,16 @@ function AppLayout() {
     const item = (environment as Record<string, unknown> | undefined)?.[name] as {ok?: boolean} | undefined;
     return `${name}: ${item?.ok ? 'ready' : 'missing'}`;
   });
+
+  const pythonOk = Boolean(
+    (environment as Record<string, unknown> | undefined)?.python &&
+      ((environment as Record<string, unknown> | undefined)?.python as {ok?: boolean}).ok,
+  );
+  const dockerOk = Boolean(
+    (environment as Record<string, unknown> | undefined)?.docker &&
+      ((environment as Record<string, unknown> | undefined)?.docker as {ok?: boolean}).ok,
+  );
+  const isEnvReady = pythonOk && dockerOk;
 
   const print = useCallback(
     (label: string, payload: unknown) => {
@@ -68,67 +73,53 @@ function AppLayout() {
   }, [client, setSelectedStatsAtlases, print]);
 
   return (
-    <main
-      className="min-h-screen bg-cursor-canvas"
-      id="appLayout"
-      style={{'--active-sidebar-width': sidebarOpen ? `${sidebarWidth}px` : '3rem'} as React.CSSProperties}
-    >
-      <div
-        id="sidebarRoot"
-        className="fixed inset-y-0 left-0 z-30 w-[var(--active-sidebar-width)] max-[760px]:static max-[760px]:w-auto"
-      >
-        <AppSidebar
-          activeTab={activeTab}
-          onSelectTab={(tab) => navigate('/' + tab)}
-          jobs={latestJobs}
-          selectedJobId={selectedJobId}
-          onSelectJob={(jobId) => navigate('/jobs/' + encodeURIComponent(jobId))}
-          envText={envParts.join(' · ')}
-          sidebarOpen={sidebarOpen}
-          onSidebarOpenChange={setSidebarOpen}
-          sidebarWidth={sidebarWidth}
-          onSidebarWidthChange={setSidebarWidth}
-        />
-      </div>
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-cursor-canvas text-cursor-ink" id="appLayout">
+      <AppHeader
+        activeTab={activeTab}
+        onSelectTab={(tab) => navigate('/' + tab)}
+        jobsCount={latestJobs.length}
+      />
 
-      <section className="flex flex-col h-screen overflow-hidden min-w-0 px-6 py-4 ml-[var(--active-sidebar-width)] max-[760px]:ml-0 max-[760px]:px-4 max-[760px]:pb-4">
+      <main className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
         <Routes>
           <Route path="/" element={<Navigate to="/pipeline" replace />} />
           <Route
             path="/pipeline"
             element={
-              <section className="min-w-0 px-16 max-[760px]:px-0 block" data-page="pipeline">
+              <div className="w-full h-full min-h-0 flex flex-col" data-page="pipeline">
                 <PipelinePage />
-              </section>
+              </div>
             }
           />
           <Route
             path="/tools"
             element={
-              <section className="min-w-0 px-16 max-[760px]:px-0 block h-full overflow-y-auto" data-page="tools">
+              <div className="w-full h-full min-h-0 flex flex-col" data-page="tools">
                 <ToolsPage />
-              </section>
+              </div>
             }
           />
           <Route
             path="/jobs"
             element={
-              <section className="min-w-0 px-16 max-[760px]:px-0 block" data-page="jobs">
+              <div className="w-full h-full min-h-0 flex flex-col" data-page="jobs">
                 <JobsPage />
-              </section>
+              </div>
             }
           />
           <Route
             path="/jobs/:jobId"
             element={
-              <section className="min-w-0 px-16 max-[760px]:px-0 block" data-page="jobs">
+              <div className="w-full h-full min-h-0 flex flex-col" data-page="jobs">
                 <JobsPage />
-              </section>
+              </div>
             }
           />
         </Routes>
-      </section>
-    </main>
+      </main>
+
+      <AppFooter envText={envParts.join(' · ')} isReady={isEnvReady} />
+    </div>
   );
 }
 

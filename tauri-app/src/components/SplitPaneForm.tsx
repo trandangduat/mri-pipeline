@@ -43,7 +43,7 @@ export function SplitPaneForm({
   return (
     <div
       ref={containerRef}
-      className={`grid min-h-0 h-[calc(100vh-8rem)] gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_12px_minmax(20rem,1fr)] max-[1080px]:h-auto max-[1080px]:grid-cols-1 ${className}`}
+      className={`grid min-h-0 h-full w-full gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_12px_minmax(20rem,1fr)] max-[1080px]:h-auto max-[1080px]:grid-cols-1 ${className}`}
       style={{'--pipeline-left-width': `${leftWidth}%`} as React.CSSProperties}
     >
       {left}

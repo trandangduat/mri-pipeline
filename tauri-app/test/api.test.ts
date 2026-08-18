@@ -258,6 +258,45 @@ test('buildRunConfig sends selected FreeSurfer license path', () => {
   expect(config.license_dir).toBe('/licenses/license.txt');
 });
 
+test('buildRunConfig sends selected stats atlases', () => {
+  const config = buildRunConfig(
+    {
+      inputPath: '/data/a.nii.gz',
+      outputDir: '/out',
+      pipelineMode: 'FreeSurfer 8 + Volume',
+      inputSource: 'Local',
+      inputMode: 'file',
+      additionalInputPaths: '',
+      runtimeTarget: 'Local',
+      ramPercent: 80,
+      cpuThreads: 4,
+      gpuMode: 'auto',
+      host: '',
+      port: 22,
+      username: '',
+      remote_python: 'python3',
+      workspace: '~/mri-remote-jobs',
+      key_path: '',
+      password: '',
+    },
+    null,
+    {
+      subcortical_volume: ['freesurfer_aseg', 'harvard_oxford_subcortical', 'pauli_2017'],
+      cortical_volume: ['freesurfer_aparc', 'brainnetome246'],
+      cortical_thickness: [],
+    },
+  );
+
+  expect(config.stats_vector_config).toEqual({
+    enabled_stats: {},
+    atlases: {
+      subcortical_volume: ['freesurfer_aseg', 'harvard_oxford_subcortical', 'pauli_2017'],
+      cortical_volume: ['freesurfer_aparc', 'brainnetome246'],
+      cortical_thickness: [],
+    },
+  });
+});
+
 test('buildRunConfig maps pipeline input source and multi-file paths', () => {
   const config = buildRunConfig(
     {

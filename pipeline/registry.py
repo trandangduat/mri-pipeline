@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shlex
 
-from .config import SURFACE_ATLAS_STEMS, ToolContext
+from .config import EXTERNAL_MNI_VOLUME_ATLASES, SURFACE_ATLAS_STEMS, ToolContext
 
 SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
 
@@ -203,22 +203,46 @@ def _fs8r_stage8(ctx: ToolContext) -> str:
 
 
 def _fs8r_atlas_projection_suffix(ctx: ToolContext) -> str:
-    needs_sclimbic = "mni_sclimbic" in ctx.enabled_stats.get("selected_atlases", [])
-    if not needs_sclimbic:
+    selected = [str(atlas) for atlas in ctx.enabled_stats.get("selected_atlases", [])]
+    mni_atlases = [atlas for atlas in selected if atlas in EXTERNAL_MNI_VOLUME_ATLASES]
+    if not mni_atlases:
         return ""
-    return (
-        "mkdir -p /output/stats/atlas_mapping; "
-        "SCLIMBIC_ATLAS=\"$FREESURFER_HOME/average/sclimbic.t1.nii.gz\"; "
-        "if [ -s \"$SCLIMBIC_ATLAS\" ]; then "
+
+    from .stats import VECTOR_SPECS
+
+    commands = [
+"mkdir -p /output/stats/atlas_mapping; "
         "MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.mgz\"; "
         "if [ -f \"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\" ]; then MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\"; fi; "
+        "NORM_TARGET=\"$SD/mri/norm.mgz\"; "
+        "if [ ! -s \"$NORM_TARGET\" ]; then NORM_TARGET=\"$SD/mri/orig.mgz\"; fi; "
+        "test -s \"$NORM_TARGET\"; "
         "if [ ! -s /output/stats/atlas_mapping/mni152_to_subject.affine.lta ]; then "
-        "mri_synthmorph register -m affine -t /output/stats/atlas_mapping/mni152_to_subject.affine.lta \"$MNI152_TEMPLATE\" \"$SD/mri/norm.mgz\"; "
+        "mri_synthmorph register -m affine -t /output/stats/atlas_mapping/mni152_to_subject.affine.lta \"$MNI152_TEMPLATE\" \"$NORM_TARGET\"; "
         "fi; "
-        "mri_vol2vol --mov \"$SCLIMBIC_ATLAS\" --targ \"$SD/mri/norm.mgz\" --o /output/stats/atlas_mapping/mni_sclimbic.mgz --lta /output/stats/atlas_mapping/mni152_to_subject.affine.lta --nearest; "
-        "mri_segstats --seg /output/stats/atlas_mapping/mni_sclimbic.mgz --sum /output/stats/atlas_mapping/mni_sclimbic.stats; "
-        "fi; "
-    )
+    ]
+    for atlas in dict.fromkeys(mni_atlases):
+        spec = VECTOR_SPECS.get(atlas, {})
+        stats_basename = _q(str(spec.get("stats_basename") or f"{atlas}.stats"))
+        atlas_volume = str(spec.get("atlas_volume") or "")
+        if not atlas_volume:
+            atlas_nifti = str(spec.get("atlas_nifti") or "")
+            if not atlas_nifti:
+                continue
+            atlas_volume = f"/atlases/{atlas_nifti}"
+        output_mgz = _q(f"/output/stats/atlas_mapping/{atlas}.mgz")
+        mov = _q(atlas_volume) if not atlas_volume.startswith("$") else f'"{atlas_volume}"'
+        segstats = f"mri_segstats --seg {output_mgz} --sum /output/stats/atlas_mapping/{stats_basename}"
+        atlas_lut = str(spec.get("atlas_lut") or "")
+        if atlas_lut:
+            lut_path = _q(f"/atlases/{atlas_lut}")
+            segstats += f" --ctab {lut_path}"
+        commands.append(
+f"test -s {mov}; "
+            f"mri_vol2vol --mov {mov} --targ \"$NORM_TARGET\" --o {output_mgz} --lta /output/stats/atlas_mapping/mni152_to_subject.affine.lta --nearest; "
+            f"{segstats}; "
+        )
+    return "".join(commands)
 
 
 def _fs8r_stage9(ctx: ToolContext) -> str:
@@ -246,7 +270,8 @@ def _fs8r_stage9(ctx: ToolContext) -> str:
         "mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats; "
         "cp stats/*.stats /output/stats/ 2>/dev/null || true; "
         "cp mri/synthseg.vol.csv /output/stats/ 2>/dev/null || true; "
-        "test -s stats/lh.aparc.stats; test -s stats/rh.aparc.stats; test -s stats/aseg.stats"
+        + _fs8r_atlas_projection_suffix(ctx)
+        + "test -s stats/lh.aparc.stats; test -s stats/rh.aparc.stats; test -s stats/aseg.stats"
     )
 
 
@@ -707,30 +732,18 @@ def _cat12_full_stats(ctx: ToolContext) -> str:
 
 def _fs8_mni_atlas_projection(ctx: ToolContext) -> str:
     subject = _q(ctx.subject_id)
+    if not ctx.enabled_stats.get("selected_atlases"):
+        ctx.enabled_stats["selected_atlases"] = ["mni_sclimbic"]
     return (
         "set -e; "
         "export SUBJECTS_DIR=/output/freesurfer; "
         "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
         "SD=\"$SUBJECTS_DIR/$SUBJ\"; "
-        "mkdir -p /output/stats/atlas_mapping; "
-        "WORK=/output/stats/atlas_mapping; "
         "NORM=\"$SD/mri/norm.mgz\"; "
         "test -s \"$NORM\" || { echo norm.mgz not found; exit 1; }; "
-        "MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.mgz\"; "
-        "if [ -f \"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\" ]; then MNI152_TEMPLATE=\"$FREESURFER_HOME/average/mni305.cor.stripped.mgz\"; fi; "
-        "SCLIMBIC_ATLAS=\"$FREESURFER_HOME/average/sclimbic.t1.nii.gz\"; "
-        "if [ ! -s \"$SCLIMBIC_ATLAS\" ]; then echo SCLimbic atlas not found, skipping; exit 0; fi; "
-        "if [ ! -s \"$WORK/mni152_to_subject.affine.lta\" ]; then "
-        "mri_synthmorph register -m affine -t \"$WORK/mni152_to_subject.affine.lta\" \"$MNI152_TEMPLATE\" \"$NORM\"; "
-        "fi; "
-        "test -s \"$WORK/mni152_to_subject.affine.lta\"; "
-        "if [ ! -s \"$WORK/mni_sclimbic.mgz\" ]; then "
-        "mri_vol2vol --mov \"$SCLIMBIC_ATLAS\" --targ \"$NORM\" --o \"$WORK/mni_sclimbic.mgz\" --lta \"$WORK/mni152_to_subject.affine.lta\" --nearest; "
-        "fi; "
-        "test -s \"$WORK/mni_sclimbic.mgz\"; "
-        "mri_segstats --seg \"$WORK/mni_sclimbic.mgz\" --sum \"$WORK/mni_sclimbic.stats\"; "
-        "test -s \"$WORK/mni_sclimbic.stats\""
+        + _fs8r_atlas_projection_suffix(ctx)
+        + "test -s /output/stats/atlas_mapping/mni152_to_subject.affine.lta"
     )
 
 
@@ -914,7 +927,7 @@ TOOL_DEFS: dict[str, dict] = {
         "needs_license": True,
         "command_builder": _fs8_mni_atlas_projection,
         "output_files": [],
-        "output_globs": ["stats/atlas_mapping/*.stats", "stats/atlas_mapping/*.mgz"],
+        "output_globs": ["stats/atlas_mapping/*.lta", "stats/atlas_mapping/*.stats", "stats/atlas_mapping/*.mgz"],
     },
     "fs8_reduced54_reorientation": {
         "display_name": "FreeSurfer 8 Reorientation",

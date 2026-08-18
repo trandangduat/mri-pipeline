@@ -73,6 +73,12 @@ FastSurfer/
 NeuroFLOW-private/
 output-tauri/
 
+# Build output
+dist/
+build/
+dist-portable/
+tauri-app/src-tauri/backend/
+
 # Keep tracked folder placeholders
 !**/.gitkeep
 

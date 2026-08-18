@@ -1,0 +1,97 @@
+0  Unknown                        0   0   0    0
+ 1  Left-Frontal-Pole                      220 20 20 0
+ 2  Right-Frontal-Pole                     220 20 20 0
+ 3  Left-Insular-Cortex                    220 20 100 0
+ 4  Right-Insular-Cortex                   220 20 100 0
+ 5  Left-Superior-Frontal-Gyrus            220 60 20 0
+ 6  Right-Superior-Frontal-Gyrus           220 60 20 0
+ 7  Left-Middle-Frontal-Gyrus              220 100 20 0
+ 8  Right-Middle-Frontal-Gyrus             220 100 20 0
+ 9  Left-Inferior-Frontal-Gyrus-pTri       220 140 20 0
+10  Right-Inferior-Frontal-Gyrus-pTri      220 140 20 0
+11  Left-Inferior-Frontal-Gyrus-pOpe       220 180 20 0
+12  Right-Inferior-Frontal-Gyrus-pOpe      220 180 20 0
+13  Left-Precentral-Gyrus                  20 200 20 0
+14  Right-Precentral-Gyrus                 20 200 20 0
+15  Left-Temporal-Pole                     220 20 140 0
+16  Right-Temporal-Pole                    220 20 140 0
+17  Left-Superior-Temporal-Gyrus-ant       220 20 180 0
+18  Right-Superior-Temporal-Gyrus-ant      220 20 180 0
+19  Left-Superior-Temporal-Gyrus-pos       220 60 180 0
+20  Right-Superior-Temporal-Gyrus-pos      220 60 180 0
+21  Left-Middle-Temporal-Gyrus-ant         220 100 180 0
+22  Right-Middle-Temporal-Gyrus-ant        220 100 180 0
+23  Left-Middle-Temporal-Gyrus-pos         220 140 180 0
+24  Right-Middle-Temporal-Gyrus-pos        220 140 180 0
+25  Left-Middle-Temporal-Gyrus-to          220 180 180 0
+26  Right-Middle-Temporal-Gyrus-to         220 180 180 0
+27  Left-Inferior-Temporal-Gyrus-ant       180 20 180 0
+28  Right-Inferior-Temporal-Gyrus-ant      180 20 180 0
+29  Left-Inferior-Temporal-Gyrus-pos       180 60 180 0
+30  Right-Inferior-Temporal-Gyrus-pos      180 60 180 0
+31  Left-Inferior-Temporal-Gyrus-to        180 100 180 0
+32  Right-Inferior-Temporal-Gyrus-to       180 100 180 0
+33  Left-Postcentral-Gyrus                 20 200 60 0
+34  Right-Postcentral-Gyrus                20 200 60 0
+35  Left-Superior-Parietal-Lobule          20 200 100 0
+36  Right-Superior-Parietal-Lobule         20 200 100 0
+37  Left-Supramarginal-Gyrus-ant           20 200 140 0
+38  Right-Supramarginal-Gyrus-ant          20 200 140 0
+39  Left-Supramarginal-Gyrus-pos           20 200 180 0
+40  Right-Supramarginal-Gyrus-pos          20 200 180 0
+41  Left-Angular-Gyrus                     20 200 220 0
+42  Right-Angular-Gyrus                    20 200 220 0
+43  Left-Lateral-Occipital-Cortex-sup      20 160 220 0
+44  Right-Lateral-Occipital-Cortex-sup     20 160 220 0
+45  Left-Lateral-Occipital-Cortex-inf      20 120 220 0
+46  Right-Lateral-Occipital-Cortex-inf     20 120 220 0
+47  Left-Intracalcarine-Cortex             20 80 220 0
+48  Right-Intracalcarine-Cortex            20 80 220 0
+49  Left-Frontal-Medial-Cortex             180 20 20 0
+50  Right-Frontal-Medial-Cortex            180 20 20 0
+51  Left-Juxtapositional-Lobule            180 60 20 0
+52  Right-Juxtapositional-Lobule           180 60 20 0
+53  Left-Subcallosal-Cortex                180 100 20 0
+54  Right-Subcallosal-Cortex               180 100 20 0
+55  Left-Paracingulate-Gyrus               180 140 20 0
+56  Right-Paracingulate-Gyrus              180 140 20 0
+57  Left-Cingulate-Gyrus-ant               180 180 20 0
+58  Right-Cingulate-Gyrus-ant              180 180 20 0
+59  Left-Cingulate-Gyrus-pos               180 220 20 0
+60  Right-Cingulate-Gyrus-pos              180 220 20 0
+61  Left-Precuneous-Cortex                 140 220 20 0
+62  Right-Precuneous-Cortex                140 220 20 0
+63  Left-Cuneal-Cortex                     100 220 20 0
+64  Right-Cuneal-Cortex                    100 220 20 0
+65  Left-Frontal-Orbital-Cortex            140 20 20 0
+66  Right-Frontal-Orbital-Cortex           140 20 20 0
+67  Left-Parahippocampal-Gyrus-ant         140 20 100 0
+68  Right-Parahippocampal-Gyrus-ant        140 20 100 0
+69  Left-Parahippocampal-Gyrus-pos         140 20 140 0
+70  Right-Parahippocampal-Gyrus-pos        140 20 140 0
+71  Left-Lingual-Gyrus                     140 60 140 0
+72  Right-Lingual-Gyrus                    140 60 140 0
+73  Left-Temporal-Fusiform-Cortex-ant      140 100 140 0
+74  Right-Temporal-Fusiform-Cortex-ant     140 100 140 0
+75  Left-Temporal-Fusiform-Cortex-pos      140 140 140 0
+76  Right-Temporal-Fusiform-Cortex-pos     140 140 140 0
+77  Left-Temporal-Occipital-Fusiform       140 180 140 0
+78  Right-Temporal-Occipital-Fusiform      140 180 140 0
+79  Left-Occipital-Fusiform-Gyrus          140 220 140 0
+80  Right-Occipital-Fusiform-Gyrus         140 220 140 0
+81  Left-Frontal-Opercular-Cortex          100 20 20 0
+82  Right-Frontal-Opercular-Cortex         100 20 20 0
+83  Left-Central-Opercular-Cortex          100 60 20 0
+84  Right-Central-Opercular-Cortex         100 60 20 0
+85  Left-Parietal-Opercular-Cortex         100 100 20 0
+86  Right-Parietal-Opercular-Cortex        100 100 20 0
+87  Left-Planum-Polare                     100 140 20 0
+88  Right-Planum-Polare                    100 140 20 0
+89  Left-Heschls-Gyrus                     100 180 20 0
+90  Right-Heschls-Gyrus                    100 180 20 0
+91  Left-Planum-Temporale                  100 220 20 0
+92  Right-Planum-Temporale                 100 220 20 0
+93  Left-Supracalcarine-Cortex             60 220 20 0
+94  Right-Supracalcarine-Cortex            60 220 20 0
+95  Left-Occipital-Pole                    60 180 20 0
+96  Right-Occipital-Pole                   60 180 20 0

@@ -4,7 +4,10 @@ import csv
 from pathlib import Path
 
 from pipeline.config import (
+    ATLAS_SHORT_NAMES,
     CORTICAL_VOLUME_ATLASES,
+    EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES,
+    EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES,
     SUBCORTICAL_VOLUME_ATLASES,
     STAT_VECTOR_DEFS,
     StatsVectorConfig,
@@ -20,11 +23,15 @@ def test_volume_atlas_keys_in_stat_vector_defs() -> None:
     assert "cat12_neuromorphometrics" in sub_atlases
     assert "cat12_ibsr" in sub_atlases
     assert "cat12_cobra" in sub_atlases
+    assert "harvard_oxford_subcortical" in sub_atlases
+    assert "pauli_2017" in sub_atlases
 
     assert "freesurfer_aparc" in cort_atlases
     assert "fastsurfer_dkt" in cort_atlases
     assert "cat12_schaefer2018_200parcels_17networks" in cort_atlases
     assert "cat12_aal3" in cort_atlases
+    assert "harvard_oxford_cortical" in cort_atlases
+    assert "schaefer2018_100_7" in cort_atlases
 
 
 def test_stats_vector_config_accepts_new_volume_atlases() -> None:
@@ -75,6 +82,11 @@ def test_subcortical_volume_atlas_tuple_contains_expected_keys() -> None:
         "cat12_suit",
         "cat12_thalamic_nuclei",
         "cat12_thalamus",
+        "mni_sclimbic",
+        "harvard_oxford_subcortical",
+        "brainnetome246",
+        "pauli_2017",
+        "aal",
     }
     assert expected <= set(SUBCORTICAL_VOLUME_ATLASES)
 
@@ -93,8 +105,24 @@ def test_cortical_volume_atlas_tuple_contains_expected_keys() -> None:
         "cat12_julichbrain3",
         "cat12_lpba40",
         "cat12_mori",
+        "harvard_oxford_cortical",
+        "brainnetome246",
+        "juelich",
+        "aal",
+        "schaefer2018_100_7",
     }
     assert expected <= set(CORTICAL_VOLUME_ATLASES)
+
+
+def test_external_mni_atlases_have_short_names() -> None:
+    for atlas in (*EXTERNAL_MNI_SUBCORTICAL_VOLUME_ATLASES, *EXTERNAL_MNI_CORTICAL_VOLUME_ATLASES):
+        assert atlas in ATLAS_SHORT_NAMES
+
+
+def test_atlas_short_names_match_column_suffix_plan() -> None:
+    assert ATLAS_SHORT_NAMES["harvard_oxford_subcortical"] == "harvard_oxford_sub"
+    assert ATLAS_SHORT_NAMES["harvard_oxford_cortical"] == "harvard_oxford_cort"
+    assert ATLAS_SHORT_NAMES["schaefer2018_100_7"] == "schaefer2018"
 
 
 def test_freesurfer_aseg_label_stable() -> None:
