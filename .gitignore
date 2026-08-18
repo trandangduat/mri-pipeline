@@ -57,8 +57,11 @@ uploads/
 # Licenses / secrets
 license/*
 !license/.gitkeep
+configs/licenses/*
+!configs/licenses/.gitkeep
 *.lic
 *.license
+model.txt
 .env
 .env.*
 
