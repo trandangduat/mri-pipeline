@@ -1,5 +1,13 @@
 import React from 'react';
-import {Cpu, ShieldCheck, ListTree, ServerCog, Loader2} from 'lucide-react';
+import {
+  Cpu,
+  ShieldCheck,
+  ServerCog,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+} from 'lucide-react';
 import {Panel, Button, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, currentTargetHardware} from '../lib/runtime';
@@ -9,8 +17,7 @@ import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {buildRemotePayload} from '../api/runConfig';
-import {useRemoteValidateMutation, useListRemoteJobsMutation} from '../query/useRemote';
-import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
+import {useRemoteValidateMutation} from '../query/useRemote';
 import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary} from '../types/backend';
 
 export function RuntimeSection() {
@@ -24,20 +31,12 @@ export function RuntimeSection() {
   const busy = useUiStore((s) => s.busy);
   const setBusyKey = useUiStore((s) => s.setBusyKey);
   const appendOutput = useJobsStore((s) => s.appendOutput);
-  const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
 
   const print = (label: string, payload: unknown) => {
     appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
   };
 
   const remotePayload = () => buildRemotePayload(formValues);
-
-  const replaceServerJobs = (remoteJobs: RemoteJobSummary[] = []) => {
-    const currentJobs = useJobsStore.getState().latestJobs || [];
-    const localJobs = currentJobs.filter((job) => String(job.target || 'Local') !== 'Server');
-    const serverJobs = remoteJobs.map((job) => normalizeJob(job as Record<string, unknown>, 'Server'));
-    setLatestJobs(sortJobsByStartedAtDesc([...localJobs, ...serverJobs]));
-  };
 
   function renderRemoteResult(result: {
     ok?: boolean | undefined;
@@ -61,18 +60,6 @@ export function RuntimeSection() {
       });
       return;
     }
-    if (Array.isArray(result.jobs)) {
-      setRemoteResult({
-        ok: true,
-        connected: result.connected ?? remoteResult.connected,
-        config: result.config || remoteResult.config,
-        hardware: result.hardware || remoteResult.hardware,
-        error: '',
-        jobs: result.jobs,
-        warnings: Array.isArray(result.warnings) ? result.warnings : remoteResult.warnings,
-      });
-      return;
-    }
     if (result.connected !== true) {
       setRemoteResult({
         ok: true,
@@ -92,62 +79,24 @@ export function RuntimeSection() {
       config: result.config || null,
       hardware: result.hardware || null,
       error: '',
-      jobs: [],
+      jobs: result.jobs || [],
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
     });
   }
 
   const validateRemoteMutation = useRemoteValidateMutation();
-  const listRemoteJobsMutation = useListRemoteJobsMutation();
 
   const connectRemote = async () => {
     setRemoteResult({ok: false, connected: false, error: '', jobs: [], hardware: null});
     setBusyKey('connect', true);
-    setBusyKey('listRemote', true);
     try {
       const result = await validateRemoteMutation.mutateAsync(remotePayload());
       renderRemoteResult(result);
-      if (result.connected === true) {
-        try {
-          const jobsResult = await listRemoteJobsMutation.mutateAsync(remotePayload());
-          renderRemoteResult({
-            ...jobsResult,
-            connected: true,
-            config: result.config || null,
-            hardware: result.hardware || null,
-            warnings: result.warnings,
-          });
-          replaceServerJobs(jobsResult.jobs || []);
-        } catch (error: unknown) {
-          replaceServerJobs([]);
-          print('Remote jobs failed', {error: (error as Error).message});
-        }
-      }
     } catch (error: unknown) {
       renderRemoteResult({ok: false, connected: false, error: (error as Error).message || 'SSH connection failed.'});
       print('Remote connect failed', {error: (error as Error).message});
     } finally {
       setBusyKey('connect', false);
-      setBusyKey('listRemote', false);
-    }
-  };
-
-  const listRemoteJobs = async () => {
-    setBusyKey('listRemote', true);
-    try {
-      const result = await listRemoteJobsMutation.mutateAsync(remotePayload());
-      renderRemoteResult(result);
-      replaceServerJobs(result.jobs || []);
-      print('Remote jobs', result);
-    } catch (error: unknown) {
-      renderRemoteResult({
-        ok: false,
-        connected: false,
-        error: (error as Error).message || 'Remote job listing failed.',
-      });
-      print('Remote jobs failed', {error: (error as Error).message});
-    } finally {
-      setBusyKey('listRemote', false);
     }
   };
 
@@ -160,25 +109,28 @@ export function RuntimeSection() {
     ramPercent: formValues.ramPercent,
   });
 
-  const remoteSummary = remoteResult.connected
-    ? [
-        `Status: Connected`,
-        `SSH: ${remoteResult.config?.username || ''}@${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}`,
-        `Auth: ${remoteResult.config?.auth_method || 'unknown'}`,
-        `Workspace: ${remoteResult.config?.workspace || ''}`,
-        `CPU threads max: ${remoteResult.hardware?.logical_cores || 'unknown'}`,
-        `RAM: ${formatBytes(remoteResult.hardware?.total_ram_bytes)}`,
-      ]
-        .concat(remoteResult.warnings?.length ? ['', ...remoteResult.warnings.map((w) => `Note: ${w}`)] : [])
-        .join('\n')
-    : remoteResult.error ||
-      (remoteResult.jobs?.length ? `${remoteResult.jobs.length} remote job(s) found.` : 'SSH is not connected.');
-
   return (
     <Panel icon={<Cpu className="h-5 w-5 text-cursor-primary" />} title="Runtime" className="min-w-0">
-      <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1">
+      {/* 1. Core Compute Grid */}
+      <div className="grid gap-3.5 grid-cols-2 max-[1080px]:grid-cols-1">
         <label className={labelCls}>
-          Runtime target
+          <span className="flex items-center justify-between">
+            <span>Runtime target</span>
+            {formValues.runtimeTarget === 'Server' && (
+              <span
+                className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                  remoteResult.connected ? 'text-cursor-semantic-success' : 'text-cursor-muted'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    remoteResult.connected ? 'bg-cursor-semantic-success' : 'bg-cursor-muted'
+                  }`}
+                />
+                {remoteResult.connected ? 'Connected' : 'Disconnected'}
+              </span>
+            )}
+          </span>
           <select
             id="runtimeTarget"
             name="runtimeTarget"
@@ -187,11 +139,16 @@ export function RuntimeSection() {
             className={inputCls}
           >
             <option value="Local">Local</option>
-            <option value="Server">Server</option>
+            <option value="Server">Server (SSH)</option>
           </select>
         </label>
         <label className={labelCls}>
-          RAM %
+          <span className="flex items-center justify-between">
+            <span>RAM allocation (%)</span>
+            <span className="text-[11px] font-normal text-cursor-muted">
+              {hardware.totalRamBytes ? `Total: ${formatBytes(hardware.totalRamBytes)}` : '—'}
+            </span>
+          </span>
           <input
             name="ramPercent"
             type="number"
@@ -203,18 +160,24 @@ export function RuntimeSection() {
           />
         </label>
         <label className={labelCls}>
-          CPU threads
+          <span className="flex items-center justify-between">
+            <span>CPU threads</span>
+            <span className="text-[11px] font-normal text-cursor-muted">
+              {hardware.logicalCores ? `Max: ${hardware.logicalCores} cores` : '—'}
+            </span>
+          </span>
           <input
             name="cpuThreads"
             type="number"
             min="1"
+            max={hardware.logicalCores || undefined}
             value={formValues.cpuThreads}
             onChange={(e) => setFormField('cpuThreads', e.target.value)}
             className={inputCls}
           />
         </label>
         <label className={labelCls}>
-          GPU
+          <span>GPU acceleration</span>
           <select
             name="gpuMode"
             value={formValues.gpuMode}
@@ -228,38 +191,56 @@ export function RuntimeSection() {
         </label>
       </div>
 
-      <div className="mt-5 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3 text-cursor-body">
-        {hardware.label} target: CPU threads max {hardware.logicalCores || 'unknown'} · RAM{' '}
-        {formatBytes(hardware.totalRamBytes)}
-      </div>
-      <div className="mt-3 grid gap-2">
-        {warnings.map((warning) => (
-          <div
-            key={warning}
-            className="rounded-lg border border-cursor-timeline-thinking bg-cursor-timeline-thinking/30 px-3 py-2 text-cursor-ink"
-          >
-            {warning}
-          </div>
-        ))}
-      </div>
+      {/* Warnings */}
+      {warnings.length > 0 && (
+        <div className="mt-3 grid gap-2">
+          {warnings.map((warning) => (
+            <div
+              key={warning}
+              className="flex items-center gap-2 rounded-lg border border-cursor-timeline-thinking bg-cursor-timeline-thinking/30 px-3 py-2 text-xs text-cursor-ink"
+            >
+              <AlertTriangle className="h-4 w-4 text-cursor-semantic-warn flex-none" />
+              <span>{warning}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {formValues.runtimeTarget === 'Server' ? (
-        <div id="sshBox" className="mt-5 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-5">
-          <div className="mb-4 m-0 flex items-center gap-2 text-[18px] font-semibold leading-[1.4] text-cursor-ink">
-            <ServerCog className="h-5 w-5 text-cursor-primary" />
-            SSH Server
+      {/* 2. SSH Server Section (when Runtime Target is Server) */}
+      {formValues.runtimeTarget === 'Server' && (
+        <div id="sshBox" className="mt-4 rounded-xl border border-cursor-hairline bg-white p-4">
+          <div className="mb-3.5 flex items-center justify-between border-b border-cursor-hairline-soft pb-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-cursor-ink">
+              <ServerCog className="h-4.5 w-4.5 text-cursor-primary" />
+              <span>SSH Server Settings</span>
+            </div>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                remoteResult.connected
+                  ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success'
+                  : 'bg-cursor-surface-strong text-cursor-muted'
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  remoteResult.connected ? 'bg-cursor-semantic-success' : 'bg-cursor-muted'
+                }`}
+              />
+              {remoteResult.connected ? 'Connected' : 'Not Connected'}
+            </span>
           </div>
-          <label className={labelCls}>
-            Host
-            <input
-              name="host"
-              placeholder="server.example.edu"
-              value={formValues.host}
-              onChange={(e) => setFormField('host', e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <div className="mt-6 grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1">
+
+          <div className="grid gap-3 grid-cols-2 max-[1080px]:grid-cols-1">
+            <label className={labelCls}>
+              Host
+              <input
+                name="host"
+                placeholder="10.8.0.1 or server.domain"
+                value={formValues.host}
+                onChange={(e) => setFormField('host', e.target.value)}
+                className={inputCls}
+              />
+            </label>
             <label className={labelCls}>
               Port
               <input
@@ -276,77 +257,86 @@ export function RuntimeSection() {
               Username
               <input
                 name="username"
-                placeholder="netid"
+                placeholder="username"
                 value={formValues.username}
                 onChange={(e) => setFormField('username', e.target.value)}
                 className={inputCls}
               />
             </label>
+            <label className={labelCls}>
+              Remote Python
+              <input
+                name="remote_python"
+                placeholder="python3"
+                value={formValues.remote_python}
+                onChange={(e) => setFormField('remote_python', e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              Workspace directory
+              <input
+                name="workspace"
+                placeholder="~/neuroflow-workspace"
+                value={formValues.workspace}
+                onChange={(e) => setFormField('workspace', e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              SSH key path
+              <input
+                name="key_path"
+                placeholder="/path/to/id_rsa"
+                value={formValues.key_path}
+                onChange={(e) => setFormField('key_path', e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className={`${labelCls} col-span-2 max-[1080px]:col-span-1`}>
+              Password (optional)
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Enter password if key is not used"
+                value={formValues.password}
+                onChange={(e) => setFormField('password', e.target.value)}
+                className={inputCls}
+              />
+            </label>
           </div>
-          <label className={`${labelCls} mt-6`}>
-            Remote Python
-            <input
-              name="remote_python"
-              value={formValues.remote_python}
-              onChange={(e) => setFormField('remote_python', e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <label className={`${labelCls} mt-6`}>
-            Workspace
-            <input
-              name="workspace"
-              value={formValues.workspace}
-              onChange={(e) => setFormField('workspace', e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <label className={`${labelCls} mt-6`}>
-            SSH key path
-            <input
-              name="key_path"
-              placeholder="/home/user/.ssh/id_rsa"
-              value={formValues.key_path}
-              onChange={(e) => setFormField('key_path', e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <label className={`${labelCls} mt-6`}>
-            Password
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={formValues.password}
-              onChange={(e) => setFormField('password', e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+
+          <div className="mt-3.5 flex flex-wrap items-center gap-3">
             <Button
               variant="primary"
               icon={busy.connect ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               onClick={connectRemote}
-              disabled={busy.connect || busy.listRemote}
+              disabled={busy.connect}
             >
-              {busy.connect ? 'Connecting...' : 'Connect'}
+              {busy.connect ? 'Connecting...' : remoteResult.connected ? 'Reconnect' : 'Connect'}
             </Button>
-            <Button
-              variant="ghost"
-              icon={busy.listRemote ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListTree className="h-4 w-4" />}
-              onClick={listRemoteJobs}
-              disabled={busy.listRemote}
-            >
-              {busy.listRemote ? 'Listing...' : 'List Remote Jobs'}
-            </Button>
-          </div>
-          <div
-            className={`mt-4 whitespace-pre-wrap rounded-lg border p-4 text-cursor-body ${remoteResult.ok ? 'border-cursor-hairline bg-white' : 'border-cursor-hairline bg-white'}`}
-          >
-            {remoteSummary}
+
+            {remoteResult.connected ? (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-cursor-semantic-success">
+                <CheckCircle2 className="h-4 w-4 flex-none" />
+                <span>
+                  Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM)
+                </span>
+              </span>
+            ) : remoteResult.error ? (
+              <span className="flex items-center gap-1.5 text-xs text-cursor-semantic-error">
+                <XCircle className="h-4 w-4 flex-none" />
+                <span>{remoteResult.error}</span>
+              </span>
+            ) : (
+              <span className="text-xs text-cursor-muted">
+                Click Connect to test SSH connection
+              </span>
+            )}
           </div>
         </div>
-      ) : null}
+      )}
     </Panel>
   );
 }
