@@ -112,7 +112,7 @@ export function RuntimeSection() {
   return (
     <Panel icon={<Cpu className="h-5 w-5 text-cursor-primary" />} title="Runtime" className="min-w-0">
       {/* 1. Core Compute Grid */}
-      <div className="grid gap-3.5 grid-cols-2 max-[1080px]:grid-cols-1">
+      <div className="grid gap-3.5 grid-cols-2">
         <label className={labelCls}>
           <span className="flex items-center justify-between">
             <span>Runtime target</span>
@@ -230,7 +230,7 @@ export function RuntimeSection() {
             </span>
           </div>
 
-          <div className="grid gap-3 grid-cols-2 max-[1080px]:grid-cols-1">
+          <div className="grid gap-3 grid-cols-2">
             <label className={labelCls}>
               Host
               <input
@@ -293,7 +293,7 @@ export function RuntimeSection() {
                 className={inputCls}
               />
             </label>
-            <label className={`${labelCls} col-span-2 max-[1080px]:col-span-1`}>
+            <label className={`${labelCls} col-span-2`}>
               Password (optional)
               <input
                 name="password"

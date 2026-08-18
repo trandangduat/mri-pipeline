@@ -217,7 +217,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
   return (
     <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-white">
       {/* Top Bar: Brand & Action Buttons */}
-      <div className="flex h-16 items-center justify-between px-6 max-[760px]:flex-col max-[760px]:h-auto max-[760px]:gap-3 max-[760px]:px-4 max-[760px]:py-3">
+      <div className="flex h-16 items-center justify-between px-6">
         {/* Brand Logo & Title */}
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-cursor-primary text-white">
@@ -285,7 +285,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
       {/* Navigation Tabs Bar */}
       <nav
         aria-label="Main Navigation"
-        className="flex items-center gap-8 px-6 border-t border-cursor-hairline max-[760px]:overflow-x-auto max-[760px]:px-4 max-[760px]:gap-4"
+        className="flex items-center gap-8 px-6 border-t border-cursor-hairline"
       >
         <button
           type="button"

@@ -16,6 +16,7 @@ interface PipelineFormState {
   resetForm: () => void;
   addAtlas: (statKey: string, atlasKey: string) => void;
   removeAtlas: (statKey: string, atlasKey: string, metadata?: Record<string, unknown>) => void;
+  toggleAtlas: (statKey: string, atlasKey: string) => void;
   applyWorkspaceConfig: (workspace: Record<string, unknown>, metadata?: {presets?: Record<string, {tools?: Record<string, string>}>; stage_order?: string[]}) => void;
   applyPresetConfig: (preset: Record<string, unknown>) => void;
 }
@@ -37,27 +38,36 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
   setPreparedRequest: (preparedRequest) => set({preparedRequest}),
   resetForm: () => set({formValues: {...DEFAULT_FORM_VALUES}, preparedRequest: null}),
   addAtlas: (statKey, atlasKey) =>
-    set((state) => ({
-      selectedStatsAtlases: {
-        ...state.selectedStatsAtlases,
-        [statKey]: [...(state.selectedStatsAtlases[statKey] || []), atlasKey],
-      },
-    })),
-  removeAtlas: (statKey, atlasKey, metadata) => {
-    const atlases = metadata?.atlases as Record<string, {label?: string}> | undefined;
-    const atlas = atlases?.[atlasKey] || {label: atlasKey};
-    if (typeof window !== 'undefined' && window.confirm) {
-      if (!window.confirm(`Remove atlas "${atlas.label || atlasKey}" from this stats vector?`)) {
-        return;
-      }
-    }
+    set((state) => {
+      const current = state.selectedStatsAtlases[statKey] || [];
+      if (current.includes(atlasKey)) return state;
+      return {
+        selectedStatsAtlases: {
+          ...state.selectedStatsAtlases,
+          [statKey]: [...current, atlasKey],
+        },
+      };
+    }),
+  removeAtlas: (statKey, atlasKey) =>
     set((state) => ({
       selectedStatsAtlases: {
         ...state.selectedStatsAtlases,
         [statKey]: (state.selectedStatsAtlases[statKey] || []).filter((key) => key !== atlasKey),
       },
-    }));
-  },
+    })),
+  toggleAtlas: (statKey, atlasKey) =>
+    set((state) => {
+      const current = state.selectedStatsAtlases[statKey] || [];
+      const exists = current.includes(atlasKey);
+      return {
+        selectedStatsAtlases: {
+          ...state.selectedStatsAtlases,
+          [statKey]: exists
+            ? current.filter((key) => key !== atlasKey)
+            : [...current, atlasKey],
+        },
+      };
+    }),
   applyWorkspaceConfig: (workspace, metadata) => {
     const remote = (workspace.remote as Record<string, unknown>) || {};
     const pipelineMode = (workspace.pipeline_mode as string) || 'Custom';

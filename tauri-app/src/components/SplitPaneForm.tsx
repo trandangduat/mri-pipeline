@@ -43,7 +43,7 @@ export function SplitPaneForm({
   return (
     <div
       ref={containerRef}
-      className={`grid min-h-0 h-full w-full gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_12px_minmax(20rem,1fr)] max-[1080px]:h-auto max-[1080px]:grid-cols-1 ${className}`}
+      className={`grid min-h-0 h-full w-full gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_12px_minmax(20rem,1fr)] ${className}`}
       style={{'--pipeline-left-width': `${leftWidth}%`} as React.CSSProperties}
     >
       {left}
@@ -53,7 +53,7 @@ export function SplitPaneForm({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="h-full w-3 cursor-col-resize rounded-none border-0 bg-transparent p-0 before:mx-auto before:block before:h-full before:w-px before:bg-cursor-hairline before:content-[''] hover:before:bg-cursor-primary focus-visible:before:bg-cursor-primary max-[1080px]:hidden"
+        className="h-full w-3 cursor-col-resize rounded-none border-0 bg-transparent p-0 before:mx-auto before:block before:h-full before:w-px before:bg-cursor-hairline before:content-[''] hover:before:bg-cursor-primary focus-visible:before:bg-cursor-primary"
       />
       {right}
     </div>

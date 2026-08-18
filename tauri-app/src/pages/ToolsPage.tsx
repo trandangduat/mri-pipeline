@@ -14,7 +14,7 @@ import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 
 const POLL_INTERVAL_MS = 5000;
-const GRID_CLASSES = 'grid gap-4.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))] max-[640px]:[grid-template-columns:1fr]';
+const GRID_CLASSES = 'grid gap-4.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]';
 
 function ImageStatusSkeletonGrid() {
   return (
@@ -179,7 +179,7 @@ export function ToolsPage() {
   const target = selectedRuntimeTarget();
 
   return (
-    <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4">
+    <div className="h-full w-full overflow-y-auto p-6">
       <div className="grid gap-7">
 
         {/* Section 1: Environment Check */}

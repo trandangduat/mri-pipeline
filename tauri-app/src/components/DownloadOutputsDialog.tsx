@@ -75,7 +75,7 @@ export function DownloadOutputsDialog({
         if (e.target === e.currentTarget && canClose) onClose();
       }}
     >
-      <div className="relative w-full max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
+      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
         <h3 className="m-0 mb-1 text-[16px] font-semibold leading-[1.4] text-cursor-ink">{title}</h3>
         <p className="m-0 mb-4 text-[12px] text-cursor-muted">Remote job: <span className="font-mono">{jobId}</span></p>
 

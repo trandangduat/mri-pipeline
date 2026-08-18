@@ -34,7 +34,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
         if (e.target === e.currentTarget && complete) onClose();
       }}
     >
-      <div className="relative w-full max-w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
+      <div className="relative w-full max-w-[28rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
         <h3 className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">
           {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
         </h3>

@@ -154,7 +154,7 @@ function JobsListView({
   const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
 
   return (
-    <div className="h-full w-full overflow-y-auto p-6 max-[760px]:p-4 flex flex-col gap-6 text-cursor-ink">
+    <div className="h-full w-full overflow-y-auto p-6 flex flex-col gap-6 text-cursor-ink">
       {/* Local Jobs Section */}
       <section>
         <div className="flex items-center justify-between gap-4 mb-3">
@@ -717,7 +717,7 @@ export function JobsPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6 max-[760px]:p-4">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6">
       {/* Back Button Bar */}
       <div className="flex items-center justify-between gap-4 flex-none">
         <Button
@@ -737,7 +737,7 @@ export function JobsPage() {
       </div>
 
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
-      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4 max-[1180px]:grid-cols-1">
+      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4">
         {/* Left: Job Detail Card */}
         <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5">
           {/* Header: Icon + Title + Status Pills */}
@@ -1003,7 +1003,7 @@ export function JobsPage() {
 
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
-              <div className="grid grid-cols-3 gap-4 max-[1400px]:grid-cols-2 max-[900px]:grid-cols-1 overflow-y-auto flex-1 min-h-0 p-1">
+              <div className="grid grid-cols-3 gap-4 overflow-y-auto flex-1 min-h-0 p-1">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
@@ -1219,9 +1219,9 @@ export function JobsPage() {
             </div>
 
             {/* Modal Body: Two-Column Grid */}
-            <div className="grid flex-1 min-h-0 gap-5 overflow-hidden p-5 bg-cursor-canvas lg:grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)] max-[1024px]:overflow-auto max-[1024px]:grid-cols-1">
+            <div className="grid flex-1 min-h-0 gap-5 overflow-hidden p-5 bg-cursor-canvas grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)]">
               {/* Left Column: Pipeline Stages */}
-              <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none min-h-0 flex flex-col overflow-hidden max-[1024px]:overflow-visible">
+              <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none min-h-0 flex flex-col overflow-hidden">
                 <div className="p-0 pb-3 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-4 flex-none">
                   <div className="flex flex-col min-w-0">
                     <h3 className="m-0 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Stage Timeline</h3>
@@ -1240,7 +1240,7 @@ export function JobsPage() {
               </div>
 
               {/* Right Column: Stacked Cards */}
-              <div className="flex min-h-0 flex-col gap-4 overflow-hidden max-[1024px]:min-h-fit">
+              <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
                 {/* Run Telemetry */}
                 <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-none">
                   <div className="p-0 pb-3 flex flex-row items-center justify-between">
@@ -1260,7 +1260,7 @@ export function JobsPage() {
                 </div>
 
                 {/* Operator Console Log */}
-                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-1 min-h-0 flex flex-col max-[1024px]:flex-none">
+                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-1 min-h-0 flex flex-col">
                   <div className="p-0 pb-3 flex-none">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">Operator Console Log</h3>
@@ -1297,7 +1297,7 @@ export function JobsPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="p-0 flex-1 min-h-0 max-[1024px]:flex-none overflow-hidden">
+                  <div className="p-0 flex-1 min-h-0 overflow-hidden">
                     <pre
                       className="h-full min-h-[18rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3 font-mono text-[12px] leading-relaxed text-cursor-ink"
                       aria-live="polite"

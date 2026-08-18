@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
@@ -208,7 +208,7 @@ export function PipelineStepsSection() {
             return (
               <div
                 key={stage.id}
-                className={`grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] max-[1080px]:grid-cols-1 ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
+                className={`grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
               >
                 <div className="flex min-h-11 items-center">
                   <strong className={`font-semibold text-[13.5px] leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
@@ -217,7 +217,7 @@ export function PipelineStepsSection() {
                   name={`stage_${stage.id}`}
                   value={selectedToolKey}
                   onChange={(e) => handleStageToolChange(stage.id, e.target.value)}
-                  className={`${inputCls} max-[1080px]:w-full ${isUnavailable ? 'opacity-70' : ''}`}
+                  className={`${inputCls} ${isUnavailable ? 'opacity-70' : ''}`}
                 >
                   <option value="">Not available</option>
                   {tools.map((toolKey) => {
@@ -302,21 +302,18 @@ export function PipelineStepsSection() {
 export function StatsAtlasSection() {
   const {data: metadata} = useMetadata();
   const selectedStatsAtlases = usePipelineFormStore((s) => s.selectedStatsAtlases);
-  const removeAtlasStore = usePipelineFormStore((s) => s.removeAtlas);
-  const addAtlas = usePipelineFormStore((s) => s.addAtlas);
+  const removeAtlas = usePipelineFormStore((s) => s.removeAtlas);
+  const toggleAtlas = usePipelineFormStore((s) => s.toggleAtlas);
   const order = ['subcortical_volume', 'cortical_volume', 'cortical_thickness'];
 
   const [atlasPickerStatKey, setAtlasPickerStatKey] = React.useState<string | null>(null);
   const [atlasSearch, setAtlasSearch] = React.useState('');
 
-  const removeAtlas = (statKey: string, atlasKey: string) =>
-    removeAtlasStore(statKey, atlasKey, metadata as Record<string, unknown>);
-
   return (
     <Panel
       icon={
-        <span className="flex h-5 w-5 items-center">
-          <BarChartIcon />
+        <span className="flex h-5 w-5 items-center text-cursor-primary">
+          <BarChart3 className="h-5 w-5" />
         </span>
       }
       title="Stats & Atlas Mapping"
@@ -326,15 +323,25 @@ export function StatsAtlasSection() {
         {order.map((statKey) => {
           const stat = metadata?.stats_vectors?.[statKey];
           const selectedAtlases = selectedStatsAtlases[statKey] || [];
-          const atlasKeys = Array.isArray(stat?.atlases) ? stat.atlases : [];
+          const statLabel =
+            stat?.label ||
+            statKey
+              .split('_')
+              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(' ');
 
           return (
-            <div key={statKey} className="py-4 first:pt-0 last:pb-0">
-              <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2.5">
-                <span className="flex min-h-8 items-center gap-2 text-[12px] font-semibold uppercase text-cursor-ink">
+            <div key={statKey} className="py-4.5 first:pt-0 last:pb-0">
+              <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-3">
+                <div className="flex min-h-8 items-center gap-2.5">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-cursor-primary" />
-                  {(stat?.label || statKey).toUpperCase()}
-                </span>
+                  <span className="text-[14px] font-semibold text-cursor-ink">
+                    {statLabel}
+                  </span>
+                  <span className="inline-flex items-center justify-center rounded-full bg-cursor-canvas-soft border border-cursor-hairline px-2 py-0.5 text-xs font-semibold text-cursor-body min-w-5">
+                    {selectedAtlases.length}
+                  </span>
+                </div>
 
                 <button
                   type="button"
@@ -342,35 +349,39 @@ export function StatsAtlasSection() {
                     setAtlasPickerStatKey(statKey);
                     setAtlasSearch('');
                   }}
-                  className="inline-flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-semibold text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+                  className="inline-flex h-8.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-cursor-hairline bg-white px-3.5 text-xs font-semibold text-cursor-ink transition-colors hover:border-cursor-primary hover:text-cursor-primary hover:bg-cursor-canvas-soft active:scale-[0.98]"
                 >
-                  + Add Atlas
+                  <Plus className="h-4 w-4" />
+                  <span>Add Atlas</span>
                 </button>
 
-                <div className="col-span-2 flex flex-wrap gap-2 pl-4">
-                {selectedAtlases.length ? (
-                  selectedAtlases.map((atlasKey) => {
-                    const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
-                    return (
-                      <span
-                        key={atlasKey}
-                        className="inline-flex items-center gap-2 rounded-lg border border-cursor-hairline bg-white py-1.5 pl-3 pr-2 text-sm font-medium text-cursor-ink"
-                      >
-                        {atlas.label || atlas.key}
-                        <button
-                          type="button"
-                          onClick={() => removeAtlas(statKey, atlas.key)}
-                          className="flex h-5 w-5 items-center justify-center rounded hover:bg-cursor-canvas-soft text-cursor-muted hover:text-cursor-semantic-error font-bold text-[11px]"
-                          title="Remove atlas"
+                <div className="col-span-2 flex flex-wrap gap-2.5 pl-4">
+                  {selectedAtlases.length ? (
+                    selectedAtlases.map((atlasKey) => {
+                      const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
+                      return (
+                        <span
+                          key={atlasKey}
+                          className="group/chip inline-flex items-center gap-2 rounded-lg border border-cursor-hairline bg-white py-1.5 pl-3.5 pr-2 text-sm font-medium text-cursor-ink transition-all hover:border-cursor-hairline-strong shadow-2xs"
                         >
-                          ✕
-                        </button>
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="text-[12px] italic text-cursor-muted">No atlases mapped to this statistic.</span>
-                )}
+                          <span className="truncate max-w-[22rem]">{atlas.label || atlas.key}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeAtlas(statKey, atlas.key)}
+                            className="flex h-5 w-5 items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error transition-colors"
+                            title={`Remove ${atlas.label || atlas.key}`}
+                            aria-label={`Remove ${atlas.label || atlas.key}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="text-sm italic text-cursor-muted py-0.5">
+                      No atlases mapped to this statistic. Click "+ Add Atlas" to select.
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -382,7 +393,12 @@ export function StatsAtlasSection() {
         const pickerStat = metadata?.stats_vectors?.[atlasPickerStatKey];
         const pickerAtlasKeys = Array.isArray(pickerStat?.atlases) ? pickerStat.atlases : [];
         const pickerSelectedAtlases = selectedStatsAtlases[atlasPickerStatKey] || [];
-        const pickerLabel = pickerStat?.label || atlasPickerStatKey;
+        const pickerLabel =
+          pickerStat?.label ||
+          atlasPickerStatKey
+            .split('_')
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
         const filteredAtlasKeys = pickerAtlasKeys.filter((atlasKey) => {
           const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
           const query = atlasSearch.trim().toLowerCase();
@@ -392,19 +408,57 @@ export function StatsAtlasSection() {
 
         return (
           <ModalOverlay onClose={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="atlas-picker-title">
-              <h3 id="atlas-picker-title" className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">
-                Add Atlas to {pickerLabel.toUpperCase()}
-              </h3>
-              <input
-                type="text"
-                value={atlasSearch}
-                onChange={(e) => setAtlasSearch(e.target.value)}
-                placeholder="Search atlases…"
-                autoFocus
-                className={`${inputCls} mb-3`}
-              />
-              <div className="max-h-[min(34rem,calc(100vh-6rem))] space-y-1.5 overflow-y-auto pr-1">
+            <div role="dialog" aria-modal="true" aria-labelledby="atlas-picker-title" className="flex flex-col">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between gap-3 pb-3.5 border-b border-cursor-hairline-soft">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cursor-primary/10 text-cursor-primary flex-none">
+                    <Layers className="h-4.5 w-4.5" />
+                  </div>
+                  <h3 id="atlas-picker-title" className="m-0 text-base font-semibold leading-tight text-cursor-ink">
+                    Add Atlas to {pickerLabel}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2 flex-none">
+                  <span className="inline-flex items-center rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2.5 py-0.5 text-xs font-semibold text-cursor-primary">
+                    {pickerSelectedAtlases.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-canvas hover:text-cursor-ink transition-colors"
+                    aria-label="Close dialog"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative my-3.5 flex-none">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
+                <input
+                  type="text"
+                  value={atlasSearch}
+                  onChange={(e) => setAtlasSearch(e.target.value)}
+                  placeholder="Search atlases..."
+                  autoFocus
+                  className="w-full rounded-lg border border-cursor-hairline bg-cursor-canvas-soft h-10 px-3.5 pl-10 pr-9 text-sm text-cursor-ink placeholder:text-cursor-muted focus:border-cursor-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-cursor-primary transition-all"
+                />
+                {atlasSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setAtlasSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-cursor-muted hover:text-cursor-ink"
+                    title="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Atlases List */}
+              <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
                 {filteredAtlasKeys.length ? (
                   filteredAtlasKeys.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
@@ -413,33 +467,62 @@ export function StatsAtlasSection() {
                       <button
                         key={atlasKey}
                         type="button"
-                        disabled={isSelected}
-                        onClick={() => addAtlas(atlasPickerStatKey, atlasKey)}
-                        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        onClick={() => toggleAtlas(atlasPickerStatKey, atlasKey)}
+                        className={`group flex w-full cursor-pointer items-center justify-between gap-3.5 rounded-lg border px-3.5 py-3 text-left transition-all ${
                           isSelected
-                            ? 'cursor-default border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted'
-                            : 'cursor-pointer border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
+                            ? 'border-cursor-primary/50 bg-cursor-primary/[0.04] text-cursor-ink hover:bg-cursor-primary/[0.08]'
+                            : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
                         }`}
                       >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold">{atlas.label || atlas.key}</span>
-                          <span className="block truncate text-[12px] text-cursor-muted">{atlas.key}</span>
-                        </span>
-                        {isSelected ? <span className="shrink-0 rounded-full bg-cursor-hairline px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-body">Selected</span> : null}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors ${
+                              isSelected
+                                ? 'bg-cursor-primary text-white'
+                                : 'border border-cursor-hairline-strong bg-white group-hover:border-cursor-primary'
+                            }`}
+                          >
+                            {isSelected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-cursor-ink">
+                              {atlas.label || atlas.key}
+                            </span>
+                            <span className="block truncate font-mono text-xs text-cursor-muted">
+                              {atlas.key}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex-none">
+                          {isSelected ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2.5 py-0.5 text-xs font-semibold text-cursor-primary">
+                              Selected
+                            </span>
+                          ) : (
+                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-xs font-medium text-cursor-body transition-opacity">
+                              + Select
+                            </span>
+                          )}
+                        </div>
                       </button>
                     );
                   })
                 ) : (
-                  <p className="py-6 text-center text-sm italic text-cursor-muted">No atlases match this search.</p>
+                  <p className="py-8 text-center text-sm italic text-cursor-muted">
+                    No atlases match "{atlasSearch}".
+                  </p>
                 )}
               </div>
-              <div className="mt-4 flex justify-end">
+
+              {/* Modal Footer */}
+              <div className="mt-4 pt-3.5 border-t border-cursor-hairline-soft flex items-center justify-end flex-none">
                 <button
                   type="button"
                   onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-cursor-primary px-5 text-sm font-semibold text-white transition-colors hover:bg-cursor-primary-active"
                 >
-                  Close
+                  Done
                 </button>
               </div>
             </div>
@@ -537,12 +620,12 @@ function BarChartIcon() {
 function ModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-[min(42rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
+      <div className="relative w-full max-w-[34rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
         {children}
       </div>
     </div>
@@ -1075,7 +1158,7 @@ function BatchConfigModal({
             <span />
             <span>Subject</span>
             <span>Filename</span>
-            <span className="hidden sm:block">Relative path</span>
+            <span>Relative path</span>
             <span className="text-right">Size</span>
           </div>
           {serverEntries.map((entry) => {
@@ -1110,7 +1193,7 @@ function BatchConfigModal({
                   {entry.name}
                 </span>
                 <Tooltip>
-                  <TooltipTrigger className="hidden min-w-0 w-full text-left sm:block">
+                  <TooltipTrigger className="min-w-0 w-full text-left block">
                     <span className="block min-w-0 truncate pr-2 font-mono text-[11px] text-cursor-muted">
                       {entry.relative_path ?? ''}
                     </span>
@@ -1382,7 +1465,7 @@ export function InputOutputSection() {
       <Panel icon={<FolderInput className="h-5 w-5 text-cursor-primary" />} title="Input & Output" className="min-w-0">
         <div className="grid gap-6">
           {/* Row 1: Source + Input Mode */}
-          <div className="grid gap-6 grid-cols-2 max-[1080px]:grid-cols-1 items-start">
+          <div className="grid gap-6 grid-cols-2 items-start">
             {/* Source */}
             <div className="grid gap-3">
               <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Source Input</span>
@@ -1603,14 +1686,14 @@ export function PipelinePage() {
   return (
     <SplitPaneForm
       left={
-        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-6 pt-6 pb-6 pr-4 [scrollbar-gutter:stable] max-[1080px]:h-auto max-[1080px]:overflow-visible max-[1080px]:px-4 max-[1080px]:py-4">
+        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-6 pt-6 pb-6 pr-4 [scrollbar-gutter:stable]">
           <PipelineStepsSection />
           <StatsAtlasSection />
           <AdvancedSettingsSection />
         </div>
       }
       right={
-        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-4 pt-6 pb-6 pr-6 [scrollbar-gutter:stable] max-[1080px]:h-auto max-[1080px]:overflow-visible max-[1080px]:px-4 max-[1080px]:py-4">
+        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-4 pt-6 pb-6 pr-6 [scrollbar-gutter:stable]">
           <InputOutputSection />
           <RuntimeSection />
         </div>

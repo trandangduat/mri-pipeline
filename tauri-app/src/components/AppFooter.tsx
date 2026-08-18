@@ -10,7 +10,7 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="sticky bottom-0 z-30 flex h-10 w-full flex-none items-center justify-between border-t border-cursor-hairline bg-cursor-canvas px-6 text-xs text-cursor-body max-[760px]:flex-col max-[760px]:h-auto max-[760px]:gap-2 max-[760px]:px-4 max-[760px]:py-2">
+    <footer className="sticky bottom-0 z-30 flex h-10 w-full flex-none items-center justify-between border-t border-cursor-hairline bg-cursor-canvas px-6 text-xs text-cursor-body">
       <div className="flex items-center gap-2">
         <span>NeuroFlow MRI Pipeline © {currentYear}</span>
       </div>
