@@ -475,9 +475,40 @@ export function deriveJobDisplayMetadata(job: AnyJob | null, events: PipelineEve
   const batchImages = deriveBatchImages(events, job || {});
   const anyImageRunning = batchImages.some((img) => img.status === 'running');
   const anyImageFailed = batchImages.some((img) => img.status === 'failed');
+  const allImagesTerminal =
+    batchImages.length > 0 &&
+    batchImages.every((img) => img.status === 'success' || img.status === 'failed');
+
+  let hasTerminalEvent = false;
+  let hasFailedEvent = false;
+  for (const ev of events) {
+    const kind = String(
+      ev.kind || (ev as Record<string, unknown>).event || (ev as Record<string, unknown>).type || '',
+    );
+    if (
+      kind === 'pipeline_completed' ||
+      kind === 'job_completed' ||
+      kind === 'complete' ||
+      kind === 'pipeline_success'
+    ) {
+      hasTerminalEvent = true;
+    } else if (
+      kind === 'pipeline_failed' ||
+      kind === 'job_failed' ||
+      kind === 'error' ||
+      kind === 'pipeline_error'
+    ) {
+      hasTerminalEvent = true;
+      hasFailedEvent = true;
+    }
+  }
 
   let status_reconciled = normState;
-  if (normState === 'running') {
+  if (hasTerminalEvent) {
+    status_reconciled = hasFailedEvent || anyImageFailed ? 'failed' : 'completed';
+  } else if (allImagesTerminal) {
+    status_reconciled = anyImageFailed ? 'failed' : 'completed';
+  } else if (normState === 'running') {
     status_reconciled = 'running';
   } else if (anyImageRunning) {
     status_reconciled = 'running';

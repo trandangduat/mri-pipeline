@@ -195,3 +195,25 @@ test('deriveImageSteps accepts event tool for stages missing selected tool metad
   expect(steps[0].status).toBe('running');
   expect(steps[0].tool).toBe('cat_seg');
 });
+
+test('deriveJobDisplayMetadata reconciles status from terminal events and batch items', () => {
+  const runningJob = {state: 'running', input_files: ['a.nii', 'b.nii']};
+  const terminalEvents = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {kind: 'image_done', input_file: 'a.nii', success: true},
+    {kind: 'image_start', input_file: 'b.nii'},
+    {kind: 'image_done', input_file: 'b.nii', success: true},
+    {kind: 'pipeline_completed'},
+  ];
+  const meta = deriveJobDisplayMetadata(runningJob, terminalEvents);
+  expect(meta.status_reconciled).toBe('completed');
+
+  const failedEvents = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {kind: 'image_done', input_file: 'a.nii', success: false},
+    {kind: 'pipeline_failed'},
+  ];
+  const failedMeta = deriveJobDisplayMetadata(runningJob, failedEvents);
+  expect(failedMeta.status_reconciled).toBe('failed');
+});
+

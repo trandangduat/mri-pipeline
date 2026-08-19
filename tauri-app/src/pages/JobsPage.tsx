@@ -469,9 +469,15 @@ export function JobsPage() {
   const normState = normalizeJobState(stateStr);
   const isServerJob = String(job?.target || 'Local') === 'Server';
 
+  const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
+  const batchImages = deriveBatchImages(safeEvents, job || {});
+  const batchSummary = deriveBatchSummary(batchImages);
+  const displayMeta = deriveJobDisplayMetadata(job, safeEvents);
+  const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
+
   // Polling every 2s for running job
   useEffect(() => {
-    if (!selectedJobId || normState !== 'running') {
+    if (!selectedJobId || (normState !== 'running' && displayMeta.status_reconciled !== 'running')) {
       return;
     }
     const interval = setInterval(() => {
@@ -480,9 +486,17 @@ export function JobsPage() {
         | Record<string, unknown>
         | undefined;
       void loadJobDetails(selectedJobId, targetJob, {resetUi: false});
+      void refreshJobs();
     }, 2000);
     return () => clearInterval(interval);
-  }, [selectedJobId, normState, loadJobDetails, latestJobs]);
+  }, [selectedJobId, normState, displayMeta.status_reconciled, loadJobDetails, latestJobs, refreshJobs]);
+
+  // When status_reconciled becomes terminal, refresh parent jobs store once
+  useEffect(() => {
+    if (selectedJobId && isTerminal && normState === 'running') {
+      void refreshJobs();
+    }
+  }, [selectedJobId, isTerminal, normState, refreshJobs]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = React.useMemo(() => {
@@ -526,14 +540,7 @@ export function JobsPage() {
     return Object.fromEntries(Object.entries(tools).map(([key, tool]) => [key, tool.display_name || key]));
   }, [metadata?.tools]);
 
-  const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
-  const batchImages = deriveBatchImages(safeEvents, job || {});
-  const batchSummary = deriveBatchSummary(batchImages);
-  const displayMeta = deriveJobDisplayMetadata(job, safeEvents);
-
   const filteredLog = filterLogLines(outputText, jobLogSearch, showRawLog);
-
-  const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
   const handleDownloadClick = () => {
     if (!job || !isTerminal) return;
@@ -740,45 +747,30 @@ export function JobsPage() {
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
         {/* Left: Job Detail Card */}
         <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
-          {/* Header: Icon + Title + Status Pills */}
+          {/* Header: Icon + Title + Status Indicators */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
                 <BrainCircuit className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                {jobsList.length > 1 ? (
-                  <select
-                    value={selectedJobId || ''}
-                    onChange={(e) => setSelectedJobId(e.target.value)}
-                    className="w-full text-sm font-semibold text-cursor-ink bg-transparent border border-cursor-hairline rounded-md px-2 py-0.5 outline-none focus:border-cursor-primary"
-                  >
-                    {jobsList.map((j) => {
-                      const id = (j as {job_id?: string})?.job_id || '';
-                      const name = (j as {display_name?: string})?.display_name || id;
-                      const target = (j as {target?: string})?.target || 'Local';
-                      return (
-                        <option key={id} value={id}>
-                          [{target}] {name}
-                        </option>
-                      );
-                    })}
-                  </select>
-                ) : (
-                  <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate">
-                    {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
-                  </h2>
-                )}
+                <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate">
+                  {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
+                </h2>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 flex-none">
-              <StatusPill state={displayMeta.status_reconciled}>
-                {displayJobState(displayMeta.status_reconciled).toUpperCase()}
-              </StatusPill>
-              <Badge variant="default">{(job?.target as string) || 'Local'}</Badge>
-              <Badge variant="secondary">
-                {(reqSummary.pipeline_mode as string) || (job?.pipeline_mode as string) || 'Custom'}
-              </Badge>
+            <div className="flex items-center gap-2 flex-none">
+              <div className="flex items-center gap-1.5 font-medium text-xs text-cursor-ink">
+                <span className={statusDotLargeClasses(displayMeta.status_reconciled)} />
+                <span className="capitalize">{displayJobState(displayMeta.status_reconciled)}</span>
+              </div>
+              {Boolean(job?.target) &&
+                job?.target !== 'Local' &&
+                !String((job?.display_name as string) || (job?.job_id as string) || '')
+                  .toLowerCase()
+                  .includes(String(job?.target).toLowerCase()) && (
+                  <Badge variant="default">{String(job?.target)}</Badge>
+                )}
             </div>
           </div>
 
@@ -787,6 +779,7 @@ export function JobsPage() {
             <div className="divide-y divide-cursor-hairline-soft text-xs">
               {[
                 ['Started', displayMeta.started_at_str],
+                ['Preset', String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')],
                 ['Process PID', String(job?.pid || 'None')],
                 ['Mode / Device', `${String(reqSummary.mode || 'N/A')} / ${String(reqSummary.device || 'cpu')}`],
                 ['Threads', String(reqSummary.threads || 4)],
@@ -899,7 +892,7 @@ export function JobsPage() {
               </Button>
               <Button
                 onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
-                disabled={!job || normState !== 'running'}
+                disabled={!job || normState !== 'running' || isTerminal}
                 className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs"
               >
                 <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
