@@ -63,21 +63,43 @@ function selectedDialogPath(selected: unknown) {
   return (selected as string) || '';
 }
 
-function statusDotLargeClasses(state: unknown): string {
+export function statusDotLargeClasses(state: unknown): string {
   const norm = normalizeJobState(state);
   if (norm === 'running') {
-    return 'h-3.5 w-3.5 rounded-full bg-cursor-primary ring-4 ring-cursor-primary/20 animate-pulse flex-none';
+    return 'h-3 w-3 rounded-full bg-cursor-primary flex-none';
   }
   if (norm === 'completed') {
-    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-success ring-4 ring-cursor-semantic-success/20 flex-none';
+    return 'h-3 w-3 rounded-full bg-cursor-semantic-success flex-none';
   }
   if (norm === 'failed') {
-    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-error ring-4 ring-cursor-semantic-error/20 flex-none';
+    return 'h-3 w-3 rounded-full bg-cursor-semantic-error flex-none';
   }
   if (norm === 'stopped') {
-    return 'h-3.5 w-3.5 rounded-full bg-cursor-semantic-warn ring-4 ring-cursor-semantic-warn/20 flex-none';
+    return 'h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none';
   }
-  return 'h-3.5 w-3.5 rounded-full bg-cursor-hairline-strong ring-4 ring-cursor-hairline/30 flex-none';
+  return 'h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none';
+}
+
+export function StatusDotLarge({state, className = ''}: {state: unknown; className?: string}) {
+  const norm = normalizeJobState(state);
+  if (norm === 'running') {
+    return (
+      <span className={`relative flex h-3 w-3 flex-none ${className}`}>
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cursor-primary opacity-75" />
+        <span className="relative inline-flex rounded-full h-3 w-3 bg-cursor-primary" />
+      </span>
+    );
+  }
+  if (norm === 'completed') {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-success flex-none ${className}`} />;
+  }
+  if (norm === 'failed') {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-error flex-none ${className}`} />;
+  }
+  if (norm === 'stopped') {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none ${className}`} />;
+  }
+  return <span className={`h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none ${className}`} />;
 }
 
 function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => void}) {
@@ -113,7 +135,7 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
       className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
       <div className="flex items-center gap-2.5 min-w-0">
-        <span className={statusDotLargeClasses(normState)} />
+        <StatusDotLarge state={normState} />
         <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors flex-1">
           {title}
         </strong>
@@ -761,7 +783,7 @@ export function JobsPage() {
             </div>
             <div className="flex items-center gap-2 flex-none">
               <div className="flex items-center gap-1.5 font-medium text-xs text-cursor-ink">
-                <span className={statusDotLargeClasses(displayMeta.status_reconciled)} />
+                <StatusDotLarge state={displayMeta.status_reconciled} />
                 <span className="capitalize">{displayJobState(displayMeta.status_reconciled)}</span>
               </div>
               {Boolean(job?.target) &&
@@ -996,24 +1018,24 @@ export function JobsPage() {
 
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
-              <div className="grid grid-cols-3 gap-2.5 overflow-y-auto flex-1 min-h-0 p-0.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
-                              <div className="flex items-start gap-2.5">
-                                <Skeleton className="h-7 w-7 rounded-md flex-none" />
-                                <div className="flex-1 space-y-1.5">
-                                  <Skeleton className="h-2.5 w-16" />
-                                  <Skeleton className="h-3.5 w-3/4" />
+                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2.5">
+                              <div className="flex items-center gap-2">
+                                <Skeleton className="h-5 w-5 rounded flex-none" />
+                                <div className="flex-1 space-y-1">
+                                  <Skeleton className="h-2 w-12" />
+                                  <Skeleton className="h-3 w-3/4" />
                                 </div>
                               </div>
-                              <div className="mt-2 pt-2 border-t border-cursor-hairline-soft space-y-1.5">
-                                <Skeleton className="h-2.5 w-full" />
-                                <Skeleton className="h-2.5 w-1/2" />
+                              <div className="mt-2 pt-1.5 border-t border-cursor-hairline-soft flex items-center justify-between">
+                                <Skeleton className="h-2 w-20" />
+                                <Skeleton className="h-2 w-12" />
                               </div>
                             </div>
                           ))}
@@ -1039,37 +1061,33 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
+                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2.5 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
-                            <BrainCircuit className="h-3.5 w-3.5" />
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}>
+                            <BrainCircuit className="h-3 w-3" />
                           </div>
                           <div className="flex flex-col min-w-0 flex-1">
                             <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
-                              Subject #{String(img.idx).padStart(3, '0')}
+                              #{String(img.idx).padStart(3, '0')}
                             </span>
-                            <span className="truncate text-sm font-semibold leading-[1.3] text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                            <span className="truncate text-xs font-semibold leading-tight text-cursor-ink group-hover:text-cursor-primary transition-colors">
                               {img.subject_id}
                             </span>
                           </div>
                         </div>
-                        <div className="mt-2 pt-2 border-t border-cursor-hairline-soft space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted w-10 flex-none">Stage</span>
-                            <span className="text-xs text-cursor-ink truncate">{currentStepText}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted w-10 flex-none">Status</span>
-                            <span className={`text-xs font-semibold uppercase tracking-[0.06em] ${
-                              img.status === 'success' ? 'text-cursor-semantic-success' :
-                              img.status === 'failed' ? 'text-cursor-semantic-error' :
-                              img.status === 'running' ? 'text-cursor-primary' :
-                              'text-cursor-muted'
-                            }`}>
-                              {img.status.toUpperCase()}
-                            </span>
-                          </div>
+                        <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-cursor-hairline-soft text-2xs">
+                          <span className="truncate text-cursor-body text-2xs" title={currentStepText}>
+                            {currentStepText}
+                          </span>
+                          <span className={`font-semibold uppercase tracking-[0.06em] flex-none ${
+                            img.status === 'success' ? 'text-cursor-semantic-success' :
+                            img.status === 'failed' ? 'text-cursor-semantic-error' :
+                            img.status === 'running' ? 'text-cursor-primary' :
+                            'text-cursor-muted'
+                          }`}>
+                            {img.status.toUpperCase()}
+                          </span>
                         </div>
                       </button>
                     );

@@ -91,4 +91,35 @@ describe('JobsPage Redesign', () => {
     expect(screen.getByText('Local Jobs')).toBeDefined();
     expect(screen.getByText('Server Jobs')).toBeDefined();
   });
+
+  it('renders clean h2 title and Preset row in metadata table for single job view', () => {
+    useJobsStore.setState({
+      selectedJobId: 'job_local_01',
+      latestJobs: [
+        {
+          job_id: 'job_local_01',
+          display_name: 'job_local_01',
+          target: 'Local',
+          state: 'running',
+          pipeline_mode: 'FastSurfer',
+          run_request_summary: {
+            pipeline_mode: 'FastSurfer',
+            threads: 4,
+          },
+        },
+      ],
+    });
+
+    renderJobsPage('/jobs/job_local_01');
+
+    // Clean h2 heading without select dropdown
+    const heading = screen.getByRole('heading', {level: 2, name: /job_local_01/i});
+    expect(heading).toBeDefined();
+    expect(screen.queryByRole('combobox')).toBeNull();
+
+    // Preset row in metadata table
+    expect(screen.getByText('Preset')).toBeDefined();
+    expect(screen.getByText('FastSurfer')).toBeDefined();
+  });
 });
+

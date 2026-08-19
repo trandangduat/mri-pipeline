@@ -30,6 +30,28 @@ export function StatusPill({state, children}: {state: string; children?: ReactNo
   return <span className={statusPillClasses(state)}>{children}</span>;
 }
 
+export function StatusDotLarge({state, className = ''}: {state: unknown; className?: string}) {
+  const normalized = String(state || 'unknown').toLowerCase();
+  if (normalized === 'running') {
+    return (
+      <span className={`relative flex h-3 w-3 flex-none ${className}`}>
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cursor-primary opacity-75" />
+        <span className="relative inline-flex rounded-full h-3 w-3 bg-cursor-primary" />
+      </span>
+    );
+  }
+  if (['completed', 'success', 'ok', 'done'].includes(normalized)) {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-success flex-none ${className}`} />;
+  }
+  if (['failed', 'error'].includes(normalized)) {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-error flex-none ${className}`} />;
+  }
+  if (['stopped', 'warn', 'warning'].includes(normalized)) {
+    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none ${className}`} />;
+  }
+  return <span className={`h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none ${className}`} />;
+}
+
 export function EmptyBox({message}: {message: string}) {
   return (
     <div className="mt-3 whitespace-pre-wrap rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-xs text-cursor-body">

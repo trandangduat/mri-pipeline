@@ -46,3 +46,19 @@ test('statusDotClasses colors each runtime state', () => {
   expect(statusDotClasses('failed')).toMatch(/bg-cursor-semantic-error/);
   expect(statusDotClasses('anything')).toMatch(/bg-cursor-muted/);
 });
+
+test('StatusDotLarge renders radar pulse for running and solid dot for completed', async () => {
+  const React = await import('react');
+  const {render} = await import('@testing-library/react');
+  const {StatusDotLarge} = await import('../src/components/ui');
+
+  const {container: runningContainer} = render(React.createElement(StatusDotLarge, {state: 'running'}));
+  expect(runningContainer.querySelector('.animate-ping')).not.toBeNull();
+  expect(runningContainer.querySelector('.bg-cursor-primary')).not.toBeNull();
+
+  const {container: completedContainer} = render(React.createElement(StatusDotLarge, {state: 'completed'}));
+  expect(completedContainer.querySelector('.bg-cursor-semantic-success')).not.toBeNull();
+  expect(completedContainer.querySelector('.ring-4')).toBeNull();
+});
+
+
