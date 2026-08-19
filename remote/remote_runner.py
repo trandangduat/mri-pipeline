@@ -113,6 +113,7 @@ class RemoteRunner:
             (PROJECT_ROOT / "pipeline", {".py"}),
             (PROJECT_ROOT / "info", {".txt"}),
             (PROJECT_ROOT / "assets" / "atlases" / "mni", {".nii.gz", ".txt", ".csv", ".md"}),
+            (PROJECT_ROOT / "assets" / "atlases" / "surface", {".gcs", ".annot"}),
         ):
             if folder.exists():
                 for root, dirs, files in os.walk(folder):
@@ -993,6 +994,14 @@ class RemoteRunner:
                 posixpath.join(remote_code, "assets", "atlases", "mni"),
                 skip_dirs={"__pycache__"},
                 allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
+            )
+        surface_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "surface"
+        if surface_atlas_dir.exists():
+            ssh.upload_dir(
+                surface_atlas_dir,
+                posixpath.join(remote_code, "assets", "atlases", "surface"),
+                skip_dirs={"__pycache__"},
+                allowed_extensions={".gcs", ".annot"},
             )
         neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
         if neuroflow.exists():

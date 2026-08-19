@@ -6,6 +6,7 @@ from typing import Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MNI_ATLAS_DIR = PROJECT_ROOT / "assets" / "atlases" / "mni"
+SURFACE_ATLAS_DIR = PROJECT_ROOT / "assets" / "atlases" / "surface"
 
 @dataclass
 class ToolContext:
@@ -136,7 +137,7 @@ CORTICAL_THICKNESS_ATLASES: tuple[str, ...] = (
     "aparc",
     "aparc_a2009s",
     "yale",
-    *(key for key, _parcels, _networks, _stem in KONG2022_ATLAS_VARIANTS),
+    "kong",
     *(key for key, _parcels, _networks, _stem in SCHAEFER2018_ATLAS_VARIANTS),
 )
 

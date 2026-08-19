@@ -26,6 +26,7 @@ from .config import (
     ProgressCallback,
     PROJECT_ROOT,
     StepResult,
+    SURFACE_ATLAS_DIR,
     ToolContext,
 )
 from .registry import (
@@ -34,6 +35,7 @@ from .registry import (
     TOOL_DEFS,
     is_tool_enabled,
     stage_order_for_tools,
+    thickness_atlas_needs_assets,
     tool_display_name,
 )
 from .docker_ops import require_image
@@ -73,6 +75,10 @@ log = logging.getLogger(__name__)
 
 def _resolve_mni_atlas_dir() -> Path:
     return Path(os.environ.get("MRI_PIPELINE_MNI_ATLAS_DIR", str(MNI_ATLAS_DIR))).expanduser()
+
+
+def _resolve_surface_atlas_dir() -> Path:
+    return Path(os.environ.get("MRI_PIPELINE_SURFACE_ATLAS_DIR", str(SURFACE_ATLAS_DIR))).expanduser()
 
 
 def _selected_stats_atlases(config: PipelineConfig) -> list[str]:
@@ -148,6 +154,10 @@ def _build_execution_request(
         atlas_dir = _resolve_mni_atlas_dir()
         if atlas_dir.exists():
             mounts.append((str(atlas_dir), "/atlases"))
+    if any(thickness_atlas_needs_assets(atlas) for atlas in selected_atlases):
+        surface_atlas_dir = _resolve_surface_atlas_dir()
+        if surface_atlas_dir.exists():
+            mounts.append((str(surface_atlas_dir), "/atlas-assets"))
 
     args = [
         "--input",

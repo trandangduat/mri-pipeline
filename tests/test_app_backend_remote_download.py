@@ -71,7 +71,7 @@ def test_stream_download_outputs_valid_payload() -> None:
     assert len(step_steps) >= 3
     assert len(completes) == 1
     assert completes[0]["data"]["ok"] is True
-    assert completes[0]["data"]["local_path"] == "/tmp/outputs"
+    assert completes[0]["data"]["local_path"] == "/tmp/outputs/job_123"
     assert completes[0]["data"]["copied_files"] == 2
     assert completes[0]["data"]["total_files"] == 5
 

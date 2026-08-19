@@ -42,12 +42,14 @@ def test_stats_vector_config_from_dict_filters_invalid_atlases():
     data = {
         "enabled_stats": {"cortical_thickness": True},
         "atlases": {
-            "cortical_thickness": ["aparc", "invalid_atlas_name", "kong"]
+            "cortical_thickness": ["aparc", "invalid_atlas_name", "kong", "schaefer2018_400parcels_17networks", "aparc_a2009s"]
         }
     }
     config = StatsVectorConfig.from_dict(data)
     assert config.enabled_stats["cortical_thickness"] is True
     assert "aparc" in config.atlases["cortical_thickness"]
+    assert "aparc_a2009s" in config.atlases["cortical_thickness"]
     assert "kong" in config.atlases["cortical_thickness"]
+    assert "schaefer2018_400parcels_17networks" in config.atlases["cortical_thickness"]
     # Ensure 'invalid_atlas_name' is filtered out because it's not in STAT_VECTOR_DEFS
     assert "invalid_atlas_name" not in config.atlases["cortical_thickness"]

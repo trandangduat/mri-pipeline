@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import shlex
 
-from .config import EXTERNAL_MNI_VOLUME_ATLASES, SURFACE_ATLAS_STEMS, ToolContext
-
-SURFACE_STATS_ATLAS_LIST = " ".join(SURFACE_ATLAS_STEMS)
+from .config import EXTERNAL_MNI_VOLUME_ATLASES, SCHAEFER2018_ATLAS_VARIANTS, ToolContext
 
 FS8_REDUCED54_IMAGE = "mkdayyyy/mri-fs8-all:latest"
 FS7_RECON_STYLE_IMAGE = "mkdayyyy/mri-fs7-all:latest"
@@ -13,6 +11,178 @@ CAT12_SURFACE_IMAGE = CAT12_IMAGE
 FREESURFER_RECON_STYLE_TIMEOUT = 12 * 60 * 60
 CAT12_VOLUME_TIMEOUT = 6 * 60 * 60
 CAT12_SURFACE_TIMEOUT = 12 * 60 * 60
+
+SURFACE_ATLAS_ASSETS_DIR = "/atlas-assets"
+
+# Unified description of every supported cortical-thickness atlas:
+# - "var_gcs":     classifier shipped in the docker image; resolved into a shell var by the
+#                  stage's atlas lookup snippet (lh_var / rh_var name the shell vars).
+# - "asset_gcs":   classifier shipped in the repo at assets/atlases/surface/{files[hemi]},
+#                  mounted into the container and used directly via mris_ca_label.
+# - "asset_annot": fsaverage-space annot shipped in the repo; copied into
+#                  $SUBJECTS_DIR/fsaverage/label and mapped to the subject via mri_surf2surf.
+# The stats file produced is always "{hemi}.{stem}.stats" so StatsGenerator can glob it.
+THICKNESS_ATLAS_DEFS: dict[str, dict[str, object]] = {
+    "aparc": {
+        "kind": "var_gcs",
+        "lh_var": "LH_DK_ATLAS",
+        "rh_var": "RH_DK_ATLAS",
+        "stem": "aparc",
+    },
+    "aparc_a2009s": {
+        "kind": "asset_gcs",
+        "files": {
+            "lh": "destrieux/lh.destrieux.simple.2009-07-29.gcs",
+            "rh": "destrieux/rh.destrieux.simple.2009-07-29.gcs",
+        },
+        "stem": "aparc.a2009s",
+    },
+    "yale": {
+        "kind": "asset_annot",
+        "files": {
+            "lh": "yale/YBA_696_LH_fsaverage_new.annot",
+            "rh": "yale/YBA_696_RH_fsaverage_new.annot",
+        },
+        "stem": "YBA_696parcels",
+    },
+    "kong": {
+        "kind": "asset_annot",
+        "files": {
+            "lh": "kong/lh.200Parcels_Kong2022_17Networks.annot",
+            "rh": "kong/rh.200Parcels_Kong2022_17Networks.annot",
+        },
+        "stem": "200Parcels_Kong2022_17Networks",
+    },
+    **{
+        key: {
+            "kind": "asset_gcs",
+            "files": {
+                "lh": f"schaefer/lh.Schaefer2018_{parcels}Parcels_{networks}Networks.gcs",
+                "rh": f"schaefer/rh.Schaefer2018_{parcels}Parcels_{networks}Networks.gcs",
+            },
+            "stem": stem,
+        }
+        for key, parcels, networks, stem in SCHAEFER2018_ATLAS_VARIANTS
+    },
+}
+
+
+def thickness_atlas_stats_stems() -> list[str]:
+    stems: list[str] = []
+    for key, defn in THICKNESS_ATLAS_DEFS.items():
+        stem = str(defn["stem"])
+        if stem not in stems:
+            stems.append(stem)
+    return stems
+
+
+def thickness_atlas_needs_assets(atlas: str) -> bool:
+    defn = THICKNESS_ATLAS_DEFS.get(atlas)
+    return bool(defn and defn["kind"] in ("asset_gcs", "asset_annot"))
+
+
+def _gcs_lookup(name: str, patterns: list[str], required: bool) -> str:
+    patterns_quoted = " ".join(f'"{pattern}"' for pattern in patterns)
+    suffix = "" if required else " || true"
+    return f" {name}=$(first_existing {patterns_quoted}){suffix};"
+
+
+def _surface_atlas_lookup_snippet() -> str:
+    return (
+        "first_existing() { for pattern in \"$@\"; do for match in $pattern; do [ -f \"$match\" ] && printf '%s\\n' \"$match\" && return 0; done; done; return 1; }; "
+        + _gcs_lookup("LH_FOLDING_ATLAS", ["$FREESURFER_HOME/average/lh.folding.atlas.acfb40.noaparc.i12*.tif", "$FREESURFER_HOME/average/lh.folding.atlas*.tif"], True)
+        + _gcs_lookup("RH_FOLDING_ATLAS", ["$FREESURFER_HOME/average/rh.folding.atlas.acfb40.noaparc.i12*.tif", "$FREESURFER_HOME/average/rh.folding.atlas*.tif"], True)
+        + _gcs_lookup("LH_DK_ATLAS", ["$FREESURFER_HOME/average/lh.DKaparc.atlas.acfb40.noaparc.i12*.gcs", "$FREESURFER_HOME/average/lh.DKaparc.atlas*.gcs"], True)
+        + _gcs_lookup("RH_DK_ATLAS", ["$FREESURFER_HOME/average/rh.DKaparc.atlas.acfb40.noaparc.i12*.gcs", "$FREESURFER_HOME/average/rh.DKaparc.atlas*.gcs"], True)
+    )
+
+
+def _surface_thickness_loop_snippet(
+    ctx: ToolContext,
+    *,
+    subject: str,
+    cortex_label_dir: str,
+    label_dir: str,
+    surf_dir: str,
+    stats_dir: str,
+    aseg_path: str,
+    skip_aparc: bool = False,
+    atlas_defs: dict[str, dict[str, object]] | None = None,
+) -> str:
+    defs = atlas_defs if atlas_defs is not None else THICKNESS_ATLAS_DEFS
+    selected = [str(atlas) for atlas in ctx.enabled_stats.get("selected_atlases", [])]
+    if selected:
+        atlases = [atlas for atlas in selected if atlas in defs]
+    else:
+        atlases = list(defs)
+    if skip_aparc:
+        atlases = [atlas for atlas in atlases if atlas != "aparc"]
+    chunks: list[str] = []
+    for atlas in atlases:
+        defn = defs[atlas]
+        stem = str(defn["stem"])
+        kind = str(defn["kind"])
+        hemi_lines: list[str] = []
+        for hemi in ("lh", "rh"):
+            cortex_label = f"{cortex_label_dir}/{hemi}.cortex.label"
+            sphere_reg = f"{surf_dir}/{hemi}.sphere.reg"
+            annot_out = f"{label_dir}/{hemi}.{stem}.annot"
+            stats_out = f"{stats_dir}/{hemi}.{stem}.stats"
+            if kind == "var_gcs":
+                var = str(defn[f"{hemi}_var"])
+                hemi_lines.append(
+                    f"mris_ca_label -l {cortex_label} "
+                    f"-aseg {aseg_path} -seed 1234 {subject} {hemi} "
+                    f"{sphere_reg} \"${var}\" "
+                    f"{annot_out}; "
+                    f"mris_anatomical_stats -a {annot_out} "
+                    f"-f {stats_out} {subject} {hemi}; "
+                )
+            elif kind == "asset_gcs":
+                asset = str(defn["files"][hemi])
+                hemi_lines.append(
+                    f"mris_ca_label -l {cortex_label} "
+                    f"-aseg {aseg_path} -seed 1234 {subject} {hemi} "
+                    f"{sphere_reg} {shlex.quote(f'{SURFACE_ATLAS_ASSETS_DIR}/{asset}')} "
+                    f"{annot_out}; "
+                    f"mris_anatomical_stats -a {annot_out} "
+                    f"-f {stats_out} {subject} {hemi}; "
+                )
+            else:  # asset_annot
+                asset = str(defn["files"][hemi])
+                hemi_lines.append(
+                    f"if [ ! -s \"$SUBJECTS_DIR/fsaverage/surf/{hemi}.orig\" ] && [ -s \"$SUBJECTS_DIR/fsaverage/surf/{hemi}.white\" ]; then "
+                    f"cp \"$SUBJECTS_DIR/fsaverage/surf/{hemi}.white\" \"$SUBJECTS_DIR/fsaverage/surf/{hemi}.orig\"; fi; "
+                    f"mri_surf2surf --srcsubject fsaverage --trgsubject {subject} --hemi {hemi} "
+                    f"--sval-annot {shlex.quote(f'{SURFACE_ATLAS_ASSETS_DIR}/{asset}')} "
+                    f"--tval {annot_out}; "
+                    f"mris_anatomical_stats -a {annot_out} "
+                    f"-f {stats_out} {subject} {hemi}; "
+                )
+        if not hemi_lines:
+            continue
+        if kind == "var_gcs":
+            varl = str(defn["lh_var"])
+            varr = str(defn["rh_var"])
+            guard = f'if [ -n "${varl}" ] && [ -n "${varr}" ]; then '
+            else_part = f'echo "WARNING: atlas data missing for {atlas}"; '
+        elif kind == "asset_gcs":
+            files = defn["files"]
+            lhs = shlex.quote(f"{SURFACE_ATLAS_ASSETS_DIR}/{files['lh']}")
+            rhs = shlex.quote(f"{SURFACE_ATLAS_ASSETS_DIR}/{files['rh']}")
+            guard = f"if [ -s {lhs} ] && [ -s {rhs} ]; then "
+            else_part = f'echo "WARNING: atlas assets missing for {atlas}"; '
+        else:
+            files = defn["files"]
+            lhs = shlex.quote(f"{SURFACE_ATLAS_ASSETS_DIR}/{files['lh']}")
+            rhs = shlex.quote(f"{SURFACE_ATLAS_ASSETS_DIR}/{files['rh']}")
+            guard = (
+                f"if [ -d \"$SUBJECTS_DIR/fsaverage\" ] "
+                f"&& [ -s {lhs} ] && [ -s {rhs} ]; then "
+            )
+            else_part = f'echo "WARNING: atlas assets missing for {atlas}"; '
+        chunks.append(guard + "".join(hemi_lines) + "else " + else_part + "fi; ")
+    return "".join(chunks)
 
 
 def _q(value: str) -> str:
@@ -48,13 +218,7 @@ def _fs8r_sync_aliases() -> str:
 
 
 def _fs8r_atlas_lookup() -> str:
-    return (
-        "first_existing() { for pattern in \"$@\"; do for match in $pattern; do [ -f \"$match\" ] && printf '%s\\n' \"$match\" && return 0; done; done; return 1; }; "
-        "LH_FOLDING_ATLAS=$(first_existing \"$FREESURFER_HOME/average/lh.folding.atlas.acfb40.noaparc.i12*.tif\" \"$FREESURFER_HOME/average/lh.folding.atlas*.tif\") || { echo Missing lh folding atlas; exit 1; }; "
-        "RH_FOLDING_ATLAS=$(first_existing \"$FREESURFER_HOME/average/rh.folding.atlas.acfb40.noaparc.i12*.tif\" \"$FREESURFER_HOME/average/rh.folding.atlas*.tif\") || { echo Missing rh folding atlas; exit 1; }; "
-        "LH_DK_ATLAS=$(first_existing \"$FREESURFER_HOME/average/lh.DKaparc.atlas.acfb40.noaparc.i12*.gcs\" \"$FREESURFER_HOME/average/lh.DKaparc.atlas*.gcs\") || { echo Missing lh DKaparc atlas; exit 1; }; "
-        "RH_DK_ATLAS=$(first_existing \"$FREESURFER_HOME/average/rh.DKaparc.atlas.acfb40.noaparc.i12*.gcs\" \"$FREESURFER_HOME/average/rh.DKaparc.atlas*.gcs\") || { echo Missing rh DKaparc atlas; exit 1; }; "
-    )
+    return _surface_atlas_lookup_snippet()
 
 
 def _fs8r_stage1(ctx: ToolContext) -> str:
@@ -262,12 +426,17 @@ def _fs8r_stage9(ctx: ToolContext) -> str:
         + _fs8r_atlas_lookup()
         + "cd \"$SD\"; "
         "mri_label2label --srcsubject fsaverage --srclabel \"$FREESURFER_HOME/subjects/fsaverage/label/lh.cortex.label\" --trgsubject \"$SUBJ\" --trglabel label/lh.cortex.label --hemi lh --regmethod surface; "
-        "mris_ca_label -l label/lh.cortex.label -aseg mri/aseg.presurf.mgz -seed 1234 \"$SUBJ\" lh surf/lh.sphere.reg \"$LH_DK_ATLAS\" label/lh.aparc.annot; "
-        "mris_anatomical_stats -a label/lh.aparc.annot -f stats/lh.aparc.stats \"$SUBJ\" lh; "
         "mri_label2label --srcsubject fsaverage --srclabel \"$FREESURFER_HOME/subjects/fsaverage/label/rh.cortex.label\" --trgsubject \"$SUBJ\" --trglabel label/rh.cortex.label --hemi rh --regmethod surface; "
-        "mris_ca_label -l label/rh.cortex.label -aseg mri/aseg.presurf.mgz -seed 1234 \"$SUBJ\" rh surf/rh.sphere.reg \"$RH_DK_ATLAS\" label/rh.aparc.annot; "
-        "mris_anatomical_stats -a label/rh.aparc.annot -f stats/rh.aparc.stats \"$SUBJ\" rh; "
-        "mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats; "
+        + _surface_thickness_loop_snippet(
+            ctx,
+            subject='"$SUBJ"',
+            cortex_label_dir='"$SD/label"',
+            label_dir='"$SD/label"',
+            surf_dir='"$SD/surf"',
+            stats_dir='"$SD/stats"',
+            aseg_path='"$SD/mri/aseg.presurf.mgz"',
+        )
+        + "mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" || mri_segstats --seg mri/aseg.auto.mgz --sum stats/aseg.stats; "
         "cp stats/*.stats /output/stats/ 2>/dev/null || true; "
         "cp mri/synthseg.vol.csv /output/stats/ 2>/dev/null || true; "
         + _fs8r_atlas_projection_suffix(ctx)
@@ -459,7 +628,17 @@ def _fs7r_stage9(ctx: ToolContext) -> str:
         "mri_surf2volseg --o aseg.mgz --i aseg.presurf.hypos.mgz --fix-presurf-with-ribbon \"$SD/mri/ribbon.mgz\" --threads 1 --lh-cortex-mask \"$SD/label/lh.cortex.label\" --lh-white \"$SD/surf/lh.white\" --lh-pial \"$SD/surf/lh.pial\" --rh-cortex-mask \"$SD/label/rh.cortex.label\" --rh-white \"$SD/surf/rh.white\" --rh-pial \"$SD/surf/rh.pial\"; "
         "cd \"$SD\"; "
         "mri_segstats --seed 1234 --seg mri/aseg.mgz --sum stats/aseg.stats --pv mri/norm.mgz --empty --brainmask mri/brainmask.mgz --brain-vol-from-seg --excludeid 0 --excl-ctxgmwm --supratent --subcortgray --in mri/norm.mgz --in-intensity-name norm --in-intensity-units MR --etiv --surf-wm-vol --surf-ctx-vol --totalgray --euler --ctab \"$FREESURFER_HOME/ASegStatsLUT.txt\" --subject \"$SUBJ\"; "
-        "cp stats/*.stats /output/stats/ 2>/dev/null || true; "
+        + _surface_thickness_loop_snippet(
+            ctx,
+            subject='"$SUBJ"',
+            cortex_label_dir='"$SD/label"',
+            label_dir='"$SD/label"',
+            surf_dir='"$SD/surf"',
+            stats_dir='"$SD/stats"',
+            aseg_path='"$SD/mri/aseg.presurf.mgz"',
+            skip_aparc=True,
+        )
+        + "cp stats/*.stats /output/stats/ 2>/dev/null || true; "
         "cp mri/aseg.auto.mgz /output/stats/ 2>/dev/null || true; "
         "cp mri/aseg.mgz /output/stats/ 2>/dev/null || true; "
         "test -s stats/lh.aparc.stats; test -s stats/rh.aparc.stats; test -s stats/aseg.stats"
@@ -599,6 +778,33 @@ def _fastsurfer_stage7(ctx: ToolContext) -> str:
         "test -s \"$SDIR/lh.white\"; test -s \"$SDIR/rh.white\"; test -s \"$SDIR/lh.pial\"; test -s \"$SDIR/rh.pial\"; test -s \"$SDIR/lh.thickness\"; test -s \"$SDIR/rh.thickness\"; test -s \"$LDIR/lh.aparc.DKTatlas.mapped.annot\"; test -s \"$LDIR/rh.aparc.DKTatlas.mapped.annot\""
     )
 
+def _fs7r_surface_stats(ctx: ToolContext) -> str:
+    subject = shlex.quote(ctx.subject_id)
+    return (
+        "set -e; "
+        "export SUBJECTS_DIR=/output/freesurfer; "
+        "mkdir -p /output/stats; "
+        "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
+        "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
+        + _surface_atlas_lookup_snippet()
+        + f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\"; "
+        f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/rh.thickness\"; "
+        f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/; "
+        + _surface_thickness_loop_snippet(
+            ctx,
+            subject=subject,
+            cortex_label_dir=f"\"$SUBJECTS_DIR/{ctx.subject_id}/label\"",
+            label_dir=f"\"$SUBJECTS_DIR/{ctx.subject_id}/label\"",
+            surf_dir=f"\"$SUBJECTS_DIR/{ctx.subject_id}/surf\"",
+            stats_dir='"/output/stats"',
+            aseg_path=f"\"$SUBJECTS_DIR/{ctx.subject_id}/mri/aseg.presurf.mgz\"",
+            skip_aparc=True,
+        )
+        + "test -s /output/stats/lh.aparc.stats; "
+        "test -s /output/stats/rh.aparc.stats"
+    )
+
+
 def _fastsurfer_stage8(ctx: ToolContext) -> str:
     return (
         _fastsurfer_common(ctx)
@@ -613,12 +819,30 @@ def _fastsurfer_stage8(ctx: ToolContext) -> str:
     )
 
 def _fastsurfer_stage9(ctx: ToolContext) -> str:
+    fastsurfer_atlas_defs = dict(THICKNESS_ATLAS_DEFS)
+    fastsurfer_atlas_defs["aparc"] = {
+        "kind": "var_gcs",
+        "lh_var": "LH_DK_ATLAS",
+        "rh_var": "RH_DK_ATLAS",
+        "stem": "aparc",
+    }
     return (
         _fastsurfer_common(ctx)
+        + _surface_atlas_lookup_snippet()
         + "for hemi in lh rh; do test -s \"$SDIR/${hemi}.sphere.reg\"; test -s \"$SDIR/${hemi}.white\"; test -s \"$SDIR/${hemi}.pial\"; test -s \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\"; done; "
-        "recon-all -subject \"$SUBJ\" -cortribbon -umask 0022 $HIRESFLAG $FSTHREADS; "
+"recon-all -subject \"$SUBJ\" -cortribbon -umask 0022 $HIRESFLAG $FSTHREADS; "
         "for hemi in lh rh; do mris_anatomical_stats -th3 -mgz -cortex \"$LDIR/${hemi}.cortex.label\" -f \"$STATSDIR/${hemi}.aparc.DKTatlas.mapped.stats\" -b -a \"$LDIR/${hemi}.aparc.DKTatlas.mapped.annot\" -c \"$LDIR/aparc.annot.mapped.ctab\" \"$SUBJ\" \"$hemi\" white; done; "
-        "ln -sf lh.aparc.DKTatlas.mapped.annot \"$LDIR/lh.aparc.annot\"; ln -sf rh.aparc.DKTatlas.mapped.annot \"$LDIR/rh.aparc.annot\"; "
+        + _surface_thickness_loop_snippet(
+            ctx,
+            subject='"$SUBJ"',
+            cortex_label_dir='"$LDIR"',
+            label_dir='"$LDIR"',
+            surf_dir='"$SDIR"',
+            stats_dir='"$STATSDIR"',
+            aseg_path='"$MDIR/aseg.presurf.mgz"',
+            atlas_defs=fastsurfer_atlas_defs,
+        )
+        + "ln -sf lh.aparc.DKTatlas.mapped.annot \"$LDIR/lh.aparc.annot\"; ln -sf rh.aparc.DKTatlas.mapped.annot \"$LDIR/rh.aparc.annot\"; "
         "pctsurfcon --s \"$SUBJ\" --lh-only; pctsurfcon --s \"$SUBJ\" --rh-only; rm -f \"$LDIR/lh.aparc.annot\" \"$LDIR/rh.aparc.annot\"; "
         "recon-all -subject \"$SUBJ\" -hyporelabel -apas2aseg -umask 0022 $HIRESFLAG $FSTHREADS; "
         "mri_surf2volseg --o \"$MDIR/aparc.DKTatlas+aseg.mapped.mgz\" --label-cortex --i \"$MDIR/aseg.mgz\" --threads \"$THR\" --lh-annot \"$LDIR/lh.aparc.DKTatlas.mapped.annot\" 1000 --lh-cortex-mask \"$LDIR/lh.cortex.label\" --lh-white \"$SDIR/lh.white\" --lh-pial \"$SDIR/lh.pial\" --rh-annot \"$LDIR/rh.aparc.DKTatlas.mapped.annot\" 2000 --rh-cortex-mask \"$LDIR/rh.cortex.label\" --rh-white \"$SDIR/rh.white\" --rh-pial \"$SDIR/rh.pial\"; "
@@ -898,12 +1122,23 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "stats_extraction",
         "needs_license": True,
         "command_builder": _fastsurfer_stage9,
-        "output_files": ["cortical_volume.tsv", "subcortical_volume.tsv"],
+        "output_files": ["cortical_volume.tsv", "subcortical_volume.tsv", *[
+            f"{hemi}.{stem}.stats"
+            for stem in thickness_atlas_stats_stems()
+            if stem != "aparc"
+            for hemi in ("lh", "rh")
+        ]],
         "output_globs": [
             "freesurfer/*/stats/lh.aparc.DKTatlas.mapped.stats",
             "freesurfer/*/stats/rh.aparc.DKTatlas.mapped.stats",
             "freesurfer/*/stats/aseg.stats",
             "stats/*.tsv",
+            *[
+                f"freesurfer/*/stats/{hemi}.{stem}.stats"
+                for stem in thickness_atlas_stats_stems()
+                if stem != "aparc"
+                for hemi in ("lh", "rh")
+            ],
         ],
     },
     "fastsurfer_volume_stats_extraction": {
@@ -1017,8 +1252,16 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "stats_extraction",
         "needs_license": True,
         "command_builder": _fs8r_stage9,
-        "output_files": ["lh.aparc.stats", "rh.aparc.stats", "aseg.stats", "subcortical_volume.tsv", "cortical_volume.tsv"],
-        "output_globs": ["freesurfer/*/stats/lh.aparc.stats", "freesurfer/*/stats/rh.aparc.stats", "freesurfer/*/stats/aseg.stats"],
+        "output_files": ["lh.aparc.stats", "rh.aparc.stats", "aseg.stats", "subcortical_volume.tsv", "cortical_volume.tsv", *[
+            f"{hemi}.{stem}.stats"
+            for stem in thickness_atlas_stats_stems()
+            for hemi in ("lh", "rh")
+        ]],
+        "output_globs": ["freesurfer/*/stats/lh.aparc.stats", "freesurfer/*/stats/rh.aparc.stats", "freesurfer/*/stats/aseg.stats", *[
+            f"freesurfer/*/stats/{hemi}.{stem}.stats"
+            for stem in thickness_atlas_stats_stems()
+            for hemi in ("lh", "rh")
+        ]],
     },
     "fs7_recon_style_reorientation": {
         "display_name": "FreeSurfer 7 Reorientation",
@@ -1250,20 +1493,13 @@ TOOL_DEFS: dict[str, dict] = {
         "image": FS7_RECON_STYLE_IMAGE,
         "stage": "surface_registration",
         "needs_license": True,
-        "command_builder": lambda ctx: (
-            "set -e; "
-            "export SUBJECTS_DIR=/output/freesurfer; "
-            "mkdir -p /output/stats; "
-            "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
-            "if [ ! -e \"$SUBJECTS_DIR/fsaverage\" ] && [ -d \"$FREESURFER_HOME/subjects/fsaverage\" ]; then ln -s \"$FREESURFER_HOME/subjects/fsaverage\" \"$SUBJECTS_DIR/fsaverage\"; fi; "
-            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/lh.thickness\"; "
-            f"test -s \"$SUBJECTS_DIR/{ctx.subject_id}/surf/rh.thickness\"; "
-            f"cp \"$SUBJECTS_DIR/{ctx.subject_id}/stats/\"*.stats /output/stats/; "
-            f"for atlas in {SURFACE_STATS_ATLAS_LIST}; do for hemi in lh rh; do annot=\"$SUBJECTS_DIR/{ctx.subject_id}/label/$hemi.$atlas.annot\"; fsavg=\"$SUBJECTS_DIR/fsaverage/label/$hemi.$atlas.annot\"; if [ ! -s \"$annot\" ] && [ -s \"$fsavg\" ]; then mri_surf2surf --srcsubject fsaverage --trgsubject {ctx.subject_id} --hemi \"$hemi\" --sval-annot \"$fsavg\" --tval \"$annot\" >/tmp/mri_surf2surf.log 2>&1 || true; fi; if [ -s \"$annot\" ]; then mris_anatomical_stats -a \"$annot\" -f \"/output/stats/$hemi.$atlas.stats\" {ctx.subject_id} \"$hemi\" >/tmp/mris_anatomical_stats.log 2>&1 || true; fi; done; done; "
-            "test -s /output/stats/lh.aparc.stats; "
-            "test -s /output/stats/rh.aparc.stats"
-        ),
-        "output_files": ["lh.aparc.stats", "rh.aparc.stats"],
+        "command_builder": lambda ctx: _fs7r_surface_stats(ctx),
+        "output_files": ["lh.aparc.stats", "rh.aparc.stats", *[
+            f"{hemi}.{stem}.stats"
+            for stem in thickness_atlas_stats_stems()
+            if stem != "aparc"
+            for hemi in ("lh", "rh")
+        ]],
     },
     "freesurfer_stats_fs7": {
         "display_name": "FreeSurfer Stats FreeSurfer7",

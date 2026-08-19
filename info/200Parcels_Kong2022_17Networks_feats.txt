@@ -1,4 +1,3 @@
-lh_Background+FreeSurfer_Defined_Medial_Wall
 lh_17networks_LH_DefaultC_IPL
 lh_17networks_LH_DefaultC_PHC
 lh_17networks_LH_DefaultB_IPL_1
@@ -99,7 +98,6 @@ lh_17networks_LH_VisualA_ExStr_4
 lh_17networks_LH_VisualA_SPL
 lh_17networks_LH_VisualA_TempOcc_1
 lh_17networks_LH_VisualA_TempOcc_2
-rh_Background+FreeSurfer_Defined_Medial_Wall
 rh_17networks_RH_DefaultC_IPL
 rh_17networks_RH_DefaultC_PHC
 rh_17networks_RH_ContC_IPL
