@@ -472,7 +472,8 @@ def _safe_job_folder(job_id: str, remote_job_dir: str) -> str:
     return sanitized or "server_job_outputs"
 
 
-_IMAGE_EXTENSIONS = {".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom"}
+_IMAGE_EXTENSIONS = {".nii", ".nii.gz", ".mgz", ".mgh", ".dcm", ".dicom", ".ima"}
+_DICOM_EXTENSIONS = (".dcm", ".dicom", ".ima")
 _BROWSE_ENTRY_LIMIT = 500
 _BATCH_CANDIDATE_LIMIT = 1000
 _BATCH_MAX_DEPTH = 6
@@ -481,6 +482,28 @@ _BATCH_MAX_DEPTH = 6
 def _is_image_file(name: str) -> bool:
     lower = name.lower()
     return any(lower.endswith(ext) for ext in _IMAGE_EXTENSIONS)
+
+
+def _is_dicom_filename(name: str) -> bool:
+    lower = name.lower()
+    return any(lower.endswith(ext) for ext in _DICOM_EXTENSIONS)
+
+
+def _sftp_check_dicom_dir(client: object, dir_path: str) -> tuple[bool, int, int]:
+    """Check if remote dir contains DICOM files. Returns (is_dicom, slice_count, total_size)."""
+    import stat as _stat
+    try:
+        children = client.sftp.listdir_attr(dir_path)  # type: ignore[attr-defined]
+    except OSError:
+        return False, 0, 0
+    dicom_children = [
+        c for c in children
+        if c.filename and not _stat.S_ISDIR(c.st_mode or 0) and _is_dicom_filename(c.filename)
+    ]
+    if dicom_children:
+        total_size = sum(int(c.st_size or 0) for c in dicom_children)
+        return True, len(dicom_children), total_size
+    return False, 0, 0
 
 
 def _file_stem(name: str) -> str:
@@ -531,20 +554,34 @@ def _browse_via_sftp(ssh: object, path: str) -> dict[str, JsonValue]:
             is_entry_dir = _stat.S_ISDIR(entry_mode)
             entry_name: str = entry.filename
             entry_path = posixpath.join(browse_dir, entry_name)
-            is_img = not is_entry_dir and _is_image_file(entry_name)
-            if is_img:
-                image_count += 1
-            row: dict[str, JsonValue] = {
-                "name": entry_name,
-                "path": entry_path,
-                "kind": "directory" if is_entry_dir else "file",
-                "size": int(entry.st_size or 0) if not is_entry_dir else None,
-                "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
-                "selectable": is_entry_dir or is_img,
-            }
             if is_entry_dir:
+                is_dcm, slice_cnt, total_sz = _sftp_check_dicom_dir(client, entry_path)
+                if is_dcm:
+                    image_count += 1
+                row: dict[str, JsonValue] = {
+                    "name": entry_name,
+                    "path": entry_path,
+                    "kind": "directory",
+                    "size": total_sz if is_dcm else None,
+                    "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
+                    "selectable": True,
+                    "is_dicom_series": is_dcm,
+                    "slice_count": slice_cnt if is_dcm else None,
+                }
                 dirs.append(row)
             else:
+                is_img = _is_image_file(entry_name)
+                if is_img:
+                    image_count += 1
+                row = {
+                    "name": entry_name,
+                    "path": entry_path,
+                    "kind": "file",
+                    "size": int(entry.st_size or 0),
+                    "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
+                    "selectable": is_img,
+                    "is_dicom_series": False,
+                }
                 files.append(row)
         dirs.sort(key=lambda e: str(e["name"]).lower())
         files.sort(key=lambda e: str(e["name"]).lower())
@@ -582,6 +619,33 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
 
         candidates: list[dict[str, JsonValue]] = []
 
+        is_root_dcm, root_slice_count, root_total_size = _sftp_check_dicom_dir(client, scan_root)
+        if is_dir and is_root_dcm:
+            name = posixpath.basename(scan_root)
+            candidates.append({
+                "name": name,
+                "path": scan_root,
+                "kind": "file",
+                "size": root_total_size,
+                "modified_at": int(attr.st_mtime or 0) if attr.st_mtime else None,
+                "selectable": True,
+                "relative_path": name,
+                "subject_label": name,
+                "depth": 0,
+                "parent": posixpath.dirname(scan_root),
+                "is_dicom_series": True,
+                "slice_count": root_slice_count,
+            })
+            return {
+                "ok": True,
+                "path": scan_root,
+                "parent": posixpath.dirname(scan_root),
+                "entries": candidates,
+                "image_count": 1,
+                "is_batch_scan": True,
+                "has_multi_subject_conflict": False,
+            }
+
         def _recurse(current_dir: str, depth: int, subject_hint: str | None) -> None:
             if len(candidates) >= _BATCH_CANDIDATE_LIMIT:
                 return
@@ -598,7 +662,25 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                 is_entry_dir = _stat.S_ISDIR(entry_mode)
                 entry_path = posixpath.join(current_dir, entry.filename)
                 if is_entry_dir:
-                    if depth < max_depth:
+                    is_dcm, slice_count, dcm_size = _sftp_check_dicom_dir(client, entry_path)
+                    if is_dcm:
+                        rel = entry_path[len(scan_root):].lstrip("/")
+                        label = entry.filename if depth == 0 else (subject_hint or posixpath.basename(current_dir))
+                        candidates.append({
+                            "name": entry.filename,
+                            "path": entry_path,
+                            "kind": "file",
+                            "size": dcm_size,
+                            "modified_at": int(entry.st_mtime or 0) if entry.st_mtime else None,
+                            "selectable": True,
+                            "relative_path": rel,
+                            "subject_label": label,
+                            "depth": depth,
+                            "parent": current_dir,
+                            "is_dicom_series": True,
+                            "slice_count": slice_count,
+                        })
+                    elif depth < max_depth:
                         # Use immediate child folder name as subject label hint
                         label = entry.filename if depth == 0 else subject_hint
                         _recurse(entry_path, depth + 1, label)
@@ -609,7 +691,7 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                         # Subject label: parent folder name for nested, file stem for flat
                         if depth == 0:
                             # file is directly in scan_root
-                            label: str = _file_stem(entry.filename)
+                            label = _file_stem(entry.filename)
                         else:
                             label = subject_hint or posixpath.basename(current_dir)
                         candidates.append({
@@ -623,6 +705,7 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                             "subject_label": label,
                             "depth": depth,
                             "parent": current_dir,
+                            "is_dicom_series": False,
                         })
 
         _recurse(scan_root, 0, None)

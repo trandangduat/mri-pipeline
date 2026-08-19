@@ -239,3 +239,129 @@ def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None
     assert events[-1]["event"] == "complete"
     assert events[-1]["data"]["ok"] is True
     assert configs[-1].license_dir == str(license_file)
+
+
+class FakeSFTPAttr:
+    def __init__(self, filename: str, is_dir: bool, size: int = 100, mtime: int = 1700000000) -> None:
+        import stat as _stat
+        self.filename = filename
+        self.st_mode = (_stat.S_IFDIR | 0o755) if is_dir else (_stat.S_IFREG | 0o644)
+        self.st_size = size
+        self.st_mtime = mtime
+
+
+class FakeSFTPClient:
+    def __init__(self, tree: dict[str, list[FakeSFTPAttr]]) -> None:
+        self.tree = tree
+
+    def normalize(self, path: str) -> str:
+        return path
+
+    def stat(self, path: str) -> FakeSFTPAttr:
+        if path in self.tree:
+            return FakeSFTPAttr(path.split("/")[-1] or "root", is_dir=True)
+        return FakeSFTPAttr(path.split("/")[-1], is_dir=False)
+
+    def listdir_attr(self, path: str) -> list[FakeSFTPAttr]:
+        return self.tree.get(path, [])
+
+
+def test_browse_path_detects_remote_dicom_series_directory(monkeypatch) -> None:
+    tree = {
+        "/data": [
+            FakeSFTPAttr("sub-01", is_dir=True),
+            FakeSFTPAttr("notes.txt", is_dir=False, size=50),
+        ],
+        "/data/sub-01": [
+            FakeSFTPAttr("slice_001.dcm", is_dir=False, size=500),
+            FakeSFTPAttr("slice_002.dcm", is_dir=False, size=500),
+        ],
+    }
+
+    class FakeSSH:
+        def __init__(self, _config) -> None:
+            self.sftp = FakeSFTPClient(tree)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("remote.ssh_client.RemoteSSHClient", FakeSSH)
+
+    service = RemoteJobService()
+    result = service.browse_path(
+        {
+            "host": "server",
+            "username": "alice",
+            "password": "secret",
+            "path": "/data",
+            "purpose": "browse",
+        }
+    )
+
+    assert result["ok"] is True
+    dirs = [e for e in result["entries"] if e["kind"] == "directory"]
+    assert len(dirs) == 1
+    sub01 = dirs[0]
+    assert sub01["name"] == "sub-01"
+    assert sub01["is_dicom_series"] is True
+    assert sub01["slice_count"] == 2
+    assert sub01["size"] == 1000
+
+
+def test_scan_batch_via_sftp_groups_dicom_series_and_computes_metadata(monkeypatch) -> None:
+    tree = {
+        "/dataset": [
+            FakeSFTPAttr("sub-01", is_dir=True),
+            FakeSFTPAttr("sub-02", is_dir=True),
+        ],
+        "/dataset/sub-01": [
+            FakeSFTPAttr("T1w.nii.gz", is_dir=False, size=1500),
+        ],
+        "/dataset/sub-02": [
+            FakeSFTPAttr(f"IM{i:03d}.dcm", is_dir=False, size=200) for i in range(10)
+        ],
+    }
+
+    class FakeSSH:
+        def __init__(self, _config) -> None:
+            self.sftp = FakeSFTPClient(tree)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("remote.ssh_client.RemoteSSHClient", FakeSSH)
+
+    service = RemoteJobService()
+    result = service.browse_path(
+        {
+            "host": "server",
+            "username": "alice",
+            "password": "secret",
+            "path": "/dataset",
+            "purpose": "batch",
+            "max_depth": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["image_count"] == 2
+    assert result["has_multi_subject_conflict"] is False
+
+    entries = {e["subject_label"]: e for e in result["entries"]}
+
+    sub1 = entries["sub-01"]
+    assert sub1["name"] == "T1w.nii.gz"
+    assert sub1["is_dicom_series"] is False
+
+    sub2 = entries["sub-02"]
+    assert sub2["name"] == "sub-02"
+    assert sub2["is_dicom_series"] is True
+    assert sub2["slice_count"] == 10
+    assert sub2["size"] == 2000
+

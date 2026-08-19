@@ -813,30 +813,52 @@ function ServerBrowserModal({
 
         {/* Directories */}
         {!isLoading &&
-          dirs.map((entry) => (
-            <button
-              key={entry.path}
-              type="button"
-              title={entry.path}
-              onClick={() => {
-                if (selectMode === 'path') setManualPath(entry.path);
-                doBrowse(entry.path);
-              }}
-              className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-cursor-surface-card"
-            >
-              <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded bg-cursor-primary/10 text-2xs font-semibold uppercase tracking-wide text-cursor-primary">
-                DIR
-              </span>
-              <span className="min-w-0 flex-1 truncate font-medium text-cursor-ink">{entry.name}</span>
-            </button>
-          ))}
+          dirs.map((entry) => {
+            const isDcm = entry.is_dicom_series;
+            const badge = isDcm ? `DCM (${entry.slice_count ?? '?'} sl)` : 'DIR';
+            return (
+              <button
+                key={entry.path}
+                type="button"
+                title={entry.path}
+                onClick={() => {
+                  if (selectMode === 'path') setManualPath(entry.path);
+                  doBrowse(entry.path);
+                }}
+                className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-cursor-surface-card"
+              >
+                <span
+                  className={`inline-flex h-4.5 min-w-7 px-1.5 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${
+                    isDcm ? 'bg-cursor-primary/10 text-cursor-primary' : 'bg-cursor-primary/10 text-cursor-primary'
+                  }`}
+                >
+                  {badge}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium text-cursor-ink">{entry.name}</span>
+                {entry.size != null && (
+                  <span className="flex-none text-right text-cursor-muted text-xs" style={{minWidth: '4rem'}}>
+                    {fmtBytes(entry.size)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
 
         {/* Files */}
         {!isLoading &&
           files.map((entry) => {
             const checked = selectedFiles.has(entry.path);
             const isImg = entry.selectable;
-            const badge = isImg ? 'IMG' : 'FILE';
+            const lower = entry.name.toLowerCase();
+            const badge = lower.endsWith('.nii.gz') || lower.endsWith('.nii')
+              ? 'NII'
+              : lower.endsWith('.mgz') || lower.endsWith('.mgh')
+              ? 'MGZ'
+              : lower.endsWith('.dcm') || lower.endsWith('.dicom')
+              ? 'DCM'
+              : isImg
+              ? 'IMG'
+              : 'FILE';
             const badgeCls = isImg
               ? 'bg-cursor-primary/8 text-cursor-primary'
               : 'bg-cursor-canvas text-cursor-muted';
@@ -855,7 +877,7 @@ function ServerBrowserModal({
                 )}
                 {!(selectMode === 'files' && isImg) && <span className="h-3.5 w-3.5 flex-none" />}
                 <span
-                  className={`inline-flex h-4.5 w-7 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${badgeCls}`}
+                  className={`inline-flex h-4.5 min-w-7 px-1 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${badgeCls}`}
                 >
                   {badge}
                 </span>
@@ -1154,15 +1176,39 @@ function BatchConfigModal({
         <TooltipProvider>
           <div className="max-h-[min(20rem,50vh)] overflow-y-auto bg-cursor-canvas-soft">
             {/* Table header */}
-          <div className="grid border-b border-cursor-hairline px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(9rem,1.8fr) minmax(4rem,0.7fr) minmax(12rem,3fr) 4rem'}}>
+          <div className="grid border-b border-cursor-hairline px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(8rem,1.5fr) minmax(5.5rem,1fr) minmax(8rem,1.6fr) minmax(10rem,2.2fr) 4.5rem'}}>
             <span />
             <span>Subject</span>
-            <span>Filename</span>
+            <span>Format</span>
+            <span>Name</span>
             <span>Relative path</span>
             <span className="text-right">Size</span>
           </div>
           {serverEntries.map((entry) => {
             const checked = selectedPaths.has(entry.path);
+            const lower = entry.name.toLowerCase();
+            const formatBadge = entry.is_dicom_series ? (
+              <Tooltip>
+                <TooltipTrigger className="min-w-0 text-left">
+                  <span className="inline-flex items-center rounded bg-cursor-primary/10 px-1.5 py-0.5 text-2xs font-semibold text-cursor-primary">
+                    DCM ({entry.slice_count ?? '?'} sl)
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="text-xs">
+                  DICOM Series ({entry.slice_count ?? '?'} slices)
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className="inline-flex items-center rounded border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.5 text-2xs font-semibold text-cursor-muted">
+                {lower.endsWith('.nii.gz') || lower.endsWith('.nii')
+                  ? 'NII'
+                  : lower.endsWith('.mgz') || lower.endsWith('.mgh')
+                  ? 'MGZ'
+                  : lower.endsWith('.dcm') || lower.endsWith('.dicom')
+                  ? 'DCM'
+                  : 'IMG'}
+              </span>
+            );
             return (
               <div
                 key={entry.path}
@@ -1171,7 +1217,7 @@ function BatchConfigModal({
                 onClick={() => togglePath(entry.path)}
                 onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePath(entry.path); } }}
                 className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-1.5 hover:bg-cursor-surface-card"
-                style={{gridTemplateColumns: '1.5rem minmax(9rem,1.8fr) minmax(4rem,0.7fr) minmax(12rem,3fr) 4rem'}}
+                style={{gridTemplateColumns: '1.5rem minmax(8rem,1.5fr) minmax(5.5rem,1fr) minmax(8rem,1.6fr) minmax(10rem,2.2fr) 4.5rem'}}
               >
                 <input
                   type="checkbox"
@@ -1189,6 +1235,7 @@ function BatchConfigModal({
                     {entry.subject_label ?? '-'}
                   </TooltipContent>
                 </Tooltip>
+                <div className="flex items-center">{formatBadge}</div>
                 <span className="min-w-0 truncate pr-2 font-mono text-xs text-cursor-ink">
                   {entry.name}
                 </span>
@@ -1286,6 +1333,8 @@ function PathField({
   placeholder,
   onChange,
   onBrowse,
+  browseLabel = 'Browse',
+  secondaryBrowse,
   required,
 }: {
   id: string;
@@ -1294,6 +1343,12 @@ function PathField({
   placeholder: string;
   onChange: (v: string) => void;
   onBrowse: () => void;
+  browseLabel?: string;
+  secondaryBrowse?: {
+    label: string;
+    onClick: () => void;
+    title?: string;
+  };
   required?: boolean;
 }) {
   return (
@@ -1312,11 +1367,21 @@ function PathField({
         <button
           type="button"
           onClick={onBrowse}
-          title="Browse"
+          title={browseLabel}
           className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
         >
-          Browse
+          {browseLabel}
         </button>
+        {secondaryBrowse && (
+          <button
+            type="button"
+            onClick={secondaryBrowse.onClick}
+            title={secondaryBrowse.title ?? secondaryBrowse.label}
+            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+          >
+            {secondaryBrowse.label}
+          </button>
+        )}
       </div>
     </label>
   );
@@ -1416,8 +1481,8 @@ export function InputOutputSection() {
 
   // Input Mode radio options — map to existing backend inputMode values
   const inputModeOptions = [
-    {label: 'Single input', value: 'file', hint: 'Process one NIfTI or DICOM file.'},
-    {label: 'Batch input', value: 'batch_folder', hint: 'Process a folder of images.'},
+    {label: 'Single input', value: 'file', hint: 'Process one NIfTI file or DICOM series folder.'},
+    {label: 'Batch input', value: 'batch_folder', hint: 'Process a folder of images or DICOM series.'},
   ];
 
   // Source radio options
@@ -1426,22 +1491,54 @@ export function InputOutputSection() {
     {label: 'Server', value: 'Server', hint: 'Files on the remote server.'},
   ];
 
-  const handleLocalBrowseInput = async () => {
-    if (isBatch) {
-      if (!hasTauriInternals()) {
-        alert('Folder picker is not available in browser mode. Please type the folder path manually.');
-        return;
-      }
-      try {
-        const selected = await open({directory: true, multiple: false});
-        if (selected) {
-          setFormField('inputPath', selected);
-        }
-      } catch {
-        // dialog cancelled or unavailable
-      }
-    } else {
+  const handleLocalBrowseFile = async () => {
+    if (!hasTauriInternals()) {
       localInputRef.current?.click();
+      return;
+    }
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{name: 'MRI Images', extensions: ['nii.gz', 'nii', 'mgz', 'mgh', 'dcm', 'dicom', 'ima', '*']}],
+      });
+      const path = selectedDialogPath(selected);
+      if (path) {
+        setFormField('inputPath', path);
+      }
+    } catch {
+      // dialog cancelled or unavailable
+    }
+  };
+
+  const handleLocalBrowseFolder = async () => {
+    if (!hasTauriInternals()) {
+      alert('Folder picker is not available in browser mode. Please type the folder path manually.');
+      return;
+    }
+    try {
+      const selected = await open({directory: true, multiple: false});
+      const path = selectedDialogPath(selected);
+      if (path) {
+        setFormField('inputPath', path);
+      }
+    } catch {
+      // dialog cancelled or unavailable
+    }
+  };
+
+  const handleLocalBrowseOutputDir = async () => {
+    if (!hasTauriInternals()) {
+      alert('Directory picker is not available in browser mode. Please type the path manually.');
+      return;
+    }
+    try {
+      const selected = await open({directory: true, multiple: false});
+      const path = selectedDialogPath(selected);
+      if (path) {
+        setFormField('outputDir', path);
+      }
+    } catch {
+      // dialog cancelled or unavailable
     }
   };
 
@@ -1531,15 +1628,34 @@ export function InputOutputSection() {
           {/* Row 2: Path fields — Local */}
           {inputSource === 'Local' && (
             <div className="grid gap-3">
-              <PathField
-                id="inputPath"
-                label="Input location"
-                value={formValues.inputPath}
-                placeholder="/data/sub-001_T1w.nii.gz or /data/batch"
-                onChange={(v) => setFormField('inputPath', v)}
-                onBrowse={handleLocalBrowseInput}
-                required
-              />
+              {isBatch ? (
+                <PathField
+                  id="inputPath"
+                  label="Input location"
+                  value={formValues.inputPath}
+                  placeholder="/data/batch_subjects_folder"
+                  onChange={(v) => setFormField('inputPath', v)}
+                  onBrowse={handleLocalBrowseFolder}
+                  browseLabel="Browse Folder"
+                  required
+                />
+              ) : (
+                <PathField
+                  id="inputPath"
+                  label="Input location"
+                  value={formValues.inputPath}
+                  placeholder="/data/sub-001_T1w.nii.gz or /data/dicom_series_folder"
+                  onChange={(v) => setFormField('inputPath', v)}
+                  onBrowse={handleLocalBrowseFile}
+                  browseLabel="Browse File"
+                  secondaryBrowse={{
+                    label: 'Folder (DICOM)',
+                    title: 'Browse DICOM series folder',
+                    onClick: handleLocalBrowseFolder,
+                  }}
+                  required
+                />
+              )}
               {/* Hidden file input — browser-safe fallback */}
               <input
                 ref={localInputRef}
@@ -1554,9 +1670,7 @@ export function InputOutputSection() {
                 value={formValues.outputDir}
                 placeholder="/outputs/project"
                 onChange={(v) => setFormField('outputDir', v)}
-                onBrowse={() => {
-                  alert('Directory picker is not available in browser mode. Please type the path manually.');
-                }}
+                onBrowse={handleLocalBrowseOutputDir}
                 required
               />
             </div>

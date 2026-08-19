@@ -295,3 +295,27 @@ def test_prepare_run_request_rejects_local_with_server_input(tmp_path: Path) -> 
     assert result["ok"] is False
     assert result["request"] is None
     assert any("local" in e.lower() for e in result["errors"])
+
+
+def test_prepare_run_request_normalizes_dicom_series_dir_input(tmp_path: Path) -> None:
+    dicom_dir = tmp_path / "sub-01_dicom"
+    dicom_dir.mkdir()
+    (dicom_dir / "slice_001.dcm").write_text("fake", encoding="utf-8")
+    (dicom_dir / "slice_002.dcm").write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_mode="file",
+            input_path=str(dicom_dir),
+            selected_files=[str(dicom_dir)],
+        )
+    )
+    request = _ok_request(result)
+
+    assert request["mode"] == "dir"
+    assert request["is_batch"] is False
+    assert request["input_file"] == str(dicom_dir)
+    assert request["input_dir"] == str(dicom_dir)
+    assert request["recursive"] is False
+

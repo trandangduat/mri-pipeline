@@ -111,6 +111,17 @@ def _prepare_run_request_result(config: RunRequestInput | dict[str, object]) -> 
                     }
                 )
                 return RunRequestResult(request=request)
+        elif input_path.is_dir() and _is_dicom_series_dir(input_path):
+            request.update(
+                {
+                    "mode": "dir",
+                    "is_batch": False,
+                    "input_dir": str(input_path),
+                    "input_file": str(input_path),
+                    "recursive": False,
+                }
+            )
+            return RunRequestResult(request=request)
         request["input_file"] = path
     elif mode == "files":
         files = _normalized_input_files(_selected_or_split_files(run_config))

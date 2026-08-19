@@ -252,10 +252,12 @@ export const remoteBrowseEntrySchema = z.object({
   modified_at: z.number().nullable().optional(),
   selectable: z.boolean(),
   // recursive batch scan extras
-  subject_label: z.string().optional(),
-  relative_path: z.string().optional(),
-  depth: z.number().optional(),
-  parent: z.string().optional(),
+  subject_label: z.string().nullable().optional(),
+  relative_path: z.string().nullable().optional(),
+  depth: z.number().nullable().optional(),
+  parent: z.string().nullable().optional(),
+  is_dicom_series: z.boolean().nullable().optional(),
+  slice_count: z.number().nullable().optional(),
 });
 
 export const remoteBrowseResponseSchema = z.object({
