@@ -20,12 +20,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 30000
-    upper_ms: 37500
+    point_ms: 17056
+    upper_ms: 21320
   memory:
-    peak_mib: 256
-    reservation_mib: 320
-  sample_count: 0
+    peak_mib: 604
+    reservation_mib: 755
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_reorient_resize_cpu_2
@@ -37,12 +37,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 19500
-    upper_ms: 24375
+    point_ms: 16938
+    upper_ms: 21172
   memory:
-    peak_mib: 282
-    reservation_mib: 353
-  sample_count: 0
+    peak_mib: 645
+    reservation_mib: 806
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_reorient_resize_cpu_4
@@ -54,12 +54,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 13500
-    upper_ms: 16875
+    point_ms: 19883
+    upper_ms: 24853
   memory:
-    peak_mib: 320
-    reservation_mib: 400
-  sample_count: 0
+    peak_mib: 577
+    reservation_mib: 721
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_gpu_default
@@ -91,12 +91,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 600000
-    upper_ms: 750000
+    point_ms: 2310296
+    upper_ms: 2887870
   memory:
-    peak_mib: 4096
-    reservation_mib: 5120
-  sample_count: 0
+    peak_mib: 3549
+    reservation_mib: 4436
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_cpu_2
@@ -108,12 +108,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 390000
-    upper_ms: 487500
+    point_ms: 1329548
+    upper_ms: 1661935
   memory:
-    peak_mib: 4506
-    reservation_mib: 5633
-  sample_count: 0
+    peak_mib: 3511
+    reservation_mib: 4388
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_cpu_4
@@ -125,12 +125,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 270000
-    upper_ms: 337500
+    point_ms: 769253
+    upper_ms: 961566
   memory:
-    peak_mib: 5120
-    reservation_mib: 6400
-  sample_count: 0
+    peak_mib: 3468
+    reservation_mib: 4335
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_template_registration_cpu_1
@@ -312,12 +312,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 180000
-    upper_ms: 225000
+    point_ms: 22959
+    upper_ms: 28698
   memory:
-    peak_mib: 1024
-    reservation_mib: 1280
-  sample_count: 0
+    peak_mib: 162
+    reservation_mib: 202
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_statistics_atlas_mapping_cpu_2
@@ -329,12 +329,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 117000
-    upper_ms: 146250
+    point_ms: 47709
+    upper_ms: 59636
   memory:
-    peak_mib: 1126
-    reservation_mib: 1408
-  sample_count: 0
+    peak_mib: 2689
+    reservation_mib: 3361
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: fastsurfer_volumetrics_default_statistics_atlas_mapping_cpu_4
@@ -346,11 +346,11 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 81000
-    upper_ms: 101250
+    point_ms: 48578
+    upper_ms: 60722
   memory:
-    peak_mib: 1280
-    reservation_mib: 1600
-  sample_count: 0
+    peak_mib: 3240
+    reservation_mib: 4050
+  sample_count: 1
   source: provisional_ui_integration
   status: draft

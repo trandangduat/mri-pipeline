@@ -20,12 +20,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 30000
-    upper_ms: 37500
+    point_ms: 9008
+    upper_ms: 11260
   memory:
-    peak_mib: 256
-    reservation_mib: 320
-  sample_count: 0
+    peak_mib: 50
+    reservation_mib: 62
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_reorient_resize_cpu_2
@@ -37,12 +37,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 19500
-    upper_ms: 24375
+    point_ms: 8956
+    upper_ms: 11195
   memory:
-    peak_mib: 282
-    reservation_mib: 353
-  sample_count: 0
+    peak_mib: 59
+    reservation_mib: 73
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_1
@@ -54,12 +54,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 138000
-    upper_ms: 172500
+    point_ms: 1415282
+    upper_ms: 1769102
   memory:
-    peak_mib: 2355
-    reservation_mib: 2944
-  sample_count: 0
+    peak_mib: 849
+    reservation_mib: 1061
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_2
@@ -71,12 +71,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 89700
-    upper_ms: 112125
+    point_ms: 1460450
+    upper_ms: 1825562
   memory:
-    peak_mib: 2591
-    reservation_mib: 3239
-  sample_count: 0
+    peak_mib: 808
+    reservation_mib: 1010
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_4
@@ -88,12 +88,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 62100
-    upper_ms: 77625
+    point_ms: 1437066
+    upper_ms: 1796332
   memory:
-    peak_mib: 2944
-    reservation_mib: 3680
-  sample_count: 0
+    peak_mib: 808
+    reservation_mib: 1010
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_1
@@ -105,12 +105,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 600000
-    upper_ms: 750000
+    point_ms: 13632881
+    upper_ms: 17041101
   memory:
-    peak_mib: 4096
-    reservation_mib: 5120
-  sample_count: 0
+    peak_mib: 2082
+    reservation_mib: 2602
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_2
@@ -122,12 +122,12 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 390000
-    upper_ms: 487500
+    point_ms: 10443425
+    upper_ms: 13054281
   memory:
-    peak_mib: 4506
-    reservation_mib: 5633
-  sample_count: 0
+    peak_mib: 2039
+    reservation_mib: 2548
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_4
@@ -139,12 +139,12 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 270000
-    upper_ms: 337500
+    point_ms: 8528885
+    upper_ms: 10661106
   memory:
-    peak_mib: 5120
-    reservation_mib: 6400
-  sample_count: 0
+    peak_mib: 2066
+    reservation_mib: 2582
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_1
@@ -156,12 +156,12 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 180000
-    upper_ms: 225000
+    point_ms: 165583
+    upper_ms: 206978
   memory:
-    peak_mib: 1024
-    reservation_mib: 1280
-  sample_count: 0
+    peak_mib: 684
+    reservation_mib: 855
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
 - profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_2
@@ -173,11 +173,11 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 117000
-    upper_ms: 146250
+    point_ms: 30033
+    upper_ms: 37541
   memory:
-    peak_mib: 1126
-    reservation_mib: 1408
-  sample_count: 0
+    peak_mib: 150
+    reservation_mib: 187
+  sample_count: 1
   source: provisional_ui_integration
   status: draft
