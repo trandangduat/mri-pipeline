@@ -179,19 +179,19 @@ export function ToolsPage() {
   const target = selectedRuntimeTarget();
 
   return (
-    <div className="h-full w-full overflow-y-auto p-6">
-      <div className="grid gap-7">
+    <div className="h-full w-full overflow-y-auto p-4">
+      <div className="grid gap-4">
 
         {/* Section 1: Environment Check */}
         <section>
-          <div className="mb-3.5 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
-              <Container className="h-4.5 w-4.5 text-cursor-primary" />
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+              <Container className="h-4 w-4 text-cursor-primary" />
               Environment Status
             </h2>
             <Button
               variant="primary"
-              icon={busy.checkEnv ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              icon={busy.checkEnv ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               onClick={refreshEnvironment}
               disabled={busy.checkEnv}
             >
@@ -199,26 +199,26 @@ export function ToolsPage() {
             </Button>
           </div>
 
-          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(16rem,1fr))]">
-            <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-primary/10">
-                <Cpu className="h-5 w-5 text-cursor-primary" />
+          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))]">
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-primary/10">
+                <Cpu className="h-4 w-4 text-cursor-primary" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Runtime Target</span>
-                <span className="inline-flex rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-0.5 text-xs font-semibold text-cursor-ink font-mono">
+                <span className="block text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">Runtime Target</span>
+                <span className="inline-flex rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.25 text-xs font-semibold text-cursor-ink font-mono">
                   {target}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-semantic-success/10">
-                {python.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-semantic-success" /> : <XCircle className="h-5 w-5 text-cursor-semantic-error" />}
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-semantic-success/10">
+                {python.ok ? <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" /> : <XCircle className="h-4 w-4 text-cursor-semantic-error" />}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Python</span>
-                <div className="flex items-center gap-2">
+                <span className="block text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">Python</span>
+                <div className="flex items-center gap-1.5">
                   <StatusPill state={python.ok ? 'installed' : 'missing'}>
                     {python.ok ? 'Ready' : 'Missing'}
                   </StatusPill>
@@ -229,12 +229,12 @@ export function ToolsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-cursor-hairline bg-white p-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-semantic-success/10">
-                {docker.ok ? <CheckCircle2 className="h-5 w-5 text-cursor-semantic-success" /> : <XCircle className="h-5 w-5 text-cursor-semantic-error" />}
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-semantic-success/10">
+                {docker.ok ? <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" /> : <XCircle className="h-4 w-4 text-cursor-semantic-error" />}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">Docker</span>
+                <span className="block text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">Docker</span>
                 <StatusPill state={docker.ok ? 'installed' : 'missing'}>
                   {docker.ok ? 'Ready' : 'Missing'}
                 </StatusPill>
@@ -245,19 +245,19 @@ export function ToolsPage() {
 
         {/* Section 2: Available Images */}
         <section>
-          <div className="mb-3.5 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
-              <CheckCircle2 className="h-4.5 w-4.5 text-cursor-semantic-success" />
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+              <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" />
               Available Images
               {installedImages.length > 0 && (
-                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-success/10 px-2.5 py-0.5 text-xs font-semibold text-cursor-semantic-success">
+                <span className="ml-0.5 inline-flex rounded-full bg-cursor-semantic-success/10 px-2 py-0.25 text-2xs font-semibold text-cursor-semantic-success">
                   {installedImages.length}
                 </span>
               )}
             </h2>
             <Button
               variant="ghost"
-              icon={busy.refreshTools ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              icon={busy.refreshTools ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               onClick={() => void refreshTools({manual: true})}
               disabled={busy.refreshTools}
             >
@@ -280,9 +280,9 @@ export function ToolsPage() {
           ) : busy.refreshTools && images.length === 0 ? (
             <ImageStatusSkeletonGrid />
           ) : (
-            <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
-              <HardDrive className="mx-auto mb-2 h-8 w-8 text-cursor-muted" />
-              <p className="text-sm text-cursor-body">
+            <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-5 text-center">
+              <HardDrive className="mx-auto mb-1.5 h-6 w-6 text-cursor-muted" />
+              <p className="text-xs text-cursor-body">
                 {images.length === 0 ? emptyMessage() : 'No installed images found.'}
               </p>
             </div>
@@ -291,12 +291,12 @@ export function ToolsPage() {
 
         {/* Section 3: Not Available Images */}
         <section>
-          <div className="mb-3.5 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-base font-semibold text-cursor-ink">
-              <AlertCircle className="h-4.5 w-4.5 text-cursor-semantic-error" />
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+              <AlertCircle className="h-4 w-4 text-cursor-semantic-error" />
               Not Available
               {missingImages.length > 0 && (
-                <span className="ml-1 inline-flex rounded-full bg-cursor-semantic-error/10 px-2.5 py-0.5 text-xs font-semibold text-cursor-semantic-error">
+                <span className="ml-0.5 inline-flex rounded-full bg-cursor-semantic-error/10 px-2 py-0.25 text-2xs font-semibold text-cursor-semantic-error">
                   {missingImages.length}
                 </span>
               )}
@@ -319,17 +319,17 @@ export function ToolsPage() {
           ) : busy.refreshTools && images.length === 0 ? (
             <ImageStatusSkeletonGrid />
           ) : (
-            <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-8 text-center">
-              <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-cursor-semantic-success" />
-              <p className="text-sm text-cursor-body">
+            <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-5 text-center">
+              <CheckCircle2 className="mx-auto mb-1.5 h-6 w-6 text-cursor-semantic-success" />
+              <p className="text-xs text-cursor-body">
                 {images.length === 0 ? emptyMessage() : 'All required images are installed.'}
               </p>
             </div>
           )}
 
           {pullStream.status !== 'idle' && pullStream.logs.length > 0 && (
-            <div className="mt-4 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="mt-3 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5">
+              <div className="flex items-center gap-1.5 mb-1.5">
                 <code className="font-mono text-xs text-cursor-ink">{pullStream.image}</code>
                 <StatusPill state={pullStream.status === 'pulling' ? 'running' : pullStream.status === 'success' ? 'success' : 'failed'}>
                   {pullStream.status === 'pulling'
@@ -340,11 +340,11 @@ export function ToolsPage() {
                   <span className="text-xs text-cursor-semantic-error">{pullStream.error}</span>
                 )}
               </div>
-              <pre className="max-h-32 overflow-auto rounded-md border border-cursor-hairline-soft bg-white p-2 font-mono text-[11px] leading-relaxed text-cursor-body">
+              <pre className="max-h-28 overflow-auto rounded border border-cursor-hairline-soft bg-white p-1.5 font-mono text-2xs leading-relaxed text-cursor-body">
                 {pullStream.logs.slice(-10).join('\n')}
               </pre>
               {(pullStream.status === 'success' || pullStream.status === 'failed') && (
-                <Button variant="ghost" className="mt-2 h-6 px-2 text-[11px]" onClick={pullStream.reset}>
+                <Button variant="ghost" className="mt-1.5 h-5.5 px-2 text-2xs" onClick={pullStream.reset}>
                   Dismiss
                 </Button>
               )}

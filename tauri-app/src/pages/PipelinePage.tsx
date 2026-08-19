@@ -132,11 +132,11 @@ export function PipelineStepsSection() {
 
   return (
     <Panel
-      icon={<Workflow className="h-5 w-5 text-cursor-primary" />}
+      icon={<Workflow className="h-4 w-4 text-cursor-primary" />}
       title="Pipeline Steps"
       className="min-w-0"
     >
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+      <div className="mb-2.5 flex flex-wrap items-end gap-2">
         <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
           Pipeline preset
           <select
@@ -153,20 +153,20 @@ export function PipelineStepsSection() {
             ))}
           </select>
         </label>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             variant="ghost"
-            icon={showTools ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            icon={showTools ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             onClick={() => setShowTools((prev) => !prev)}
           >
             {showTools ? 'Hide Tools' : 'Show Tools'}
           </Button>
-          <Button variant="ghost" icon={<FolderOpen className="h-4 w-4" />} onClick={() => browseJsonFile(presetFileInput)}>
+          <Button variant="ghost" icon={<FolderOpen className="h-3.5 w-3.5" />} onClick={() => browseJsonFile(presetFileInput)}>
             Load Preset
           </Button>
           <Button
             variant="ghost"
-            icon={<Save className="h-4 w-4" />}
+            icon={<Save className="h-3.5 w-3.5" />}
             onClick={() => print('Save preset', {ok: false, error: 'Preset save UI is not wired in this slice.'})}
           >
             Save Preset
@@ -181,25 +181,25 @@ export function PipelineStepsSection() {
         />
       </div>
       {metaLoading && (
-        <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-6 text-center">
-          <span className="text-[13px] text-cursor-muted">Connecting to backend&hellip;</span>
+        <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-4 text-center">
+          <span className="text-xs text-cursor-muted">Connecting to backend&hellip;</span>
         </div>
       )}
       {metaError && !metaLoading && (
-        <div className="rounded-lg border border-cursor-semantic-error/30 bg-cursor-semantic-error/5 px-4 py-5">
-          <p className="m-0 text-[13px] font-medium text-cursor-semantic-error">Backend unavailable</p>
-          <p className="mt-1 text-[12px] text-cursor-muted">
+        <div className="rounded-lg border border-cursor-semantic-error/30 bg-cursor-semantic-error/5 px-3 py-3">
+          <p className="m-0 text-xs font-medium text-cursor-semantic-error">Backend unavailable</p>
+          <p className="mt-1 text-xs text-cursor-muted">
             The MRI pipeline backend is not running. Start the dev server with{' '}
-            <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-[11px] text-cursor-ink">npm run dev</code>{' '}
-            from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-[11px] text-cursor-ink">tauri-app/</code>{' '}
+            <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">npm run dev</code>{' '}
+            from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">tauri-app/</code>{' '}
             directory, which also starts the Python backend on port 8765.
           </p>
         </div>
       )}
       {!metaLoading && !metaError && showTools && (
-        <div className="grid border border-cursor-hairline">
+        <div className="grid border border-cursor-hairline rounded-md overflow-hidden">
           {(metadata?.stages || []).length === 0 && (
-            <div className="px-4 py-6 text-center text-[13px] text-cursor-muted">No pipeline stages found.</div>
+            <div className="px-3 py-4 text-center text-xs text-cursor-muted">No pipeline stages found.</div>
           )}
           {(metadata?.stages || []).map((stage) => {
             const tools = metadata?.tools_by_stage?.[stage.id] || [];
@@ -208,10 +208,10 @@ export function PipelineStepsSection() {
             return (
               <div
                 key={stage.id}
-                className={`grid items-center gap-x-4 gap-y-2 border-b border-cursor-hairline-soft px-4 py-2.5 last:border-b-0 grid-cols-[minmax(12rem,0.55fr)_minmax(14rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
+                className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
               >
-                <div className="flex min-h-11 items-center">
-                  <strong className={`font-semibold text-[13.5px] leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
+                <div className="flex min-h-8 items-center">
+                  <strong className={`font-medium text-xs leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
                 </div>
                 <select
                   name={`stage_${stage.id}`}
@@ -235,7 +235,7 @@ export function PipelineStepsSection() {
         </div>
       )}
       {needsLicense && (
-        <div className="mt-4 flex flex-wrap items-end gap-3">
+        <div className="mt-2.5 flex flex-wrap items-end gap-2">
           <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
             FreeSurfer license (license.txt)
             <input
@@ -248,10 +248,10 @@ export function PipelineStepsSection() {
               className={inputCls}
             />
           </label>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               variant="ghost"
-              icon={uploadingLicense ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+              icon={uploadingLicense ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
               disabled={uploadingLicense}
               onClick={async () => {
                 if (!hasTauriInternals()) {
@@ -312,8 +312,8 @@ export function StatsAtlasSection() {
   return (
     <Panel
       icon={
-        <span className="flex h-5 w-5 items-center text-cursor-primary">
-          <BarChart3 className="h-5 w-5" />
+        <span className="flex h-4 w-4 items-center text-cursor-primary">
+          <BarChart3 className="h-4 w-4" />
         </span>
       }
       title="Stats & Atlas Mapping"
@@ -331,14 +331,14 @@ export function StatsAtlasSection() {
               .join(' ');
 
           return (
-            <div key={statKey} className="py-4.5 first:pt-0 last:pb-0">
-              <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-3">
-                <div className="flex min-h-8 items-center gap-2.5">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-cursor-primary" />
-                  <span className="text-[14px] font-semibold text-cursor-ink">
+            <div key={statKey} className="py-2.5 first:pt-0 last:pb-0">
+              <div className="grid grid-cols-[1fr_auto] items-center gap-x-2.5 gap-y-2">
+                <div className="flex min-h-7 items-center gap-2">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cursor-primary" />
+                  <span className="text-sm font-semibold text-cursor-ink">
                     {statLabel}
                   </span>
-                  <span className="inline-flex items-center justify-center rounded-full bg-cursor-canvas-soft border border-cursor-hairline px-2 py-0.5 text-xs font-semibold text-cursor-body min-w-5">
+                  <span className="inline-flex items-center justify-center rounded-full bg-cursor-canvas-soft border border-cursor-hairline px-1.5 py-0.25 text-2xs font-semibold text-cursor-body min-w-4">
                     {selectedAtlases.length}
                   </span>
                 </div>
@@ -349,37 +349,36 @@ export function StatsAtlasSection() {
                     setAtlasPickerStatKey(statKey);
                     setAtlasSearch('');
                   }}
-                  className="inline-flex h-8.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-cursor-hairline bg-white px-3.5 text-xs font-semibold text-cursor-ink transition-colors hover:border-cursor-primary hover:text-cursor-primary hover:bg-cursor-canvas-soft active:scale-[0.98]"
+                  className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-primary hover:text-cursor-primary hover:bg-cursor-canvas-soft active:scale-[0.98]"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-3.5 w-3.5" />
                   <span>Add Atlas</span>
                 </button>
 
-                <div className="col-span-2 flex flex-wrap gap-2.5 pl-4">
+                <div className="col-span-2 flex flex-wrap gap-1.5 pl-3">
                   {selectedAtlases.length ? (
                     selectedAtlases.map((atlasKey) => {
                       const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
                       return (
                         <span
                           key={atlasKey}
-                          className="group/chip inline-flex items-center gap-2 rounded-lg border border-cursor-hairline bg-white py-1.5 pl-3.5 pr-2 text-sm font-medium text-cursor-ink transition-all hover:border-cursor-hairline-strong shadow-2xs"
+                          className="group/chip inline-flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-white py-0.5 pl-2.5 pr-1 text-xs font-medium text-cursor-ink transition-all hover:border-cursor-hairline-strong shadow-2xs"
                         >
-                          <span className="truncate max-w-[22rem]">{atlas.label || atlas.key}</span>
+                          <span className="truncate max-w-[20rem]">{atlas.label || atlas.key}</span>
                           <button
                             type="button"
                             onClick={() => removeAtlas(statKey, atlas.key)}
-                            className="flex h-5 w-5 items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error transition-colors"
-                            title={`Remove ${atlas.label || atlas.key}`}
-                            aria-label={`Remove ${atlas.label || atlas.key}`}
+                            className="flex h-4.5 w-4.5 items-center justify-center rounded text-cursor-muted hover:bg-cursor-hairline hover:text-cursor-ink transition-colors"
+                            aria-label={`Remove atlas ${atlas.label || atlas.key}`}
                           >
-                            <X className="h-3.5 w-3.5" />
+                            <X className="h-3 w-3" />
                           </button>
                         </span>
                       );
                     })
                   ) : (
-                    <span className="text-sm italic text-cursor-muted py-0.5">
-                      No atlases mapped to this statistic. Click "+ Add Atlas" to select.
+                    <span className="text-xs text-cursor-muted italic">
+                      No atlases selected for this metric.
                     </span>
                   )}
                 </div>
@@ -408,57 +407,57 @@ export function StatsAtlasSection() {
 
         return (
           <ModalOverlay onClose={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="atlas-picker-title" className="flex flex-col">
+            <div className="flex flex-col max-h-[85vh]">
               {/* Modal Header */}
-              <div className="flex items-center justify-between gap-3 pb-3.5 border-b border-cursor-hairline-soft">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cursor-primary/10 text-cursor-primary flex-none">
-                    <Layers className="h-4.5 w-4.5" />
+              <div className="flex items-center justify-between gap-3 border-b border-cursor-hairline pb-2.5 flex-none">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-cursor-primary/10 text-cursor-primary flex-none">
+                    <Layers className="h-4 w-4" />
                   </div>
                   <h3 id="atlas-picker-title" className="m-0 text-base font-semibold leading-tight text-cursor-ink">
                     Add Atlas to {pickerLabel}
                   </h3>
                 </div>
-                <div className="flex items-center gap-2 flex-none">
-                  <span className="inline-flex items-center rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2.5 py-0.5 text-xs font-semibold text-cursor-primary">
+                <div className="flex items-center gap-1.5 flex-none">
+                  <span className="inline-flex items-center rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2 py-0.25 text-2xs font-semibold text-cursor-primary">
                     {pickerSelectedAtlases.length} selected
                   </span>
                   <button
                     type="button"
                     onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-canvas hover:text-cursor-ink transition-colors"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-canvas hover:text-cursor-ink transition-colors"
                     aria-label="Close dialog"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
 
               {/* Search Bar */}
-              <div className="relative my-3.5 flex-none">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
+              <div className="relative my-2.5 flex-none">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
                 <input
                   type="text"
                   value={atlasSearch}
                   onChange={(e) => setAtlasSearch(e.target.value)}
                   placeholder="Search atlases..."
                   autoFocus
-                  className="w-full rounded-lg border border-cursor-hairline bg-cursor-canvas-soft h-10 px-3.5 pl-10 pr-9 text-sm text-cursor-ink placeholder:text-cursor-muted focus:border-cursor-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-cursor-primary transition-all"
+                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft h-8 px-2.5 pl-8 pr-8 text-sm text-cursor-ink placeholder:text-cursor-muted focus:border-cursor-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-cursor-primary transition-all"
                 />
                 {atlasSearch && (
                   <button
                     type="button"
                     onClick={() => setAtlasSearch('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-cursor-muted hover:text-cursor-ink"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-cursor-muted hover:text-cursor-ink"
                     title="Clear search"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
 
               {/* Atlases List */}
-              <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
                 {filteredAtlasKeys.length ? (
                   filteredAtlasKeys.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
@@ -468,27 +467,27 @@ export function StatsAtlasSection() {
                         key={atlasKey}
                         type="button"
                         onClick={() => toggleAtlas(atlasPickerStatKey, atlasKey)}
-                        className={`group flex w-full cursor-pointer items-center justify-between gap-3.5 rounded-lg border px-3.5 py-3 text-left transition-all ${
+                        className={`group flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
                           isSelected
                             ? 'border-cursor-primary/50 bg-cursor-primary/[0.04] text-cursor-ink hover:bg-cursor-primary/[0.08]'
                             : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
                         }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <div
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition-colors ${
+                            className={`flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded transition-colors ${
                               isSelected
                                 ? 'bg-cursor-primary text-white'
                                 : 'border border-cursor-hairline-strong bg-white group-hover:border-cursor-primary'
                             }`}
                           >
-                            {isSelected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                            {isSelected ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
                           </div>
                           <div className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-semibold text-cursor-ink">
                               {atlas.label || atlas.key}
                             </span>
-                            <span className="block truncate font-mono text-xs text-cursor-muted">
+                            <span className="block truncate font-mono text-2xs text-cursor-muted">
                               {atlas.key}
                             </span>
                           </div>
@@ -496,11 +495,11 @@ export function StatsAtlasSection() {
 
                         <div className="flex-none">
                           {isSelected ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2.5 py-0.5 text-xs font-semibold text-cursor-primary">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2 py-0.25 text-2xs font-semibold text-cursor-primary">
                               Selected
                             </span>
                           ) : (
-                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-xs font-medium text-cursor-body transition-opacity">
+                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-medium text-cursor-body transition-opacity">
                               + Select
                             </span>
                           )}
@@ -509,18 +508,18 @@ export function StatsAtlasSection() {
                     );
                   })
                 ) : (
-                  <p className="py-8 text-center text-sm italic text-cursor-muted">
+                  <p className="py-6 text-center text-xs italic text-cursor-muted">
                     No atlases match "{atlasSearch}".
                   </p>
                 )}
               </div>
 
               {/* Modal Footer */}
-              <div className="mt-4 pt-3.5 border-t border-cursor-hairline-soft flex items-center justify-end flex-none">
+              <div className="mt-3 pt-2.5 border-t border-cursor-hairline-soft flex items-center justify-end flex-none">
                 <button
                   type="button"
                   onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
-                  className="inline-flex h-9 items-center justify-center rounded-lg bg-cursor-primary px-5 text-sm font-semibold text-white transition-colors hover:bg-cursor-primary-active"
+                  className="inline-flex h-7.5 items-center justify-center rounded-md bg-cursor-primary px-4 text-xs font-semibold text-white transition-colors hover:bg-cursor-primary-active"
                 >
                   Done
                 </button>
@@ -540,21 +539,21 @@ export function AdvancedSettingsSection() {
 
   return (
     <Panel
-      icon={<SlidersHorizontal className="h-5 w-5 text-cursor-primary" />}
+      icon={<SlidersHorizontal className="h-4 w-4 text-cursor-primary" />}
       title="Advanced Settings"
       className="min-w-0"
     >
-      <div className="grid gap-4">
-        <label className="flex cursor-pointer items-center gap-3">
+      <div className="grid gap-2.5">
+        <label className="flex cursor-pointer items-center gap-2.5">
           <input
             type="checkbox"
             checked={neuroflowEnabled}
             onChange={(e) => setFormField('neuroflowEnabled', e.target.checked)}
-            className="h-4 w-4 accent-cursor-primary"
+            className="h-3.5 w-3.5 accent-cursor-primary"
           />
-          <span className="text-base font-medium text-cursor-ink">Enable NeuroFLOW scheduler</span>
+          <span className="text-sm font-medium text-cursor-ink">Enable NeuroFLOW scheduler</span>
         </label>
-        <p className="text-sm text-cursor-muted -mt-2 pl-7">
+        <p className="text-xs text-cursor-muted -mt-1 pl-6">
           Use NeuroFLOW to schedule supported preset pipeline runs across images and stages.
         </p>
 
@@ -570,7 +569,7 @@ export function AdvancedSettingsSection() {
                 onChange={(e) => setFormField('neuroflowMaxConcurrentTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
                 className={inputCls}
               />
-              <span className="text-[11px] text-cursor-muted mt-1">
+              <span className="text-2xs text-cursor-muted">
                 Maximum scheduler launches to execute at the same time.
               </span>
             </label>
@@ -583,7 +582,7 @@ export function AdvancedSettingsSection() {
                 disabled
                 className={`${inputCls} opacity-70 cursor-not-allowed`}
               />
-              <span className="text-[11px] text-cursor-muted mt-1">
+              <span className="text-2xs text-cursor-muted">
                 Currently fixed to application_default.
               </span>
             </label>
@@ -620,12 +619,12 @@ function BarChartIcon() {
 function ModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-[34rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
+      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-white p-4 shadow-none">
         {children}
       </div>
     </div>
@@ -633,7 +632,7 @@ function ModalOverlay({onClose, children}: {onClose: () => void; children: React
 }
 
 function ModalTitle({children}: {children: React.ReactNode}) {
-  return <h3 className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">{children}</h3>;
+  return <h3 className="m-0 mb-3 text-sm font-semibold leading-[1.3] text-cursor-ink">{children}</h3>;
 }
 
 function remoteBrowseErrorMessage(message: string | undefined): string {
@@ -662,12 +661,12 @@ function fmtBytes(bytes: number | null | undefined): string {
 function WideModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-cursor-ink/30 p-6"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-cursor-ink/30 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative my-auto w-full max-w-[min(56rem,calc(100vw-3rem))] rounded-xl border border-cursor-hairline bg-white shadow-none">
+      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white shadow-none">
         {children}
       </div>
     </div>
@@ -754,12 +753,12 @@ function ServerBrowserModal({
   return (
     <WideModalOverlay onClose={onClose}>
       {/* Header */}
-      <div className="border-b border-cursor-hairline px-6 py-4">
-        <h3 className="m-0 text-[15px] font-semibold text-cursor-ink">{title}</h3>
+      <div className="border-b border-cursor-hairline px-4 py-2.5">
+        <h3 className="m-0 text-base font-semibold text-cursor-ink">{title}</h3>
         {/* Path bar */}
-        <div className="mt-3 flex gap-2">
+        <div className="mt-2 flex gap-1.5">
           <input
-            className={`${inputCls} min-w-0 flex-1 font-mono text-[12px]`}
+            className={`${inputCls} min-w-0 flex-1 font-mono text-xs`}
             value={manualPath}
             onChange={(e) => setManualPath(e.target.value)}
             onKeyDown={(e) => {
@@ -772,7 +771,7 @@ function ServerBrowserModal({
             type="button"
             onClick={() => doBrowse(manualPath)}
             disabled={isLoading}
-            className="inline-flex h-11 flex-none cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-4 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-white px-3 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
           >
             Go
           </button>
@@ -780,15 +779,15 @@ function ServerBrowserModal({
       </div>
 
       {/* Entry list */}
-      <div className="max-h-[min(28rem,60vh)] overflow-y-auto bg-cursor-canvas-soft">
+      <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
         {/* Up row */}
         {parentPath !== currentPath && !isLoading && (
           <button
             type="button"
             onClick={() => doBrowse(parentPath)}
-            className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-left text-[12px] text-cursor-primary hover:bg-white"
+            className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs text-cursor-primary hover:bg-white"
           >
-            <span className="inline-flex h-5 w-8 flex-none items-center justify-center rounded text-[10px] font-semibold uppercase tracking-wide text-cursor-muted">
+            <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide text-cursor-muted">
               UP
             </span>
             <span className="min-w-0 flex-1 truncate font-mono">..</span>
@@ -797,17 +796,17 @@ function ServerBrowserModal({
 
         {/* Loading */}
         {isLoading && (
-          <div className="flex items-center justify-center py-10 text-[12px] text-cursor-muted">Loading...</div>
+          <div className="flex items-center justify-center py-8 text-xs text-cursor-muted">Loading...</div>
         )}
 
         {/* Error */}
         {!isLoading && isError && statusMsg && (
-          <div className="px-6 py-4 text-[12px] text-cursor-semantic-error">{statusMsg}</div>
+          <div className="px-4 py-3 text-xs text-cursor-semantic-error">{statusMsg}</div>
         )}
 
         {/* Empty */}
         {!isLoading && !isError && entries.length === 0 && (
-          <div className="flex items-center justify-center py-10 text-[12px] text-cursor-muted">
+          <div className="flex items-center justify-center py-8 text-xs text-cursor-muted">
             Empty directory.
           </div>
         )}
@@ -823,9 +822,9 @@ function ServerBrowserModal({
                 if (selectMode === 'path') setManualPath(entry.path);
                 doBrowse(entry.path);
               }}
-              className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-left text-[12px] hover:bg-white"
+              className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-white"
             >
-              <span className="inline-flex h-5 w-8 flex-none items-center justify-center rounded bg-cursor-primary/10 text-[10px] font-semibold uppercase tracking-wide text-cursor-primary">
+              <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded bg-cursor-primary/10 text-2xs font-semibold uppercase tracking-wide text-cursor-primary">
                 DIR
               </span>
               <span className="min-w-0 flex-1 truncate font-medium text-cursor-ink">{entry.name}</span>
@@ -844,7 +843,7 @@ function ServerBrowserModal({
             return (
               <div
                 key={entry.path}
-                className="flex w-full items-center gap-3 border-b border-cursor-hairline-soft px-6 py-2.5 text-[12px]"
+                className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-xs"
               >
                 {selectMode === 'files' && isImg && (
                   <input
@@ -856,7 +855,7 @@ function ServerBrowserModal({
                 )}
                 {!(selectMode === 'files' && isImg) && <span className="h-3.5 w-3.5 flex-none" />}
                 <span
-                  className={`inline-flex h-5 w-8 flex-none items-center justify-center rounded text-[10px] font-semibold uppercase tracking-wide ${badgeCls}`}
+                  className={`inline-flex h-4.5 w-7 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${badgeCls}`}
                 >
                   {badge}
                 </span>
@@ -872,7 +871,7 @@ function ServerBrowserModal({
                   {entry.name}
                 </button>
                 {entry.size != null && (
-                  <span className="flex-none text-right text-cursor-muted" style={{minWidth: '4rem'}}>
+                  <span className="flex-none text-right text-cursor-muted text-xs" style={{minWidth: '4rem'}}>
                     {fmtBytes(entry.size)}
                   </span>
                 )}
@@ -882,15 +881,15 @@ function ServerBrowserModal({
       </div>
 
       {/* Sticky footer */}
-      <div className="flex items-center justify-between gap-3 border-t border-cursor-hairline px-6 py-4">
+      <div className="flex items-center justify-between gap-2.5 border-t border-cursor-hairline px-4 py-2.5">
         {selectMode === 'files' ? (
-          <span className="text-[12px] text-cursor-muted">{selectedFiles.size} file(s) selected</span>
+          <span className="text-xs text-cursor-muted">{selectedFiles.size} file(s) selected</span>
         ) : (
-          <span className="min-w-0 truncate font-mono text-[11px] text-cursor-muted" title={manualPath || currentPath}>
+          <span className="min-w-0 truncate font-mono text-xs text-cursor-muted" title={manualPath || currentPath}>
             {manualPath || currentPath}
           </span>
         )}
-        <div className="flex flex-none gap-2">
+        <div className="flex flex-none gap-1.5">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -1097,9 +1096,10 @@ function BatchConfigModal({
   return (
     <WideModalOverlay onClose={onClose}>
       {/* Header */}
-      <div className="border-b border-cursor-hairline px-6 py-4">
-        <h3 className="m-0 text-[15px] font-semibold text-cursor-ink">Configure Batch Settings</h3>
-        <p className="mt-1 text-[12px] text-cursor-muted">
+      {/* Header */}
+      <div className="border-b border-cursor-hairline px-4 py-2.5">
+        <h3 className="m-0 text-base font-semibold text-cursor-ink">Configure Batch Settings</h3>
+        <p className="mt-0.5 text-xs text-cursor-muted">
           {isServer && !isConnected
             ? 'Connect to the server first to scan the directory.'
             : `Input path: ${inputPath || '(not set)'}`}
@@ -1108,19 +1108,19 @@ function BatchConfigModal({
 
       {/* Scan controls */}
       {canScan && (
-        <div className="border-b border-cursor-hairline px-6 py-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-[12px] font-medium text-cursor-body">Scan mode</p>
+        <div className="border-b border-cursor-hairline px-4 py-2.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-sm font-medium text-cursor-body">Scan mode</p>
             <button
               type="button"
               onClick={() => doScan(scanMode, true)}
               disabled={scanPending}
-              className="rounded-lg border border-cursor-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-cursor-hairline bg-white px-2.5 py-1 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               Re-scan
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {SCAN_MODE_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
@@ -1130,7 +1130,7 @@ function BatchConfigModal({
                   doScan(opt.value);
                 }}
                 title={opt.hint}
-                className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
                   scanMode === opt.value
                     ? 'border-cursor-primary bg-cursor-primary text-white'
                     : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong'
@@ -1141,7 +1141,7 @@ function BatchConfigModal({
             ))}
           </div>
           {scanStatus && (
-            <p className={`mt-2 text-[12px] ${hasConflict ? 'text-cursor-semantic-error' : 'text-cursor-muted'}`}>
+            <p className={`mt-1.5 text-xs ${hasConflict ? 'text-cursor-semantic-error' : 'text-cursor-muted'}`}>
               {scanStatus}
               {hasConflict && ' Multiple images found for some subjects - review selections below.'}
             </p>
@@ -1152,9 +1152,9 @@ function BatchConfigModal({
       {/* Candidate list */}
       {canScan && serverEntries.length > 0 && (
         <TooltipProvider>
-          <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
+          <div className="max-h-[min(20rem,50vh)] overflow-y-auto bg-cursor-canvas-soft">
             {/* Table header */}
-          <div className="grid border-b border-cursor-hairline px-6 py-2 text-[11px] font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(10rem,1.8fr) minmax(4.5rem,0.7fr) minmax(14rem,3fr) 4.5rem'}}>
+          <div className="grid border-b border-cursor-hairline px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(9rem,1.8fr) minmax(4rem,0.7fr) minmax(12rem,3fr) 4rem'}}>
             <span />
             <span>Subject</span>
             <span>Filename</span>
@@ -1170,8 +1170,8 @@ function BatchConfigModal({
                 tabIndex={0}
                 onClick={() => togglePath(entry.path)}
                 onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePath(entry.path); } }}
-                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-6 py-2 hover:bg-white"
-                style={{gridTemplateColumns: '1.5rem minmax(10rem,1.8fr) minmax(4.5rem,0.7fr) minmax(14rem,3fr) 4.5rem'}}
+                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-1.5 hover:bg-white"
+                style={{gridTemplateColumns: '1.5rem minmax(9rem,1.8fr) minmax(4rem,0.7fr) minmax(12rem,3fr) 4rem'}}
               >
                 <input
                   type="checkbox"
@@ -1181,28 +1181,28 @@ function BatchConfigModal({
                 />
                 <Tooltip>
                   <TooltipTrigger className="min-w-0 w-full text-left">
-                    <span className="block min-w-0 truncate pr-2 text-[12px] font-medium text-cursor-ink">
+                    <span className="block min-w-0 truncate pr-2 text-xs font-medium text-cursor-ink">
                       {entry.subject_label ?? '-'}
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-md break-all">
+                  <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
                     {entry.subject_label ?? '-'}
                   </TooltipContent>
                 </Tooltip>
-                <span className="min-w-0 truncate pr-2 font-mono text-[12px] text-cursor-ink">
+                <span className="min-w-0 truncate pr-2 font-mono text-xs text-cursor-ink">
                   {entry.name}
                 </span>
                 <Tooltip>
                   <TooltipTrigger className="min-w-0 w-full text-left block">
-                    <span className="block min-w-0 truncate pr-2 font-mono text-[11px] text-cursor-muted">
+                    <span className="block min-w-0 truncate pr-2 font-mono text-2xs text-cursor-muted">
                       {entry.relative_path ?? ''}
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-md break-all">
+                  <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
                     {entry.relative_path ?? entry.path}
                   </TooltipContent>
                 </Tooltip>
-                <span className="text-right text-[11px] text-cursor-muted">{fmtBytes(entry.size)}</span>
+                <span className="text-right text-2xs text-cursor-muted">{fmtBytes(entry.size)}</span>
               </div>
             );
           })}
@@ -1211,7 +1211,7 @@ function BatchConfigModal({
       )}
 
       {/* Manual count fallback (local or not yet scanned) */}
-      <div className="px-6 py-4">
+      <div className="px-4 py-2.5">
         {(!canScan || !scanned) && (
           <label className={labelCls}>
             Number of images to process
@@ -1229,14 +1229,14 @@ function BatchConfigModal({
           </label>
         )}
         {canScan && scanned && (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[12px] text-cursor-muted">{selectedPaths.size} selected</p>
+          <div className="flex items-center justify-between gap-2.5">
+            <p className="text-xs text-cursor-muted">{selectedPaths.size} selected</p>
             <div className="flex gap-2">
               {selectedPaths.size !== serverEntries.length && (
                 <button
                   type="button"
                   onClick={() => setSelectedPaths(new Set(serverEntries.map((e) => e.path)))}
-                  className="text-[12px] text-cursor-primary hover:underline"
+                  className="text-xs text-cursor-primary hover:underline"
                 >
                   Select all
                 </button>
@@ -1245,7 +1245,7 @@ function BatchConfigModal({
                 <button
                   type="button"
                   onClick={() => setSelectedPaths(new Set())}
-                  className="text-[12px] text-cursor-primary hover:underline"
+                  className="text-xs text-cursor-primary hover:underline"
                 >
                   Unselect all
                 </button>
@@ -1256,7 +1256,7 @@ function BatchConfigModal({
       </div>
 
       {/* Footer */}
-      <div className="flex justify-end gap-2 border-t border-cursor-hairline px-6 py-4">
+      <div className="flex justify-end gap-1.5 border-t border-cursor-hairline px-4 py-2.5">
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
@@ -1299,7 +1299,7 @@ function PathField({
   return (
     <label className={labelCls}>
       {label}
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         <input
           id={id}
           name={id}
@@ -1313,7 +1313,7 @@ function PathField({
           type="button"
           onClick={onBrowse}
           title="Browse"
-          className="inline-flex h-11 flex-none cursor-pointer items-center justify-center rounded-lg border border-cursor-hairline bg-white px-3 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
         >
           Browse
         </button>
@@ -1340,11 +1340,11 @@ function RadioGroup({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       {options.map((opt) => (
         <label
           key={opt.value}
-          className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3.5 py-2.5 transition-colors ${
+          className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
             value === opt.value
               ? 'border-cursor-primary bg-cursor-canvas-soft'
               : 'border-cursor-hairline bg-white hover:border-cursor-hairline-strong'
@@ -1357,11 +1357,11 @@ function RadioGroup({
             checked={value === opt.value}
             disabled={disabled}
             onChange={() => !disabled && onChange(opt.value)}
-            className="mt-0.5 h-4 w-4 flex-none accent-cursor-primary"
+            className="mt-0.5 h-3.5 w-3.5 flex-none accent-cursor-primary"
           />
-          <span className="grid gap-0.5">
-            <span className="text-[13px] font-medium leading-[1.4] text-cursor-ink">{opt.label}</span>
-            {opt.hint && <span className="text-[12px] leading-[1.4] text-cursor-muted">{opt.hint}</span>}
+          <span className="grid gap-0.25">
+            <span className="text-sm font-medium leading-[1.3] text-cursor-ink">{opt.label}</span>
+            {opt.hint && <span className="text-xs leading-[1.3] text-cursor-muted">{opt.hint}</span>}
           </span>
         </label>
       ))}
@@ -1462,13 +1462,13 @@ export function InputOutputSection() {
 
   return (
     <>
-      <Panel icon={<FolderInput className="h-5 w-5 text-cursor-primary" />} title="Input & Output" className="min-w-0">
-        <div className="grid gap-6">
+      <Panel icon={<FolderInput className="h-4 w-4 text-cursor-primary" />} title="Input & Output" className="min-w-0">
+        <div className="grid gap-4">
           {/* Row 1: Source + Input Mode */}
-          <div className="grid gap-6 grid-cols-2 items-start">
+          <div className="grid gap-4 grid-cols-2 items-start">
             {/* Source */}
-            <div className="grid gap-3">
-              <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Source Input</span>
+            <div className="grid gap-2">
+              <span className="text-sm font-medium leading-[1.3] text-cursor-body">Source Input</span>
               <RadioGroup
                 name="inputSource"
                 options={sourceOptions}
@@ -1477,25 +1477,25 @@ export function InputOutputSection() {
                 disabled={isLocal}
               />
               {isLocal && (
-                <p className="text-[11px] leading-[1.4] text-cursor-muted">
+                <p className="text-2xs leading-[1.3] text-cursor-muted">
                   Server source is unavailable when Runtime Target is Local.
                 </p>
               )}
               {isServerSource && remoteConnected && (
-                <div className="flex items-center gap-3">
-                  <Button variant="ghost" icon={<Upload className="h-4 w-4" />} onClick={handleUploadToServer}>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" icon={<Upload className="h-3.5 w-3.5" />} onClick={handleUploadToServer}>
                     Upload data to server
                   </Button>
                   {uploadNotice && (
-                    <span className="text-[12px] text-cursor-muted">Not wired yet - upload feature coming soon.</span>
+                    <span className="text-xs text-cursor-muted">Not wired yet - upload feature coming soon.</span>
                   )}
                 </div>
               )}
             </div>
 
             {/* Input Mode */}
-            <div className="grid gap-3">
-              <span className="text-[13px] font-normal leading-[1.4] text-cursor-body">Input Mode</span>
+            <div className="grid gap-2">
+              <span className="text-sm font-medium leading-[1.3] text-cursor-body">Input Mode</span>
               <RadioGroup
                 name="inputMode"
                 options={inputModeOptions}
@@ -1503,12 +1503,12 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('inputMode', v)}
               />
               {isBatch && (
-                <div className="flex items-center gap-3">
-                  <Button variant="ghost" icon={<SlidersHorizontal className="h-4 w-4" />} onClick={() => setBatchModal(true)}>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setBatchModal(true)}>
                     Configure batch
                   </Button>
                   {formValues.batchImageCount !== undefined && (
-                    <span className="text-[12px] text-cursor-muted">{formValues.batchImageCount} selected</span>
+                    <span className="text-xs text-cursor-muted">{formValues.batchImageCount} selected</span>
                   )}
                 </div>
               )}
@@ -1520,9 +1520,9 @@ export function InputOutputSection() {
 
           {/* Server not-connected notice */}
           {isServerSource && !remoteConnected && (
-            <div className="rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-4 py-3">
-              <p className="text-[13px] font-medium text-cursor-ink">SSH not connected</p>
-              <p className="mt-0.5 text-[12px] text-cursor-muted">
+            <div className="rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-2">
+              <p className="text-xs font-medium text-cursor-ink">SSH not connected</p>
+              <p className="mt-0.5 text-xs text-cursor-muted">
                 Connect in the SSH Server card below to enable server browsing.
               </p>
             </div>
@@ -1530,7 +1530,7 @@ export function InputOutputSection() {
 
           {/* Row 2: Path fields — Local */}
           {inputSource === 'Local' && (
-            <div className="grid gap-4">
+            <div className="grid gap-3">
               <PathField
                 id="inputPath"
                 label="Input location"
@@ -1564,7 +1564,7 @@ export function InputOutputSection() {
 
           {/* Row 2: Path fields — Server */}
           {inputSource === 'Server' && (
-            <div className="grid gap-4">
+            <div className="grid gap-3">
               <PathField
                 id="inputPath"
                 label="Input location (server path)"
@@ -1605,13 +1605,13 @@ export function InputOutputSection() {
           />
         ) : (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerInputModal(false)}
           >
-            <div className="rounded-xl border border-cursor-hairline bg-white p-6 max-w-sm w-full">
-              <h3 className="m-0 mb-3 text-[16px] font-semibold text-cursor-ink">SSH not connected</h3>
-              <p className="text-[13px] text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
-              <div className="mt-4 flex justify-end">
+            <div className="rounded-xl border border-cursor-hairline bg-white p-4 max-w-sm w-full">
+              <h3 className="m-0 mb-2 text-sm font-semibold text-cursor-ink">SSH not connected</h3>
+              <p className="text-xs text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
+              <div className="mt-3 flex justify-end">
                 <Button variant="ghost" onClick={() => setServerInputModal(false)}>Close</Button>
               </div>
             </div>
@@ -1635,13 +1635,13 @@ export function InputOutputSection() {
           />
         ) : (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerOutputModal(false)}
           >
-            <div className="rounded-xl border border-cursor-hairline bg-white p-6 max-w-sm w-full">
-              <h3 className="m-0 mb-3 text-[16px] font-semibold text-cursor-ink">SSH not connected</h3>
-              <p className="text-[13px] text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
-              <div className="mt-4 flex justify-end">
+            <div className="rounded-xl border border-cursor-hairline bg-white p-4 max-w-sm w-full">
+              <h3 className="m-0 mb-2 text-sm font-semibold text-cursor-ink">SSH not connected</h3>
+              <p className="text-xs text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
+              <div className="mt-3 flex justify-end">
                 <Button variant="ghost" onClick={() => setServerOutputModal(false)}>Close</Button>
               </div>
             </div>
@@ -1686,14 +1686,14 @@ export function PipelinePage() {
   return (
     <SplitPaneForm
       left={
-        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-6 pt-6 pb-6 pr-4 [scrollbar-gutter:stable]">
+        <div className="grid min-h-0 h-full content-start gap-4 overflow-y-auto pl-4 pt-4 pb-4 pr-3 [scrollbar-gutter:stable]">
           <PipelineStepsSection />
           <StatsAtlasSection />
           <AdvancedSettingsSection />
         </div>
       }
       right={
-        <div className="grid min-h-0 h-full content-start gap-6 overflow-y-auto pl-4 pt-6 pb-6 pr-6 [scrollbar-gutter:stable]">
+        <div className="grid min-h-0 h-full content-start gap-4 overflow-y-auto pl-3 pt-4 pb-4 pr-4 [scrollbar-gutter:stable]">
           <InputOutputSection />
           <RuntimeSection />
         </div>

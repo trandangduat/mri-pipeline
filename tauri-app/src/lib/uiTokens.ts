@@ -1,8 +1,8 @@
 const pillBase =
-  'inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]';
+  'inline-flex w-fit items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em]';
 
 export const BUTTON = {
-  base: 'inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium leading-none transition-colors [&_svg]:block',
+  base: 'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium leading-none transition-colors [&_svg]:block',
   primary:
     'border-cursor-primary bg-cursor-primary text-white hover:border-cursor-primary-active hover:bg-cursor-primary-active',
   ink: 'border-cursor-ink bg-cursor-ink text-cursor-canvas hover:bg-cursor-ink',
@@ -12,8 +12,8 @@ export const BUTTON = {
 };
 
 export const inputCls =
-  'h-11 w-full rounded-lg border border-cursor-hairline bg-white px-4 text-base font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
-export const labelCls = 'grid gap-3 text-[13px] font-normal leading-[1.4] text-cursor-body';
+  'h-8 w-full rounded-md border border-cursor-hairline bg-white px-2.5 text-sm font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
+export const labelCls = 'grid gap-1.5 text-xs font-normal leading-[1.3] text-cursor-body';
 
 export function statusPillClasses(state: string | null | undefined): string {
   const normalized = String(state || 'unknown').toLowerCase();

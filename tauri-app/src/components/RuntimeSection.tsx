@@ -110,15 +110,15 @@ export function RuntimeSection() {
   });
 
   return (
-    <Panel icon={<Cpu className="h-5 w-5 text-cursor-primary" />} title="Runtime" className="min-w-0">
+    <Panel icon={<Cpu className="h-4 w-4 text-cursor-primary" />} title="Runtime" className="min-w-0">
       {/* 1. Core Compute Grid */}
-      <div className="grid gap-3.5 grid-cols-2">
+      <div className="grid gap-2.5 grid-cols-2">
         <label className={labelCls}>
           <span className="flex items-center justify-between">
             <span>Runtime target</span>
             {formValues.runtimeTarget === 'Server' && (
               <span
-                className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                className={`inline-flex items-center gap-1 text-2xs font-medium ${
                   remoteResult.connected ? 'text-cursor-semantic-success' : 'text-cursor-muted'
                 }`}
               >
@@ -145,7 +145,7 @@ export function RuntimeSection() {
         <label className={labelCls}>
           <span className="flex items-center justify-between">
             <span>RAM allocation (%)</span>
-            <span className="text-[11px] font-normal text-cursor-muted">
+            <span className="text-2xs font-normal text-cursor-muted">
               {hardware.totalRamBytes ? `Total: ${formatBytes(hardware.totalRamBytes)}` : '—'}
             </span>
           </span>
@@ -162,7 +162,7 @@ export function RuntimeSection() {
         <label className={labelCls}>
           <span className="flex items-center justify-between">
             <span>CPU threads</span>
-            <span className="text-[11px] font-normal text-cursor-muted">
+            <span className="text-2xs font-normal text-cursor-muted">
               {hardware.logicalCores ? `Max: ${hardware.logicalCores} cores` : '—'}
             </span>
           </span>
@@ -193,13 +193,13 @@ export function RuntimeSection() {
 
       {/* Warnings */}
       {warnings.length > 0 && (
-        <div className="mt-3 grid gap-2">
+        <div className="mt-2.5 grid gap-1.5">
           {warnings.map((warning) => (
             <div
               key={warning}
-              className="flex items-center gap-2 rounded-lg border border-cursor-timeline-thinking bg-cursor-timeline-thinking/30 px-3 py-2 text-xs text-cursor-ink"
+              className="flex items-center gap-1.5 rounded-md border border-cursor-timeline-thinking bg-cursor-timeline-thinking/30 px-2.5 py-1.5 text-xs text-cursor-ink"
             >
-              <AlertTriangle className="h-4 w-4 text-cursor-semantic-warn flex-none" />
+              <AlertTriangle className="h-3.5 w-3.5 text-cursor-semantic-warn flex-none" />
               <span>{warning}</span>
             </div>
           ))}
@@ -208,21 +208,21 @@ export function RuntimeSection() {
 
       {/* 2. SSH Server Section (when Runtime Target is Server) */}
       {formValues.runtimeTarget === 'Server' && (
-        <div id="sshBox" className="mt-4 rounded-xl border border-cursor-hairline bg-white p-4">
-          <div className="mb-3.5 flex items-center justify-between border-b border-cursor-hairline-soft pb-2.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-cursor-ink">
-              <ServerCog className="h-4.5 w-4.5 text-cursor-primary" />
+        <div id="sshBox" className="mt-3 rounded-lg border border-cursor-hairline bg-white p-3">
+          <div className="mb-2.5 flex items-center justify-between border-b border-cursor-hairline-soft pb-2">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-cursor-ink">
+              <ServerCog className="h-4 w-4 text-cursor-primary" />
               <span>SSH Server Settings</span>
             </div>
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.25 text-2xs font-semibold ${
                 remoteResult.connected
                   ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success'
                   : 'bg-cursor-surface-strong text-cursor-muted'
               }`}
             >
               <span
-                className={`h-2 w-2 rounded-full ${
+                className={`h-1.5 w-1.5 rounded-full ${
                   remoteResult.connected ? 'bg-cursor-semantic-success' : 'bg-cursor-muted'
                 }`}
               />
@@ -230,7 +230,7 @@ export function RuntimeSection() {
             </span>
           </div>
 
-          <div className="grid gap-3 grid-cols-2">
+          <div className="grid gap-2.5 grid-cols-2">
             <label className={labelCls}>
               Host
               <input
@@ -307,10 +307,10 @@ export function RuntimeSection() {
             </label>
           </div>
 
-          <div className="mt-3.5 flex flex-wrap items-center gap-3">
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <Button
               variant="primary"
-              icon={busy.connect ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              icon={busy.connect ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
               onClick={connectRemote}
               disabled={busy.connect}
             >
@@ -319,14 +319,14 @@ export function RuntimeSection() {
 
             {remoteResult.connected ? (
               <span className="flex items-center gap-1.5 text-xs font-medium text-cursor-semantic-success">
-                <CheckCircle2 className="h-4 w-4 flex-none" />
+                <CheckCircle2 className="h-3.5 w-3.5 flex-none" />
                 <span>
                   Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM)
                 </span>
               </span>
             ) : remoteResult.error ? (
               <span className="flex items-center gap-1.5 text-xs text-cursor-semantic-error">
-                <XCircle className="h-4 w-4 flex-none" />
+                <XCircle className="h-3.5 w-3.5 flex-none" />
                 <span>{remoteResult.error}</span>
               </span>
             ) : (

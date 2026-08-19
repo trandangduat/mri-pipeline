@@ -29,25 +29,25 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && complete) onClose();
       }}
     >
-      <div className="relative w-full max-w-[28rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
-        <h3 className="m-0 mb-4 text-[16px] font-semibold leading-[1.4] text-cursor-ink">
+      <div className="relative w-full max-w-[26rem] rounded-lg border border-cursor-hairline bg-white p-4 shadow-none">
+        <h3 className="m-0 mb-3 text-base font-semibold leading-[1.3] text-cursor-ink">
           {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
         </h3>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {steps.map((step) => (
-            <div key={step.id} className="flex items-start gap-3">
+            <div key={step.id} className="flex items-start gap-2.5">
               <div className="pt-0.5">
                 <StepIcon status={step.status} />
               </div>
               <div className="flex-1 min-w-0">
                 <p
                   className={cn(
-                    'm-0 text-[13px] leading-[1.4]',
+                    'm-0 text-sm leading-[1.3]',
                     step.status === 'pending' ? 'text-cursor-muted-soft' : 'font-medium text-cursor-ink',
                   )}
                 >
@@ -56,7 +56,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
                 {step.detail && (
                   <p
                     className={cn(
-                      'm-0 mt-0.5 text-[12px] leading-[1.4]',
+                      'm-0 mt-0.5 text-xs leading-[1.3]',
                       step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
                     )}
                   >
@@ -68,12 +68,12 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
           ))}
         </div>
         {errorMessage && (
-          <p className="mt-3 text-[12px] text-cursor-semantic-error">{errorMessage}</p>
+          <p className="mt-2.5 text-xs text-cursor-semantic-error">{errorMessage}</p>
         )}
         {complete && (
-          <div className="mt-4 flex justify-end">
+          <div className="mt-3.5 flex justify-end">
             <button
-              className="rounded-lg border border-cursor-hairline bg-white px-4 py-2 text-[13px] font-medium text-cursor-ink hover:bg-cursor-canvas"
+              className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               onClick={onClose}
             >
               {success ? 'View Jobs' : 'Close'}

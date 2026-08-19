@@ -110,9 +110,9 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           onClick();
         }
       }}
-      className="group flex flex-col justify-between gap-3 rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-white p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 min-w-0">
         <span className={statusDotLargeClasses(normState)} />
         <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors flex-1">
           {title}
@@ -120,18 +120,18 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
       </div>
 
       <div className="flex items-center">
-        <span className="inline-flex max-w-full truncate rounded-md bg-cursor-canvas px-2.5 py-0.5 text-[11px] font-medium text-cursor-body border border-cursor-hairline">
+        <span className="inline-flex max-w-full truncate rounded border border-cursor-hairline bg-cursor-canvas px-2 py-0.25 text-2xs font-medium text-cursor-body">
           {mode}
         </span>
       </div>
 
-      <div className="flex items-center justify-between pt-2 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
-        <span className="flex items-center gap-1.5 font-mono text-[11px]">
-          <Clock className="h-3.5 w-3.5" />
+      <div className="flex items-center justify-between pt-1.5 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
+        <span className="flex items-center gap-1 font-mono text-2xs">
+          <Clock className="h-3 w-3" />
           {startedStr}
         </span>
-        <span className="flex items-center gap-1 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
-          <ChevronRight className="h-4 w-4" />
+        <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
+          <ChevronRight className="h-3.5 w-3.5" />
         </span>
       </div>
     </div>
@@ -148,20 +148,20 @@ function JobsListView({
   onSelectJob: (jobId: string) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
-}) {
+  }) {
   const sortedJobs = sortJobsByStartedAtDesc(jobs);
   const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
   const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
 
   return (
-    <div className="h-full w-full overflow-y-auto p-6 flex flex-col gap-6 text-cursor-ink">
+    <div className="h-full w-full overflow-y-auto p-4 flex flex-col gap-4 text-cursor-ink">
       {/* Local Jobs Section */}
       <section>
-        <div className="flex items-center justify-between gap-4 mb-3">
-          <div className="flex items-center gap-2">
-            <HardDrive className="h-4.5 w-4.5 text-cursor-primary" />
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-1.5">
+            <HardDrive className="h-4 w-4 text-cursor-primary" />
             <h2 className="text-base font-semibold text-cursor-ink">Local Jobs</h2>
-            <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
+            <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
               {localJobs.length}
             </span>
           </div>
@@ -170,26 +170,26 @@ function JobsListView({
             size="sm"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="h-8 px-2.5 text-xs font-medium border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
+            className="h-7 px-2 text-xs font-medium border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
           >
             {isRefreshing ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Refreshing...
               </>
             ) : (
               <>
-                <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
+                <RefreshCw className="h-3 w-3 mr-1" /> Refresh
               </>
             )}
           </Button>
         </div>
 
         {localJobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-6 text-center text-xs text-cursor-muted">
+          <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-4 text-center text-xs text-cursor-muted">
             No local jobs found. Run a local pipeline to start.
           </div>
         ) : (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
+          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
             {localJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}
@@ -203,20 +203,20 @@ function JobsListView({
 
       {/* Server Jobs Section */}
       <section>
-        <div className="flex items-center gap-2 mb-3">
-          <Server className="h-4.5 w-4.5 text-cursor-primary" />
+        <div className="flex items-center gap-1.5 mb-2">
+          <Server className="h-4 w-4 text-cursor-primary" />
           <h2 className="text-base font-semibold text-cursor-ink">Server Jobs</h2>
-          <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2.5 py-0.5 text-xs font-semibold text-cursor-ink">
+          <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
             {serverJobs.length}
           </span>
         </div>
 
         {serverJobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-6 text-center text-xs text-cursor-muted">
+          <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-4 text-center text-xs text-cursor-muted">
             No server jobs found. Connect SSH and start a remote pipeline.
           </div>
         ) : (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
+          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
             {serverJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}
@@ -737,21 +737,21 @@ export function JobsPage() {
       </div>
 
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
-      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4">
+      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
         {/* Left: Job Detail Card */}
-        <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5">
+        <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5">
           {/* Header: Icon + Title + Status Pills */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-cursor-hairline-soft">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
-                <BrainCircuit className="h-5 w-5" />
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
+                <BrainCircuit className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
                 {jobsList.length > 1 ? (
                   <select
                     value={selectedJobId || ''}
                     onChange={(e) => setSelectedJobId(e.target.value)}
-                    className="w-full text-base font-semibold text-cursor-ink bg-transparent border border-cursor-hairline rounded-md px-2 py-1 outline-none focus:border-cursor-primary"
+                    className="w-full text-sm font-semibold text-cursor-ink bg-transparent border border-cursor-hairline rounded-md px-2 py-0.5 outline-none focus:border-cursor-primary"
                   >
                     {jobsList.map((j) => {
                       const id = (j as {job_id?: string})?.job_id || '';
@@ -765,13 +765,13 @@ export function JobsPage() {
                     })}
                   </select>
                 ) : (
-                  <h2 className="m-0 text-xl font-semibold tracking-tight text-cursor-ink truncate">
+                  <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate">
                     {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
                   </h2>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-none">
+            <div className="flex items-center gap-1.5 flex-none">
               <StatusPill state={displayMeta.status_reconciled}>
                 {displayJobState(displayMeta.status_reconciled).toUpperCase()}
               </StatusPill>
@@ -783,8 +783,8 @@ export function JobsPage() {
           </div>
 
           {/* Metadata Table */}
-          <div className="mt-4 overflow-hidden rounded-lg border border-cursor-hairline">
-            <div className="divide-y divide-cursor-hairline-soft text-[14px]">
+          <div className="mt-2.5 overflow-hidden rounded-md border border-cursor-hairline">
+            <div className="divide-y divide-cursor-hairline-soft text-xs">
               {[
                 ['Started', displayMeta.started_at_str],
                 ['Process PID', String(job?.pid || 'None')],
@@ -795,9 +795,9 @@ export function JobsPage() {
                 ['Input Path', displayMeta.input_path_str],
                 ['Output Path', displayMeta.output_dir_str],
               ].map(([label, value]) => (
-                <div key={label} className="grid grid-cols-[10rem_minmax(0,1fr)]">
-                  <span className="py-2 px-3 font-semibold text-cursor-ink border-r border-cursor-hairline-soft bg-cursor-canvas-soft">{label}</span>
-                  <span className={`py-2 px-3 text-cursor-body ${label === 'Input Path' || label === 'Output Path' ? 'font-mono truncate' : ''}`} title={String(value)}>
+                <div key={label} className="grid grid-cols-[7.5rem_minmax(0,1fr)]">
+                  <span className="py-1 px-2 font-medium text-cursor-ink border-r border-cursor-hairline-soft bg-cursor-canvas-soft">{label}</span>
+                  <span className={`py-1 px-2 text-cursor-body ${label === 'Input Path' || label === 'Output Path' ? 'font-mono truncate text-xs' : ''}`} title={String(value)}>
                     {String(value)}
                   </span>
                 </div>
@@ -808,16 +808,16 @@ export function JobsPage() {
 
         {/* Right: Batch Summary / Actions Card */}
         {job ? (
-          <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5 flex flex-col justify-between">
+          <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5 flex flex-col justify-between">
             <div>
-              <div className="flex items-center gap-2 pb-3 border-b border-cursor-hairline-soft mb-4">
-                <Layers className="h-4 w-4 text-cursor-primary" />
-                <CardTitle className="font-semibold text-cursor-ink">Batch Summary</CardTitle>
+              <div className="flex items-center gap-1.5 pb-2 border-b border-cursor-hairline-soft mb-2.5">
+                <Layers className="h-3.5 w-3.5 text-cursor-primary" />
+                <CardTitle className="font-semibold text-base text-cursor-ink">Batch Summary</CardTitle>
               </div>
 
               {/* Four-Segment Stacked Bar */}
               {batchSummary.total > 0 ? (
-                <div className="flex w-full h-6 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-3">
+                <div className="flex w-full h-4 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-2">
                   {successPct > 0 && (
                     <div
                       style={{width: `${successPct}%`}}
@@ -848,30 +848,30 @@ export function JobsPage() {
                   )}
                 </div>
               ) : (
-                <div className="flex w-full h-6 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-3 items-center justify-center">
-                  <span className="text-[11px] text-cursor-muted">No subjects yet</span>
+                <div className="flex w-full h-4 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-2 items-center justify-center">
+                  <span className="text-2xs text-cursor-muted">No subjects yet</span>
                 </div>
               )}
 
               {/* Legend */}
-              <div className="grid grid-cols-2 gap-2 text-xs mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-cursor-semantic-success flex-none" />
+              <div className="grid grid-cols-2 gap-1 text-xs mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-semantic-success flex-none" />
                   <span className="text-cursor-body">Success</span>
                   <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.success}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-cursor-semantic-error flex-none" />
+                <div className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-semantic-error flex-none" />
                   <span className="text-cursor-body">Failed</span>
                   <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.failed}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-cursor-primary flex-none" />
+                <div className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary flex-none" />
                   <span className="text-cursor-body">Running</span>
                   <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.running}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-cursor-hairline-strong flex-none" />
+                <div className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-hairline-strong flex-none" />
                   <span className="text-cursor-body">Pending</span>
                   <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.pending}</span>
                 </div>
@@ -879,49 +879,49 @@ export function JobsPage() {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <Button
                 id="refreshJobsButton"
                 variant="default"
                 onClick={refreshJobs}
                 disabled={busy.refreshJobs}
-                className="w-full h-11 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium"
+                className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs"
               >
                 {busy.refreshJobs ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Refreshing...
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
                   </>
                 ) : (
                   <>
-                    <RefreshCw className="h-4 w-4 mr-1.5" /> Refresh Jobs
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
                   </>
                 )}
               </Button>
               <Button
                 onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
                 disabled={!job || normState !== 'running'}
-                className="w-full h-11 border-cursor-semantic-error text-cursor-semantic-error bg-white hover:bg-cursor-semantic-error/5 font-medium"
+                className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-white hover:bg-cursor-semantic-error/5 font-medium text-xs"
               >
-                <Square className="h-4 w-4 mr-1.5" /> Stop Job
+                <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
               </Button>
               <Button
                 variant="ghost"
                 onClick={handleDownloadClick}
                 disabled={!job || !isTerminal || downloadRunning}
-                className="w-full h-11 border-cursor-hairline text-cursor-body bg-white hover:bg-cursor-canvas-soft font-medium"
+                className="w-full h-8 border-cursor-hairline text-cursor-body bg-white hover:bg-cursor-canvas-soft font-medium text-xs"
               >
-                <Download className="h-4 w-4 mr-1.5" /> Download Outputs
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
               </Button>
               {downloadNotice && (
-                <div className="flex items-center gap-2 rounded-md border border-cursor-hairline bg-cursor-canvas px-3 py-2 text-xs text-cursor-body mt-1">
-                  <FileCheck className="h-4 w-4 text-cursor-semantic-success flex-none" />
+                <div className="flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-canvas px-2.5 py-1.5 text-xs text-cursor-body mt-0.5">
+                  <FileCheck className="h-3.5 w-3.5 text-cursor-semantic-success flex-none" />
                   <span>{downloadNotice}</span>
                 </div>
               )}
             </div>
           </Card>
         ) : (
-          <Card className="rounded-xl border-cursor-hairline bg-white shadow-none p-5 flex items-center justify-center text-cursor-muted text-xs italic">
+          <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5 flex items-center justify-center text-cursor-muted text-xs italic">
             No active batch job
           </Card>
         )}
@@ -929,56 +929,56 @@ export function JobsPage() {
 
       {/* 2. Batch Subjects Card */}
       {job ? (
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border-cursor-hairline bg-white p-0 shadow-none">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-cursor-hairline bg-white p-0 shadow-none">
           {/* Header */}
-          <div className="border-b border-cursor-hairline bg-white px-5 py-3 flex-none">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <Layers className="h-4 w-4 text-cursor-primary flex-none" />
-                <h3 className="m-0 text-[16px] font-semibold leading-[1.4] text-cursor-ink">Batch Subjects</h3>
+          <div className="border-b border-cursor-hairline bg-white px-3.5 py-2 flex-none">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Layers className="h-3.5 w-3.5 text-cursor-primary flex-none" />
+                <h3 className="m-0 text-xs font-semibold leading-[1.3] text-cursor-ink">Batch Subjects</h3>
               </div>
-              <div className="flex items-center gap-1.5 flex-none">
+              <div className="flex items-center gap-1 flex-none">
                 <button
                   type="button"
                   onClick={() => setSubjectViewMode('grid')}
-                  className={`inline-flex items-center justify-center h-8 w-8 rounded-md border transition-colors ${
+                  className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
                     subjectViewMode === 'grid'
                       ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
                   }`}
                   aria-label="Grid view"
                 >
-                  <LayoutGrid className="h-4 w-4" />
+                  <LayoutGrid className="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setSubjectViewMode('list')}
-                  className={`inline-flex items-center justify-center h-8 w-8 rounded-md border transition-colors ${
+                  className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
                     subjectViewMode === 'list'
                       ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
                   }`}
                   aria-label="List view"
                 >
-                  <List className="h-4 w-4" />
+                  <List className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
           </div>
 
           {/* Interior: Search + Filter + Grid */}
-          <div className="flex min-h-0 flex-1 flex-col bg-white p-4 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col bg-white p-3 overflow-hidden">
             {/* Search & Filter Toolbar */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 flex-none">
-              <label className="relative m-0 block w-[min(20rem,100%)]">
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 flex-none">
+              <label className="relative m-0 block w-[min(18rem,100%)]">
                 <input
                   type="search"
                   placeholder="Search subject ID or #..."
                   value={subjectSearchQuery}
                   onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 pr-9 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10"
+                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1 pr-8 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8"
                 />
-                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
+                <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
               </label>
               <div className="flex flex-wrap items-center gap-1">
                 {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
@@ -988,7 +988,7 @@ export function JobsPage() {
                       key={st}
                       type="button"
                       onClick={() => setSubjectStatusFilter(st)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors cursor-pointer capitalize border ${
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer capitalize border ${
                         subjectStatusFilter === st
                           ? 'border-cursor-hairline-strong bg-white text-cursor-ink font-semibold'
                           : 'border-transparent text-cursor-body hover:text-cursor-ink'
@@ -1003,24 +1003,24 @@ export function JobsPage() {
 
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
-              <div className="grid grid-cols-3 gap-4 overflow-y-auto flex-1 min-h-0 p-1">
+              <div className="grid grid-cols-3 gap-2.5 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4">
-                              <div className="flex items-start gap-3">
-                                <Skeleton className="h-9 w-9 rounded-lg flex-none" />
-                                <div className="flex-1 space-y-2">
-                                  <Skeleton className="h-3 w-20" />
-                                  <Skeleton className="h-4 w-3/4" />
+                            <div key={i} className="rounded-lg border border-cursor-hairline bg-white p-3">
+                              <div className="flex items-start gap-2.5">
+                                <Skeleton className="h-7 w-7 rounded-md flex-none" />
+                                <div className="flex-1 space-y-1.5">
+                                  <Skeleton className="h-2.5 w-16" />
+                                  <Skeleton className="h-3.5 w-3/4" />
                                 </div>
                               </div>
-                              <div className="mt-3 pt-3 border-t border-cursor-hairline-soft space-y-2">
-                                <Skeleton className="h-3 w-full" />
-                                <Skeleton className="h-3 w-1/2" />
+                              <div className="mt-2 pt-2 border-t border-cursor-hairline-soft space-y-1.5">
+                                <Skeleton className="h-2.5 w-full" />
+                                <Skeleton className="h-2.5 w-1/2" />
                               </div>
                             </div>
                           ))}
@@ -1028,12 +1028,12 @@ export function JobsPage() {
                       );
                     }
                     return (
-                      <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
-                        <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
-                        <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                      <div className="col-span-full flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-white p-5 text-center">
+                        <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
+                        <h4 className="m-0 text-sm font-semibold text-cursor-ink mb-0.5">
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
                         </h4>
-                        <p className="m-0 text-[13px] text-cursor-body">
+                        <p className="m-0 text-xs text-cursor-body">
                           {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
                         </p>
                       </div>
@@ -1046,29 +1046,29 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col rounded-xl border border-cursor-hairline bg-white p-4 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
+                        className="group flex cursor-pointer flex-col rounded-lg border border-cursor-hairline bg-white p-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className={`flex h-9 w-9 items-center justify-center rounded-lg border flex-none ${subjectAccentClasses(img.status)}`}>
-                            <BrainCircuit className="h-4 w-4" />
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
+                            <BrainCircuit className="h-3.5 w-3.5" />
                           </div>
                           <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted">
+                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
                               Subject #{String(img.idx).padStart(3, '0')}
                             </span>
-                            <span className="truncate text-[14px] font-semibold leading-[1.4] text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                            <span className="truncate text-sm font-semibold leading-[1.3] text-cursor-ink group-hover:text-cursor-primary transition-colors">
                               {img.subject_id}
                             </span>
                           </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t border-cursor-hairline-soft space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted w-12 flex-none">Stage</span>
-                            <span className="text-[13px] text-cursor-ink truncate">{currentStepText}</span>
+                        <div className="mt-2 pt-2 border-t border-cursor-hairline-soft space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted w-10 flex-none">Stage</span>
+                            <span className="text-xs text-cursor-ink truncate">{currentStepText}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-cursor-muted w-12 flex-none">Status</span>
-                            <span className={`text-[12px] font-semibold uppercase tracking-[0.06em] ${
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted w-10 flex-none">Status</span>
+                            <span className={`text-xs font-semibold uppercase tracking-[0.06em] ${
                               img.status === 'success' ? 'text-cursor-semantic-success' :
                               img.status === 'failed' ? 'text-cursor-semantic-error' :
                               img.status === 'running' ? 'text-cursor-primary' :
@@ -1084,32 +1084,32 @@ export function JobsPage() {
                 })()}
               </div>
             ) : (
-              <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0 p-1">
+              <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="flex items-center gap-4 rounded-lg border border-cursor-hairline bg-white px-4 py-3">
-                              <Skeleton className="h-8 w-8 rounded-md flex-none" />
-                              <div className="flex-1 space-y-1.5">
-                                <Skeleton className="h-3 w-16" />
-                                <Skeleton className="h-4 w-2/3" />
+                            <div key={i} className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-white px-3 py-2">
+                              <Skeleton className="h-7 w-7 rounded-md flex-none" />
+                              <div className="flex-1 space-y-1">
+                                <Skeleton className="h-2.5 w-14" />
+                                <Skeleton className="h-3.5 w-2/3" />
                               </div>
-                              <Skeleton className="h-4 w-20 flex-none" />
+                              <Skeleton className="h-3.5 w-16 flex-none" />
                             </div>
                           ))}
                         </>
                       );
                     }
                     return (
-                      <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-xl border border-dashed border-cursor-hairline bg-white p-8 text-center">
-                        <ImageIcon className="h-8 w-8 text-cursor-muted-soft mb-3" />
-                        <h4 className="m-0 text-[15px] font-semibold text-cursor-ink mb-1">
+                      <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-white p-5 text-center">
+                        <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
+                        <h4 className="m-0 text-sm font-semibold text-cursor-ink mb-0.5">
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
                         </h4>
-                        <p className="m-0 text-[13px] text-cursor-body">
+                        <p className="m-0 text-xs text-cursor-body">
                           {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
                         </p>
                       </div>
@@ -1122,25 +1122,25 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex items-center gap-4 cursor-pointer rounded-lg border border-cursor-hairline bg-white px-4 py-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-2 focus:ring-cursor-primary/30"
+                        className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-white px-3 py-2 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
-                        <div className={`flex h-8 w-8 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
-                          <BrainCircuit className="h-3.5 w-3.5" />
+                        <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
+                          <BrainCircuit className="h-3 w-3" />
                         </div>
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-[11px] text-cursor-muted">
+                          <span className="text-2xs text-cursor-muted">
                             #{String(img.idx).padStart(3, '0')}
                           </span>
-                          <span className="truncate text-[14px] font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                          <span className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
                             {img.subject_id}
                           </span>
                         </div>
-                        <div className="flex items-center gap-6 flex-none">
+                        <div className="flex items-center gap-4 flex-none">
                           <div className="flex flex-col items-end">
-                            <span className="text-[10px] uppercase tracking-[0.06em] text-cursor-muted">Stage</span>
-                            <span className="text-[13px] text-cursor-ink">{currentStepText}</span>
+                            <span className="text-2xs uppercase tracking-[0.06em] text-cursor-muted">Stage</span>
+                            <span className="text-xs text-cursor-ink">{currentStepText}</span>
                           </div>
-                          <span className={`text-[12px] font-semibold uppercase tracking-[0.06em] min-w-[4.5rem] text-right ${
+                          <span className={`text-xs font-semibold uppercase tracking-[0.06em] min-w-[4rem] text-right ${
                             img.status === 'success' ? 'text-cursor-semantic-success' :
                             img.status === 'failed' ? 'text-cursor-semantic-error' :
                             img.status === 'running' ? 'text-cursor-primary' :
@@ -1158,10 +1158,10 @@ export function JobsPage() {
           </div>
         </Card>
       ) : (
-        <Card className="p-10 text-center text-cursor-body bg-white border-cursor-hairline rounded-xl shadow-none">
-          <BrainCircuit className="mx-auto mb-3 h-8 w-8 text-cursor-muted" />
-          <h3 className="m-0 text-base font-semibold text-cursor-ink mb-1">No Job Selected</h3>
-          <p className="m-0 text-xs text-cursor-muted max-w-sm mx-auto mb-4">
+        <Card className="p-6 text-center text-cursor-body bg-white border-cursor-hairline rounded-lg shadow-none">
+          <BrainCircuit className="mx-auto mb-2 h-6 w-6 text-cursor-muted" />
+          <h3 className="m-0 text-sm font-semibold text-cursor-ink mb-1">No Job Selected</h3>
+          <p className="m-0 text-xs text-cursor-muted max-w-sm mx-auto mb-3">
             {jobsList.length === 0
               ? 'There are no active or recent pipeline jobs. Run a pipeline from the Configuration tab or refresh jobs.'
               : 'Select a job from the jobs list above to view its execution progress and details.'}
@@ -1170,9 +1170,9 @@ export function JobsPage() {
             variant="default"
             onClick={refreshJobs}
             disabled={busy.refreshJobs}
-            className="bg-cursor-primary hover:bg-cursor-primary-active text-white h-10"
+            className="bg-cursor-primary hover:bg-cursor-primary-active text-white h-8 text-xs"
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh Jobs List
+            <RefreshCw className="h-3 w-3 mr-1" /> Refresh Jobs List
           </Button>
         </Card>
       )}
@@ -1180,30 +1180,30 @@ export function JobsPage() {
       {/* 3. Subject Detail Modal Overlay */}
       {modalSubject && (
         <div
-          className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-3"
           onClick={() => setActiveModalSubjectFile(null)}
         >
           <div
-            className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1540px,calc(100vw-1.5rem))] max-h-[94vh] flex flex-col shadow-none overflow-hidden"
+            className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1360px,calc(100vw-1.5rem))] max-h-[92vh] flex flex-col shadow-none overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-cursor-hairline px-6 py-5 bg-cursor-canvas flex-none">
-              <div className="flex items-center gap-4 min-w-0">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+            <div className="flex items-center justify-between border-b border-cursor-hairline px-4 py-3 bg-cursor-canvas flex-none">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   #{modalSubject.idx}
                 </span>
                 <div className="flex flex-col min-w-0 gap-0.5">
-                  <h3 className="m-0 text-[22px] font-medium leading-tight tracking-[-0.01em] text-cursor-ink truncate">
+                  <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
-                  <span className="inline-block max-w-md truncate rounded bg-white border border-cursor-hairline-soft px-2 py-1 font-mono text-[11px] text-cursor-body" title={modalSubject.input_file}>
+                  <span className="inline-block max-w-md truncate rounded bg-white border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body" title={modalSubject.input_file}>
                     {modalSubject.input_file}
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   {completedModalStages}/{totalModalStages} stages
                 </span>
                 <StatusPill state={modalSubject.status}>{modalSubject.status.toUpperCase()}</StatusPill>
@@ -1211,27 +1211,27 @@ export function JobsPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setActiveModalSubjectFile(null)}
-                  className="h-8 w-8 p-0 rounded-full text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
+                  className="h-7 w-7 p-0 rounded-full text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
 
             {/* Modal Body: Two-Column Grid */}
-            <div className="grid flex-1 min-h-0 gap-5 overflow-hidden p-5 bg-cursor-canvas grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)]">
+            <div className="grid flex-1 min-h-0 gap-3 overflow-hidden p-3.5 bg-cursor-canvas grid-cols-[minmax(0,1.65fr)_minmax(380px,0.85fr)]">
               {/* Left Column: Pipeline Stages */}
-              <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none min-h-0 flex flex-col overflow-hidden">
-                <div className="p-0 pb-3 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-4 flex-none">
+              <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none min-h-0 flex flex-col overflow-hidden">
+                <div className="p-0 pb-2 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-2.5 flex-none">
                   <div className="flex flex-col min-w-0">
-                    <h3 className="m-0 text-[18px] font-semibold leading-[1.4] text-cursor-ink">Stage Timeline</h3>
+                    <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">Stage Timeline</h3>
                   </div>
-                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
+                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
                     {completedModalStages}/{totalModalStages} complete
                   </span>
                 </div>
                 <div className="p-0 flex-1 overflow-auto min-h-0">
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {modalImageSteps.map((step, idx) => (
                       <VerticalTimelineStepRow key={step.stage} step={step} isLast={idx === modalImageSteps.length - 1} toolDisplayNames={toolDisplayNames} />
                     ))}
@@ -1240,66 +1240,66 @@ export function JobsPage() {
               </div>
 
               {/* Right Column: Stacked Cards */}
-              <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
+              <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
                 {/* Run Telemetry */}
-                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-none">
-                  <div className="p-0 pb-3 flex flex-row items-center justify-between">
-                    <h3 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">Run Telemetry</h3>
-                    <span className="text-[12px] text-cursor-muted">events.jsonl metrics</span>
+                <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-none">
+                  <div className="p-0 pb-2 flex flex-row items-center justify-between">
+                    <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Run Telemetry</h3>
+                    <span className="text-xs text-cursor-muted">events.jsonl metrics</span>
                   </div>
                   <div className="p-0">
-                    <div className="grid grid-cols-1 gap-3">
+                    <div className="grid grid-cols-1 gap-2">
                       <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
                       <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
                     </div>
-                    <div className="mt-3 text-[12px] text-cursor-muted rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-2 flex items-center justify-between">
+                    <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
                       <span>GPU Usage: Not reported (CPU Mode)</span>
-                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
+                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Operator Console Log */}
-                <div className="bg-white border border-cursor-hairline rounded-xl p-5 shadow-none flex-1 min-h-0 flex flex-col">
-                  <div className="p-0 pb-3 flex-none">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="m-0 text-[15px] font-semibold leading-[1.4] text-cursor-ink">Operator Console Log</h3>
+                <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-1 min-h-0 flex flex-col">
+                  <div className="p-0 pb-2 flex-none">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Operator Console Log</h3>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setShowRawLog(!showRawLog)}
-                        className="h-8 px-2.5 text-[12px] border-cursor-hairline text-cursor-body"
+                        className="h-7 px-2 text-xs border-cursor-hairline text-cursor-body"
                       >
                         {showRawLog ? (
                           <>
-                            <EyeOff className="h-3.5 w-3.5 mr-1" /> Sanitized
+                            <EyeOff className="h-3 w-3 mr-1" /> Sanitized
                           </>
                         ) : (
                           <>
-                            <Eye className="h-3.5 w-3.5 mr-1" /> Raw
+                            <Eye className="h-3 w-3 mr-1" /> Raw
                           </>
                         )}
                       </Button>
-                      <label className="relative m-0 block w-full max-w-[10rem]">
+                      <label className="relative m-0 block w-full max-w-[9rem]">
                         <input
                           type="search"
                           placeholder="Filter..."
                           value={jobLogSearch}
                           onChange={(e) => setJobLogSearch(e.target.value)}
-                          className="w-full rounded-md border border-cursor-hairline bg-white px-3 py-1.5 pr-8 text-[12px] text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8"
+                          className="w-full rounded-md border border-cursor-hairline bg-white px-2.5 py-1 pr-7 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-7"
                         />
-                        <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
+                        <Search className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
                       </label>
-                      <Button variant="ghost" size="sm" onClick={clearJobLog} className="h-8 px-2.5 text-[12px] text-cursor-body">
-                        <Eraser className="h-3.5 w-3.5 mr-1" /> Clear
+                      <Button variant="ghost" size="sm" onClick={clearJobLog} className="h-7 px-2 text-xs text-cursor-body">
+                        <Eraser className="h-3 w-3 mr-1" /> Clear
                       </Button>
                     </div>
                   </div>
                   <div className="p-0 flex-1 min-h-0 overflow-hidden">
                     <pre
-                      className="h-full min-h-[18rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3 font-mono text-[12px] leading-relaxed text-cursor-ink"
+                      className="h-full min-h-[14rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 font-mono text-xs leading-relaxed text-cursor-ink"
                       aria-live="polite"
                     >
                       {filteredLog || 'Log stream is empty.'}
@@ -1378,7 +1378,7 @@ function StageStatusPill({status}: {status: string}) {
   const label =
     status === 'success' ? 'OK' : status === 'running' ? 'RUNNING' : status === 'failed' ? 'FAIL' : isSkipped ? 'SKIPPED' : 'PENDING';
   return (
-    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${cls}`}>
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em] ${cls}`}>
       {label}
     </span>
   );
@@ -1393,10 +1393,10 @@ function subjectAccentClasses(status: string) {
 
 function StageMetric({label, value}: {label: string; value: string}) {
   return (
-    <span className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="text-cursor-muted text-[12px]">{label}</span>
-      <span className="font-medium text-cursor-ink text-[12px]">{value}</span>
-    </span>
+    <div className="flex items-center gap-1">
+      <span className="text-cursor-muted">{label}:</span>
+      <span className="font-semibold text-cursor-ink">{value}</span>
+    </div>
   );
 }
 
@@ -1427,26 +1427,26 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
   const toolLabel = isSkipped ? 'Not available' : displayTool || 'Not available';
 
   return (
-    <div className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
-      <div className="relative flex justify-center pt-4">
-        {!isLast && <span className="absolute top-7 bottom-[-1rem] w-px bg-cursor-hairline" />}
-        <span className={`h-3 w-3 rounded-full flex-none transition-all ${dotClass}`} />
+    <div className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-2.5">
+      <div className="relative flex justify-center pt-3">
+        {!isLast && <span className="absolute top-6 bottom-[-0.75rem] w-px bg-cursor-hairline" />}
+        <span className={`h-2.5 w-2.5 rounded-full flex-none transition-all ${dotClass}`} />
       </div>
-      <div className={`rounded-lg border p-3 transition-colors ${rowClass}`}>
-        <div className="flex min-w-0 items-start justify-between gap-4">
+      <div className={`rounded-md border p-2.5 transition-colors ${rowClass}`}>
+        <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h4 className={`m-0 text-[15px] font-semibold leading-[1.4] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{step?.label || step?.stage}</h4>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h4 className={`m-0 text-sm font-semibold leading-[1.3] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{step?.label || step?.stage}</h4>
               <StageStatusPill status={step?.status || 'pending'} />
             </div>
-            <p className={`m-0 mt-1 text-[13px] leading-[1.4] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}>{toolLabel}</p>
+            <p className={`m-0 mt-0.5 text-xs leading-[1.3] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}>{toolLabel}</p>
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
-            <div className="flex flex-wrap justify-end overflow-hidden rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-1 text-[12px]">
+            <div className="flex flex-wrap justify-end overflow-hidden rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 text-2xs">
               <StageMetric label="Elapsed" value={formatElapsed(step?.elapsed_sec)} />
-              <span className="h-4 w-px bg-cursor-hairline mx-1.5" />
+              <span className="h-3 w-px bg-cursor-hairline mx-1" />
               <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
-              <span className="h-4 w-px bg-cursor-hairline mx-1.5" />
+              <span className="h-3 w-px bg-cursor-hairline mx-1" />
               <StageMetric label="RAM" value={formatMemory(step?.ram_bytes)} />
             </div>
           )}
@@ -1467,16 +1467,16 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
   };
 
   const width = 320;
-  const height = 104;
+  const height = 80;
 
   if (safePoints.length === 0) {
     return (
-      <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-cursor-hairline-soft bg-cursor-canvas-soft p-4">
-        <div className="flex items-center justify-between text-[13px]">
+      <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
+        <div className="flex items-center justify-between text-xs">
           <span className="font-medium text-cursor-ink">{label}</span>
-          <span className="text-[12px] text-cursor-muted">No samples yet</span>
+          <span className="text-xs text-cursor-muted">No samples yet</span>
         </div>
-        <div className="flex items-center justify-center h-24 text-[12px] text-cursor-muted italic">
+        <div className="flex items-center justify-center h-16 text-xs text-cursor-muted italic">
           Waiting for data...
         </div>
       </div>
@@ -1493,46 +1493,46 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
   const pointsStr = safePoints
     .map((val, idx) => {
       const x = (idx / Math.max(safePoints.length - 1, 1)) * width;
-      const y = height - 8 - ((val - yMin) / range) * (height - 16);
+      const y = height - 6 - ((val - yMin) / range) * (height - 12);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
 
   const firstX = 0;
   const lastX = safePoints.length > 1 ? width : 0;
-  const baselineY = height - 8;
+  const baselineY = height - 6;
   const areaPoints = `${firstX},${baselineY} ${pointsStr} ${lastX},${baselineY}`;
 
   const lastPoint = safePoints[safePoints.length - 1] ?? 0;
   const lastXPos = safePoints.length > 1 ? width : 0;
-  const lastYPos = height - 8 - ((lastPoint - yMin) / range) * (height - 16);
+  const lastYPos = height - 6 - ((lastPoint - yMin) / range) * (height - 12);
 
   const currentVal = safePoints[safePoints.length - 1] ?? 0;
   const peakVal = Math.max(...safePoints);
 
   const gridLines = [0, 0.5, 1].map((pct) => {
-    const y = height - 8 - pct * (height - 16);
+    const y = height - 6 - pct * (height - 12);
     const val = yMin + pct * range;
     return {y, val};
   });
 
   return (
-    <div className="flex flex-col justify-between gap-1.5 rounded-xl border border-cursor-hairline-soft bg-cursor-canvas-soft p-4">
-      <div className="flex items-center justify-between text-[13px]">
+    <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
+      <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-cursor-ink">{label}</span>
-        <span className="font-mono text-cursor-primary font-semibold text-[13px]">
-          {formatValue(currentVal)} <span className="text-[11px] text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
+        <span className="font-mono text-cursor-primary font-semibold text-xs">
+          {formatValue(currentVal)} <span className="text-2xs text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
         </span>
       </div>
       <div className="relative">
-        <svg className="h-28 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <svg className="h-20 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
           {gridLines.map((g) => (
             <line key={g.y} x1="0" y1={g.y} x2={width} y2={g.y} className="stroke-cursor-hairline-soft" strokeWidth="1" />
           ))}
           <polygon className="fill-cursor-primary/10" points={areaPoints} />
           <polyline className="fill-none stroke-cursor-primary stroke-2" points={pointsStr} />
           {safePoints.length > 1 && (
-            <circle cx={lastXPos} cy={lastYPos} r="3.5" className="fill-white stroke-cursor-primary stroke-2" />
+            <circle cx={lastXPos} cy={lastYPos} r="3" className="fill-white stroke-cursor-primary stroke-2" />
           )}
         </svg>
       </div>

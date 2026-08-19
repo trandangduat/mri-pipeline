@@ -10,14 +10,14 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="sticky bottom-0 z-30 flex h-10 w-full flex-none items-center justify-between border-t border-cursor-hairline bg-cursor-canvas px-6 text-xs text-cursor-body">
-      <div className="flex items-center gap-2">
+    <footer className="sticky bottom-0 z-30 flex h-7.5 w-full flex-none items-center justify-between border-t border-cursor-hairline bg-cursor-canvas px-4 text-xs text-cursor-body">
+      <div className="flex items-center gap-1.5">
         <span>NeuroFlow MRI Pipeline © {currentYear}</span>
       </div>
 
-      <div className="flex items-center gap-2" title={envText || 'Environment status'}>
+      <div className="flex items-center gap-1.5" title={envText || 'Environment status'}>
         <span
-          className={`h-2 w-2 rounded-full ${
+          className={`h-1.5 w-1.5 rounded-full ${
             isReady ? 'bg-cursor-semantic-success' : 'bg-cursor-semantic-error'
           }`}
         />
@@ -27,8 +27,8 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
         {envText ? <span className="text-cursor-muted">({envText})</span> : null}
       </div>
 
-      <div className="flex items-center gap-4 text-cursor-body">
-        <span className="font-mono text-[11px] text-cursor-muted">v1.0.0</span>
+      <div className="flex items-center gap-3 text-cursor-body">
+        <span className="font-mono text-2xs text-cursor-muted">v1.0.0</span>
         <a
           href="https://github.com"
           target="_blank"
@@ -36,7 +36,7 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
           className="inline-flex items-center gap-1 hover:text-cursor-ink transition-colors"
         >
           Documentation
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-2.5 w-2.5" />
         </a>
         <a
           href="https://github.com"
@@ -45,7 +45,7 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
           className="inline-flex items-center gap-1 hover:text-cursor-ink transition-colors"
         >
           GitHub
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-2.5 w-2.5" />
         </a>
       </div>
     </footer>

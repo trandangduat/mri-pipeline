@@ -70,55 +70,55 @@ export function DownloadOutputsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && canClose) onClose();
       }}
     >
-      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-white p-6 shadow-none">
-        <h3 className="m-0 mb-1 text-[16px] font-semibold leading-[1.4] text-cursor-ink">{title}</h3>
-        <p className="m-0 mb-4 text-[12px] text-cursor-muted">Remote job: <span className="font-mono">{jobId}</span></p>
+      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-white p-4 shadow-none">
+        <h3 className="m-0 mb-0.5 text-base font-semibold leading-[1.3] text-cursor-ink">{title}</h3>
+        <p className="m-0 mb-3 text-xs text-cursor-muted">Remote job: <span className="font-mono">{jobId}</span></p>
 
         {phase === 'select' && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <label className="block text-[12px] font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1.5">Remote output path</label>
-              <div className="rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 font-mono text-[12px] text-cursor-body break-all">
+              <label className="block text-xs font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1">Remote output path</label>
+              <div className="rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1.5 font-mono text-xs text-cursor-body break-all">
                 {remotePath || '(will use default remote output path)'}
               </div>
             </div>
             <div>
-              <label className="block text-[12px] font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1.5">Local destination folder</label>
-              <div className="flex gap-2">
+              <label className="block text-xs font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1">Local destination folder</label>
+              <div className="flex gap-1.5">
                 <input
                   type="text"
                   value={localDir}
                   onChange={(e) => onLocalDirChange(e.target.value)}
                   placeholder="Select or type a local folder..."
-                  className="flex-1 rounded-md border border-cursor-hairline bg-white px-3 py-2 text-[13px] text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10 font-mono"
+                  className="flex-1 rounded-md border border-cursor-hairline bg-white px-2.5 py-1 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8 font-mono"
                 />
                 <button
                   type="button"
                   onClick={onBrowse}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-cursor-hairline bg-white px-3 text-[13px] font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer"
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer"
                 >
-                  <FolderOpen className="h-4 w-4" />
+                  <FolderOpen className="h-3.5 w-3.5" />
                   Browse
                 </button>
               </div>
               {webBrowseHint && (
-                <p className="m-0 mt-1.5 text-[11px] text-cursor-primary">Type or paste a local folder path in this web preview.</p>
+                <p className="m-0 mt-1 text-2xs text-cursor-primary">Type or paste a local folder path in this web preview.</p>
               )}
-              <p className="m-0 mt-1.5 text-[11px] text-cursor-muted">A job folder will be created inside this destination.</p>
+              <p className="m-0 mt-1 text-2xs text-cursor-muted">A job folder will be created inside this destination.</p>
               {localDir.trim() && jobId && (
-                <p className="m-0 mt-1 text-[11px] text-cursor-body font-mono">Final folder: {localDir.trim()}/{jobId}</p>
+                <p className="m-0 mt-0.5 text-2xs text-cursor-body font-mono">Final folder: {localDir.trim()}/{jobId}</p>
               )}
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-1.5 pt-1.5">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-cursor-hairline bg-white px-4 py-2 text-[13px] font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -127,13 +127,13 @@ export function DownloadOutputsDialog({
                 onClick={onStart}
                 disabled={!localDir.trim()}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-4 py-2 text-[13px] font-medium transition-colors cursor-pointer',
+                  'inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
                   localDir.trim()
                     ? 'border-cursor-primary bg-cursor-primary text-white hover:bg-cursor-primary-active'
                     : 'border-cursor-hairline bg-cursor-canvas text-cursor-muted cursor-not-allowed',
                 )}
               >
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5" />
                 Start Download
               </button>
             </div>
@@ -141,14 +141,14 @@ export function DownloadOutputsDialog({
         )}
 
         {phase === 'running' && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {totalFiles != null && totalFiles > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[12px] text-cursor-body">{copiedFiles ?? 0} of {totalFiles} files</span>
-                  <span className="text-[12px] font-semibold text-cursor-primary">{pct}%</span>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-cursor-body">{copiedFiles ?? 0} of {totalFiles} files</span>
+                  <span className="text-xs font-semibold text-cursor-primary">{pct}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-cursor-canvas border border-cursor-hairline overflow-hidden">
+                <div className="w-full h-1.5 rounded-full bg-cursor-canvas border border-cursor-hairline overflow-hidden">
                   <div
                     className="h-full bg-cursor-primary transition-all duration-300"
                     style={{width: `${pct}%`}}
@@ -156,16 +156,16 @@ export function DownloadOutputsDialog({
                 </div>
               </div>
             )}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {steps.map((step) => (
-                <div key={step.id} className="flex items-start gap-3">
+                <div key={step.id} className="flex items-start gap-2.5">
                   <div className="pt-0.5">
                     <StepIcon status={step.status} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p
                       className={cn(
-                        'm-0 text-[13px] leading-[1.4]',
+                        'm-0 text-sm leading-[1.3]',
                         step.status === 'pending' ? 'text-cursor-muted-soft' : 'font-medium text-cursor-ink',
                       )}
                     >
@@ -174,7 +174,7 @@ export function DownloadOutputsDialog({
                     {step.detail && (
                       <p
                         className={cn(
-                          'm-0 mt-0.5 text-[12px] leading-[1.4]',
+                          'm-0 mt-0.5 text-xs leading-[1.3]',
                           step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
                         )}
                       >
@@ -186,9 +186,9 @@ export function DownloadOutputsDialog({
               ))}
             </div>
             {logs.length > 0 && (
-              <div className="max-h-32 overflow-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
+              <div className="max-h-28 overflow-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
                 {logs.slice(-10).map((line, i) => (
-                  <p key={i} className="m-0 font-mono text-[11px] text-cursor-body leading-relaxed">{line}</p>
+                  <p key={i} className="m-0 font-mono text-2xs text-cursor-body leading-relaxed">{line}</p>
                 ))}
               </div>
             )}
@@ -196,24 +196,24 @@ export function DownloadOutputsDialog({
         )}
 
         {phase === 'success' && (
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 flex-none text-cursor-semantic-success mt-0.5" />
+          <div className="space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="h-4.5 w-4.5 flex-none text-cursor-semantic-success mt-0.5" />
               <div>
-                <p className="m-0 text-[14px] font-medium text-cursor-ink">
+                <p className="m-0 text-sm font-medium text-cursor-ink">
                   Copied {copiedFiles ?? 0} file{(copiedFiles ?? 0) === 1 ? '' : 's'} successfully.
                 </p>
-                <p className="m-0 mt-1 text-[12px] text-cursor-muted">Local path:</p>
-                <div className="mt-1 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 font-mono text-[12px] text-cursor-body break-all">
+                <p className="m-0 mt-1 text-xs text-cursor-muted">Local path:</p>
+                <div className="mt-1 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1.5 font-mono text-xs text-cursor-body break-all">
                   {finalPath}
                 </div>
               </div>
             </div>
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-1.5">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-cursor-primary bg-cursor-primary px-4 py-2 text-[13px] font-medium text-white hover:bg-cursor-primary-active transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-primary bg-cursor-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-cursor-primary-active transition-colors cursor-pointer"
               >
                 Close
               </button>
@@ -222,21 +222,21 @@ export function DownloadOutputsDialog({
         )}
 
         {phase === 'failed' && (
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <XCircle className="h-5 w-5 flex-none text-cursor-semantic-error mt-0.5" />
+          <div className="space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <XCircle className="h-4.5 w-4.5 flex-none text-cursor-semantic-error mt-0.5" />
               <div>
-                <p className="m-0 text-[14px] font-medium text-cursor-ink">Download failed.</p>
+                <p className="m-0 text-sm font-medium text-cursor-ink">Download failed.</p>
                 {errorMessage && (
-                  <p className="m-0 mt-1 text-[12px] text-cursor-semantic-error">{errorMessage}</p>
+                  <p className="m-0 mt-0.5 text-xs text-cursor-semantic-error">{errorMessage}</p>
                 )}
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-1.5 pt-1.5">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-cursor-hairline bg-white px-4 py-2 text-[13px] font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Close
               </button>

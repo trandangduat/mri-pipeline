@@ -217,25 +217,25 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
   return (
     <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-white">
       {/* Top Bar: Brand & Action Buttons */}
-      <div className="flex h-16 items-center justify-between px-6">
+      <div className="flex h-12 items-center justify-between px-4">
         {/* Brand Logo & Title */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-cursor-primary text-white">
-            <BrainCircuit className="h-5 w-5" />
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-primary text-white">
+            <BrainCircuit className="h-4 w-4" />
           </div>
           <div className="flex flex-col">
             <strong className="text-base font-semibold leading-tight tracking-tight text-cursor-ink">
               NeuroFlow
             </strong>
-            <span className="text-[11px] font-mono text-cursor-body leading-tight">MRI Pipeline</span>
+            <span className="text-2xs font-mono text-cursor-body leading-tight">MRI Pipeline</span>
           </div>
         </div>
 
         {/* Global Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button
             variant="ghost"
-            icon={<Save className="h-4 w-4 text-cursor-body" />}
+            icon={<Save className="h-3.5 w-3.5 text-cursor-body" />}
             onClick={handleSaveWorkspace}
           >
             Save Workspace
@@ -243,7 +243,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
 
           <Button
             variant="ghost"
-            icon={<FolderOpen className="h-4 w-4 text-cursor-body" />}
+            icon={<FolderOpen className="h-3.5 w-3.5 text-cursor-body" />}
             onClick={() => workspaceFileInput.current?.click()}
           >
             Load Workspace
@@ -260,7 +260,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
           <Button
             id="headerStartButton"
             variant="primary"
-            icon={starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            icon={starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             onClick={handleStartPipeline}
             disabled={startDisabled}
           >
@@ -269,7 +269,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
 
           <Button
             variant="danger"
-            icon={<Square className="h-4 w-4" />}
+            icon={<Square className="h-3.5 w-3.5" />}
             onClick={() =>
               print('Stop pipeline', {
                 ok: false,
@@ -285,46 +285,46 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
       {/* Navigation Tabs Bar */}
       <nav
         aria-label="Main Navigation"
-        className="flex items-center gap-8 px-6 border-t border-cursor-hairline"
+        className="flex items-center gap-5 px-4 border-t border-cursor-hairline"
       >
         <button
           type="button"
           onClick={() => onSelectTab('pipeline')}
-          className={`flex items-center gap-2 py-3 text-sm transition-colors border-b-2 -mb-px font-medium ${
+          className={`flex items-center gap-1.5 py-2 text-sm transition-colors border-b-2 -mb-px font-medium ${
             activeTab === 'pipeline'
               ? 'border-cursor-primary text-cursor-primary font-semibold'
               : 'border-transparent text-cursor-body hover:text-cursor-ink'
           }`}
         >
-          <SlidersHorizontal className="h-4 w-4" />
+          <SlidersHorizontal className="h-3.5 w-3.5" />
           <span>Pipeline Configuration</span>
         </button>
 
         <button
           type="button"
           onClick={() => onSelectTab('tools')}
-          className={`flex items-center gap-2 py-3 text-sm transition-colors border-b-2 -mb-px font-medium ${
+          className={`flex items-center gap-1.5 py-2 text-sm transition-colors border-b-2 -mb-px font-medium ${
             activeTab === 'tools'
               ? 'border-cursor-primary text-cursor-primary font-semibold'
               : 'border-transparent text-cursor-body hover:text-cursor-ink'
           }`}
         >
-          <Container className="h-4 w-4" />
+          <Container className="h-3.5 w-3.5" />
           <span>Tools Configuration</span>
         </button>
 
         <button
           type="button"
           onClick={() => onSelectTab('jobs')}
-          className={`flex items-center gap-2 py-3 text-sm transition-colors border-b-2 -mb-px font-medium ${
+          className={`flex items-center gap-1.5 py-2 text-sm transition-colors border-b-2 -mb-px font-medium ${
             activeTab === 'jobs'
               ? 'border-cursor-primary text-cursor-primary font-semibold'
               : 'border-transparent text-cursor-body hover:text-cursor-ink'
           }`}
         >
-          <Activity className="h-4 w-4" />
+          <Activity className="h-3.5 w-3.5" />
           <span>Jobs Monitor</span>
-          <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.5 text-[11px] font-semibold text-cursor-ink">
+          <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-1.5 py-0.25 text-2xs font-semibold text-cursor-ink">
             {jobsCount}
           </span>
         </button>

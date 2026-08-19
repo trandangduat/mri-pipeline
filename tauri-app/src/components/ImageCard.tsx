@@ -26,26 +26,26 @@ export function InstalledImageCard({
   const extraCount = toolDetails.length - maxToolChips;
 
   return (
-    <div className="flex flex-col rounded-xl border border-cursor-hairline bg-white p-4.5 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[220px]">
+    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-white p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
       {/* Header: Icon + Repo name + Tag */}
-      <div className="mb-2.5 flex items-center gap-3">
-        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-cursor-semantic-success/10">
-          <Container className="h-5 w-5 text-cursor-semantic-success" />
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-success/10">
+          <Container className="h-4 w-4 text-cursor-semantic-success" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-1.5">
             <span
               className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-cursor-ink"
               title={image.image}
             >
               {repo}
             </span>
-            <span className="flex-none rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 font-mono text-[11px] font-medium text-cursor-muted">
+            <span className="flex-none rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1 py-0.25 font-mono text-2xs font-medium text-cursor-muted">
               :{tag}
             </span>
           </div>
           {image.image_id && (
-            <span className="block truncate font-mono text-[11px] text-cursor-muted-soft">
+            <span className="block truncate font-mono text-2xs text-cursor-muted-soft">
               {image.image_id}
             </span>
           )}
@@ -53,7 +53,7 @@ export function InstalledImageCard({
       </div>
 
       {/* Subtitle / Meta row */}
-      <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cursor-body">
+      <div className="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-cursor-body">
         <span className="text-cursor-muted">
           {toolDetails.length || image.tools.length} tool{((toolDetails.length || image.tools.length) !== 1) ? 's' : ''}
         </span>
@@ -65,13 +65,13 @@ export function InstalledImageCard({
         )}
         {image.repo_size && (
           <div className="flex items-center gap-1">
-            <HardDrive className="h-3.5 w-3.5 text-cursor-muted" />
+            <HardDrive className="h-3 w-3 text-cursor-muted" />
             <span className="font-mono text-cursor-ink">{image.repo_size}</span>
           </div>
         )}
         {image.uncompressed_size && (
           <div className="flex items-center gap-1">
-            <Package className="h-3.5 w-3.5 text-cursor-muted" />
+            <Package className="h-3 w-3 text-cursor-muted" />
             <span className="font-mono text-cursor-ink">{image.uncompressed_size}</span>
           </div>
         )}
@@ -79,12 +79,12 @@ export function InstalledImageCard({
 
       {/* Tool Chips */}
       {visibleTools.length > 0 && (
-        <div className="mb-3.5">
-          <div className="flex flex-wrap gap-1.5">
+        <div className="mb-2.5">
+          <div className="flex flex-wrap gap-1">
             {visibleTools.map((tool) => (
               <span
                 key={tool.key}
-                className="inline-flex items-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-0.5 text-[11px] font-medium text-cursor-ink max-w-full truncate"
+                className="inline-flex items-center rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.25 text-2xs font-medium text-cursor-ink max-w-full truncate"
               >
                 {tool.name}
               </span>
@@ -92,7 +92,7 @@ export function InstalledImageCard({
             {extraCount > 0 && (
               <span
                 title={toolDetails.slice(maxToolChips).map((t) => t.name).join(', ')}
-                className="inline-flex cursor-help items-center rounded-md border border-cursor-hairline bg-cursor-canvas px-2 py-0.5 text-[11px] font-medium text-cursor-muted"
+                className="inline-flex cursor-help items-center rounded border border-cursor-hairline bg-cursor-canvas px-1.5 py-0.25 text-2xs font-medium text-cursor-muted"
               >
                 +{extraCount} more
               </span>
@@ -102,10 +102,10 @@ export function InstalledImageCard({
       )}
 
       {/* Footer action button */}
-      <div className="mt-auto pt-3 border-t border-cursor-hairline-soft">
+      <div className="mt-auto pt-2 border-t border-cursor-hairline-soft">
         <Button
           variant="ghost"
-          icon={isRemoving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+          icon={isRemoving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
           className="w-full border border-cursor-semantic-error/20 text-cursor-semantic-error hover:bg-cursor-semantic-error/5 hover:border-cursor-semantic-error/40"
           disabled={isRemoving}
           onClick={() => onRemove?.(image.image)}
@@ -143,21 +143,21 @@ export function MissingImageCard({
   const extraCount = toolDetails.length - maxToolChips;
 
   return (
-    <div className="flex flex-col rounded-xl border border-cursor-hairline bg-white p-4.5 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[220px]">
+    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-white p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
       {/* Header: Icon + Repo name + Tag */}
-      <div className="mb-2.5 flex items-center gap-3">
-        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-cursor-semantic-error/10">
-          <Container className="h-5 w-5 text-cursor-semantic-error" />
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-error/10">
+          <Container className="h-4 w-4 text-cursor-semantic-error" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-1.5">
             <span
               className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-cursor-ink"
               title={image.image}
             >
               {repo}
             </span>
-            <span className="flex-none rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 font-mono text-[11px] font-medium text-cursor-muted">
+            <span className="flex-none rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1 py-0.25 font-mono text-2xs font-medium text-cursor-muted">
               :{tag}
             </span>
           </div>
@@ -165,7 +165,7 @@ export function MissingImageCard({
       </div>
 
       {/* Subtitle / Meta row */}
-      <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cursor-body">
+      <div className="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-cursor-body">
         <span className="text-cursor-muted">
           {toolDetails.length || image.tools.length} tool{((toolDetails.length || image.tools.length) !== 1) ? 's' : ''}
         </span>
@@ -177,7 +177,7 @@ export function MissingImageCard({
         )}
         {image.repo_size && (
           <div className="flex items-center gap-1">
-            <HardDrive className="h-3.5 w-3.5 text-cursor-muted" />
+            <HardDrive className="h-3 w-3 text-cursor-muted" />
             <span className="font-mono text-cursor-ink">{image.repo_size}</span>
           </div>
         )}
@@ -185,12 +185,12 @@ export function MissingImageCard({
 
       {/* Tool Chips */}
       {visibleTools.length > 0 && (
-        <div className="mb-3.5">
-          <div className="flex flex-wrap gap-1.5">
+        <div className="mb-2.5">
+          <div className="flex flex-wrap gap-1">
             {visibleTools.map((tool) => (
               <span
                 key={tool.key}
-                className="inline-flex items-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-0.5 text-[11px] font-medium text-cursor-ink max-w-full truncate"
+                className="inline-flex items-center rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.25 text-2xs font-medium text-cursor-ink max-w-full truncate"
               >
                 {tool.name}
               </span>
@@ -198,7 +198,7 @@ export function MissingImageCard({
             {extraCount > 0 && (
               <span
                 title={toolDetails.slice(maxToolChips).map((t) => t.name).join(', ')}
-                className="inline-flex cursor-help items-center rounded-md border border-cursor-hairline bg-cursor-canvas px-2 py-0.5 text-[11px] font-medium text-cursor-muted"
+                className="inline-flex cursor-help items-center rounded border border-cursor-hairline bg-cursor-canvas px-1.5 py-0.25 text-2xs font-medium text-cursor-muted"
               >
                 +{extraCount} more
               </span>
@@ -208,10 +208,10 @@ export function MissingImageCard({
       )}
 
       {/* Footer action button */}
-      <div className="mt-auto pt-3 border-t border-cursor-hairline-soft">
+      <div className="mt-auto pt-2 border-t border-cursor-hairline-soft">
         <Button
           variant="primary"
-          icon={downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : failed ? <RefreshCw className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+          icon={downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : failed ? <RefreshCw className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
           disabled={downloading}
           className="w-full"
           onClick={() => onDownload?.(image.image)}

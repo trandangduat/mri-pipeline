@@ -10,7 +10,7 @@ test('BUTTON.variants produce distinct class strings', () => {
 
 test('inputCls exposes input styling tokens', () => {
   expect(inputCls).toMatch(/border-cursor-hairline/);
-  expect(inputCls).toMatch(/rounded-lg/);
+  expect(inputCls).toMatch(/rounded-md/);
 });
 
 test('labelCls exposes field label tokens', () => {
