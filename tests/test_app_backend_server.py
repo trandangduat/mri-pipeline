@@ -539,6 +539,80 @@ def test_sidecar_remote_download_stream_missing_local_target() -> None:
         thread.join(timeout=5)
 
 
+def test_sidecar_local_start_stream_endpoint() -> None:
+    class FakeLocalJobService(LocalJobService):
+        def stream_start_job(self, run_request: dict[str, object]):
+            yield {"event": "step", "data": {"step": "validate", "status": "done", "detail": "Valid"}}
+            yield {"event": "complete", "data": {"ok": True, "job": {"job_id": "job-123"}}}
+
+    server, thread, base_url = _serve_in_thread(local_job_service=FakeLocalJobService())
+    try:
+        import http.client
+        parsed = urlparse(f"{base_url}/jobs/local/start/stream")
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        try:
+            body = json.dumps({"input_path": "/fake/input.nii.gz"}).encode("utf-8")
+            conn.putrequest("POST", parsed.path)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(len(body)))
+            conn.endheaders()
+            conn.send(body)
+            response = conn.getresponse()
+            raw = response.read().decode("utf-8")
+        finally:
+            conn.close()
+
+        assert response.status == 200
+        assert response.getheader("Content-Type", "").startswith("text/event-stream")
+        assert "event: step" in raw
+        assert "event: complete" in raw
+        assert '"ok": true' in raw
+        assert "job-123" in raw
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_sidecar_remote_start_stream_endpoint() -> None:
+    class FakeRemoteService(RemoteJobService):
+        def stream_start_job(self, data: dict[str, object]):
+            yield {"event": "step", "data": {"step": "ssh", "status": "done", "detail": "SSH ok"}}
+            yield {"event": "complete", "data": {"ok": True, "job": {"job_id": "remote-job-123"}}}
+
+    server, thread, base_url = _serve_in_thread(remote_job_service=FakeRemoteService())
+    try:
+        import http.client
+        parsed = urlparse(f"{base_url}/remote/jobs/start/stream")
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
+        try:
+            body = json.dumps({
+                "host": "server",
+                "port": 22,
+                "username": "tester",
+                "run_request": {"input_path": "/remote/input.nii.gz"},
+            }).encode("utf-8")
+            conn.putrequest("POST", parsed.path)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(len(body)))
+            conn.endheaders()
+            conn.send(body)
+            response = conn.getresponse()
+            raw = response.read().decode("utf-8")
+        finally:
+            conn.close()
+
+        assert response.status == 200
+        assert response.getheader("Content-Type", "").startswith("text/event-stream")
+        assert "event: step" in raw
+        assert "event: complete" in raw
+        assert '"ok": true' in raw
+        assert "remote-job-123" in raw
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+
 def _make_download_service(runner_factory=None):
     """Create a RemoteJobService with a custom runner_factory for download tests."""
     from remote.remote_runner import RemoteRunConfig

@@ -77,10 +77,19 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       const nextFormValues = {...state.formValues};
       nextFormValues.pipelineMode = pipelineMode;
       nextFormValues.inputSource = (workspace.input_source as string) || (workspace.run_target === 'Server' ? 'Server' : 'Local');
-      nextFormValues.inputMode = (workspace.input_mode as string) || 'file';
-      nextFormValues.inputPath = (workspace.input_path as string) || '';
-      nextFormValues.additionalInputPaths = Array.isArray(workspace.selected_files) ? workspace.selected_files.join(', ') : '';
-      nextFormValues.outputDir = (workspace.output_dir as string) || '';
+      const rawInputMode = (workspace.input_mode as string) || 'file';
+      nextFormValues.inputMode = rawInputMode === 'dir' || rawInputMode === 'batch_folder' ? 'batch_folder' : rawInputMode;
+      nextFormValues.inputPath = String(workspace.input_path || '');
+      nextFormValues.outputDir = String(workspace.output_dir || '');
+      nextFormValues.additionalInputPaths = Array.isArray(workspace.selected_files)
+        ? workspace.selected_files.join(', ')
+        : (workspace.selected_files as string) || '';
+      nextFormValues.batchImageCount =
+        (workspace.batch_image_count as number) ??
+        (Array.isArray(workspace.selected_files) ? workspace.selected_files.length : undefined);
+      if (workspace.batch_scan_mode) {
+        nextFormValues.batchScanMode = String(workspace.batch_scan_mode);
+      }
       nextFormValues.runtimeTarget = workspace.run_target === 'Server' ? 'Server' : 'Local';
       nextFormValues.ramPercent = (workspace.ram_percent as number) ?? 100;
       nextFormValues.cpuThreads = (workspace.threads as number) ?? 4;

@@ -81,3 +81,30 @@ test('runtimeWarnings is empty for a healthy local config', () => {
   });
   expect(warnings).toEqual([]);
 });
+
+test('applyWorkspaceConfig normalizes workspace settings, inputMode, and batch fields', async () => {
+  const {usePipelineFormStore} = await import('../src/stores/pipelineFormStore');
+  const store = usePipelineFormStore.getState();
+
+  store.applyWorkspaceConfig({
+    pipeline_mode: 'FastSurfer',
+    input_source: 'Local',
+    input_mode: 'dir',
+    input_path: '/path/to/folder',
+    selected_files: ['/path/to/folder/a.nii.gz', '/path/to/folder/b.nii.gz'],
+    batch_image_count: 2,
+    batch_scan_mode: 'recursive',
+    output_dir: '/path/to/output',
+    run_target: 'Local',
+  });
+
+  const values = usePipelineFormStore.getState().formValues;
+  expect(values.pipelineMode).toBe('FastSurfer');
+  expect(values.inputMode).toBe('batch_folder');
+  expect(values.inputPath).toBe('/path/to/folder');
+  expect(values.outputDir).toBe('/path/to/output');
+  expect(values.additionalInputPaths).toBe('/path/to/folder/a.nii.gz, /path/to/folder/b.nii.gz');
+  expect(values.batchImageCount).toBe(2);
+  expect(values.batchScanMode).toBe('recursive');
+});
+

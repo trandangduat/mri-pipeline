@@ -101,6 +101,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
   };
 
   const handleDialogClose = () => {
+    setStarting(false);
     closeDialog();
     if (!dialogSuccess) return;
 
@@ -144,12 +145,16 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         type: 'mri-pipeline-workspace',
         name,
         input_source: fv.inputSource,
-        input_mode: fv.inputMode,
+        input_mode: fv.inputMode === 'batch_folder' ? 'batch_folder' : (fv.inputMode || 'file'),
         input_path: fv.inputPath,
         selected_files: fv.additionalInputPaths
-          .split(',')
-          .map((s: string) => s.trim())
-          .filter(Boolean),
+          ? fv.additionalInputPaths
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : [],
+        batch_image_count: fv.batchImageCount,
+        batch_scan_mode: fv.batchScanMode || (fv.nonRecursive ? 'one-level' : 'recursive'),
         output_dir: fv.outputDir,
         pipeline_mode: fv.pipelineMode,
         device: fv.gpuMode === 'enabled' ? 'cuda' : 'cpu',

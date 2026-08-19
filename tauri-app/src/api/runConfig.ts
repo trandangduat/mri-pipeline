@@ -20,6 +20,7 @@ export interface PipelineFormValues {
   password: string;
   licensePath?: string;
   batchImageCount?: number;
+  batchScanMode?: string;
   nonRecursive?: boolean;
   neuroflowEnabled?: boolean;
   neuroflowMaxConcurrentTasks?: number;

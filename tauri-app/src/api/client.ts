@@ -210,6 +210,7 @@ export class BackendClient {
     const decoder = new TextDecoder();
     let buffer = '';
     try {
+      let isComplete = false;
       while (true) {
         const {done, value} = await reader.read();
         if (done) break;
@@ -219,20 +220,33 @@ export class BackendClient {
         let currentEvent = '';
         for (const line of lines) {
           if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7);
+            currentEvent = line.slice(7).trim();
           } else if (line.startsWith('data: ') && currentEvent) {
             try {
               const data = JSON.parse(line.slice(6));
-              onEvent(currentEvent, data);
+              const ev = currentEvent;
               currentEvent = '';
+              onEvent(ev, data);
+              if (ev === 'complete') {
+                isComplete = true;
+                break;
+              }
             } catch {
               // skip malformed JSON
             }
           }
         }
+        if (isComplete) break;
       }
     } catch (err) {
       onError((err as Error).message || 'Stream error');
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore reader cancellation errors
+      }
+      reader.releaseLock();
     }
   }
 

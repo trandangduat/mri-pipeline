@@ -368,6 +368,8 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+        finally:
+            self.close_connection = True
 
     def _handle_remote_download_stream(self, payload: dict[str, JsonValue]) -> None:
         self._write_sse_headers()
@@ -388,6 +390,8 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+        finally:
+            self.close_connection = True
 
     def _handle_tools_pull_stream(self, image: str) -> None:
         self._write_sse_headers()
@@ -413,6 +417,8 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_sse_event("step", {"step": "pull", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+        finally:
+            self.close_connection = True
 
     def _write_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")

@@ -326,3 +326,38 @@ test('buildRunConfig maps pipeline input source and multi-file paths', () => {
   expect(config.input_path).toBe('/data/a.nii.gz');
   expect(config.input_paths).toEqual(['/data/a.nii.gz', '/data/b.nii.gz', '/data/c.nii.gz']);
 });
+
+test('startPipelineStream resolves on complete event without hanging', async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('event: step\ndata: {"step":"init","status":"done"}\n\n'));
+      controller.enqueue(encoder.encode('event: complete\ndata: {"ok":true,"job":{"job_id":"j1"}}\n\n'));
+    },
+  });
+
+  const client = new BackendClient('http://backend', async () => {
+    return {
+      ok: true,
+      body: stream,
+    } as unknown as Response;
+  });
+
+  const events: Array<{event: string; data: Record<string, unknown>}> = [];
+  let errorMsg = '';
+  await client.startPipelineStream(
+    '/jobs/local/start/stream',
+    {},
+    (event, data) => events.push({event, data}),
+    (err) => {
+      errorMsg = err;
+    },
+  );
+
+  expect(errorMsg).toBe('');
+  expect(events).toEqual([
+    {event: 'step', data: {step: 'init', status: 'done'}},
+    {event: 'complete', data: {ok: true, job: {job_id: 'j1'}}},
+  ]);
+});
+
