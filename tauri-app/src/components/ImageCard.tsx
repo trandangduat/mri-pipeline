@@ -26,7 +26,7 @@ export function InstalledImageCard({
   const extraCount = toolDetails.length - maxToolChips;
 
   return (
-    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-white p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
+    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
       {/* Header: Icon + Repo name + Tag */}
       <div className="mb-2 flex items-center gap-2">
         <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-success/10">
@@ -143,7 +143,7 @@ export function MissingImageCard({
   const extraCount = toolDetails.length - maxToolChips;
 
   return (
-    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-white p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
+    <div className="flex flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
       {/* Header: Icon + Repo name + Tag */}
       <div className="mb-2 flex items-center gap-2">
         <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-error/10">

@@ -34,7 +34,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
         if (e.target === e.currentTarget && complete) onClose();
       }}
     >
-      <div className="relative w-full max-w-[26rem] rounded-lg border border-cursor-hairline bg-white p-4 shadow-none">
+      <div className="relative w-full max-w-[26rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <h3 className="m-0 mb-3 text-base font-semibold leading-[1.3] text-cursor-ink">
           {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
         </h3>
@@ -73,7 +73,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
         {complete && (
           <div className="mt-3.5 flex justify-end">
             <button
-              className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+              className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               onClick={onClose}
             >
               {success ? 'View Jobs' : 'Close'}

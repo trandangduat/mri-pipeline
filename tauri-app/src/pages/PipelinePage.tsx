@@ -208,7 +208,7 @@ export function PipelineStepsSection() {
             return (
               <div
                 key={stage.id}
-                className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-white'}`}
+                className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-cursor-surface-card'}`}
               >
                 <div className="flex min-h-8 items-center">
                   <strong className={`font-medium text-xs leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
@@ -349,7 +349,7 @@ export function StatsAtlasSection() {
                     setAtlasPickerStatKey(statKey);
                     setAtlasSearch('');
                   }}
-                  className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-primary hover:text-cursor-primary hover:bg-cursor-canvas-soft active:scale-[0.98]"
+                  className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-primary hover:text-cursor-primary hover:bg-cursor-canvas-soft active:scale-[0.98]"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add Atlas</span>
@@ -362,7 +362,7 @@ export function StatsAtlasSection() {
                       return (
                         <span
                           key={atlasKey}
-                          className="group/chip inline-flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-white py-0.5 pl-2.5 pr-1 text-xs font-medium text-cursor-ink transition-all hover:border-cursor-hairline-strong shadow-2xs"
+                          className="group/chip inline-flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-surface-card py-0.5 pl-2.5 pr-1 text-xs font-medium text-cursor-ink transition-all hover:border-cursor-hairline-strong shadow-2xs"
                         >
                           <span className="truncate max-w-[20rem]">{atlas.label || atlas.key}</span>
                           <button
@@ -442,7 +442,7 @@ export function StatsAtlasSection() {
                   onChange={(e) => setAtlasSearch(e.target.value)}
                   placeholder="Search atlases..."
                   autoFocus
-                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft h-8 px-2.5 pl-8 pr-8 text-sm text-cursor-ink placeholder:text-cursor-muted focus:border-cursor-primary focus:bg-white focus:outline-none focus:ring-1 focus:ring-cursor-primary transition-all"
+                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft h-8 px-2.5 pl-8 pr-8 text-sm text-cursor-ink placeholder:text-cursor-muted focus:border-cursor-primary focus:bg-cursor-surface-card focus:outline-none focus:ring-1 focus:ring-cursor-primary transition-all"
                 />
                 {atlasSearch && (
                   <button
@@ -470,7 +470,7 @@ export function StatsAtlasSection() {
                         className={`group flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
                           isSelected
                             ? 'border-cursor-primary/50 bg-cursor-primary/[0.04] text-cursor-ink hover:bg-cursor-primary/[0.08]'
-                            : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
+                            : 'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -478,7 +478,7 @@ export function StatsAtlasSection() {
                             className={`flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded transition-colors ${
                               isSelected
                                 ? 'bg-cursor-primary text-white'
-                                : 'border border-cursor-hairline-strong bg-white group-hover:border-cursor-primary'
+                                : 'border border-cursor-hairline-strong bg-cursor-surface-card group-hover:border-cursor-primary'
                             }`}
                           >
                             {isSelected ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
@@ -499,7 +499,7 @@ export function StatsAtlasSection() {
                               Selected
                             </span>
                           ) : (
-                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-medium text-cursor-body transition-opacity">
+                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-medium text-cursor-body transition-opacity">
                               + Select
                             </span>
                           )}
@@ -624,7 +624,7 @@ function ModalOverlay({onClose, children}: {onClose: () => void; children: React
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-white p-4 shadow-none">
+      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         {children}
       </div>
     </div>
@@ -666,7 +666,7 @@ function WideModalOverlay({onClose, children}: {onClose: () => void; children: R
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-white shadow-none">
+      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-cursor-surface-card shadow-none">
         {children}
       </div>
     </div>
@@ -771,7 +771,7 @@ function ServerBrowserModal({
             type="button"
             onClick={() => doBrowse(manualPath)}
             disabled={isLoading}
-            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-white px-3 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
           >
             Go
           </button>
@@ -785,7 +785,7 @@ function ServerBrowserModal({
           <button
             type="button"
             onClick={() => doBrowse(parentPath)}
-            className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs text-cursor-primary hover:bg-white"
+            className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs text-cursor-primary hover:bg-cursor-surface-card"
           >
             <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide text-cursor-muted">
               UP
@@ -822,7 +822,7 @@ function ServerBrowserModal({
                 if (selectMode === 'path') setManualPath(entry.path);
                 doBrowse(entry.path);
               }}
-              className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-white"
+              className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-cursor-surface-card"
             >
               <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded bg-cursor-primary/10 text-2xs font-semibold uppercase tracking-wide text-cursor-primary">
                 DIR
@@ -1115,7 +1115,7 @@ function BatchConfigModal({
               type="button"
               onClick={() => doScan(scanMode, true)}
               disabled={scanPending}
-              className="rounded-md border border-cursor-hairline bg-white px-2.5 py-1 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               Re-scan
             </button>
@@ -1133,7 +1133,7 @@ function BatchConfigModal({
                 className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
                   scanMode === opt.value
                     ? 'border-cursor-primary bg-cursor-primary text-white'
-                    : 'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong'
+                    : 'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong'
                 }`}
               >
                 {opt.label}
@@ -1170,7 +1170,7 @@ function BatchConfigModal({
                 tabIndex={0}
                 onClick={() => togglePath(entry.path)}
                 onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePath(entry.path); } }}
-                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-1.5 hover:bg-white"
+                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-1.5 hover:bg-cursor-surface-card"
                 style={{gridTemplateColumns: '1.5rem minmax(9rem,1.8fr) minmax(4rem,0.7fr) minmax(12rem,3fr) 4rem'}}
               >
                 <input
@@ -1313,7 +1313,7 @@ function PathField({
           type="button"
           onClick={onBrowse}
           title="Browse"
-          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
         >
           Browse
         </button>
@@ -1347,7 +1347,7 @@ function RadioGroup({
           className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
             value === opt.value
               ? 'border-cursor-primary bg-cursor-canvas-soft'
-              : 'border-cursor-hairline bg-white hover:border-cursor-hairline-strong'
+              : 'border-cursor-hairline bg-cursor-surface-card hover:border-cursor-hairline-strong'
           } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
         >
           <input
@@ -1608,7 +1608,7 @@ export function InputOutputSection() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerInputModal(false)}
           >
-            <div className="rounded-xl border border-cursor-hairline bg-white p-4 max-w-sm w-full">
+            <div className="rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 max-w-sm w-full">
               <h3 className="m-0 mb-2 text-sm font-semibold text-cursor-ink">SSH not connected</h3>
               <p className="text-xs text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
               <div className="mt-3 flex justify-end">
@@ -1638,7 +1638,7 @@ export function InputOutputSection() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerOutputModal(false)}
           >
-            <div className="rounded-xl border border-cursor-hairline bg-white p-4 max-w-sm w-full">
+            <div className="rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 max-w-sm w-full">
               <h3 className="m-0 mb-2 text-sm font-semibold text-cursor-ink">SSH not connected</h3>
               <p className="text-xs text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
               <div className="mt-3 flex justify-end">

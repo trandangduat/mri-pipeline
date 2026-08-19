@@ -20,7 +20,7 @@ function ImageStatusSkeletonGrid() {
   return (
     <div className={GRID_CLASSES}>
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="rounded-xl border border-cursor-hairline bg-white p-4.5 min-h-[220px]">
+        <div key={i} className="rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4.5 min-h-[220px]">
           <div className="flex items-center gap-3">
             <Skeleton className="h-9 w-9 rounded-lg" />
             <div className="flex-1">
@@ -200,7 +200,7 @@ export function ToolsPage() {
           </div>
 
           <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))]">
-            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-primary/10">
                 <Cpu className="h-4 w-4 text-cursor-primary" />
               </div>
@@ -212,7 +212,7 @@ export function ToolsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-semantic-success/10">
                 {python.ok ? <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" /> : <XCircle className="h-4 w-4 text-cursor-semantic-error" />}
               </div>
@@ -229,7 +229,7 @@ export function ToolsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-white p-3">
+            <div className="flex items-center gap-2.5 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-semantic-success/10">
                 {docker.ok ? <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" /> : <XCircle className="h-4 w-4 text-cursor-semantic-error" />}
               </div>
@@ -340,7 +340,7 @@ export function ToolsPage() {
                   <span className="text-xs text-cursor-semantic-error">{pullStream.error}</span>
                 )}
               </div>
-              <pre className="max-h-28 overflow-auto rounded border border-cursor-hairline-soft bg-white p-1.5 font-mono text-2xs leading-relaxed text-cursor-body">
+              <pre className="max-h-28 overflow-auto rounded border border-cursor-hairline-soft bg-cursor-surface-card p-1.5 font-mono text-2xs leading-relaxed text-cursor-body">
                 {pullStream.logs.slice(-10).join('\n')}
               </pre>
               {(pullStream.status === 'success' || pullStream.status === 'failed') && (

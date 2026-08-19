@@ -4,7 +4,7 @@ import {BUTTON, inputCls, labelCls, statusDotClasses, statusPillClasses} from '.
 test('BUTTON.variants produce distinct class strings', () => {
   expect(BUTTON.primary).not.toBe(BUTTON.ghost);
   expect(BUTTON.primary).toMatch(/bg-cursor-primary/);
-  expect(BUTTON.ghost).toMatch(/bg-white/);
+  expect(BUTTON.ghost).toMatch(/bg-cursor-surface-card/);
   expect(BUTTON.danger).toMatch(/bg-cursor-semantic-error/);
 });
 

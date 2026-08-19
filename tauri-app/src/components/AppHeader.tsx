@@ -12,6 +12,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import {Button} from './ui';
+import {ThemeToggle} from './ThemeToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient} from '../query/useEnvironment';
@@ -215,19 +216,19 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         : 'Start Pipeline';
 
   return (
-    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-white">
+    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card">
       {/* Top Bar: Brand & Action Buttons */}
       <div className="flex h-12 items-center justify-between px-4">
-        {/* Brand Logo & Title */}
+        {/* Brand Logo, Title & Theme Toggle */}
         <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-primary text-white">
             <BrainCircuit className="h-4 w-4" />
           </div>
-          <div className="flex flex-col">
-            <strong className="text-base font-semibold leading-tight tracking-tight text-cursor-ink">
-              NeuroFlow
-            </strong>
-            <span className="text-2xs font-mono text-cursor-body leading-tight">MRI Pipeline</span>
+          <strong className="text-base font-semibold leading-tight tracking-tight text-cursor-ink">
+            NeuroFlow
+          </strong>
+          <div className="ml-1 flex items-center">
+            <ThemeToggle />
           </div>
         </div>
 

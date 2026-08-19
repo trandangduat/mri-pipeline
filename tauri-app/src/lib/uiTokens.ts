@@ -7,12 +7,12 @@ export const BUTTON = {
     'border-cursor-primary bg-cursor-primary text-white hover:border-cursor-primary-active hover:bg-cursor-primary-active',
   ink: 'border-cursor-ink bg-cursor-ink text-cursor-canvas hover:bg-cursor-ink',
   ghost:
-    'border-cursor-hairline bg-white text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft',
+    'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft',
   danger: 'border-cursor-semantic-error bg-cursor-semantic-error text-white hover:bg-cursor-semantic-error',
 };
 
 export const inputCls =
-  'h-8 w-full rounded-md border border-cursor-hairline bg-white px-2.5 text-sm font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
+  'h-8 w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-sm font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
 export const labelCls = 'grid gap-1.5 text-xs font-normal leading-[1.3] text-cursor-body';
 
 export function statusPillClasses(state: string | null | undefined): string {

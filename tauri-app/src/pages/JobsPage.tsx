@@ -110,7 +110,7 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           onClick();
         }
       }}
-      className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-white p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <span className={statusDotLargeClasses(normState)} />
@@ -148,7 +148,7 @@ function JobsListView({
   onSelectJob: (jobId: string) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
-  }) {
+}) {
   const sortedJobs = sortJobsByStartedAtDesc(jobs);
   const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
   const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
@@ -170,7 +170,7 @@ function JobsListView({
             size="sm"
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="h-7 px-2 text-xs font-medium border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
+            className="h-7 px-2 text-xs font-medium border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft"
           >
             {isRefreshing ? (
               <>
@@ -726,7 +726,7 @@ export function JobsPage() {
             setSelectedJobId(null);
             navigate('/jobs');
           }}
-          className="h-9 px-3.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-white hover:bg-cursor-canvas-soft"
+          className="h-9 px-3.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft"
         >
           <ArrowLeft className="h-4 w-4 mr-1.5 text-cursor-body" />
           Back to Jobs
@@ -739,7 +739,7 @@ export function JobsPage() {
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
         {/* Left: Job Detail Card */}
-        <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5">
+        <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
           {/* Header: Icon + Title + Status Pills */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -808,7 +808,7 @@ export function JobsPage() {
 
         {/* Right: Batch Summary / Actions Card */}
         {job ? (
-          <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5 flex flex-col justify-between">
+          <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-1.5 pb-2 border-b border-cursor-hairline-soft mb-2.5">
                 <Layers className="h-3.5 w-3.5 text-cursor-primary" />
@@ -900,7 +900,7 @@ export function JobsPage() {
               <Button
                 onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
                 disabled={!job || normState !== 'running'}
-                className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-white hover:bg-cursor-semantic-error/5 font-medium text-xs"
+                className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs"
               >
                 <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
               </Button>
@@ -908,7 +908,7 @@ export function JobsPage() {
                 variant="ghost"
                 onClick={handleDownloadClick}
                 disabled={!job || !isTerminal || downloadRunning}
-                className="w-full h-8 border-cursor-hairline text-cursor-body bg-white hover:bg-cursor-canvas-soft font-medium text-xs"
+                className="w-full h-8 border-cursor-hairline text-cursor-body bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs"
               >
                 <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
               </Button>
@@ -921,7 +921,7 @@ export function JobsPage() {
             </div>
           </Card>
         ) : (
-          <Card className="rounded-lg border-cursor-hairline bg-white shadow-none p-3.5 flex items-center justify-center text-cursor-muted text-xs italic">
+          <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5 flex items-center justify-center text-cursor-muted text-xs italic">
             No active batch job
           </Card>
         )}
@@ -929,9 +929,9 @@ export function JobsPage() {
 
       {/* 2. Batch Subjects Card */}
       {job ? (
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-cursor-hairline bg-white p-0 shadow-none">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-cursor-hairline bg-cursor-surface-card p-0 shadow-none">
           {/* Header */}
-          <div className="border-b border-cursor-hairline bg-white px-3.5 py-2 flex-none">
+          <div className="border-b border-cursor-hairline bg-cursor-surface-card px-3.5 py-2 flex-none">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Layers className="h-3.5 w-3.5 text-cursor-primary flex-none" />
@@ -943,7 +943,7 @@ export function JobsPage() {
                   onClick={() => setSubjectViewMode('grid')}
                   className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
                     subjectViewMode === 'grid'
-                      ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
+                      ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
                   }`}
                   aria-label="Grid view"
@@ -955,7 +955,7 @@ export function JobsPage() {
                   onClick={() => setSubjectViewMode('list')}
                   className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
                     subjectViewMode === 'list'
-                      ? 'border-cursor-hairline-strong bg-white text-cursor-ink'
+                      ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
                   }`}
                   aria-label="List view"
@@ -967,7 +967,7 @@ export function JobsPage() {
           </div>
 
           {/* Interior: Search + Filter + Grid */}
-          <div className="flex min-h-0 flex-1 flex-col bg-white p-3 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col bg-cursor-surface-card p-3 overflow-hidden">
             {/* Search & Filter Toolbar */}
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 flex-none">
               <label className="relative m-0 block w-[min(18rem,100%)]">
@@ -990,7 +990,7 @@ export function JobsPage() {
                       onClick={() => setSubjectStatusFilter(st)}
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer capitalize border ${
                         subjectStatusFilter === st
-                          ? 'border-cursor-hairline-strong bg-white text-cursor-ink font-semibold'
+                          ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink font-semibold'
                           : 'border-transparent text-cursor-body hover:text-cursor-ink'
                       }`}
                     >
@@ -1010,7 +1010,7 @@ export function JobsPage() {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="rounded-lg border border-cursor-hairline bg-white p-3">
+                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
                               <div className="flex items-start gap-2.5">
                                 <Skeleton className="h-7 w-7 rounded-md flex-none" />
                                 <div className="flex-1 space-y-1.5">
@@ -1028,7 +1028,7 @@ export function JobsPage() {
                       );
                     }
                     return (
-                      <div className="col-span-full flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-white p-5 text-center">
+                      <div className="col-span-full flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-cursor-surface-card p-5 text-center">
                         <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
                         <h4 className="m-0 text-sm font-semibold text-cursor-ink mb-0.5">
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
@@ -1046,7 +1046,7 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col rounded-lg border border-cursor-hairline bg-white p-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
+                        className="group flex cursor-pointer flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
                         <div className="flex items-start gap-2.5 min-w-0">
                           <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
@@ -1091,7 +1091,7 @@ export function JobsPage() {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-white px-3 py-2">
+                            <div key={i} className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2">
                               <Skeleton className="h-7 w-7 rounded-md flex-none" />
                               <div className="flex-1 space-y-1">
                                 <Skeleton className="h-2.5 w-14" />
@@ -1104,7 +1104,7 @@ export function JobsPage() {
                       );
                     }
                     return (
-                      <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-white p-5 text-center">
+                      <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-cursor-surface-card p-5 text-center">
                         <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
                         <h4 className="m-0 text-sm font-semibold text-cursor-ink mb-0.5">
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
@@ -1122,7 +1122,7 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-white px-3 py-2 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
+                        className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
                         <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
                           <BrainCircuit className="h-3 w-3" />
@@ -1158,7 +1158,7 @@ export function JobsPage() {
           </div>
         </Card>
       ) : (
-        <Card className="p-6 text-center text-cursor-body bg-white border-cursor-hairline rounded-lg shadow-none">
+        <Card className="p-6 text-center text-cursor-body bg-cursor-surface-card border-cursor-hairline rounded-lg shadow-none">
           <BrainCircuit className="mx-auto mb-2 h-6 w-6 text-cursor-muted" />
           <h3 className="m-0 text-sm font-semibold text-cursor-ink mb-1">No Job Selected</h3>
           <p className="m-0 text-xs text-cursor-muted max-w-sm mx-auto mb-3">
@@ -1190,20 +1190,20 @@ export function JobsPage() {
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-cursor-hairline px-4 py-3 bg-cursor-canvas flex-none">
               <div className="flex items-center gap-3 min-w-0">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   #{modalSubject.idx}
                 </span>
                 <div className="flex flex-col min-w-0 gap-0.5">
                   <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
-                  <span className="inline-block max-w-md truncate rounded bg-white border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body" title={modalSubject.input_file}>
+                  <span className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body" title={modalSubject.input_file}>
                     {modalSubject.input_file}
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   {completedModalStages}/{totalModalStages} stages
                 </span>
                 <StatusPill state={modalSubject.status}>{modalSubject.status.toUpperCase()}</StatusPill>
@@ -1221,12 +1221,12 @@ export function JobsPage() {
             {/* Modal Body: Two-Column Grid */}
             <div className="grid flex-1 min-h-0 gap-3 overflow-hidden p-3.5 bg-cursor-canvas grid-cols-[minmax(0,1.65fr)_minmax(380px,0.85fr)]">
               {/* Left Column: Pipeline Stages */}
-              <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none min-h-0 flex flex-col overflow-hidden">
+              <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none min-h-0 flex flex-col overflow-hidden">
                 <div className="p-0 pb-2 flex flex-row items-start justify-between border-b border-cursor-hairline-soft mb-2.5 flex-none">
                   <div className="flex flex-col min-w-0">
                     <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">Stage Timeline</h3>
                   </div>
-                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
+                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
                     {completedModalStages}/{totalModalStages} complete
                   </span>
                 </div>
@@ -1242,7 +1242,7 @@ export function JobsPage() {
               {/* Right Column: Stacked Cards */}
               <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
                 {/* Run Telemetry */}
-                <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-none">
+                <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-none">
                   <div className="p-0 pb-2 flex flex-row items-center justify-between">
                     <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Run Telemetry</h3>
                     <span className="text-xs text-cursor-muted">events.jsonl metrics</span>
@@ -1254,13 +1254,13 @@ export function JobsPage() {
                     </div>
                     <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
                       <span>GPU Usage: Not reported (CPU Mode)</span>
-                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-white px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
+                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Operator Console Log */}
-                <div className="bg-white border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-1 min-h-0 flex flex-col">
+                <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-1 min-h-0 flex flex-col">
                   <div className="p-0 pb-2 flex-none">
                     <div className="flex items-center justify-between mb-1.5">
                       <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Operator Console Log</h3>
@@ -1288,7 +1288,7 @@ export function JobsPage() {
                           placeholder="Filter..."
                           value={jobLogSearch}
                           onChange={(e) => setJobLogSearch(e.target.value)}
-                          className="w-full rounded-md border border-cursor-hairline bg-white px-2.5 py-1 pr-7 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-7"
+                          className="w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 pr-7 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-7"
                         />
                         <Search className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
                       </label>
@@ -1410,7 +1410,7 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
         ? 'border-cursor-semantic-error/20 bg-cursor-canvas-soft'
         : isSkipped
           ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 opacity-60'
-          : 'border-cursor-hairline bg-white';
+          : 'border-cursor-hairline bg-cursor-surface-card';
 
   const dotClass =
     step?.status === 'success'
@@ -1421,7 +1421,7 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
           ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/15'
           : isSkipped
             ? 'bg-cursor-hairline-strong'
-            : 'bg-white border-2 border-cursor-muted-soft';
+            : 'bg-cursor-surface-card border-2 border-cursor-muted-soft';
 
   const displayTool = step?.tool ? (toolDisplayNames[step.tool] || step.tool) : '';
   const toolLabel = isSkipped ? 'Not available' : displayTool || 'Not available';

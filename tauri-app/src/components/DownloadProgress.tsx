@@ -54,7 +54,7 @@ export function DownloadProgress({image, state, onClear}: DownloadProgressProps)
       {expanded && state.logs.length > 0 && (
         <pre
           ref={logRef}
-          className="mt-1.5 max-h-40 overflow-auto rounded border border-cursor-hairline-soft bg-white p-2 font-mono text-2xs leading-relaxed text-cursor-body"
+          className="mt-1.5 max-h-40 overflow-auto rounded border border-cursor-hairline-soft bg-cursor-surface-card p-2 font-mono text-2xs leading-relaxed text-cursor-body"
         >
           {state.logs.join('\n')}
         </pre>

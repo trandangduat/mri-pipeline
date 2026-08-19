@@ -44,11 +44,11 @@ function renderHeader(props: {
   );
 }
 
-test('renders brand title and subtitle', () => {
+test('renders brand title and theme toggle switch', () => {
   renderHeader();
 
   expect(screen.getByText('NeuroFlow')).toBeInTheDocument();
-  expect(screen.getByText('MRI Pipeline')).toBeInTheDocument();
+  expect(screen.getByRole('button', {name: /Switch to (Dark|Light) Mode/i})).toBeInTheDocument();
 });
 
 test('renders all 3 horizontal tabs with jobs count badge', () => {

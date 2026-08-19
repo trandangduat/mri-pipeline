@@ -75,7 +75,7 @@ export function DownloadOutputsDialog({
         if (e.target === e.currentTarget && canClose) onClose();
       }}
     >
-      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-white p-4 shadow-none">
+      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <h3 className="m-0 mb-0.5 text-base font-semibold leading-[1.3] text-cursor-ink">{title}</h3>
         <p className="m-0 mb-3 text-xs text-cursor-muted">Remote job: <span className="font-mono">{jobId}</span></p>
 
@@ -95,12 +95,12 @@ export function DownloadOutputsDialog({
                   value={localDir}
                   onChange={(e) => onLocalDirChange(e.target.value)}
                   placeholder="Select or type a local folder..."
-                  className="flex-1 rounded-md border border-cursor-hairline bg-white px-2.5 py-1 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8 font-mono"
+                  className="flex-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8 font-mono"
                 />
                 <button
                   type="button"
                   onClick={onBrowse}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-cursor-hairline bg-white px-2.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer"
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   Browse
@@ -118,7 +118,7 @@ export function DownloadOutputsDialog({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -236,7 +236,7 @@ export function DownloadOutputsDialog({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-cursor-hairline bg-white px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Close
               </button>

@@ -208,7 +208,7 @@ export function RuntimeSection() {
 
       {/* 2. SSH Server Section (when Runtime Target is Server) */}
       {formValues.runtimeTarget === 'Server' && (
-        <div id="sshBox" className="mt-3 rounded-lg border border-cursor-hairline bg-white p-3">
+        <div id="sshBox" className="mt-3 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
           <div className="mb-2.5 flex items-center justify-between border-b border-cursor-hairline-soft pb-2">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-cursor-ink">
               <ServerCog className="h-4 w-4 text-cursor-primary" />
