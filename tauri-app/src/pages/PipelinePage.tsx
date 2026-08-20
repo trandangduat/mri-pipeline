@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, ChevronDown, ChevronRight, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
@@ -570,16 +570,16 @@ function InfoTooltip({content}: {content: React.ReactNode}) {
 export function AdvancedSettingsSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
+  const isCustomMode = formValues.pipelineMode === 'Custom';
   const neuroflowEnabled = formValues.neuroflowEnabled !== undefined ? Boolean(formValues.neuroflowEnabled) : true;
   const neuroflowWarmupEnabled = Boolean(formValues.neuroflowWarmupEnabled);
-  const [showAdvancedDetails, setShowAdvancedDetails] = React.useState(false);
 
   return (
     <Panel
       icon={<SlidersHorizontal className="h-4 w-4 text-cursor-primary" />}
       title="Advanced Settings"
       titleRight={
-        neuroflowEnabled ? (
+        neuroflowEnabled && !isCustomMode ? (
           <span className="rounded-full bg-cursor-primary/10 px-2 py-0.5 text-2xs font-semibold text-cursor-primary uppercase tracking-wide">
             Adaptive DAG
           </span>
@@ -589,30 +589,32 @@ export function AdvancedSettingsSection() {
     >
       <TooltipProvider>
         <div className="grid gap-3">
-          {/* Master Toggle Card */}
-          <div className="rounded-lg border border-cursor-hairline bg-cursor-canvas-soft/40 p-3">
-            <label className="flex cursor-pointer items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={neuroflowEnabled}
-                  onChange={(e) => setFormField('neuroflowEnabled', e.target.checked)}
-                  className="h-4 w-4 accent-cursor-primary cursor-pointer"
-                />
-                <span className="text-sm font-medium text-cursor-ink">Enable NeuroFLOW Dynamic Scheduler</span>
-                <InfoTooltip content="Optimizes multi-subject pipeline runs with adaptive concurrency, memory forecasting, and automatic fault recovery." />
-              </div>
+          <div>
+            <label className={`flex cursor-pointer items-center gap-2 ${isCustomMode ? 'cursor-not-allowed' : ''}`}>
+              <input
+                type="checkbox"
+                checked={neuroflowEnabled && !isCustomMode}
+                disabled={isCustomMode}
+                onChange={(e) => setFormField('neuroflowEnabled', e.target.checked)}
+                className="h-4 w-4 accent-cursor-primary cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="text-sm font-medium text-cursor-ink">Use NeuroFLOW scheduler</span>
+              <InfoTooltip content="Optimizes multi-subject pipeline runs with adaptive concurrency, memory forecasting, and automatic fault recovery." />
             </label>
+            {isCustomMode && (
+              <p className="mt-2 text-xs text-cursor-muted">
+                NeuroFLOW is available for built-in FreeSurfer/FastSurfer presets. Custom mode uses the standard runner.
+              </p>
+            )}
           </div>
 
-          {neuroflowEnabled && (
+          {neuroflowEnabled && !isCustomMode && (
             <div className="grid gap-3">
-              {/* Core Scheduling Group */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className={labelCls}>
                   <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
                     <Zap className="h-3.5 w-3.5 text-cursor-primary" />
-                    Max Concurrent Tasks
+                    Max parallel tasks
                     <InfoTooltip content="Maximum number of parallel pipeline stages running simultaneously across all subjects." />
                   </span>
                   <input
@@ -623,6 +625,22 @@ export function AdvancedSettingsSection() {
                     onChange={(e) => setFormField('neuroflowMaxConcurrentTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
                     className={inputCls}
                   />
+                  {Number(formValues.neuroflowMaxConcurrentTasks) === 1 && (
+                    <span className="text-xs text-cursor-muted">
+                      Loaded from workspace. Use 2 or more for parallel scheduling.
+                    </span>
+                  )}
+                </label>
+
+                <label className="flex min-h-8 cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={neuroflowWarmupEnabled}
+                    onChange={(e) => setFormField('neuroflowWarmupEnabled', e.target.checked)}
+                    className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-cursor-ink">Start safely, then scale up</span>
+                  <InfoTooltip content="Starts execution conservatively with fewer parallel tasks, then automatically scales up concurrency after initial stages complete without memory pressure." />
                 </label>
 
                 <label className={labelCls}>
@@ -641,23 +659,42 @@ export function AdvancedSettingsSection() {
                     className={inputCls}
                   />
                 </label>
-              </div>
 
-              {/* Safe Warm-up Card */}
-              <div className="rounded-lg border border-cursor-hairline bg-cursor-canvas-soft/30 p-3">
-                <label className="flex cursor-pointer items-center gap-2">
+                <label className={labelCls}>
+                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
+                    <Gauge className="h-3.5 w-3.5 text-cursor-primary" />
+                    Scheduling risk
+                    <InfoTooltip content="Controls resource prediction margins. Balanced (90th percentile), Conservative (95th percentile - maximizes safety against OOM), Aggressive (75th percentile - maximizes task density)." />
+                  </span>
+                  <select
+                    value={formValues.neuroflowEstimationMode ?? 'balanced'}
+                    onChange={(e) => setFormField('neuroflowEstimationMode', e.target.value as 'balanced' | 'conservative' | 'aggressive')}
+                    className={inputCls}
+                  >
+                    <option value="balanced">Balanced (90th percentile - Standard)</option>
+                    <option value="conservative">Conservative (95th percentile - Safe RAM)</option>
+                    <option value="aggressive">Aggressive (75th percentile - Max packing)</option>
+                  </select>
+                </label>
+
+                <label className={labelCls}>
+                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
+                    <HardDrive className="h-3.5 w-3.5 text-cursor-primary" />
+                    Max I/O-Heavy Tasks
+                    <InfoTooltip content="Limits concurrent disk-intensive operations (such as volume reconstruction or file decompression) to prevent disk I/O bottlenecks." />
+                  </span>
                   <input
-                    type="checkbox"
-                    checked={neuroflowWarmupEnabled}
-                    onChange={(e) => setFormField('neuroflowWarmupEnabled', e.target.checked)}
-                    className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={formValues.neuroflowMaxIoHeavyTasks ?? 2}
+                    onChange={(e) => setFormField('neuroflowMaxIoHeavyTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className={inputCls}
                   />
-                  <span className="text-xs font-medium text-cursor-ink">Safe Warm-up Mode (Adaptive Scaling)</span>
-                  <InfoTooltip content="Starts execution conservatively with fewer parallel tasks, then automatically scales up concurrency after initial stages complete without memory pressure." />
                 </label>
 
                 {neuroflowWarmupEnabled && (
-                  <div className="mt-2.5 grid grid-cols-2 gap-3 pl-5 pt-2 border-t border-cursor-hairline/60">
+                  <>
                     <label className={labelCls}>
                       <span className="flex items-center gap-1 text-xs text-cursor-ink">
                         Initial Concurrency
@@ -675,7 +712,7 @@ export function AdvancedSettingsSection() {
 
                     <label className={labelCls}>
                       <span className="flex items-center gap-1 text-xs text-cursor-ink">
-                        Successes to Scale Up
+                        Successful tasks before scaling
                         <InfoTooltip content="Number of consecutive stable stage completions required before increasing concurrency." />
                       </span>
                       <input
@@ -687,89 +724,35 @@ export function AdvancedSettingsSection() {
                         className={inputCls}
                       />
                     </label>
-                  </div>
+                  </>
                 )}
               </div>
 
-              {/* Advanced Toggle / Collapsible */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedDetails(!showAdvancedDetails)}
-                  className="flex items-center gap-1.5 text-xs font-medium text-cursor-primary hover:text-cursor-primary-active transition-colors cursor-pointer"
-                >
-                  {showAdvancedDetails ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                  {showAdvancedDetails ? 'Hide Tuning & Safeguards' : 'Show Tuning & Safeguards (Memory, I/O, Profile)'}
-                </button>
+              <label className={labelCls}>
+                <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
+                  <Cpu className="h-3.5 w-3.5 text-cursor-primary" />
+                  Machine Profile Identifier
+                  <InfoTooltip content="Hardware benchmark profile ID (e.g. application_default, workstation_32c) used to calibrate runtime and memory priors." />
+                </span>
+                <input
+                  type="text"
+                  value={formValues.neuroflowMachineProfileId ?? 'application_default'}
+                  onChange={(e) => setFormField('neuroflowMachineProfileId', e.target.value)}
+                  placeholder="application_default"
+                  className={inputCls}
+                />
+              </label>
 
-                {showAdvancedDetails && (
-                  <div className="mt-2.5 grid gap-3 rounded-lg border border-cursor-hairline bg-cursor-canvas-soft/30 p-3">
-                    {/* Memory & Estimation */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className={labelCls}>
-                        <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                          <Gauge className="h-3.5 w-3.5 text-cursor-primary" />
-                          Estimation Risk Profile
-                          <InfoTooltip content="Controls resource prediction margins. Balanced (90th percentile), Conservative (95th percentile - maximizes safety against OOM), Aggressive (75th percentile - maximizes task density)." />
-                        </span>
-                        <select
-                          value={formValues.neuroflowEstimationMode ?? 'balanced'}
-                          onChange={(e) => setFormField('neuroflowEstimationMode', e.target.value as 'balanced' | 'conservative' | 'aggressive')}
-                          className={inputCls}
-                        >
-                          <option value="balanced">Balanced (90th percentile - Standard)</option>
-                          <option value="conservative">Conservative (95th percentile - Safe RAM)</option>
-                          <option value="aggressive">Aggressive (75th percentile - Max packing)</option>
-                        </select>
-                      </label>
-
-                      <label className={labelCls}>
-                        <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                          <HardDrive className="h-3.5 w-3.5 text-cursor-primary" />
-                          Max I/O-Heavy Tasks
-                          <InfoTooltip content="Limits concurrent disk-intensive operations (such as volume reconstruction or file decompression) to prevent disk I/O bottlenecks." />
-                        </span>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={formValues.neuroflowMaxIoHeavyTasks ?? 2}
-                          onChange={(e) => setFormField('neuroflowMaxIoHeavyTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                          className={inputCls}
-                        />
-                      </label>
-                    </div>
-
-                    {/* Machine Profile */}
-                    <label className={labelCls}>
-                      <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                        <Cpu className="h-3.5 w-3.5 text-cursor-primary" />
-                        Machine Profile Identifier
-                        <InfoTooltip content="Hardware benchmark profile ID (e.g. application_default, workstation_32c) used to calibrate runtime and memory priors." />
-                      </span>
-                      <input
-                        type="text"
-                        value={formValues.neuroflowMachineProfileId ?? 'application_default'}
-                        onChange={(e) => setFormField('neuroflowMachineProfileId', e.target.value)}
-                        placeholder="application_default"
-                        className={inputCls}
-                      />
-                    </label>
-
-                    {/* OOM Protection Checkbox */}
-                    <label className="flex cursor-pointer items-center gap-2 pt-1 border-t border-cursor-hairline/60">
-                      <input
-                        type="checkbox"
-                        checked={formValues.neuroflowPreserveOomBounds !== undefined ? Boolean(formValues.neuroflowPreserveOomBounds) : true}
-                        onChange={(e) => setFormField('neuroflowPreserveOomBounds', e.target.checked)}
-                        className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
-                      />
-                      <span className="text-xs font-medium text-cursor-ink">Preserve OOM Memory Bounds</span>
-                      <InfoTooltip content="Remembers peak RAM thresholds if a container crashes due to Out-Of-Memory (OOM exit code 137) to automatically grant higher memory limits on subsequent retries." />
-                    </label>
-                  </div>
-                )}
-              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={formValues.neuroflowPreserveOomBounds !== undefined ? Boolean(formValues.neuroflowPreserveOomBounds) : true}
+                  onChange={(e) => setFormField('neuroflowPreserveOomBounds', e.target.checked)}
+                  className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
+                />
+                <span className="text-xs font-medium text-cursor-ink">Remember memory failures</span>
+                <InfoTooltip content="Remembers peak RAM thresholds if a container crashes due to Out-Of-Memory (OOM exit code 137) to automatically grant higher memory limits on subsequent retries." />
+              </label>
             </div>
           )}
         </div>
