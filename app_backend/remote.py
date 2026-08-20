@@ -275,10 +275,16 @@ class RemoteJobService:
             selected_tools=dict(run_request.get("selected_tools") or {}),
             export_config=dict(run_request.get("export_config") or {}),
             stats_vector_config=dict(run_request.get("stats_vector_config") or {}),
-            recursive=bool(run_request.get("recursive", True)),
             pipeline_mode=str(run_request.get("pipeline_mode", "Custom")),
             neuroflow_enabled=bool(run_request.get("neuroflow_enabled", False)),
-            neuroflow_max_concurrent_tasks=int(run_request.get("neuroflow_max_concurrent_tasks", 1) or 1),
+            neuroflow_max_concurrent_tasks=int(run_request.get("neuroflow_max_concurrent_tasks", 2) or 2),
+            neuroflow_max_retries=int(run_request.get("neuroflow_max_retries", 3) or 3),
+            neuroflow_warmup_enabled=bool(run_request.get("neuroflow_warmup_enabled", False)),
+            neuroflow_warmup_initial_concurrency=int(run_request.get("neuroflow_warmup_initial_concurrency", 1) or 1),
+            neuroflow_warmup_safe_successes=int(run_request.get("neuroflow_warmup_safe_successes", 3) or 3),
+            neuroflow_preserve_oom_bounds=bool(run_request.get("neuroflow_preserve_oom_bounds", True)),
+            neuroflow_estimation_mode=str(run_request.get("neuroflow_estimation_mode", "balanced")),
+            neuroflow_max_io_heavy_tasks=int(run_request.get("neuroflow_max_io_heavy_tasks", 2) or 2),
             neuroflow_machine_profile_id=str(run_request.get("neuroflow_machine_profile_id", "application_default")),
         )
 

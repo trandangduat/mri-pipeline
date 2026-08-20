@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 import logging
 
+import threading
 from .config import PipelineConfig
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class PipelineTracker:
     def __init__(self, logs_dir: str, config: PipelineConfig, subject_dir: str):
         self.logs_dir = logs_dir
         self.state_file = Path(logs_dir) / "pipeline_state.json"
+        self._lock = threading.RLock()
         
         state = self._load() if config.resume else {}
         if not state:
@@ -49,69 +51,75 @@ class PipelineTracker:
             return {}
 
     def _save(self) -> None:
-        self.state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
-        tmp = self.state_file.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self.state, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, self.state_file)
+        with self._lock:
+            self.state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
+            tmp = self.state_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.state, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, self.state_file)
 
     def mark_started(self, selected_tools: list[str]) -> None:
-        self.state["status"] = "running"
-        self.state["selected_tools"] = selected_tools
-        self._save()
+        with self._lock:
+            self.state["status"] = "running"
+            self.state["selected_tools"] = selected_tools
+            self._save()
 
     def mark_paused(self, after_stage: str = "") -> None:
-        self.state["status"] = "PAUSED"
-        if after_stage:
-            self.state["paused_after_stage"] = after_stage
-        self._save()
+        with self._lock:
+            self.state["status"] = "PAUSED"
+            if after_stage:
+                self.state["paused_after_stage"] = after_stage
+            self._save()
 
     def mark_completed(self, success: bool) -> None:
-        self.state["status"] = "SUCCESS" if success else "FAILED"
-        self.state["finished_at"] = datetime.now().isoformat(timespec="seconds")
-        self._save()
-
-
+        with self._lock:
+            self.state["status"] = "SUCCESS" if success else "FAILED"
+            self.state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            self._save()
 
     def mark_stage_running(self, stage: str, tool: str) -> None:
-        stages = self.state.setdefault("stages", {})
-        s_data = stages.setdefault(stage, {})
-        s_data["tool"] = tool
-        s_data["status"] = "running"
-        s_data["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        self._save()
+        with self._lock:
+            stages = self.state.setdefault("stages", {})
+            s_data = stages.setdefault(stage, {})
+            s_data["tool"] = tool
+            s_data["status"] = "running"
+            s_data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self._save()
 
     def mark_stage_completed(self, result: StageResult) -> None:
-        stages = self.state.setdefault("stages", {})
-        s_data = stages.setdefault(result.stage, {})
-        s_data["tool"] = result.tool
-        s_data["status"] = "completed" if result.success else "failed"
-        s_data["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        if result.output_file:
-            s_data["output_file"] = result.output_file
-        if result.outputs_found is not None:
-            s_data["output_files_found"] = result.outputs_found
-        if result.error:
-            s_data["error"] = result.error
-        if result.duration_sec > 0:
-            s_data["duration_sec"] = result.duration_sec
-        self._save()
+        with self._lock:
+            stages = self.state.setdefault("stages", {})
+            s_data = stages.setdefault(result.stage, {})
+            s_data["tool"] = result.tool
+            s_data["status"] = "completed" if result.success else "failed"
+            s_data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            if result.output_file:
+                s_data["output_file"] = result.output_file
+            if result.outputs_found is not None:
+                s_data["output_files_found"] = result.outputs_found
+            if result.error:
+                s_data["error"] = result.error
+            if result.duration_sec > 0:
+                s_data["duration_sec"] = result.duration_sec
+            self._save()
 
     def add_exported_outputs(self, stage: str, exported: list[str], error: str = "") -> None:
-        stages = self.state.setdefault("stages", {})
-        s_data = stages.setdefault(stage, {})
-        s_data["exported_outputs"] = exported
-        if error:
-            s_data["export_error"] = error
-        self._save()
+        with self._lock:
+            stages = self.state.setdefault("stages", {})
+            s_data = stages.setdefault(stage, {})
+            s_data["exported_outputs"] = exported
+            if error:
+                s_data["export_error"] = error
+            self._save()
 
     def set_stats_vectors(self, generated: list[str], warnings: list[str]) -> None:
-        self.state["stats_vectors"] = {
-            "generated": generated,
-            "warnings": warnings
-        }
-        self._save()
+        with self._lock:
+            self.state["stats_vectors"] = {
+                "generated": generated,
+                "warnings": warnings
+            }
+            self._save()
 
     def find_existing_outputs(self, subject_dir: str, possible_names: list[str], possible_globs: list[str] | None = None) -> list[str]:
         found: list[str] = []

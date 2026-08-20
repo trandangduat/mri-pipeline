@@ -102,8 +102,15 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.key_path = (remote.key_path as string) || '';
       nextFormValues.nonRecursive = Boolean(workspace.non_recursive);
       nextFormValues.licensePath = (workspace.license_dir as string) || '';
-      nextFormValues.neuroflowEnabled = Boolean(workspace.neuroflow_enabled);
-      nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 1);
+      nextFormValues.neuroflowEnabled = workspace.neuroflow_enabled !== undefined ? Boolean(workspace.neuroflow_enabled) : true;
+      nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 2);
+      nextFormValues.neuroflowMaxRetries = Math.max(0, (workspace.neuroflow_max_retries as number) ?? 3);
+      nextFormValues.neuroflowWarmupEnabled = Boolean(workspace.neuroflow_warmup_enabled);
+      nextFormValues.neuroflowWarmupInitialConcurrency = Math.max(1, (workspace.neuroflow_warmup_initial_concurrency as number) ?? 1);
+      nextFormValues.neuroflowWarmupSafeSuccesses = Math.max(1, (workspace.neuroflow_warmup_safe_successes as number) ?? 3);
+      nextFormValues.neuroflowPreserveOomBounds = workspace.neuroflow_preserve_oom_bounds !== undefined ? Boolean(workspace.neuroflow_preserve_oom_bounds) : true;
+      nextFormValues.neuroflowEstimationMode = (workspace.neuroflow_estimation_mode as 'balanced' | 'conservative' | 'aggressive') || 'balanced';
+      nextFormValues.neuroflowMaxIoHeavyTasks = Math.max(1, (workspace.neuroflow_max_io_heavy_tasks as number) ?? 2);
       nextFormValues.neuroflowMachineProfileId = (workspace.neuroflow_machine_profile_id as string) || 'application_default';
       if (isCustom) {
         for (const [stage, toolKey] of Object.entries(workspaceTools)) {

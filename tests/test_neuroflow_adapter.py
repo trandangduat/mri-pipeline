@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 import threading
+import time
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -15,8 +16,17 @@ from pipeline.neuroflow_adapter import (
     NEUROFLOW_STAGE_TO_LOCAL_STAGE,
     _neuroflow_config_root,
     _preset_id_from_request,
+    _scheduler_config,
+    is_neuroflow_supported,
     run_neuroflow_batch,
 )
+
+
+def test_is_neuroflow_supported() -> None:
+    assert is_neuroflow_supported({"pipeline_mode": "FreeSurfer 8 + Volume"}) is True
+    assert is_neuroflow_supported({"pipeline_mode": "FastSurfer + Volume"}) is True
+    assert is_neuroflow_supported({"pipeline_mode": "Custom"}) is False
+    assert is_neuroflow_supported({"pipeline_mode": "Custom", "neuroflow_preset": "custom_preset"}) is True
 
 
 def test_preset_id_from_pipeline_mode() -> None:
@@ -73,7 +83,9 @@ def test_freesurfer8_volume_neuroflow_preset_only_schedules_active_volume_stages
 
 
 class _Record:
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        if args:
+            self._args = args
         self.__dict__.update(kwargs)
 
 
@@ -245,3 +257,291 @@ def test_neuroflow_batch_runs_ready_launches_concurrently(
     assert len(scheduler.results) == 2
     assert [result.subject_id for result in results] == ["subject-a", "subject-b"]
     assert all(isinstance(result, BatchImageResult) for result in results)
+
+
+def test_neuroflow_continuous_replenishment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+
+    class DynamicScheduler(_FakeAdaptiveScheduler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.step = 0
+
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            self.launch_requests.append(request)
+            self.step += 1
+            if self.step == 1:
+                launches = (
+                    _Record(
+                        image_id="subject-a",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-a",
+                        reservation_id="reservation-a",
+                        task_id="task-a",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-a",
+                    ),
+                    _Record(
+                        image_id="subject-b",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-b",
+                        reservation_id="reservation-b",
+                        task_id="task-b",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-b",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="initial_ready")
+            elif self.step == 2:
+                assert getattr(request, "maximum_number", 0) == 1
+                launches = (
+                    _Record(
+                        image_id="subject-c",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-c",
+                        reservation_id="reservation-c",
+                        task_id="task-c",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-c",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="replenish_ready")
+            else:
+                return SimpleNamespace(terminal=True, launches=(), reason="all_done")
+
+    fake_neuroflow = sys.modules["neuroflow"]
+    fake_neuroflow.AdaptiveScheduler = DynamicScheduler
+
+    b_can_finish = threading.Event()
+    c_started = threading.Event()
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        if config.subject_id == "subject-a":
+            return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+        elif config.subject_id == "subject-b":
+            c_started.wait(timeout=2.0)
+            b_can_finish.wait(timeout=2.0)
+            return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+        elif config.subject_id == "subject-c":
+            c_started.set()
+            b_can_finish.set()
+            return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz"), str(tmp_path / "b.nii.gz"), str(tmp_path / "c.nii.gz")],
+        subject_id_map={
+            str(tmp_path / "a.nii.gz"): "subject-a",
+            str(tmp_path / "b.nii.gz"): "subject-b",
+            str(tmp_path / "c.nii.gz"): "subject-c",
+        },
+    )
+
+    scheduler = DynamicScheduler.instances[0]
+    assert len(scheduler.results) == 3
+    assert len(results) == 3
+    assert all(r.success for r in results)
+
+
+def test_neuroflow_handles_empty_polls_while_tasks_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+
+    class WaitingScheduler(_FakeAdaptiveScheduler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.step = 0
+
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            self.launch_requests.append(request)
+            self.step += 1
+            if self.step == 1:
+                launches = (
+                    _Record(
+                        image_id="subject-a",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-a",
+                        reservation_id="reservation-a",
+                        task_id="task-a",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-a",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="ready")
+            elif self.step in (2, 3, 4):
+                return SimpleNamespace(terminal=False, launches=(), reason="dependencies_pending")
+            else:
+                return SimpleNamespace(terminal=True, launches=(), reason="all_done")
+
+    fake_neuroflow = sys.modules["neuroflow"]
+    fake_neuroflow.AdaptiveScheduler = WaitingScheduler
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        time.sleep(0.15)
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz")],
+        subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+    )
+
+    scheduler = WaitingScheduler.instances[0]
+    assert len(scheduler.results) == 1
+    assert len(results) == 1
+    assert results[0].success is True
+
+
+def test_neuroflow_batch_with_concurrency_4(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+
+    class Concurrency4Scheduler(_FakeAdaptiveScheduler):
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            self.launch_requests.append(request)
+            if self._requested:
+                return SimpleNamespace(terminal=True, launches=(), reason="done")
+            self._requested = True
+            launches = tuple(
+                _Record(
+                    image_id=f"subject-{i}",
+                    stage_id="reorient_resize",
+                    attempt_id=f"attempt-{i}",
+                    reservation_id=f"reservation-{i}",
+                    task_id=f"task-{i}",
+                    execution_mode=SimpleNamespace(value="cpu"),
+                    cpu_threads=1,
+                    gpu_id=None,
+                    configuration_id=f"config-{i}",
+                )
+                for i in range(4)
+            )
+            return SimpleNamespace(terminal=False, launches=launches, reason="ready")
+
+    fake_neuroflow = sys.modules["neuroflow"]
+    fake_neuroflow.AdaptiveScheduler = Concurrency4Scheduler
+
+    barrier = threading.Barrier(4, timeout=1.0)
+    stage_calls: list[str] = []
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        stage_calls.append(config.subject_id)
+        barrier.wait()
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    input_files = [str(tmp_path / f"{i}.nii.gz") for i in range(4)]
+    subject_id_map = {f: f"subject-{i}" for i, f in enumerate(input_files)}
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 4,
+            "neuroflow_max_concurrent_tasks": 4,
+        },
+        input_files=input_files,
+        subject_id_map=subject_id_map,
+    )
+
+    scheduler = Concurrency4Scheduler.instances[0]
+    assert sorted(stage_calls) == [f"subject-{i}" for i in range(4)]
+    assert scheduler.launch_requests[0].maximum_number == 4
+    assert len(scheduler.results) == 4
+    assert len(results) == 4
+
+
+def test_scheduler_config_parses_all_advanced_settings() -> None:
+    neuroflow_src = str(Path(__file__).parents[1] / "NeuroFLOW-private" / "src")
+    if neuroflow_src not in sys.path:
+        sys.path.insert(0, neuroflow_src)
+
+    req = {
+        "threads": 6,
+        "ram_percent": 80,
+        "neuroflow_max_concurrent_tasks": 4,
+        "neuroflow_max_retries": 2,
+        "neuroflow_warmup_enabled": True,
+        "neuroflow_warmup_initial_concurrency": 2,
+        "neuroflow_warmup_safe_successes": 5,
+        "neuroflow_preserve_oom_bounds": False,
+        "neuroflow_estimation_mode": "conservative",
+        "neuroflow_max_io_heavy_tasks": 3,
+    }
+    cfg = _scheduler_config(req)
+    assert cfg.limits.max_concurrent_tasks == 4
+    assert cfg.retry.max_retries == 2
+    assert cfg.retry.preserve_oom_bounds_on_manual_retry is False
+    assert cfg.warmup.enabled is True
+    assert cfg.warmup.initial_concurrency == 2
+    assert cfg.warmup.safe_successes_before_increase == 5
+    assert cfg.disk.max_io_heavy_tasks == 3
+    assert cfg.estimation.runtime.local_quantile == 0.95
+

@@ -130,45 +130,51 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     dataset_root = req.get("input_dir", "")
 
     if req.get("neuroflow_enabled"):
-        from .neuroflow_adapter import run_neuroflow_batch
+        from .neuroflow_adapter import is_neuroflow_supported, run_neuroflow_batch
 
         if is_lazy_watch:
             _log(job_dir, "NeuroFLOW scheduler is not supported for lazy-watch jobs yet.")
             return 1
-        if mode == "file":
-            files = [req.get("input_file", "")]
-            subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
-            if req.get("subject_id") and files[0]:
-                subject_id_map = {**subject_id_map, files[0]: req.get("subject_id")}
-        elif mode == "files":
-            files = list(req.get("input_files", []))
-            subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
-            if not subject_id_map:
-                subject_id_map = build_subject_id_map(files, req.get("input_dir", ""))
+        if not is_neuroflow_supported(req):
+            _log(
+                job_dir,
+                f"Selected pipeline mode '{req.get('pipeline_mode')}' does not have a predefined NeuroFLOW preset; falling back to standard pipeline execution.",
+            )
         else:
-            files = _discover_mri_files(req.get("input_dir", ""), recursive=bool(req.get("recursive", True)))
-            subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
-            if not subject_id_map:
-                subject_id_map = build_subject_id_map(files, req.get("input_dir", ""))
-        files = [path for path in files if path]
-        if not files:
-            _log(job_dir, "No MRI files found for NeuroFLOW run.")
-            return 1
-        _log(job_dir, f"Starting NeuroFLOW scheduled run with {len(files)} image(s).")
-        results = run_neuroflow_batch(
-            job_dir=job_dir,
-            req=req,
-            input_files=files,
-            subject_id_map=subject_id_map,
-            on_progress=progress_cb,
-            on_build_log=build_log_cb,
-            on_image_start=image_start_cb,
-            on_image_done=image_done_cb,
-            on_metrics=metrics_cb,
-            should_stop=should_stop,
-        )
-        failed = [result for result in results if not result.success]
-        return 1 if failed else 0
+            if mode == "file":
+                files = [req.get("input_file", "")]
+                subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
+                if req.get("subject_id") and files[0]:
+                    subject_id_map = {**subject_id_map, files[0]: req.get("subject_id")}
+            elif mode == "files":
+                files = list(req.get("input_files", []))
+                subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
+                if not subject_id_map:
+                    subject_id_map = build_subject_id_map(files, req.get("input_dir", ""))
+            else:
+                files = _discover_mri_files(req.get("input_dir", ""), recursive=bool(req.get("recursive", True)))
+                subject_id_map = req.get("subject_id_map") if isinstance(req.get("subject_id_map"), dict) else {}
+                if not subject_id_map:
+                    subject_id_map = build_subject_id_map(files, req.get("input_dir", ""))
+            files = [path for path in files if path]
+            if not files:
+                _log(job_dir, "No MRI files found for NeuroFLOW run.")
+                return 1
+            _log(job_dir, f"Starting NeuroFLOW scheduled run with {len(files)} image(s).")
+            results = run_neuroflow_batch(
+                job_dir=job_dir,
+                req=req,
+                input_files=files,
+                subject_id_map=subject_id_map,
+                on_progress=progress_cb,
+                on_build_log=build_log_cb,
+                on_image_start=image_start_cb,
+                on_image_done=image_done_cb,
+                on_metrics=metrics_cb,
+                should_stop=should_stop,
+            )
+            failed = [result for result in results if not result.success]
+            return 1 if failed else 0
     
     if is_lazy_watch:
         input_dir = req.get("input_dir", "")

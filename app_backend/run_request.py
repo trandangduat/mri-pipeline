@@ -32,7 +32,14 @@ class RunRequestInput:
     export_config: dict[str, JsonValue] = field(default_factory=lambda: ExportConfig().to_dict())
     stats_vector_config: dict[str, JsonValue] = field(default_factory=lambda: StatsVectorConfig().to_dict())
     neuroflow_enabled: bool = False
-    neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_max_concurrent_tasks: int = 2
+    neuroflow_max_retries: int = 3
+    neuroflow_warmup_enabled: bool = False
+    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_safe_successes: int = 3
+    neuroflow_preserve_oom_bounds: bool = True
+    neuroflow_estimation_mode: str = "balanced"
+    neuroflow_max_io_heavy_tasks: int = 2
     neuroflow_machine_profile_id: str = "application_default"
     batch_timestamp: str = ""
 
@@ -58,7 +65,14 @@ class RunRequestInput:
             export_config=_json_dict(data.get("export_config", ExportConfig().to_dict())),
             stats_vector_config=_json_dict(data.get("stats_vector_config", StatsVectorConfig().to_dict())),
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
-            neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 1)),
+            neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 2)),
+            neuroflow_max_retries=max(0, _int_from_data(data.get("neuroflow_max_retries"), 3)),
+            neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), False),
+            neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 1)),
+            neuroflow_warmup_safe_successes=max(1, _int_from_data(data.get("neuroflow_warmup_safe_successes"), 3)),
+            neuroflow_preserve_oom_bounds=_bool_from_data(data.get("neuroflow_preserve_oom_bounds"), True),
+            neuroflow_estimation_mode=str(data.get("neuroflow_estimation_mode", "balanced") or "balanced"),
+            neuroflow_max_io_heavy_tasks=max(1, _int_from_data(data.get("neuroflow_max_io_heavy_tasks"), 2)),
             neuroflow_machine_profile_id=str(data.get("neuroflow_machine_profile_id", "") or "application_default"),
             batch_timestamp=str(data.get("batch_timestamp", "") or ""),
         )
@@ -213,9 +227,15 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "stats_vector_config": _stats_vector_config(config),
         "input_source": config.input_source,
         "run_target": config.run_target,
-        "pipeline_mode": config.pipeline_mode,
         "neuroflow_enabled": config.neuroflow_enabled,
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
+        "neuroflow_max_retries": config.neuroflow_max_retries,
+        "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,
+        "neuroflow_warmup_initial_concurrency": config.neuroflow_warmup_initial_concurrency,
+        "neuroflow_warmup_safe_successes": config.neuroflow_warmup_safe_successes,
+        "neuroflow_preserve_oom_bounds": config.neuroflow_preserve_oom_bounds,
+        "neuroflow_estimation_mode": config.neuroflow_estimation_mode,
+        "neuroflow_max_io_heavy_tasks": config.neuroflow_max_io_heavy_tasks,
         "neuroflow_machine_profile_id": config.neuroflow_machine_profile_id.strip() or "application_default",
     }
 

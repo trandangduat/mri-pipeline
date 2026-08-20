@@ -54,6 +54,13 @@ class RemoteRunConfig:
     pipeline_mode: str = "Custom"
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_max_retries: int = 3
+    neuroflow_warmup_enabled: bool = False
+    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_safe_successes: int = 3
+    neuroflow_preserve_oom_bounds: bool = True
+    neuroflow_estimation_mode: str = "balanced"
+    neuroflow_max_io_heavy_tasks: int = 2
     neuroflow_machine_profile_id: str = "application_default"
 
 
@@ -606,6 +613,13 @@ class RemoteRunner:
             "pipeline_mode": self.config.pipeline_mode,
             "neuroflow_enabled": bool(self.config.neuroflow_enabled),
             "neuroflow_max_concurrent_tasks": int(self.config.neuroflow_max_concurrent_tasks),
+            "neuroflow_max_retries": int(self.config.neuroflow_max_retries),
+            "neuroflow_warmup_enabled": bool(self.config.neuroflow_warmup_enabled),
+            "neuroflow_warmup_initial_concurrency": int(self.config.neuroflow_warmup_initial_concurrency),
+            "neuroflow_warmup_safe_successes": int(self.config.neuroflow_warmup_safe_successes),
+            "neuroflow_preserve_oom_bounds": bool(self.config.neuroflow_preserve_oom_bounds),
+            "neuroflow_estimation_mode": str(self.config.neuroflow_estimation_mode),
+            "neuroflow_max_io_heavy_tasks": int(self.config.neuroflow_max_io_heavy_tasks),
             "neuroflow_machine_profile_id": self.config.neuroflow_machine_profile_id,
         }
         with ssh.sftp.open(remote_path, "w") as f:

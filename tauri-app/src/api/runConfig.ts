@@ -24,6 +24,13 @@ export interface PipelineFormValues {
   nonRecursive?: boolean;
   neuroflowEnabled?: boolean;
   neuroflowMaxConcurrentTasks?: number;
+  neuroflowMaxRetries?: number;
+  neuroflowWarmupEnabled?: boolean;
+  neuroflowWarmupInitialConcurrency?: number;
+  neuroflowWarmupSafeSuccesses?: number;
+  neuroflowPreserveOomBounds?: boolean;
+  neuroflowEstimationMode?: 'balanced' | 'conservative' | 'aggressive';
+  neuroflowMaxIoHeavyTasks?: number;
   neuroflowMachineProfileId?: string;
   [key: string]: unknown;
 }
@@ -47,8 +54,15 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   key_path: '',
   password: '',
   licensePath: '',
-  neuroflowEnabled: false,
-  neuroflowMaxConcurrentTasks: 1,
+  neuroflowEnabled: true,
+  neuroflowMaxConcurrentTasks: 2,
+  neuroflowMaxRetries: 3,
+  neuroflowWarmupEnabled: false,
+  neuroflowWarmupInitialConcurrency: 1,
+  neuroflowWarmupSafeSuccesses: 3,
+  neuroflowPreserveOomBounds: true,
+  neuroflowEstimationMode: 'balanced',
+  neuroflowMaxIoHeavyTasks: 2,
   neuroflowMachineProfileId: 'application_default',
 };
 
@@ -89,10 +103,16 @@ export function buildRunConfig(
     ram_percent: formValues.ramPercent ?? 100,
     license_dir: formValues.licensePath || '',
     neuroflow_enabled: Boolean(formValues.neuroflowEnabled),
-    neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 1)),
+    neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 2)),
+    neuroflow_max_retries: Math.max(0, Number(formValues.neuroflowMaxRetries ?? 3)),
+    neuroflow_warmup_enabled: Boolean(formValues.neuroflowWarmupEnabled),
+    neuroflow_warmup_initial_concurrency: Math.max(1, Number(formValues.neuroflowWarmupInitialConcurrency || 1)),
+    neuroflow_warmup_safe_successes: Math.max(1, Number(formValues.neuroflowWarmupSafeSuccesses || 3)),
+    neuroflow_preserve_oom_bounds: formValues.neuroflowPreserveOomBounds !== undefined ? Boolean(formValues.neuroflowPreserveOomBounds) : true,
+    neuroflow_estimation_mode: String(formValues.neuroflowEstimationMode || 'balanced'),
+    neuroflow_max_io_heavy_tasks: Math.max(1, Number(formValues.neuroflowMaxIoHeavyTasks || 2)),
     neuroflow_machine_profile_id: String(formValues.neuroflowMachineProfileId || 'application_default'),
   } satisfies PreparedRunRequest;
-
 }
 
 export interface RemotePayload {
