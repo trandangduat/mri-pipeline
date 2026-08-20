@@ -45,9 +45,11 @@ export function PipelineStepsSection() {
   const [uploadingLicense, setUploadingLicense] = React.useState(false);
   const [showTools, setShowTools] = React.useState(formValues.pipelineMode === 'Custom');
 
-  // Automatically show tools when in Custom mode, hide when built-in preset is selected
+  // Automatically show tools when switching to Custom mode
   React.useEffect(() => {
-    setShowTools(formValues.pipelineMode === 'Custom');
+    if (formValues.pipelineMode === 'Custom') {
+      setShowTools(true);
+    }
   }, [formValues.pipelineMode]);
 
   const needsLicense = React.useMemo(() => {
@@ -68,6 +70,9 @@ export function PipelineStepsSection() {
   };
 
   const handlePipelineModeChange = (mode: string) => {
+    if (mode === 'Custom') {
+      setShowTools(true);
+    }
     const preset = metadata?.presets?.[mode];
     if (preset) {
       const formFields: Record<string, string> = {pipelineMode: mode};
@@ -78,10 +83,8 @@ export function PipelineStepsSection() {
         formFields[`stage_${stageKey}`] = toolKey;
       }
       setFormFields(formFields);
-      setShowTools(false);
     } else {
       setFormField('pipelineMode', mode);
-      setShowTools(mode === 'Custom');
     }
   };
 
@@ -196,44 +199,59 @@ export function PipelineStepsSection() {
           </p>
         </div>
       )}
-      {!metaLoading && !metaError && showTools && (
-        <div className="grid border border-cursor-hairline rounded-md overflow-hidden">
-          {(metadata?.stages || []).length === 0 && (
-            <div className="px-3 py-4 text-center text-xs text-cursor-muted">No pipeline stages found.</div>
-          )}
-          {(metadata?.stages || []).map((stage) => {
-            const tools = metadata?.tools_by_stage?.[stage.id] || [];
-            const selectedToolKey = ((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || '';
-            const isUnavailable = selectedToolKey === '';
-            return (
-              <div
-                key={stage.id}
-                className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-cursor-surface-card'}`}
-              >
-                <div className="flex min-h-8 items-center">
-                  <strong className={`font-medium text-xs leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stage.label}</strong>
-                </div>
-                <select
-                  name={`stage_${stage.id}`}
-                  value={selectedToolKey}
-                  onChange={(e) => handleStageToolChange(stage.id, e.target.value)}
-                  className={`${inputCls} ${isUnavailable ? 'opacity-70' : ''}`}
+      {!metaLoading && !metaError && showTools && (() => {
+        const isCat12Preset = typeof formValues.pipelineMode === 'string' && formValues.pipelineMode.startsWith('CAT12 +');
+        const displayedStages = (metadata?.stages || []).filter((stage) => {
+          if (!isCat12Preset) return true;
+          return ['segmentation', 'stats_extraction'].includes(stage.id);
+        });
+
+        return (
+          <div className="grid border border-cursor-hairline rounded-md overflow-hidden">
+            {displayedStages.length === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-cursor-muted">No pipeline stages found.</div>
+            )}
+            {displayedStages.map((stage) => {
+              const tools = metadata?.tools_by_stage?.[stage.id] || [];
+              const selectedToolKey = ((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || '';
+              const isUnavailable = selectedToolKey === '';
+              const stageLabel = isCat12Preset
+                ? stage.id === 'segmentation'
+                  ? 'CAT12 Processing'
+                  : stage.id === 'stats_extraction'
+                    ? 'CAT12 Statistics'
+                    : stage.label
+                : stage.label;
+              return (
+                <div
+                  key={stage.id}
+                  className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-cursor-surface-card'}`}
                 >
-                  <option value="">Not available</option>
-                  {tools.map((toolKey) => {
-                    const tool = metadata?.tools?.[toolKey];
-                    return (
-                      <option key={toolKey} value={toolKey}>
-                        {tool?.display_name || toolKey}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  <div className="flex min-h-8 items-center">
+                    <strong className={`font-medium text-xs leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stageLabel}</strong>
+                  </div>
+                  <select
+                    name={`stage_${stage.id}`}
+                    value={selectedToolKey}
+                    onChange={(e) => handleStageToolChange(stage.id, e.target.value)}
+                    className={`${inputCls} ${isUnavailable ? 'opacity-70' : ''}`}
+                  >
+                    <option value="">Not available</option>
+                    {tools.map((toolKey) => {
+                      const tool = metadata?.tools?.[toolKey];
+                      return (
+                        <option key={toolKey} value={toolKey}>
+                          {tool?.display_name || toolKey}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       {needsLicense && (
         <div className="mt-2.5 flex flex-wrap items-end gap-2">
           <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>

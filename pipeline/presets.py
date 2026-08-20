@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from .config import STAT_VECTOR_DEFS
+
 PIPELINE_MODES = (
     "CAT12 + Volume",
+    "CAT12 + Cortical Thickness",
     "CAT12 + Volume + Cortical Thickness",
     "FreeSurfer 8 + Volume",
     "FreeSurfer 8 + Cortical Thickness",
@@ -163,6 +166,13 @@ PRESET_CONFIGS = {
             "cortical_volume": ["cat12_schaefer2018_200parcels_17networks"],
         },
     },
+    "CAT12 + Cortical Thickness": {
+        "tools": CAT12_FULL_TOOLS,
+        "stats": THICKNESS_STATS,
+        "default_atlases": {
+            "cortical_thickness": ["aparc"],
+        },
+    },
     "CAT12 + Volume + Cortical Thickness": {
         "tools": CAT12_FULL_TOOLS,
         "stats": VOLUME_STATS | THICKNESS_STATS,
@@ -244,3 +254,59 @@ PRESET_CONFIGS = {
         },
     },
 }
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    return str(value)
+
+
+def normalize_stats_vector_config_for_pipeline_mode(
+    pipeline_mode: str, stats_vector_config: object | None
+) -> dict[str, object]:
+    """Infer preset-enabled stat vectors for raw job configs that only carry atlases.
+
+    Workers can receive raw ``job_config.json`` payloads built by older clients that
+    omit ``stats_vector_config.enabled_stats``. This helper normalizes those payloads
+    against the preset definition while preserving user-selected atlas lists, so a
+    missing ``enabled_stats`` cannot silently produce an empty stats-vector CSV.
+    """
+    mode = normalize_pipeline_mode(str(pipeline_mode or "") or "Custom")
+    if mode == "Custom" or mode not in PRESET_CONFIGS:
+        if not isinstance(stats_vector_config, dict):
+            return {}
+        return {str(key): _json_value(item) for key, item in stats_vector_config.items()}
+
+    preset = PRESET_CONFIGS[mode]
+    enabled = {str(stat) for stat in preset["stats"]}
+    default_atlases = preset.get("default_atlases", {})
+    raw = stats_vector_config if isinstance(stats_vector_config, dict) else {}
+    raw_atlases = raw.get("atlases", {})
+    atlas_config = raw_atlases if isinstance(raw_atlases, dict) else {}
+    atlases: dict[str, object] = {}
+    for stat, stat_def in STAT_VECTOR_DEFS.items():
+        existing = atlas_config.get(stat, [])
+        allowed = set(str(atlas) for atlas in stat_def.get("atlases", ()))
+        if isinstance(existing, list) and existing:
+            atlases[stat] = [str(atlas) for atlas in existing if atlas in allowed]
+            continue
+        preset_defaults = default_atlases.get(stat, [])
+        valid_defaults = [str(atlas) for atlas in preset_defaults if atlas in allowed]
+        if stat in enabled and valid_defaults:
+            atlases[stat] = valid_defaults
+        elif stat in enabled and allowed:
+            atlases[stat] = [str(atlas) for atlas in stat_def.get("atlases", ()) if atlas in allowed][:1]
+        else:
+            atlases[stat] = []
+
+    return {
+        "enabled_stats": {stat: stat in enabled for stat in STAT_VECTOR_DEFS},
+        "atlases": atlases,
+    }

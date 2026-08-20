@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from pipeline.config import ToolContext
-from pipeline.presets import CAT12_FULL_TOOLS, CAT12_VOLUME_TOOLS, PRESET_CONFIGS, THICKNESS_STATS, VOLUME_STATS
+from pipeline.presets import (
+    CAT12_FULL_TOOLS,
+    CAT12_VOLUME_TOOLS,
+    PIPELINE_MODES,
+    PRESET_CONFIGS,
+    THICKNESS_STATS,
+    VOLUME_STATS,
+    normalize_stats_vector_config_for_pipeline_mode,
+)
 from pipeline.registry import TOOL_DEFS
 
 
@@ -24,6 +32,26 @@ def test_cat12_volume_preset_runs_cat_segmentation_and_stats_only() -> None:
     assert preset["stats"] == VOLUME_STATS
     assert preset["default_atlases"]["subcortical_volume"] == ["cat12_neuromorphometrics"]
     assert preset["default_atlases"]["cortical_volume"] == ["cat12_schaefer2018_200parcels_17networks"]
+
+
+def test_cat12_thickness_preset_runs_surface_segmentation_and_thickness_stats_only() -> None:
+    assert "CAT12 + Cortical Thickness" in PIPELINE_MODES
+    preset = PRESET_CONFIGS["CAT12 + Cortical Thickness"]
+    assert preset["tools"] == CAT12_FULL_TOOLS
+    assert preset["tools"]["segmentation"] == "cat12_full_segmentation"
+    assert preset["tools"]["stats_extraction"] == "cat12_full_stats_extraction"
+    assert preset["stats"] == THICKNESS_STATS
+    assert preset["default_atlases"] == {"cortical_thickness": ["aparc"]}
+
+    normalized = normalize_stats_vector_config_for_pipeline_mode("CAT12 + Cortical Thickness", None)
+    assert normalized["enabled_stats"] == {
+        "cortical_thickness": True,
+        "cortical_volume": False,
+        "subcortical_volume": False,
+    }
+    assert normalized["atlases"]["cortical_thickness"] == ["aparc"]
+    assert normalized["atlases"]["cortical_volume"] == []
+    assert normalized["atlases"]["subcortical_volume"] == []
 
 
 def test_cat12_full_preset_runs_monolithic_surface_segmentation_and_stats() -> None:
