@@ -306,21 +306,24 @@ class RemoteJobService:
             job_id = f"remote_{remote_job_dir.split('/')[-1]}"
 
             if self.register_remote_job is not None:
-                self.register_remote_job(
-                    job_id=job_id,
-                    remote_job_dir=remote_job_dir,
-                    state=str(remote_status.get("state", "running")),
-                    ssh_config={
-                        "host": remote_config.ssh.host,
-                        "port": remote_config.ssh.port,
-                        "username": remote_config.ssh.username,
-                        "password": remote_config.ssh.password,
-                        "key_path": remote_config.ssh.key_path,
-                    },
-                    run_request=run_request,
-                    started_at=float(remote_status.get("started_at", 0) or 0) or None,
-                    pid=remote_status.get("pid"),
-                )
+                try:
+                    self.register_remote_job(
+                        job_id=job_id,
+                        remote_job_dir=remote_job_dir,
+                        state=str(remote_status.get("state", "running")),
+                        ssh_config={
+                            "host": remote_config.ssh.host,
+                            "port": remote_config.ssh.port,
+                            "username": remote_config.ssh.username,
+                            "password": remote_config.ssh.password,
+                            "key_path": remote_config.ssh.key_path,
+                        },
+                        run_request=run_request,
+                        started_at=float(remote_status.get("started_at", 0) or 0) or None,
+                        pid=remote_status.get("pid"),
+                    )
+                except Exception:
+                    pass
 
             from app_backend.jobs import _make_run_request_summary
 

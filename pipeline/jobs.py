@@ -30,7 +30,7 @@ def read_json(path: str | Path, default: dict | None = None) -> dict:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else (default or {})
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return default or {}
 
 

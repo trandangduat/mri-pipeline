@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app_backend.jobs import LocalJobService, ProcessHandle
+from pipeline.jobs import read_json
 
 
 class FakeProcessRunner:
@@ -134,3 +135,10 @@ def test_stop_local_job_rejects_unknown_id(tmp_path: Path) -> None:
     result = service.stop_local_job("missing")
 
     assert result == {"ok": False, "error": "Local job not found"}
+
+
+def test_read_json_returns_default_for_malformed_registry(tmp_path: Path) -> None:
+    path = tmp_path / "job_registry.json"
+    path.write_text('{"jobs": [\n  {"job_id" "missing colon"}\n]}', encoding="utf-8")
+
+    assert read_json(path, {"jobs": []}) == {"jobs": []}
