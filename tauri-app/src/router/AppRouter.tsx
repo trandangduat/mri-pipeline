@@ -9,6 +9,7 @@ import type {AppTab} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useEnvironment, useClient} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
+import {presetDefaultAtlases} from '../lib/pipelinePresets';
 
 function AppLayout() {
   const location = useLocation();
@@ -58,11 +59,22 @@ function AppLayout() {
       try {
         await client.waitForHealth();
         const meta = await client.metadata();
-        if (meta?.stats_vectors) {
+        const currentMode = usePipelineFormStore.getState().formValues.pipelineMode;
+        const preset = meta?.presets?.[currentMode];
+        if (preset) {
+          const formFields: Record<string, string> = {pipelineMode: currentMode};
+          for (const stageKey of meta?.stage_order || []) {
+            formFields[`stage_${stageKey}`] = '';
+          }
+          for (const [stageKey, toolKey] of Object.entries(preset.tools || {})) {
+            formFields[`stage_${stageKey}`] = toolKey;
+          }
+          usePipelineFormStore.getState().setFormFields(formFields);
+          setSelectedStatsAtlases(presetDefaultAtlases(meta, currentMode));
+        } else if (meta?.stats_vectors) {
           const selection: Record<string, string[]> = {};
-          for (const [statKey, stat] of Object.entries(meta.stats_vectors)) {
-            const atlases = Array.isArray(stat.atlases) ? stat.atlases : [];
-            selection[statKey] = statKey === 'cortical_thickness' ? atlases.slice(0, 2) : atlases.slice(0, 1);
+          for (const statKey of Object.keys(meta.stats_vectors)) {
+            selection[statKey] = [];
           }
           setSelectedStatsAtlases(selection);
         }

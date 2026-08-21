@@ -55,6 +55,7 @@ const mockMetadata = {
     {id: 'CAT12 + Cortical Thickness'},
     {id: 'CAT12 + Volume + Cortical Thickness'},
     {id: 'FreeSurfer 8 + Volume'},
+    {id: 'FreeSurfer 8 + Volume + Cortical Thickness'},
     {id: 'Custom'},
   ],
   presets: {
@@ -70,6 +71,11 @@ const mockMetadata = {
         surface_registration: '',
         stats_extraction: 'cat12_volume_stats_extraction',
       },
+      stats: ['subcortical_volume', 'cortical_volume'],
+      default_atlases: {
+        subcortical_volume: ['cat12_neuromorphometrics'],
+        cortical_volume: ['cat12_schaefer2018_200parcels_17networks'],
+      },
     },
     'CAT12 + Cortical Thickness': {
       tools: {
@@ -82,6 +88,10 @@ const mockMetadata = {
         surface_reconstruction: '',
         surface_registration: '',
         stats_extraction: 'cat12_full_stats_extraction',
+      },
+      stats: ['cortical_thickness'],
+      default_atlases: {
+        cortical_thickness: ['aparc'],
       },
     },
     'CAT12 + Volume + Cortical Thickness': {
@@ -96,6 +106,12 @@ const mockMetadata = {
         surface_registration: '',
         stats_extraction: 'cat12_full_stats_extraction',
       },
+      stats: ['subcortical_volume', 'cortical_volume', 'cortical_thickness'],
+      default_atlases: {
+        subcortical_volume: ['cat12_neuromorphometrics'],
+        cortical_volume: ['cat12_schaefer2018_200parcels_17networks'],
+        cortical_thickness: ['aparc'],
+      },
     },
     'FreeSurfer 8 + Volume': {
       tools: {
@@ -109,7 +125,58 @@ const mockMetadata = {
         surface_registration: '',
         stats_extraction: 'fs8_reduced54_stats',
       },
+      stats: ['subcortical_volume', 'cortical_volume'],
+      default_atlases: {
+        subcortical_volume: ['freesurfer_aseg'],
+        cortical_volume: ['freesurfer_aparc'],
+      },
     },
+    'FreeSurfer 8 + Volume + Cortical Thickness': {
+      tools: {
+        reorientation: 'fs8_reduced54_reorientation',
+        brain_extraction: '',
+        segmentation: 'synthseg_freesurfer_fs8',
+        template_registration: '',
+        bias_correction: '',
+        white_matter_segmentation: '',
+        surface_reconstruction: '',
+        surface_registration: '',
+        stats_extraction: 'fs8_reduced54_stats',
+      },
+      stats: ['subcortical_volume', 'cortical_volume', 'cortical_thickness'],
+      default_atlases: {
+        subcortical_volume: ['freesurfer_aseg'],
+        cortical_volume: ['freesurfer_aparc'],
+        cortical_thickness: ['aparc'],
+      },
+    },
+  },
+  stats_vectors: {
+    subcortical_volume: {
+      key: 'subcortical_volume',
+      label: 'Subcortical Volume',
+      value_column: 'Volume_mm3',
+      atlases: ['cat12_neuromorphometrics', 'freesurfer_aseg'],
+    },
+    cortical_volume: {
+      key: 'cortical_volume',
+      label: 'Cortical Volume',
+      value_column: 'Volume_mm3',
+      atlases: ['cat12_schaefer2018_200parcels_17networks', 'freesurfer_aparc'],
+    },
+    cortical_thickness: {
+      key: 'cortical_thickness',
+      label: 'Cortical Thickness',
+      value_column: 'ThickAvg',
+      atlases: ['aparc'],
+    },
+  },
+  atlases: {
+    cat12_neuromorphometrics: {key: 'cat12_neuromorphometrics', label: 'CAT12 Neuromorphometrics'},
+    cat12_schaefer2018_200parcels_17networks: {key: 'cat12_schaefer2018_200parcels_17networks', label: 'CAT12 Schaefer 200'},
+    freesurfer_aseg: {key: 'freesurfer_aseg', label: 'FreeSurfer Aseg'},
+    freesurfer_aparc: {key: 'freesurfer_aparc', label: 'FreeSurfer Aparc'},
+    aparc: {key: 'aparc', label: 'Desikan-Killiany (aparc)'},
   },
 };
 
@@ -307,5 +374,117 @@ describe('PipelineStepsSection CAT12 preset display', () => {
     // Tools should now be automatically shown
     expect(screen.getByRole('button', {name: /Hide Tools/i})).toBeInTheDocument();
     expect(screen.getByText('Subcortical Segmentation')).toBeInTheDocument();
+  });
+
+  it('defaults formValues.pipelineMode to FreeSurfer 8 + Volume + Cortical Thickness after resetForm', () => {
+    usePipelineFormStore.getState().resetForm();
+    expect(usePipelineFormStore.getState().formValues.pipelineMode).toBe('FreeSurfer 8 + Volume + Cortical Thickness');
+  });
+
+  it('applies default atlases and tools when a preset is selected', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'Custom',
+    });
+    usePipelineFormStore.getState().setSelectedStatsAtlases({
+      subcortical_volume: ['freesurfer_aseg'],
+      cortical_volume: [],
+      cortical_thickness: ['aparc'],
+    });
+
+    renderPipelineSteps();
+
+    const presetSelect = screen.getByLabelText(/Pipeline preset/i);
+    await user.selectOptions(presetSelect, 'CAT12 + Volume');
+
+    const state = usePipelineFormStore.getState();
+    expect(state.formValues.pipelineMode).toBe('CAT12 + Volume');
+    expect(state.formValues.stage_segmentation).toBe('cat12_volume_segmentation');
+    expect(state.formValues.stage_stats_extraction).toBe('cat12_volume_stats_extraction');
+    expect(state.formValues.stage_reorientation).toBe('');
+
+    expect(state.selectedStatsAtlases).toEqual({
+      subcortical_volume: ['cat12_neuromorphometrics'],
+      cortical_volume: ['cat12_schaefer2018_200parcels_17networks'],
+      cortical_thickness: [],
+    });
+  });
+
+  it('clears cortical_thickness atlases when switching from thickness preset to FreeSurfer 8 + Volume', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'CAT12 + Cortical Thickness',
+    });
+    usePipelineFormStore.getState().setSelectedStatsAtlases({
+      subcortical_volume: [],
+      cortical_volume: [],
+      cortical_thickness: ['aparc'],
+    });
+
+    renderPipelineSteps();
+
+    const presetSelect = screen.getByLabelText(/Pipeline preset/i);
+    await user.selectOptions(presetSelect, 'FreeSurfer 8 + Volume');
+
+    const state = usePipelineFormStore.getState();
+    expect(state.formValues.pipelineMode).toBe('FreeSurfer 8 + Volume');
+    expect(state.selectedStatsAtlases.cortical_thickness).toEqual([]);
+    expect(state.selectedStatsAtlases.subcortical_volume).toEqual(['freesurfer_aseg']);
+    expect(state.selectedStatsAtlases.cortical_volume).toEqual(['freesurfer_aparc']);
+  });
+
+  it('switches pipelineMode to Custom when a stage tool is changed to a different tool or Not available', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'CAT12 + Volume',
+      stage_segmentation: 'cat12_volume_segmentation',
+      stage_stats_extraction: 'cat12_volume_stats_extraction',
+    });
+
+    renderPipelineSteps();
+
+    await user.click(screen.getByRole('button', {name: /Show Tools/i}));
+
+    // Change CAT12 Processing (segmentation) to Not available
+    const segSelect = screen.getByDisplayValue('CAT12 Volume Segmentation');
+    await user.selectOptions(segSelect, '');
+
+    expect(usePipelineFormStore.getState().formValues.pipelineMode).toBe('Custom');
+    expect(usePipelineFormStore.getState().formValues.stage_segmentation).toBe('');
+  });
+
+  it('keeps preset mode if stage tool change selects the same tool as the preset', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'CAT12 + Volume',
+      stage_segmentation: 'cat12_volume_segmentation',
+      stage_stats_extraction: 'cat12_volume_stats_extraction',
+    });
+
+    renderPipelineSteps();
+
+    await user.click(screen.getByRole('button', {name: /Show Tools/i}));
+
+    const segSelect = screen.getByDisplayValue('CAT12 Volume Segmentation');
+    await user.selectOptions(segSelect, 'cat12_volume_segmentation');
+
+    expect(usePipelineFormStore.getState().formValues.pipelineMode).toBe('CAT12 + Volume');
+  });
+
+  it('keeps pipelineMode as Custom when modifying stage tools in Custom mode', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'Custom',
+      stage_segmentation: 'synthseg_freesurfer_fs8',
+      stage_stats_extraction: 'fs8_reduced54_stats',
+    });
+
+    renderPipelineSteps();
+
+    const segSelect = screen.getByDisplayValue('SynthSeg');
+    await user.selectOptions(segSelect, 'cat12_volume_segmentation');
+
+    expect(usePipelineFormStore.getState().formValues.pipelineMode).toBe('Custom');
+    expect(usePipelineFormStore.getState().formValues.stage_segmentation).toBe('cat12_volume_segmentation');
   });
 });

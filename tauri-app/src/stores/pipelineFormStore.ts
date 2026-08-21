@@ -151,6 +151,12 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
         (nextValues as Record<string, unknown>)[`stage_${stage}`] = String(toolKey);
       }
       const nextAtlases = {...state.selectedStatsAtlases};
+      const defaultAtlases = (preset.default_atlases as Record<string, unknown>) || {};
+      for (const [statKey, atlases] of Object.entries(defaultAtlases)) {
+        if (Array.isArray(atlases)) {
+          nextAtlases[statKey] = atlases as string[];
+        }
+      }
       const statsVectors = (preset.stats_vectors as Record<string, unknown>) || {};
       for (const statKey of Object.keys(nextAtlases)) {
         const stat = statsVectors[statKey];

@@ -36,7 +36,7 @@ export interface PipelineFormValues {
 }
 
 export const DEFAULT_FORM_VALUES: PipelineFormValues = {
-  pipelineMode: 'Custom',
+  pipelineMode: 'FreeSurfer 8 + Volume + Cortical Thickness',
   inputSource: 'Local',
   inputMode: 'file',
   inputPath: '',

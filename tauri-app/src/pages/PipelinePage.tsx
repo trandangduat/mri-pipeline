@@ -14,6 +14,7 @@ import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
+import {presetDefaultAtlases} from '../lib/pipelinePresets';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 
@@ -39,6 +40,7 @@ export function PipelineStepsSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+  const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
 
   const licensePath = usePipelineFormStore((s) => s.formValues.licensePath as string | undefined);
   const licenseFileInput = useRef<HTMLInputElement>(null);
@@ -83,6 +85,7 @@ export function PipelineStepsSection() {
         formFields[`stage_${stageKey}`] = toolKey;
       }
       setFormFields(formFields);
+      setSelectedStatsAtlases(presetDefaultAtlases(metadata, mode));
     } else {
       setFormField('pipelineMode', mode);
     }
@@ -91,6 +94,12 @@ export function PipelineStepsSection() {
   const handleStageToolChange = (stageId: string, toolKey: string) => {
     setShowTools(true);
     if (formValues.pipelineMode === 'Custom') {
+      setFormField(`stage_${stageId}`, toolKey);
+      return;
+    }
+    const preset = metadata?.presets?.[formValues.pipelineMode];
+    const presetTool = preset?.tools?.[stageId] || '';
+    if (toolKey === presetTool) {
       setFormField(`stage_${stageId}`, toolKey);
       return;
     }
@@ -319,13 +328,57 @@ export function PipelineStepsSection() {
 
 export function StatsAtlasSection() {
   const {data: metadata} = useMetadata();
+  const formValues = usePipelineFormStore((s) => s.formValues);
   const selectedStatsAtlases = usePipelineFormStore((s) => s.selectedStatsAtlases);
-  const removeAtlas = usePipelineFormStore((s) => s.removeAtlas);
-  const toggleAtlas = usePipelineFormStore((s) => s.toggleAtlas);
+  const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
+  const setFormField = usePipelineFormStore((s) => s.setFormField);
   const order = ['subcortical_volume', 'cortical_volume', 'cortical_thickness'];
 
   const [atlasPickerStatKey, setAtlasPickerStatKey] = React.useState<string | null>(null);
   const [atlasSearch, setAtlasSearch] = React.useState('');
+
+  const isCustomMode = formValues.pipelineMode === 'Custom';
+  const stageStatsExtraction = formValues.stage_stats_extraction as string | undefined;
+  const isStatsStageAvailable = Boolean(stageStatsExtraction && stageStatsExtraction.trim().length > 0);
+
+  const removeAtlas = (statKey: string, atlasKey: string) => {
+    const current = selectedStatsAtlases[statKey] || [];
+    const nextList = current.filter((k) => k !== atlasKey);
+    const nextMap = {...selectedStatsAtlases, [statKey]: nextList};
+    setSelectedStatsAtlases(nextMap);
+
+    if (formValues.pipelineMode && formValues.pipelineMode !== 'Custom') {
+      const presetDefaults = metadata?.presets?.[formValues.pipelineMode]?.default_atlases?.[statKey] || [];
+      if (presetDefaults.includes(atlasKey)) {
+        setFormField('pipelineMode', 'Custom');
+      }
+    }
+  };
+
+  const addAtlas = (statKey: string, atlasKey: string) => {
+    const current = selectedStatsAtlases[statKey] || [];
+    if (!current.includes(atlasKey)) {
+      const nextList = [...current, atlasKey];
+      const nextMap = {...selectedStatsAtlases, [statKey]: nextList};
+      setSelectedStatsAtlases(nextMap);
+
+      if (formValues.pipelineMode && formValues.pipelineMode !== 'Custom') {
+        const presetCovered = metadata?.presets?.[formValues.pipelineMode]?.stats || [];
+        if (!presetCovered.includes(statKey)) {
+          setFormField('pipelineMode', 'Custom');
+        }
+      }
+    }
+  };
+
+  const toggleAtlas = (statKey: string, atlasKey: string) => {
+    const current = selectedStatsAtlases[statKey] || [];
+    if (current.includes(atlasKey)) {
+      removeAtlas(statKey, atlasKey);
+    } else {
+      addAtlas(statKey, atlasKey);
+    }
+  };
 
   return (
     <Panel
@@ -347,6 +400,7 @@ export function StatsAtlasSection() {
               .split('_')
               .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
               .join(' ');
+          const showUnavailableWarning = isCustomMode && !isStatsStageAvailable && selectedAtlases.length > 0;
 
           return (
             <div key={statKey} className="py-2.5 first:pt-0 last:pb-0">
@@ -400,6 +454,12 @@ export function StatsAtlasSection() {
                     </span>
                   )}
                 </div>
+
+                {showUnavailableWarning && (
+                  <div className="col-span-2 mt-1 rounded-md border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2.5 py-1 text-2xs text-cursor-semantic-warn">
+                    This stats vector has selected atlases, but Statistics & Atlas mapping is set to Not available.
+                  </div>
+                )}
               </div>
             </div>
           );
