@@ -1,0 +1,64 @@
+name: Package Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows:
+    name: Build Windows portable package
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Create Python virtual environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+
+      - name: Build portable package
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\packaging\windows\build-portable.ps1 -ProjectRoot $PWD
+
+      - name: Compress portable package
+        shell: pwsh
+        run: |
+          $portableDir = Join-Path $PWD "dist-portable\windows\NeuroFlowPortable"
+          $zipPath = Join-Path $PWD "dist-portable\windows\NeuroFlowPortable-${{ github.sha }}.zip"
+          if (-not (Test-Path $portableDir)) {
+            throw "Portable output not found: $portableDir"
+          }
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $zipPath -Force
+          Write-Host "Created $zipPath"
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeuroFlowPortable-Windows-${{ github.sha }}
+          path: dist-portable/windows/NeuroFlowPortable-${{ github.sha }}.zip
+          if-no-files-found: error
+          retention-days: 14
