@@ -50,6 +50,20 @@ def test_inspect_ssh_key_too_open_linux_permissions(tmp_path: Path) -> None:
     assert "permissions are too open" in inspection.error_message
 
 
+def test_inspect_ssh_key_allows_windows_permissions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    key_file = tmp_path / "id_rsa"
+    key_file.write_text("private-key-content", encoding="utf-8")
+    key_file.chmod(0o777)
+
+    monkeypatch.setattr("remote.ssh_key._uses_posix_key_permissions", lambda: False)
+
+    inspection = inspect_ssh_key(str(key_file))
+    assert inspection.exists is True
+    assert inspection.is_too_open is False
+    assert inspection.error_message == ""
+    assert inspection.warning_message == ""
+
+
 def test_is_wsl_windows_mount() -> None:
     path_wsl = Path("/mnt/c/Users/ADMIN/.ssh/duat")
     path_linux = Path("/home/user/.ssh/id_rsa")

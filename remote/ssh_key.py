@@ -73,6 +73,10 @@ def _is_wsl_windows_mount(path: Path) -> bool:
     return False
 
 
+def _uses_posix_key_permissions() -> bool:
+    return os.name != "nt"
+
+
 def inspect_ssh_key(key_path: str) -> SSHKeyInspection:
     if not key_path:
         return SSHKeyInspection(key_path="")
@@ -100,7 +104,7 @@ def inspect_ssh_key(key_path: str) -> SSHKeyInspection:
             error_message=f"SSH key access error: {exc}",
         )
 
-    is_too_open = bool(mode & 0o077)
+    is_too_open = _uses_posix_key_permissions() and bool(mode & 0o077)
     is_wsl_mount = _is_wsl_windows_mount(path)
 
     error_message = ""

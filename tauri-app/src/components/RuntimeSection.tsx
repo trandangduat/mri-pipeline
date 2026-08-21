@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  FolderOpen,
   Cpu,
   ShieldCheck,
   ServerCog,
@@ -8,6 +9,7 @@ import {
   XCircle,
   AlertTriangle,
 } from 'lucide-react';
+import {open} from '@tauri-apps/plugin-dialog';
 import {Panel, Button, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, currentTargetHardware} from '../lib/runtime';
@@ -19,6 +21,11 @@ import {useJobsStore} from '../stores/jobsStore';
 import {buildRemotePayload} from '../api/runConfig';
 import {useRemoteValidateMutation} from '../query/useRemote';
 import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary} from '../types/backend';
+
+function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
+  if (Array.isArray(selected)) return selected[0] || '';
+  return selected || '';
+}
 
 export function RuntimeSection() {
   const {data: environment} = useEnvironment();
@@ -97,6 +104,22 @@ export function RuntimeSection() {
       print('Remote connect failed', {error: (error as Error).message});
     } finally {
       setBusyKey('connect', false);
+    }
+  };
+
+  const browseSshKeyPath = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: 'Select SSH key',
+      });
+      const path = selectedDialogPath(selected);
+      if (path) {
+        setFormField('key_path', path);
+      }
+    } catch (error: unknown) {
+      print('SSH key browse failed', {error: (error as Error).message});
     }
   };
 
@@ -285,13 +308,24 @@ export function RuntimeSection() {
             </label>
             <label className={labelCls}>
               SSH key path
-              <input
-                name="key_path"
-                placeholder="/path/to/id_rsa"
-                value={formValues.key_path}
-                onChange={(e) => setFormField('key_path', e.target.value)}
-                className={inputCls}
-              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  name="key_path"
+                  placeholder="C:\\Users\\ADMIN\\.ssh\\duat"
+                  value={formValues.key_path}
+                  onChange={(e) => setFormField('key_path', e.target.value)}
+                  className={inputCls}
+                />
+                <Button
+                  variant="ghost"
+                  icon={<FolderOpen className="h-3.5 w-3.5" />}
+                  className="h-8 flex-none px-2.5 text-xs"
+                  onClick={browseSshKeyPath}
+                  aria-label="Browse SSH key path"
+                >
+                  Browse
+                </Button>
+              </div>
             </label>
             <label className={`${labelCls} col-span-2`}>
               Password (optional)
