@@ -20,14 +20,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 17056
-    upper_ms: 21320
+    point_ms: 16088
+    upper_ms: 19306
   memory:
-    peak_mib: 604
-    reservation_mib: 755
+    peak_mib: 605
+    reservation_mib: 756
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_reorient_resize_cpu_2
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_2
@@ -37,14 +37,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 16938
-    upper_ms: 21172
+    point_ms: 15962
+    upper_ms: 19155
   memory:
-    peak_mib: 645
-    reservation_mib: 806
+    peak_mib: 646
+    reservation_mib: 807
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_reorient_resize_cpu_4
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_4
@@ -54,14 +54,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 19883
-    upper_ms: 24853
+    point_ms: 18931
+    upper_ms: 22718
   memory:
-    peak_mib: 577
-    reservation_mib: 721
+    peak_mib: 578
+    reservation_mib: 723
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_gpu_default
   pipeline_id: fastsurfer_volumetrics
   configuration_id: gpu_default
@@ -91,14 +91,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 2310296
-    upper_ms: 2887870
+    point_ms: 2309239
+    upper_ms: 2771087
   memory:
-    peak_mib: 3549
-    reservation_mib: 4436
+    peak_mib: 3550
+    reservation_mib: 4437
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_cpu_2
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_2
@@ -108,14 +108,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 1329548
-    upper_ms: 1661935
+    point_ms: 1328588
+    upper_ms: 1594306
   memory:
-    peak_mib: 3511
-    reservation_mib: 4388
+    peak_mib: 3512
+    reservation_mib: 4390
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_subcortical_segmentation_cpu_4
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_4
@@ -125,14 +125,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 769253
-    upper_ms: 961566
+    point_ms: 768290
+    upper_ms: 921948
   memory:
-    peak_mib: 3468
-    reservation_mib: 4335
+    peak_mib: 3469
+    reservation_mib: 4336
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_template_registration_cpu_1
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_1
@@ -312,14 +312,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 22959
-    upper_ms: 28698
+    point_ms: 46788
+    upper_ms: 56146
   memory:
-    peak_mib: 162
-    reservation_mib: 202
+    peak_mib: 2690
+    reservation_mib: 3362
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_statistics_atlas_mapping_cpu_2
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_2
@@ -329,14 +329,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 47709
-    upper_ms: 59636
+    point_ms: 47524
+    upper_ms: 57029
   memory:
-    peak_mib: 2689
-    reservation_mib: 3361
+    peak_mib: 3241
+    reservation_mib: 4052
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: fastsurfer_volumetrics_default_statistics_atlas_mapping_cpu_4
   pipeline_id: fastsurfer_volumetrics
   configuration_id: cpu_4
@@ -346,11 +346,11 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 48578
-    upper_ms: 60722
+    point_ms: 50277
+    upper_ms: 60333
   memory:
-    peak_mib: 3240
-    reservation_mib: 4050
+    peak_mib: 3361
+    reservation_mib: 4201
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured

@@ -20,14 +20,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 10570
-    upper_ms: 13212
+    point_ms: 9637
+    upper_ms: 11565
   memory:
-    peak_mib: 51
-    reservation_mib: 63
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 53
+    reservation_mib: 66
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_reorient_resize_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -37,14 +37,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 10827
-    upper_ms: 13533
+    point_ms: 9880
+    upper_ms: 11856
   memory:
-    peak_mib: 58
-    reservation_mib: 72
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 59
+    reservation_mib: 74
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_brain_extraction_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -54,14 +54,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 1583330
-    upper_ms: 1979162
+    point_ms: 1647403
+    upper_ms: 1976884
   memory:
-    peak_mib: 822
-    reservation_mib: 1027
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 855
+    reservation_mib: 1069
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_brain_extraction_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -71,14 +71,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 1581718
-    upper_ms: 1977147
+    point_ms: 1650741
+    upper_ms: 1980890
   memory:
-    peak_mib: 810
-    reservation_mib: 1012
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 821
+    reservation_mib: 1026
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_brain_extraction_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -88,14 +88,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 1554159
-    upper_ms: 1942698
+    point_ms: 1553106
+    upper_ms: 1959639
   memory:
-    peak_mib: 809
-    reservation_mib: 1011
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 819
+    reservation_mib: 1024
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_subcortical_segmentation_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -105,14 +105,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 14130605
-    upper_ms: 17663256
+    point_ms: 14129628
+    upper_ms: 16955554
   memory:
-    peak_mib: 2049
-    reservation_mib: 2561
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 2103
+    reservation_mib: 2628
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_subcortical_segmentation_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -122,14 +122,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 10438191
-    upper_ms: 13047738
+    point_ms: 10437181
+    upper_ms: 12524618
   memory:
-    peak_mib: 2038
-    reservation_mib: 2547
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 2039
+    reservation_mib: 2549
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_subcortical_segmentation_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -139,14 +139,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 8560784
-    upper_ms: 10700980
+    point_ms: 8559827
+    upper_ms: 10657658
   memory:
-    peak_mib: 2038
-    reservation_mib: 2547
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 2075
+    reservation_mib: 2594
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_template_registration_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -156,14 +156,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 314828
-    upper_ms: 393535
+    point_ms: 313935
+    upper_ms: 376722
   memory:
     peak_mib: 500
     reservation_mib: 625
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_template_registration_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -173,14 +173,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 313567
-    upper_ms: 391958
+    point_ms: 312597
+    upper_ms: 375117
   memory:
     peak_mib: 499
-    reservation_mib: 623
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    reservation_mib: 624
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_template_registration_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -190,14 +190,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 314478
-    upper_ms: 393097
+    point_ms: 299486
+    upper_ms: 376163
   memory:
-    peak_mib: 497
-    reservation_mib: 621
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 498
+    reservation_mib: 623
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_image_standardization_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -207,14 +207,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 253327
-    upper_ms: 316658
+    point_ms: 252396
+    upper_ms: 302876
   memory:
-    peak_mib: 1130
-    reservation_mib: 1412
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1131
+    reservation_mib: 1414
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_image_standardization_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -224,14 +224,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 258524
-    upper_ms: 323155
+    point_ms: 257544
+    upper_ms: 309053
   memory:
-    peak_mib: 1145
-    reservation_mib: 1431
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1176
+    reservation_mib: 1470
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_wm_segmentation_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -241,14 +241,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 253051
-    upper_ms: 316313
+    point_ms: 252105
+    upper_ms: 302526
   memory:
-    peak_mib: 891
-    reservation_mib: 1113
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 892
+    reservation_mib: 1114
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_wm_segmentation_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -258,14 +258,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 259493
-    upper_ms: 324366
+    point_ms: 258482
+    upper_ms: 310179
   memory:
-    peak_mib: 911
-    reservation_mib: 1138
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 940
+    reservation_mib: 1175
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_wm_segmentation_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -275,14 +275,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 255312
-    upper_ms: 319140
+    point_ms: 243074
+    upper_ms: 305224
   memory:
-    peak_mib: 919
-    reservation_mib: 1148
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 927
+    reservation_mib: 1159
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_wm_segmentation_cpu_8
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_8
@@ -309,14 +309,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 1435947
-    upper_ms: 1794933
+    point_ms: 1434991
+    upper_ms: 1721990
   memory:
-    peak_mib: 1762
-    reservation_mib: 2202
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1763
+    reservation_mib: 2203
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_surface_reconstruction_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -326,14 +326,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 1460407
-    upper_ms: 1825508
+    point_ms: 1459375
+    upper_ms: 1751250
   memory:
-    peak_mib: 1762
-    reservation_mib: 2202
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1763
+    reservation_mib: 2203
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_surface_reconstruction_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -343,14 +343,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 1454981
-    upper_ms: 1818726
+    point_ms: 1453918
+    upper_ms: 1903034
   memory:
-    peak_mib: 1765
-    reservation_mib: 2206
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1827
+    reservation_mib: 2284
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_surface_reconstruction_cpu_8
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_8
@@ -377,14 +377,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 2722174
-    upper_ms: 3402717
+    point_ms: 2721152
+    upper_ms: 3265383
   memory:
-    peak_mib: 747
-    reservation_mib: 933
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 748
+    reservation_mib: 935
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_surface_registration_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -394,14 +394,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 2729580
-    upper_ms: 3411975
+    point_ms: 2728559
+    upper_ms: 3274271
   memory:
-    peak_mib: 760
-    reservation_mib: 950
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 761
+    reservation_mib: 951
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_surface_registration_cpu_4
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_4
@@ -411,14 +411,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 2740847
-    upper_ms: 3426058
+    point_ms: 2587195
+    upper_ms: 3287700
   memory:
-    peak_mib: 998
-    reservation_mib: 1247
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 999
+    reservation_mib: 1248
+  sample_count: 3
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_statistics_atlas_mapping_cpu_1
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_1
@@ -428,14 +428,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 804971
-    upper_ms: 1006213
+    point_ms: 2158319
+    upper_ms: 2589983
   memory:
-    peak_mib: 1260
-    reservation_mib: 1575
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1631
+    reservation_mib: 2038
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_cortical_thickness_default_statistics_atlas_mapping_cpu_2
   pipeline_id: freesurfer7_cortical_thickness
   configuration_id: cpu_2
@@ -445,11 +445,11 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 2159336
-    upper_ms: 2699170
+    point_ms: 2166295
+    upper_ms: 2599554
   memory:
-    peak_mib: 1630
-    reservation_mib: 2037
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 1631
+    reservation_mib: 2038
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured

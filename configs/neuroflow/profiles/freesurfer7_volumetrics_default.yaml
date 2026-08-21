@@ -20,14 +20,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 9008
-    upper_ms: 11260
+    point_ms: 7963
+    upper_ms: 9556
   memory:
-    peak_mib: 50
-    reservation_mib: 62
+    peak_mib: 51
+    reservation_mib: 64
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_reorient_resize_cpu_2
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_2
@@ -37,14 +37,65 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 8956
-    upper_ms: 11195
+    point_ms: 8074
+    upper_ms: 9689
   memory:
-    peak_mib: 59
-    reservation_mib: 73
+    peak_mib: 60
+    reservation_mib: 74
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
+- profile_id: freesurfer7_volumetrics_default_template_registration_cpu_1
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_1
+  implementation: fs7_recon_style_template_registration
+  implementation_version: 7.4.1
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 1
+  runtime:
+    point_ms: 289725
+    upper_ms: 347670
+  memory:
+    peak_mib: 388
+    reservation_mib: 484
+  sample_count: 1
+  source: normal_pipeline_benchmark_20260820
+  status: measured
+- profile_id: freesurfer7_volumetrics_default_template_registration_cpu_2
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_2
+  implementation: fs7_recon_style_template_registration
+  implementation_version: 7.4.1
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 2
+  runtime:
+    point_ms: 297664
+    upper_ms: 357197
+  memory:
+    peak_mib: 340
+    reservation_mib: 425
+  sample_count: 1
+  source: normal_pipeline_benchmark_20260820
+  status: measured
+- profile_id: freesurfer7_volumetrics_default_template_registration_cpu_4
+  pipeline_id: freesurfer7_volumetrics
+  configuration_id: cpu_4
+  implementation: fs7_recon_style_template_registration
+  implementation_version: 7.4.1
+  stage: template_registration
+  mode: cpu
+  cpu_threads: 4
+  runtime:
+    point_ms: 304485
+    upper_ms: 365382
+  memory:
+    peak_mib: 499
+    reservation_mib: 624
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_1
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_1
@@ -54,14 +105,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 1415282
-    upper_ms: 1769102
+    point_ms: 1414312
+    upper_ms: 1697175
   memory:
-    peak_mib: 849
-    reservation_mib: 1061
+    peak_mib: 850
+    reservation_mib: 1063
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_2
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_2
@@ -71,14 +122,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 1460450
-    upper_ms: 1825562
+    point_ms: 1459490
+    upper_ms: 1751388
   memory:
-    peak_mib: 808
-    reservation_mib: 1010
+    peak_mib: 809
+    reservation_mib: 1011
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_brain_extraction_cpu_4
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_4
@@ -88,14 +139,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 1437066
-    upper_ms: 1796332
+    point_ms: 1436089
+    upper_ms: 1723307
   memory:
-    peak_mib: 808
-    reservation_mib: 1010
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 817
+    reservation_mib: 1021
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_1
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_1
@@ -105,14 +156,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 13632881
-    upper_ms: 17041101
+    point_ms: 13631886
+    upper_ms: 16358264
   memory:
-    peak_mib: 2082
-    reservation_mib: 2602
+    peak_mib: 2083
+    reservation_mib: 2604
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_2
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_2
@@ -122,14 +173,14 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 10443425
-    upper_ms: 13054281
+    point_ms: 10442473
+    upper_ms: 12530968
   memory:
-    peak_mib: 2039
-    reservation_mib: 2548
+    peak_mib: 2040
+    reservation_mib: 2550
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_subcortical_segmentation_cpu_4
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_4
@@ -139,14 +190,14 @@ profiles:
   mode: cpu
   cpu_threads: 4
   runtime:
-    point_ms: 8528885
-    upper_ms: 10661106
+    point_ms: 8698767
+    upper_ms: 10438521
   memory:
-    peak_mib: 2066
-    reservation_mib: 2582
-  sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+    peak_mib: 2067
+    reservation_mib: 2584
+  sample_count: 2
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_1
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_1
@@ -156,14 +207,14 @@ profiles:
   mode: cpu
   cpu_threads: 1
   runtime:
-    point_ms: 165583
-    upper_ms: 206978
+    point_ms: 29087
+    upper_ms: 34905
   memory:
-    peak_mib: 684
-    reservation_mib: 855
+    peak_mib: 151
+    reservation_mib: 189
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
 - profile_id: freesurfer7_volumetrics_default_statistics_atlas_mapping_cpu_2
   pipeline_id: freesurfer7_volumetrics
   configuration_id: cpu_2
@@ -173,11 +224,11 @@ profiles:
   mode: cpu
   cpu_threads: 2
   runtime:
-    point_ms: 30033
-    upper_ms: 37541
+    point_ms: 29444
+    upper_ms: 35333
   memory:
-    peak_mib: 150
-    reservation_mib: 187
+    peak_mib: 151
+    reservation_mib: 189
   sample_count: 1
-  source: provisional_ui_integration
-  status: draft
+  source: normal_pipeline_benchmark_20260820
+  status: measured
