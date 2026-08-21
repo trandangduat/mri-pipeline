@@ -28,6 +28,34 @@ def _positive_int(value: object) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _neuroflow_source_dir() -> Path | None:
+    candidates: list[Path] = []
+    for env_name in ("NEUROFLOW_SOURCE_DIR", "NEUROFLOW_PORTABLE_ROOT"):
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        root = Path(value).expanduser()
+        candidates.append(root if root.name == "NeuroFLOW-private" else root / "NeuroFLOW-private")
+    candidates.extend(
+        [
+            PROJECT_ROOT / "NeuroFLOW-private",
+            PROJECT_ROOT.parent / "NeuroFLOW-private",
+            PROJECT_ROOT.parent.parent / "NeuroFLOW-private",
+        ]
+    )
+    for candidate in candidates:
+        if (candidate / "src" / "neuroflow").is_dir():
+            return candidate
+    return None
+
+
+def _manifest_path_key(path: Path) -> str:
+    try:
+        return path.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
 @dataclass
 class RemoteRunConfig:
     ssh: SSHConfig
@@ -129,10 +157,10 @@ class RemoteRunner:
                         path = Path(root) / name
                         if path.suffix in extensions:
                             roots.append(path)
-        neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
+        neuroflow = _neuroflow_source_dir()
         neuroflow_configs = PROJECT_ROOT / "configs" / "neuroflow"
         for folder, extensions in (
-            (neuroflow / "src", {".py", ".typed"}),
+            (neuroflow / "src" if neuroflow else Path(), {".py", ".typed"}),
             (neuroflow_configs, {".yaml", ".yml", ".json"}),
         ):
             if folder.exists():
@@ -142,11 +170,11 @@ class RemoteRunner:
                         path = Path(root) / name
                         if path.suffix in extensions:
                             roots.append(path)
-        neuroflow_pyproject = neuroflow / "pyproject.toml"
+        neuroflow_pyproject = neuroflow / "pyproject.toml" if neuroflow else Path()
         if neuroflow_pyproject.exists():
             roots.append(neuroflow_pyproject)
-        for path in sorted((p for p in roots if p.exists()), key=lambda p: p.relative_to(PROJECT_ROOT).as_posix()):
-            rel = path.relative_to(PROJECT_ROOT).as_posix()
+        for path in sorted((p for p in roots if p.exists()), key=_manifest_path_key):
+            rel = _manifest_path_key(path)
             hasher.update(rel.encode("utf-8"))
             hasher.update(path.read_bytes())
         return hasher.hexdigest()
@@ -420,24 +448,48 @@ class RemoteRunner:
                 self.on_log("Failed: Python package install in remote venv.")
                 return False
             self.on_log("Installed: Python packages into remote venv")
-            self._ensure_neuroflow_dependencies(ssh, venv_python)
+            self._ensure_neuroflow_dependencies(ssh, venv_python, remote_code)
             return True
 
-    def _ensure_neuroflow_dependencies(self, ssh: RemoteSSHClient, venv_python: str) -> None:
+    def _ensure_neuroflow_dependencies(self, ssh: RemoteSSHClient, venv_python: str, remote_code: str) -> None:
         if not self.config.neuroflow_enabled:
             return
-        check = "import yaml, jsonschema"
-        if ssh.run(f"{shlex.quote(venv_python)} -c {shlex.quote(check)} >/dev/null 2>&1", stream=False, check=False) == 0:
+        remote_code = self._require_workspace_child(ssh, remote_code, "remote code directory")
+        neuroflow_src = posixpath.join(remote_code, "NeuroFLOW-private", "src")
+        neuroflow_project = posixpath.join(remote_code, "NeuroFLOW-private")
+        pyproject = posixpath.join(neuroflow_project, "pyproject.toml")
+
+        check_config_deps = "import yaml, jsonschema"
+        if ssh.run(f"{shlex.quote(venv_python)} -c {shlex.quote(check_config_deps)} >/dev/null 2>&1", stream=False, check=False) != 0:
+            self.on_log("Installing NeuroFLOW configuration dependencies into remote venv...")
+            packages = " ".join(shlex.quote(package) for package in ("PyYAML>=6", "jsonschema>=4"))
+            code = ssh.run(
+                f"{shlex.quote(venv_python)} -m pip install --disable-pip-version-check {packages}",
+                stream=True,
+                check=False,
+            )
+            if code != 0:
+                raise RuntimeError("Could not install NeuroFLOW dependencies on the remote server.")
+
+        check_neuroflow = "import neuroflow"
+        if ssh.run(f"PYTHONPATH={shlex.quote(neuroflow_src)}:$PYTHONPATH {shlex.quote(venv_python)} -c {shlex.quote(check_neuroflow)} >/dev/null 2>&1", stream=False, check=False) == 0:
             return
-        self.on_log("Installing NeuroFLOW configuration dependencies into remote venv...")
-        packages = " ".join(shlex.quote(package) for package in ("PyYAML>=6", "jsonschema>=4"))
-        code = ssh.run(
-            f"{shlex.quote(venv_python)} -m pip install --disable-pip-version-check {packages}",
-            stream=True,
-            check=False,
+
+        if ssh.run(f"test -f {shlex.quote(pyproject)}", stream=False, check=False) == 0:
+            self.on_log("Installing NeuroFLOW scheduler package into remote venv...")
+            code = ssh.run(
+                f"{shlex.quote(venv_python)} -m pip install --disable-pip-version-check -e {shlex.quote(neuroflow_project)}",
+                stream=True,
+                check=False,
+            )
+            if code == 0 and ssh.run(f"{shlex.quote(venv_python)} -c {shlex.quote(check_neuroflow)} >/dev/null 2>&1", stream=False, check=False) == 0:
+                return
+
+        raise RuntimeError(
+            "NeuroFLOW scheduler package is missing on the remote server. "
+            "Place NeuroFLOW-private in the portable app folder or set NEUROFLOW_SOURCE_DIR before starting a NeuroFLOW job, "
+            "then retry so it can be uploaded to the remote workspace."
         )
-        if code != 0:
-            raise RuntimeError("Could not install NeuroFLOW dependencies on the remote server.")
 
     def check_image_statuses(self, images: list[str]) -> dict[str, bool]:
         statuses: dict[str, bool] = {}
@@ -653,7 +705,7 @@ class RemoteRunner:
             remote_code = self._remote_code_dir(ssh)
             self._ensure_shared_code(ssh)
             venv_python = self.ensure_remote_venv(ssh)
-            self._ensure_neuroflow_dependencies(ssh, venv_python)
+            self._ensure_neuroflow_dependencies(ssh, venv_python, remote_code)
             run_log = posixpath.join(self.remote_job_dir, "run.log")
             exit_code = posixpath.join(self.remote_job_dir, "exit_code.txt")
             pid_file = posixpath.join(self.remote_job_dir, "pid.txt")
@@ -1019,8 +1071,8 @@ class RemoteRunner:
                 skip_dirs={"__pycache__"},
                 allowed_extensions={".gcs", ".annot"},
             )
-        neuroflow = PROJECT_ROOT / "NeuroFLOW-private"
-        if neuroflow.exists():
+        neuroflow = _neuroflow_source_dir()
+        if neuroflow and neuroflow.exists():
             remote_neuroflow = posixpath.join(remote_code, "NeuroFLOW-private")
             pyproject = neuroflow / "pyproject.toml"
             if pyproject.exists():

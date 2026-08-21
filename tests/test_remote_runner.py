@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 from pathlib import Path
-from remote.remote_runner import RemoteRunner, RemoteRunConfig
+from remote.remote_runner import RemoteRunner, RemoteRunConfig, _neuroflow_source_dir
 from remote.ssh_client import SSHConfig
 
 
@@ -86,6 +86,18 @@ class ExecPythonListSSHClient(FakeRemoteSSHClient):
             result = subprocess.run(parts, check=False, capture_output=True, text=True)
             return result.returncode, result.stdout + result.stderr
         return super().read_text(command)
+
+
+class MissingNeuroflowSSHClient(FakeRemoteSSHClient):
+    def run(self, command: str, stream: bool = True, check: bool = False) -> int:
+        self.commands.append(command)
+        if "import yaml, jsonschema" in command:
+            return 0
+        if "import neuroflow" in command:
+            return 1
+        if "test -f" in command and "NeuroFLOW-private" in command:
+            return 1
+        return 0
 
 
 def test_remote_runner_clean_guardrail(dummy_ssh_server):
@@ -329,6 +341,33 @@ def test_remote_runner_adds_neuroflow_src_to_worker_pythonpath(mocker) -> None:
 
     commands = "\n".join(FakeRemoteSSHClient.commands)
     assert "/home/tester/mri-remote-jobs/code/NeuroFLOW-private/src" in commands
+
+
+def test_remote_runner_fails_early_when_neuroflow_package_missing() -> None:
+    ssh = MissingNeuroflowSSHClient(None)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace="~/mri-remote-jobs",
+            neuroflow_enabled=True,
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="NeuroFLOW scheduler package is missing"):
+        runner._ensure_neuroflow_dependencies(
+            ssh,
+            "/home/tester/mri-remote-jobs/.venv/bin/python",
+            "/home/tester/mri-remote-jobs/code",
+        )
+
+
+def test_neuroflow_source_dir_uses_explicit_env(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "NeuroFLOW-private"
+    (source / "src" / "neuroflow").mkdir(parents=True)
+
+    monkeypatch.setenv("NEUROFLOW_SOURCE_DIR", str(source))
+
+    assert _neuroflow_source_dir() == source
 
 
 def test_remote_runner_uploads_tracked_neuroflow_configs(mocker: object) -> None:
