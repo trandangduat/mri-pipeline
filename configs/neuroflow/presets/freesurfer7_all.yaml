@@ -21,9 +21,9 @@ metadata:
   - intermediate_work_products
   active_pipeline_stages:
   - reorientation
+  - template_registration
   - brain_extraction
   - segmentation
-  - template_registration
   - bias_correction
   - white_matter_segmentation
   - surface_reconstruction

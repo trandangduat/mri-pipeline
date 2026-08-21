@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app_backend.run_request import RunRequestInput, prepare_run_request
 from pipeline.config import ExportConfig, StatsVectorConfig
-from pipeline.presets import PRESET_CONFIGS
+from pipeline.presets import PRESET_CONFIGS, normalize_stats_vector_config_for_pipeline_mode
 
 
 def _base_config(tmp_path: Path, **overrides: object) -> RunRequestInput:
@@ -297,6 +297,78 @@ def test_prepare_run_request_rejects_local_with_server_input(tmp_path: Path) -> 
     assert any("local" in e.lower() for e in result["errors"])
 
 
+def test_prepare_run_request_disables_neuroflow_for_unsupported_custom_mode(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            pipeline_mode="Custom",
+            neuroflow_enabled=True,
+            neuroflow_max_concurrent_tasks=4,
+        )
+    )
+    request = _ok_request(result)
+
+    assert request["neuroflow_enabled"] is False
+    assert request["neuroflow_max_concurrent_tasks"] == 4
+
+
+def test_prepare_run_request_keeps_neuroflow_for_supported_preset(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            pipeline_mode="FreeSurfer 7 + Volume",
+            neuroflow_enabled=True,
+        )
+    )
+    request = _ok_request(result)
+
+    assert request["neuroflow_enabled"] is True
+
+
+def test_prepare_run_request_rejects_invalid_neuroflow_numeric_settings(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            pipeline_mode="FreeSurfer 7 + Volume",
+            neuroflow_enabled=True,
+            neuroflow_max_retries=9,
+            neuroflow_estimation_mode="extreme",
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["request"] is None
+    assert result["errors"] == ["NeuroFLOW max retries must be between 0 and 5."]
+
+
+def test_prepare_run_request_rejects_invalid_neuroflow_estimation_mode(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            pipeline_mode="FreeSurfer 7 + Volume",
+            neuroflow_enabled=True,
+            neuroflow_max_retries=3,
+            neuroflow_estimation_mode="extreme",
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["request"] is None
+    assert result["errors"] == ["NeuroFLOW estimation mode must be balanced, conservative, or aggressive."]
+
+
 def test_prepare_run_request_normalizes_dicom_series_dir_input(tmp_path: Path) -> None:
     dicom_dir = tmp_path / "sub-01_dicom"
     dicom_dir.mkdir()
@@ -318,4 +390,57 @@ def test_prepare_run_request_normalizes_dicom_series_dir_input(tmp_path: Path) -
     assert request["input_file"] == str(dicom_dir)
     assert request["input_dir"] == str(dicom_dir)
     assert request["recursive"] is False
+
+
+def test_normalize_stats_vector_config_infers_preset_enabled_stats_from_raw_atlases() -> None:
+    raw = {"atlases": {"subcortical_volume": ["freesurfer_aseg"]}}
+
+    normalized = normalize_stats_vector_config_for_pipeline_mode("FreeSurfer 7 + Volume", raw)
+
+    assert normalized == {
+        "enabled_stats": {
+            "cortical_thickness": False,
+            "cortical_volume": False,
+            "subcortical_volume": True,
+        },
+        "atlases": {
+            "cortical_thickness": [],
+            "cortical_volume": [],
+            "subcortical_volume": ["freesurfer_aseg"],
+        },
+    }
+
+
+def test_normalize_stats_vector_config_filters_invalid_atlases_for_preset() -> None:
+    raw = {"atlases": {"subcortical_volume": ["freesurfer_aseg", "not_a_real_atlas"]}}
+
+    normalized = normalize_stats_vector_config_for_pipeline_mode("FreeSurfer 7 + Volume", raw)
+
+    assert normalized["atlases"]["subcortical_volume"] == ["freesurfer_aseg"]
+
+
+def test_normalize_stats_vector_config_preserves_custom_config() -> None:
+    custom = {
+        "enabled_stats": {"subcortical_volume": True},
+        "atlases": {"subcortical_volume": ["freesurfer_aseg"], "cortical_volume": ["freesurfer_aparc"]},
+    }
+
+    assert normalize_stats_vector_config_for_pipeline_mode("Custom", custom) == custom
+
+
+def test_normalize_stats_vector_config_ignores_missing_config_for_preset() -> None:
+    normalized = normalize_stats_vector_config_for_pipeline_mode("FreeSurfer 7 + Volume", None)
+
+    assert normalized == {
+        "enabled_stats": {
+            "cortical_thickness": False,
+            "cortical_volume": False,
+            "subcortical_volume": True,
+        },
+        "atlases": {
+            "cortical_thickness": [],
+            "cortical_volume": [],
+            "subcortical_volume": ["freesurfer_aseg"],
+        },
+    }
 

@@ -82,6 +82,56 @@ def test_freesurfer8_volume_neuroflow_preset_only_schedules_active_volume_stages
     }
 
 
+def test_neuroflow_presets_match_normal_active_stages() -> None:
+    from pipeline.presets import PRESET_CONFIGS
+    from pipeline.registry import stage_order_for_tools
+
+    root = _neuroflow_config_root()
+    local_to_neuroflow = {v: k for k, v in NEUROFLOW_STAGE_TO_LOCAL_STAGE.items()}
+    for preset_path in sorted((root / "presets").glob("*.yaml")):
+        preset = yaml.safe_load(preset_path.read_text())
+        mode = str(preset["metadata"]["pipeline_mode"])
+        assert mode in PRESET_CONFIGS, f"{preset_path.name}: unknown pipeline mode {mode!r}"
+
+        tools = PRESET_CONFIGS[mode]["tools"]
+        stage_order = stage_order_for_tools(tools)
+        active_local = [stage for stage in stage_order if tools.get(stage)]
+        expected_stage_ids = [local_to_neuroflow[stage] for stage in active_local]
+        assert [stage["id"] for stage in preset["stages"]] == expected_stage_ids, preset_path.name
+
+        skipped = set(stage_order) - set(active_local)
+        assert set(preset["metadata"]["skipped_pipeline_stages"]) == skipped, preset_path.name
+
+
+def test_freesurfer7_volume_neuroflow_runs_template_registration_before_brain_extraction() -> None:
+    root = _neuroflow_config_root()
+    preset = yaml.safe_load((root / "presets" / "freesurfer7_volumetrics.yaml").read_text())
+
+    stage_ids = [stage["id"] for stage in preset["stages"]]
+    assert "template_registration" in stage_ids
+
+    brain_extraction = next(stage for stage in preset["stages"] if stage["id"] == "brain_extraction")
+    template_registration = next(stage for stage in preset["stages"] if stage["id"] == "template_registration")
+    assert "template_registration" in brain_extraction["depends_on"]
+    assert "reorient_resize" in template_registration["depends_on"]
+    assert stage_ids.index("reorient_resize") < stage_ids.index("template_registration") < stage_ids.index("brain_extraction")
+    assert "template_registration" not in preset["metadata"]["skipped_pipeline_stages"]
+
+
+def test_neuroflow_profiles_cover_every_preset_stage() -> None:
+    root = _neuroflow_config_root()
+    for preset_path in sorted((root / "presets").glob("*.yaml")):
+        preset = yaml.safe_load(preset_path.read_text())
+        profile_set = str(preset["metadata"]["default_profile_set"])
+        profile_path = root / "profiles" / f"{profile_set}.yaml"
+        assert profile_path.is_file(), f"{preset_path.name}: missing profile set {profile_set}"
+        profiles = yaml.safe_load(profile_path.read_text())
+
+        covered = {str(profile["stage"]) for profile in profiles["profiles"]}
+        expected = {str(stage["id"]) for stage in preset["stages"]}
+        assert expected - covered == set(), f"{preset_path.name}: stages without profile coverage: {expected - covered}"
+
+
 class _Record:
     def __init__(self, *args: object, **kwargs: object) -> None:
         if args:
@@ -444,6 +494,119 @@ def test_neuroflow_handles_empty_polls_while_tasks_running(
     assert results[0].success is True
 
 
+def test_neuroflow_survives_long_empty_poll_spell_before_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+    monkeypatch.setattr(neuroflow_adapter.time, "sleep", lambda _seconds: None)
+
+    class SlowReadyScheduler(_FakeAdaptiveScheduler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.step = 0
+
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            self.launch_requests.append(request)
+            self.step += 1
+            if self.step <= 65:
+                return SimpleNamespace(terminal=False, launches=(), reason="dependencies_pending")
+            if self.step == 66:
+                launches = (
+                    _Record(
+                        image_id="subject-a",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-a",
+                        reservation_id="reservation-a",
+                        task_id="task-a",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-a",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="ready")
+            return SimpleNamespace(terminal=True, launches=(), reason="all_done")
+
+    fake_neuroflow = sys.modules["neuroflow"]
+    fake_neuroflow.AdaptiveScheduler = SlowReadyScheduler
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz")],
+        subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+    )
+
+    scheduler = SlowReadyScheduler.instances[0]
+    assert len(scheduler.launch_requests) == 67
+    assert len(scheduler.results) == 1
+    assert results[0].success is True
+
+
+def test_neuroflow_stage_config_container_name_suffix_is_attempt_unique(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+    stage_suffixes: list[str] = []
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        stage_suffixes.append(config.container_name_suffix)
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz"), str(tmp_path / "b.nii.gz")],
+        subject_id_map={
+            str(tmp_path / "a.nii.gz"): "subject-a",
+            str(tmp_path / "b.nii.gz"): "subject-b",
+        },
+    )
+
+    assert sorted(stage_suffixes) == ["reorientation_attempt-a", "reorientation_attempt-b"]
+
+
 def test_neuroflow_batch_with_concurrency_4(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -544,4 +707,50 @@ def test_scheduler_config_parses_all_advanced_settings() -> None:
     assert cfg.warmup.safe_successes_before_increase == 5
     assert cfg.disk.max_io_heavy_tasks == 3
     assert cfg.estimation.runtime.local_quantile == 0.95
+
+
+def test_neuroflow_batch_normalizes_raw_stats_vector_config_for_preset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+    captured_configs: list[object] = []
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, config: object) -> None:
+            captured_configs.append(config)
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 7 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+            "stats_vector_config": {
+                "atlases": {"subcortical_volume": ["freesurfer_aseg"]},
+            },
+        },
+        input_files=[str(tmp_path / "a.nii.gz")],
+        subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+    )
+
+    assert len(captured_configs) == 1
+    stats_cfg = captured_configs[0]
+    assert stats_cfg.enabled_stats["subcortical_volume"] is True
+    assert stats_cfg.enabled_stats["cortical_volume"] is False
+    assert stats_cfg.enabled_stats["cortical_thickness"] is False
+    assert stats_cfg.atlases["subcortical_volume"] == ["freesurfer_aseg"]
 

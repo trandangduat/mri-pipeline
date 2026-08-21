@@ -228,6 +228,40 @@ def test_run_pipeline_uses_recon_style_timeout_for_fs8_bias_correction(tmp_path,
     assert executor.requests[0].timeout == FREESURFER_RECON_STYLE_TIMEOUT
 
 
+def test_run_pipeline_includes_container_name_suffix_when_configured(tmp_path, mocker) -> None:
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input", encoding="utf-8")
+    output_dir = tmp_path / "outputs"
+    executor = RecordingExecutor()
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
+
+    config = PipelineConfig(
+        input_file=str(input_file),
+        output_dir=str(output_dir),
+        subject_id="sub-01",
+        container_name_suffix="reorientation_attempt-a",
+        selected_tools={
+            "reorientation": "mri_convert_fs7",
+            "brain_extraction": "",
+            "segmentation": "",
+            "template_registration": "",
+            "bias_correction": "",
+            "white_matter_segmentation": "",
+            "surface_reconstruction": "",
+            "surface_registration": "",
+            "stats_extraction": "",
+        },
+    )
+
+    results = run_pipeline(config, executor=executor)
+
+    assert len(executor.requests) == 1
+    assert executor.requests[0].container_name.startswith(
+        "mri-sub-01-mri_convert_fs7-reorientation_attempt-a-"
+    )
+    assert results[0].success is True
+
+
 def test_run_pipeline_fails_without_pull_when_image_missing(tmp_path, mocker) -> None:
     input_file = tmp_path / "input.nii.gz"
     input_file.write_text("input", encoding="utf-8")

@@ -6,9 +6,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
-from pipeline.config import STAT_VECTOR_DEFS, ExportConfig, StatsVectorConfig
+from pipeline.config import ExportConfig, StatsVectorConfig
 from pipeline.discovery import _is_dicom_file, _is_dicom_series_dir, _is_supported_mri_input
-from pipeline.presets import PRESET_CONFIGS, normalize_pipeline_mode
+from pipeline.presets import (
+    PRESET_CONFIGS,
+    normalize_pipeline_mode,
+    normalize_stats_vector_config_for_pipeline_mode,
+)
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -208,6 +212,8 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
 
 
 def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
+    from pipeline.neuroflow_adapter import is_neuroflow_supported
+
     is_batch = config.input_mode == "dir"
     batch_output_name = f"batch_{_batch_timestamp(config)}" if is_batch else ""
     output_dir = config.output_dir.strip()
@@ -227,7 +233,8 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "stats_vector_config": _stats_vector_config(config),
         "input_source": config.input_source,
         "run_target": config.run_target,
-        "neuroflow_enabled": config.neuroflow_enabled,
+        "neuroflow_enabled": bool(config.neuroflow_enabled)
+        and is_neuroflow_supported({"pipeline_mode": config.pipeline_mode}),
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
         "neuroflow_max_retries": config.neuroflow_max_retries,
         "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,
@@ -247,34 +254,7 @@ def _selected_tools(config: RunRequestInput) -> dict[str, str]:
 
 
 def _stats_vector_config(config: RunRequestInput) -> dict[str, JsonValue]:
-    if config.pipeline_mode == "Custom" or config.pipeline_mode not in PRESET_CONFIGS:
-        return dict(config.stats_vector_config)
-
-    preset = PRESET_CONFIGS[config.pipeline_mode]
-    enabled = {str(stat) for stat in preset["stats"]}
-    default_atlases = preset.get("default_atlases", {})
-    raw_atlases = config.stats_vector_config.get("atlases", {})
-    atlas_config = raw_atlases if isinstance(raw_atlases, dict) else {}
-    atlases: dict[str, JsonValue] = {}
-    for stat, stat_def in STAT_VECTOR_DEFS.items():
-        existing = atlas_config.get(stat, [])
-        allowed = set(str(atlas) for atlas in stat_def.get("atlases", ()))
-        if isinstance(existing, list) and existing:
-            atlases[stat] = [str(atlas) for atlas in existing if atlas in allowed]
-            continue
-        preset_defaults = default_atlases.get(stat, [])
-        valid_defaults = [str(atlas) for atlas in preset_defaults if atlas in allowed]
-        if stat in enabled and valid_defaults:
-            atlases[stat] = valid_defaults
-        elif stat in enabled and allowed:
-            atlases[stat] = [str(atlas) for atlas in stat_def.get("atlases", ()) if atlas in allowed][:1]
-        else:
-            atlases[stat] = []
-
-    return {
-        "enabled_stats": {stat: stat in enabled for stat in STAT_VECTOR_DEFS},
-        "atlases": atlases,
-    }
+    return normalize_stats_vector_config_for_pipeline_mode(config.pipeline_mode, config.stats_vector_config)
 
 
 def _batch_timestamp(config: RunRequestInput) -> str:
@@ -335,10 +315,12 @@ def _license_error(config: RunRequestInput) -> str:
 def _neuroflow_error(config: RunRequestInput) -> str:
     if not config.neuroflow_enabled:
         return ""
-    from pipeline.neuroflow_adapter import PIPELINE_MODE_TO_PRESET
-
-    if config.pipeline_mode not in PIPELINE_MODE_TO_PRESET:
-        return "NeuroFLOW currently requires one of the FreeSurfer/FastSurfer preset pipeline modes."
+    if config.neuroflow_max_concurrent_tasks < 1:
+        return "NeuroFLOW max concurrent tasks must be at least 1."
+    if config.neuroflow_max_retries < 0 or config.neuroflow_max_retries > 5:
+        return "NeuroFLOW max retries must be between 0 and 5."
+    if config.neuroflow_estimation_mode not in {"balanced", "conservative", "aggressive"}:
+        return "NeuroFLOW estimation mode must be balanced, conservative, or aggressive."
     return ""
 
 

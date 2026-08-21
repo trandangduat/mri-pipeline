@@ -16,6 +16,7 @@ from typing import Callable, Optional
 from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .discovery import _derive_subject_id
 from .hardware import _total_ram_bytes
+from .presets import normalize_stats_vector_config_for_pipeline_mode
 from .registry import STAGE_ORDER
 from .reports import BatchReportContext, write_batch_reports
 from .runner import run_pipeline_stage
@@ -349,7 +350,11 @@ def run_neuroflow_batch(
 
     output_dir = str(req.get("effective_output_dir", req.get("output_dir", "")))
     export_config = ExportConfig.from_dict(req.get("export_config"))
-    stats_vector_config = StatsVectorConfig.from_dict(req.get("stats_vector_config"))
+    stats_vector_config = StatsVectorConfig.from_dict(
+        normalize_stats_vector_config_for_pipeline_mode(
+            str(req.get("pipeline_mode") or ""), req.get("stats_vector_config")
+        )
+    )
     selected_tools = dict(req.get("selected_tools", {}))
     total = len(input_files)
     contexts: dict[str, _ImageRunContext] = {}
@@ -423,6 +428,7 @@ def run_neuroflow_batch(
             selected_tools=context.config.selected_tools,
             export_config=context.config.export_config,
             stats_vector_config=context.config.stats_vector_config,
+            container_name_suffix=f"{local_stage}_{launch.attempt_id}",
         )
         step, output_for_next = run_pipeline_stage(
             stage_config,
@@ -481,8 +487,13 @@ def run_neuroflow_batch(
         return result, observation
 
     running_futures: dict[concurrent.futures.Future, tuple[object, _ImageRunContext, str, str]] = {}
-    max_empty_polls = 60
-    empty_polls = 0
+    last_response_terminal = False
+
+    def _scheduler_is_terminal() -> bool:
+        if hasattr(scheduler, "get_status"):
+            status = scheduler.get_status()
+            return bool(getattr(status, "terminal", False))
+        return bool(last_response_terminal)
 
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         while True:
@@ -546,8 +557,8 @@ def run_neuroflow_batch(
                 response = scheduler.request_launches(
                     request=LaunchRequest(resource_snapshot=snapshot, maximum_number=available_slots)
                 )
+                last_response_terminal = bool(getattr(response, "terminal", False))
                 if response.launches:
-                    empty_polls = 0
                     for launch in response.launches:
                         context = contexts.get(str(launch.image_id))
                         if context is None:
@@ -568,18 +579,11 @@ def run_neuroflow_batch(
                         )
                         future = executor.submit(_run_launch_stage, launch, context, local_stage, execution_id)
                         running_futures[future] = (launch, context, local_stage, execution_id)
-                elif response.terminal and not running_futures:
+                elif _scheduler_is_terminal() and not running_futures:
                     break
-                else:
-                    if not running_futures:
-                        status = scheduler.get_status() if hasattr(scheduler, "get_status") else None
-                        if status and getattr(status, "terminal", False):
-                            break
-                        empty_polls += 1
-                        if on_progress:
-                            on_progress("batch", "running", 0.0, f"NeuroFLOW waiting: {response.reason}")
-                        if empty_polls >= max_empty_polls:
-                            break
+                elif not running_futures:
+                    if on_progress:
+                        on_progress("batch", "running", 0.0, f"NeuroFLOW waiting: {response.reason}")
             elif not running_futures:
                 break
 

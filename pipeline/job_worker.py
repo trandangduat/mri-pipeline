@@ -11,7 +11,11 @@ from pathlib import Path
 from .config import BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
 from .jobs import read_json, write_json
 from .discovery import _derive_subject_id, _discover_mri_files, build_subject_id_map
-from .presets import PIPELINE_MODE_ALIASES, PRESET_CONFIGS
+from .presets import (
+    PIPELINE_MODE_ALIASES,
+    PRESET_CONFIGS,
+    normalize_stats_vector_config_for_pipeline_mode,
+)
 from .reports import BatchReportContext, write_batch_reports
 from .runner import run_batch_pipeline, run_pipeline
 
@@ -78,7 +82,9 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     else:
         selected_tools = req.get("selected_tools", {})
     export_config = ExportConfig.from_dict(req.get("export_config"))
-    stats_vector_config = StatsVectorConfig.from_dict(req.get("stats_vector_config"))
+    stats_vector_config = StatsVectorConfig.from_dict(
+        normalize_stats_vector_config_for_pipeline_mode(pipeline_mode, req.get("stats_vector_config"))
+    )
 
     def progress_cb(stage: str, status: str, pct: float, msg: str) -> None:
         _log(job_dir, f"{status.upper()} {stage}: {msg}")

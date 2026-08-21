@@ -189,6 +189,9 @@ def _build_execution_request(
         command = [tool.get("shell", "bash"), "-c", tool["command_builder"](ctx)]
         args = []
 
+    container_parts = ["mri", config.subject_id, tool_key]
+    if config.container_name_suffix:
+        container_parts.append(config.container_name_suffix)
     return ExecutionRequest(
         image=tool["image"],
         args=args,
@@ -197,7 +200,7 @@ def _build_execution_request(
         entrypoint=tool.get("entrypoint"),
         gpus=(config.device == "gpu" or config.device == "cuda"),
         memory_bytes=memory_limit_bytes,
-        container_name=_safe_container_name("mri", config.subject_id, tool_key),
+        container_name=_safe_container_name(*container_parts),
         timeout=int(tool.get("timeout", 7200)),
     )
 
