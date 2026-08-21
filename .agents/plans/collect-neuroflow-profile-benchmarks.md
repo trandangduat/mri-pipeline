@@ -31,7 +31,7 @@ Required run settings:
 - same server for all runs
 - same input MRI set for all runs
 - use the server DICOM dataset at `/home/catcd1/ADNIDOD_T1`
-- professor constraint: run benchmark jobs with `1-5` CPUs only
+- benchmark constraint: run benchmark jobs with `1-5` CPUs only
 - do not start new `8` CPU benchmark jobs for primary calibration
 - same `ram_percent`, preferably `90`
 - same stats-vector selections intended for production use
@@ -42,7 +42,7 @@ If an executor has already started `8` CPU jobs from an older version of this pl
 
 - If the jobs just started, stop them and rerun with `threads: 5`.
 - If the jobs are close to finishing, let them finish only if stopping would waste more time; mark the data as extra/non-primary.
-- Do not use `8` CPU results as professor-compliant primary calibration data.
+- Do not use `8` CPU results as primary calibration data for the `1-5` CPU benchmark.
 - Do not overwrite `cpu_8` profile values from these runs unless explicitly approved later.
 
 Recommended sample size:
@@ -168,7 +168,7 @@ Explicit production-like example:
 ```json
 {
   "atlases": {
-    "cortical_thickness": ["aparc", "aparc_a2009s", "schaefer2018_400parcels_17networks"],
+    "cortical_thickness": ["aparc", "schaefer2018_400parcels_17networks"],
     "cortical_volume": ["freesurfer_aseg", "harvard_oxford_cortical", "brainnetome246"],
     "subcortical_volume": ["freesurfer_aseg", "harvard_oxford_subcortical"]
   }
@@ -254,7 +254,7 @@ Existing useful benchmark workspaces:
 - `/home/catcd1/duat-jobs2`
 - `/home/catcd1/pipeline-test-19082026`
 
-Measured per-subject runtimes from existing jobs. `8` thread values are historical reference only and should not drive professor-compliant calibration:
+Measured per-subject runtimes from existing jobs. `8` thread values are historical reference only and should not drive `1-5` CPU calibration:
 
 | Preset | 1 thread | 2 threads | 4 threads | 8 threads |
 | --- | ---: | ---: | ---: | ---: |

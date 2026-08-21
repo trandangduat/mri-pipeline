@@ -175,7 +175,7 @@ def _scheduler_config(req: dict) -> object:
     from neuroflow.configuration import load_scheduler_dict
 
     threads = max(1, int(req.get("threads", 1) or 1))
-    scheduler_thread_limit = max(threads, 8)
+    scheduler_thread_limit = threads
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     ram_mib = _ram_limit_mib(int(req.get("ram_percent", 100) or 100))
 

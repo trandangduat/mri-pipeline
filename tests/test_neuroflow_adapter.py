@@ -687,7 +687,7 @@ def test_scheduler_config_parses_all_advanced_settings() -> None:
         sys.path.insert(0, neuroflow_src)
 
     req = {
-        "threads": 6,
+        "threads": 5,
         "ram_percent": 80,
         "neuroflow_max_concurrent_tasks": 4,
         "neuroflow_max_retries": 2,
@@ -700,6 +700,8 @@ def test_scheduler_config_parses_all_advanced_settings() -> None:
     }
     cfg = _scheduler_config(req)
     assert cfg.limits.max_concurrent_tasks == 4
+    assert cfg.limits.max_total_cpu_threads == 5
+    assert cfg.limits.max_threads_per_task == 5
     assert cfg.retry.max_retries == 2
     assert cfg.retry.preserve_oom_bounds_on_manual_retry is False
     assert cfg.warmup.enabled is True
@@ -753,4 +755,3 @@ def test_neuroflow_batch_normalizes_raw_stats_vector_config_for_preset(
     assert stats_cfg.enabled_stats["cortical_volume"] is False
     assert stats_cfg.enabled_stats["cortical_thickness"] is False
     assert stats_cfg.atlases["subcortical_volume"] == ["freesurfer_aseg"]
-
