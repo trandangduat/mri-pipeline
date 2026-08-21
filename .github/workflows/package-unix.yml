@@ -71,12 +71,37 @@ jobs:
           chmod +x ./packaging/${{ matrix.platform }}/build-backend.sh ./packaging/${{ matrix.platform }}/build-app.sh
           ./packaging/${{ matrix.platform }}/build-app.sh "$PWD"
 
-      - name: Compress package
+      - name: Assemble portable package
         run: |
           mkdir -p "dist-portable/${{ matrix.platform }}"
+          portable_dir="dist-portable/${{ matrix.platform }}/NeuroFlowPortable"
+          rm -rf "$portable_dir"
+          mkdir -p "$portable_dir/config" "$portable_dir/outputs/jobs" "$portable_dir/logs" "$portable_dir/licenses"
+
+          release_dir="tauri-app/src-tauri/target/release"
+          if [ -x "$release_dir/NeuroFlow" ]; then
+            app_exe="$release_dir/NeuroFlow"
+          elif [ -x "$release_dir/mri-pipeline-tauri" ]; then
+            app_exe="$release_dir/mri-pipeline-tauri"
+          else
+            echo "Could not find Tauri executable under $release_dir" >&2
+            find "$release_dir" -maxdepth 2 -type f -print >&2
+            exit 1
+          fi
+
+          cp "$app_exe" "$portable_dir/NeuroFlow"
+          chmod +x "$portable_dir/NeuroFlow"
+          cp -R "tauri-app/src-tauri/backend" "$portable_dir/backend"
+          chmod +x "$portable_dir/backend/neuroflow-backend"
+
+          bundle_dir="$release_dir/bundle"
+          if [ -d "$bundle_dir" ]; then
+            cp -R "$bundle_dir" "$portable_dir/bundle"
+          fi
+
           tar -czf "dist-portable/${{ matrix.platform }}/${{ matrix.artifact }}-${{ github.sha }}.tar.gz" \
-            -C "tauri-app/src-tauri/target/release" \
-            bundle
+            -C "dist-portable/${{ matrix.platform }}" \
+            NeuroFlowPortable
           ls -lh "dist-portable/${{ matrix.platform }}"
 
       - name: Upload package artifact
