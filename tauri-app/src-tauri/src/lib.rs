@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 struct BackendSidecar {
     child: Mutex<Option<Child>>,
@@ -21,16 +21,20 @@ impl BackendSidecar {
             child: Mutex::new(child),
         }
     }
-}
 
-impl Drop for BackendSidecar {
-    fn drop(&mut self) {
+    fn shutdown(&self) {
         if let Ok(mut child) = self.child.lock() {
-            if let Some(process) = child.as_mut() {
+            if let Some(mut process) = child.take() {
                 let _ = process.kill();
                 let _ = process.wait();
             }
         }
+    }
+}
+
+impl Drop for BackendSidecar {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -227,6 +231,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                window.state::<BackendSidecar>().shutdown();
+            }
+        })
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
             let app_dir = app
