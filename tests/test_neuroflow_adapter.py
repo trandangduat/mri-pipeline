@@ -14,12 +14,43 @@ import pipeline.neuroflow_adapter as neuroflow_adapter
 from pipeline.config import BatchImageResult
 from pipeline.neuroflow_adapter import (
     NEUROFLOW_STAGE_TO_LOCAL_STAGE,
+    _filter_profiles_for_thread_limit,
     _neuroflow_config_root,
     _preset_id_from_request,
     _scheduler_config,
     is_neuroflow_supported,
     run_neuroflow_batch,
 )
+
+
+@dataclass(frozen=True)
+class _ExecutionConfig:
+    configuration_id: str
+    cpu_threads: int
+    profile_ref: str
+
+
+@dataclass(frozen=True)
+class _StageConfig:
+    stage_id: str
+    execution_configurations: tuple[_ExecutionConfig, ...]
+
+
+@dataclass(frozen=True)
+class _PipelineConfig:
+    stages: tuple[_StageConfig, ...]
+
+
+@dataclass(frozen=True)
+class _ProfileConfig:
+    profile_id: str
+    stage_id: str
+    cpu_threads: int
+
+
+@dataclass(frozen=True)
+class _ProfileSetConfig:
+    profiles: tuple[_ProfileConfig, ...]
 
 
 def test_is_neuroflow_supported() -> None:
@@ -63,6 +94,31 @@ def test_neuroflow_config_root_uses_tracked_pipeline_configs() -> None:
     assert root.as_posix().endswith("configs/neuroflow")
     assert (root / "presets" / "freesurfer8_all.yaml").is_file()
     assert (root / "profiles" / "freesurfer8_all_default.yaml").is_file()
+
+
+def test_neuroflow_profiles_are_filtered_to_scheduler_thread_limit() -> None:
+    pipeline = _PipelineConfig(
+        stages=(
+            _StageConfig(
+                stage_id="surface_reconstruction",
+                execution_configurations=(
+                    _ExecutionConfig("cpu_4", 4, "profile_cpu_4"),
+                    _ExecutionConfig("cpu_8", 8, "profile_cpu_8"),
+                ),
+            ),
+        )
+    )
+    profiles = _ProfileSetConfig(
+        profiles=(
+            _ProfileConfig("profile_cpu_4", "surface_reconstruction", 4),
+            _ProfileConfig("profile_cpu_8", "surface_reconstruction", 8),
+        )
+    )
+
+    filtered_pipeline, filtered_profiles = _filter_profiles_for_thread_limit(pipeline, profiles, 5)
+
+    assert [config.configuration_id for config in filtered_pipeline.stages[0].execution_configurations] == ["cpu_4"]
+    assert [profile.profile_id for profile in filtered_profiles.profiles] == ["profile_cpu_4"]
 
 
 def test_freesurfer8_volume_neuroflow_preset_only_schedules_active_volume_stages() -> None:

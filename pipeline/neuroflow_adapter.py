@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
@@ -248,6 +248,37 @@ def _scheduler_config(req: dict) -> object:
     )
 
 
+def _filter_profiles_for_thread_limit(pipeline: object, profiles: object, thread_limit: int) -> tuple[object, object]:
+    if not hasattr(pipeline, "stages") or not hasattr(profiles, "profiles"):
+        return pipeline, profiles
+    limit = max(1, int(thread_limit))
+    stage_ids: set[str] = set()
+    profile_refs: set[str] = set()
+    filtered_stages = []
+    for stage in getattr(pipeline, "stages", ()):  # NeuroFLOW models are dataclasses.
+        configs = [
+            config
+            for config in getattr(stage, "execution_configurations", ())
+            if int(getattr(config, "cpu_threads", 1) or 1) <= limit
+        ]
+        if not configs:
+            raise ValueError(
+                f"No NeuroFLOW execution configuration for stage '{getattr(stage, 'stage_id', 'unknown')}' fits thread limit {limit}."
+            )
+        stage_ids.add(str(getattr(stage, "stage_id")))
+        profile_refs.update(str(getattr(config, "profile_ref", "")) for config in configs if getattr(config, "profile_ref", ""))
+        filtered_stages.append(replace(stage, execution_configurations=tuple(configs)))
+
+    filtered_profiles = [
+        profile
+        for profile in getattr(profiles, "profiles", ())
+        if str(getattr(profile, "stage_id", "")) in stage_ids
+        and str(getattr(profile, "profile_id", "")) in profile_refs
+        and int(getattr(profile, "cpu_threads", 1) or 1) <= limit
+    ]
+    return replace(pipeline, stages=tuple(filtered_stages)), replace(profiles, profiles=tuple(filtered_profiles))
+
+
 def _resource_snapshot(
     req: dict,
     available_slots: int | None = None,
@@ -345,6 +376,8 @@ def run_neuroflow_batch(
     config_root = _neuroflow_config_root()
     pipeline = load_pipeline_file(config_root / "presets" / f"{preset_id}.yaml")
     profiles = load_profile_set_file(config_root / "profiles" / f"{profile_set_id}.yaml")
+    thread_limit = max(1, int(req.get("threads", 1) or 1))
+    pipeline, profiles = _filter_profiles_for_thread_limit(pipeline, profiles, thread_limit)
     scheduler_config = _scheduler_config(req)
     validate_cross_documents(pipeline, profiles, scheduler_config)
 
