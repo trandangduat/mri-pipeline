@@ -5,12 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${1:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 echo "========================================"
-echo "  NeuroFlow macOS Builder"
+echo "  NeuroFlow Linux Builder"
 echo "========================================"
 echo ""
 
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "This script must be run on macOS." >&2
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "This script must be run on Linux." >&2
   exit 1
 fi
 
@@ -77,15 +77,11 @@ echo "[6/6] Building Tauri app..."
 (cd "$TAURI_APP_DIR" && npm run tauri build)
 echo ""
 
-APP_PATH="$TAURI_SRC_DIR/target/release/bundle/macos/NeuroFlow.app"
-DMG_PATH="$(find "$TAURI_SRC_DIR/target/release/bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+BUNDLE_DIR="$TAURI_SRC_DIR/target/release/bundle"
 
 echo "========================================"
 echo "  Build Complete"
 echo "========================================"
-if [[ -d "$APP_PATH" ]]; then
-  echo "App: $APP_PATH"
-fi
-if [[ -n "$DMG_PATH" ]]; then
-  echo "DMG: $DMG_PATH"
+if [[ -d "$BUNDLE_DIR" ]]; then
+  find "$BUNDLE_DIR" -maxdepth 2 -type f -print
 fi

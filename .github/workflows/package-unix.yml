@@ -1,0 +1,88 @@
+name: Package Linux and macOS
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-unix:
+    name: Build ${{ matrix.label }} package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux
+            os: ubuntu-latest
+            platform: linux
+            artifact: NeuroFlow-Linux
+          - label: macOS
+            os: macos-latest
+            platform: macos
+            artifact: NeuroFlow-macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf \
+            wget
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Create Python virtual environment
+        run: |
+          python3 -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+
+      - name: Build package
+        run: |
+          chmod +x ./packaging/${{ matrix.platform }}/build-backend.sh ./packaging/${{ matrix.platform }}/build-app.sh
+          ./packaging/${{ matrix.platform }}/build-app.sh "$PWD"
+
+      - name: Compress package
+        run: |
+          mkdir -p "dist-portable/${{ matrix.platform }}"
+          tar -czf "dist-portable/${{ matrix.platform }}/${{ matrix.artifact }}-${{ github.sha }}.tar.gz" \
+            -C "tauri-app/src-tauri/target/release" \
+            bundle
+          ls -lh "dist-portable/${{ matrix.platform }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: dist-portable/${{ matrix.platform }}/${{ matrix.artifact }}-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
