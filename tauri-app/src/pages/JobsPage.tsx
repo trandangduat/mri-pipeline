@@ -916,7 +916,7 @@ export function JobsPage() {
             const maxRetries = Number(reqSummary.neuroflow_max_retries ?? reqSummary.neuroflowMaxRetries ?? 3);
 
             const schedulerDisplay = neuroflowEnabled && !isCustomMode
-              ? 'NeuroFLOW (Adaptive DAG)'
+              ? 'NeuroFLOW'
               : isCustomMode
                 ? 'Standard Runner (Custom Mode)'
                 : 'Standard Runner';

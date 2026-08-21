@@ -1,4 +1,4 @@
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
 import {beforeAll, expect, test, vi} from 'vitest';
 import {AdvancedSettingsSection} from '../src/pages/PipelinePage';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
@@ -49,6 +49,11 @@ test('shows NeuroFLOW fields for preset mode', () => {
   const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
   expect(toggle).toBeEnabled();
   expect(toggle).toBeChecked();
+  expect(screen.getByRole('button', {name: /Show Settings/i})).toBeInTheDocument();
+  expect(screen.queryByText('Max parallel tasks')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
+
   expect(screen.getByText('Max parallel tasks')).toBeInTheDocument();
   expect(screen.getByText('Start safely, then scale up')).toBeInTheDocument();
   expect(screen.getByText('Max Retries Per Task')).toBeInTheDocument();
@@ -66,7 +71,22 @@ test('shows workspace-loaded helper text when max parallel tasks is 1', () => {
 
   render(<AdvancedSettingsSection />);
 
+  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
+
   expect(
     screen.getByText('Loaded from workspace. Use 2 or more for parallel scheduling.'),
   ).toBeInTheDocument();
+});
+
+test('hides settings toggle when NeuroFLOW scheduler is disabled', () => {
+  resetStore();
+  usePipelineFormStore.getState().setFormField('pipelineMode', 'FreeSurfer 8 + Volume');
+  usePipelineFormStore.getState().setFormField('neuroflowEnabled', false);
+
+  render(<AdvancedSettingsSection />);
+
+  const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
+  expect(toggle).not.toBeChecked();
+  expect(screen.queryByRole('button', {name: /Show Settings/i})).not.toBeInTheDocument();
+  expect(screen.queryByText('Max parallel tasks')).not.toBeInTheDocument();
 });

@@ -46,6 +46,7 @@ export function PipelineStepsSection() {
   const licenseFileInput = useRef<HTMLInputElement>(null);
   const [uploadingLicense, setUploadingLicense] = React.useState(false);
   const [showTools, setShowTools] = React.useState(formValues.pipelineMode === 'Custom');
+  const [presetInvalid, setPresetInvalid] = React.useState(false);
 
   // Automatically show tools when switching to Custom mode
   React.useEffect(() => {
@@ -111,17 +112,25 @@ export function PipelineStepsSection() {
     try {
       const content = await file.text();
       const preset = JSON.parse(content) as Record<string, unknown>;
+      if (!preset || typeof preset !== 'object' || Array.isArray(preset)) {
+        throw new Error('Preset file must contain a JSON object.');
+      }
+      if (
+        !preset.selected_tools ||
+        typeof preset.selected_tools !== 'object' ||
+        Array.isArray(preset.selected_tools)
+      ) {
+        throw new Error(`"${file.name}" is not a valid preset file (missing "selected_tools" object).`);
+      }
       const formFields: Record<string, unknown> = {pipelineMode: 'Custom'};
-      if (preset.selected_tools && typeof preset.selected_tools === 'object') {
-        for (const [k, v] of Object.entries(preset.selected_tools)) {
-          formFields[`stage_${k}`] = v;
-        }
+      for (const [k, v] of Object.entries(preset.selected_tools)) {
+        formFields[`stage_${k}`] = v;
       }
       setFormFields(formFields);
       setShowTools(true);
       print('Loaded preset file', {name: file.name, selected_tools: preset.selected_tools});
-    } catch (err: unknown) {
-      print('Load preset failed', {error: (err as Error).message});
+    } catch {
+      setPresetInvalid(true);
     }
   }
 
@@ -189,7 +198,10 @@ export function PipelineStepsSection() {
           className="hidden"
           type="file"
           accept="application/json,.json"
-          onChange={(e) => handlePresetFile(e.target.files?.[0])}
+          onChange={(e) => {
+            handlePresetFile(e.target.files?.[0]);
+            e.target.value = '';
+          }}
         />
       </div>
       {metaLoading && (
@@ -321,6 +333,23 @@ export function PipelineStepsSection() {
             }}
           />
         </div>
+      )}
+
+      {/* Invalid Preset File Popup */}
+      {presetInvalid && (
+        <ModalOverlay onClose={() => setPresetInvalid(false)}>
+          <h3 className="m-0 mb-1.5 text-sm font-semibold leading-[1.3] text-cursor-semantic-error">
+            Invalid preset file
+          </h3>
+          <p className="m-0 break-words text-xs leading-relaxed text-cursor-body">
+            The selected file is not a valid preset file.
+          </p>
+          <div className="mt-3 flex items-center justify-end">
+            <Button variant="primary" onClick={() => setPresetInvalid(false)}>
+              OK
+            </Button>
+          </div>
+        </ModalOverlay>
       )}
     </Panel>
   );
@@ -633,6 +662,7 @@ export function AdvancedSettingsSection() {
   const isCustomMode = formValues.pipelineMode === 'Custom';
   const neuroflowEnabled = formValues.neuroflowEnabled !== undefined ? Boolean(formValues.neuroflowEnabled) : true;
   const neuroflowWarmupEnabled = Boolean(formValues.neuroflowWarmupEnabled);
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
 
   return (
     <Panel
@@ -640,9 +670,13 @@ export function AdvancedSettingsSection() {
       title="Advanced Settings"
       titleRight={
         neuroflowEnabled && !isCustomMode ? (
-          <span className="rounded-full bg-cursor-primary/10 px-2 py-0.5 text-2xs font-semibold text-cursor-primary uppercase tracking-wide">
-            Adaptive DAG
-          </span>
+          <Button
+            variant="ghost"
+            icon={showAdvanced ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            onClick={() => setShowAdvanced((prev) => !prev)}
+          >
+            {showAdvanced ? 'Hide Settings' : 'Show Settings'}
+          </Button>
         ) : null
       }
       className="min-w-0"
@@ -668,7 +702,7 @@ export function AdvancedSettingsSection() {
             )}
           </div>
 
-          {neuroflowEnabled && !isCustomMode && (
+          {showAdvanced && neuroflowEnabled && !isCustomMode && (
             <div className="grid gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className={labelCls}>

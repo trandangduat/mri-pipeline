@@ -42,6 +42,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
 
   const remoteResult = useRemoteStore();
   const [starting, setStarting] = useState(false);
+  const [workspaceInvalid, setWorkspaceInvalid] = useState(false);
   const workspaceFileInput = useRef<HTMLInputElement>(null);
 
   const needsLicense = useMemo(() => {
@@ -205,13 +206,18 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
     try {
       const content = await file.text();
       const workspace = JSON.parse(content);
-      if (!workspace || typeof workspace !== 'object') {
-        throw new Error('Workspace JSON must be an object.');
+      if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace)) {
+        throw new Error('Workspace file must contain a JSON object.');
+      }
+      if (workspace.type !== 'mri-pipeline-workspace') {
+        throw new Error(
+          `"${file.name}" is not a valid NeuroFlow workspace file (missing type "mri-pipeline-workspace").`,
+        );
       }
       applyWorkspaceConfig(workspace, metadata ?? undefined);
       print('Loaded workspace file', {name: file.name, type: workspace.type || 'unknown'});
-    } catch (error: unknown) {
-      print('Load workspace failed', {error: (error as Error).message});
+    } catch {
+      setWorkspaceInvalid(true);
     }
   };
 
@@ -268,7 +274,10 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
             className="hidden"
             type="file"
             accept="application/json,.json"
-            onChange={(e) => handleWorkspaceFile(e.target.files?.[0])}
+            onChange={(e) => {
+              handleWorkspaceFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
           />
 
           <Button
@@ -353,6 +362,30 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         success={dialogSuccess}
         errorMessage={dialogError}
       />
+
+      {/* Invalid Workspace File Popup */}
+      {workspaceInvalid && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setWorkspaceInvalid(false);
+          }}
+        >
+          <div className="relative w-full max-w-[24rem] rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+            <h3 className="m-0 mb-1.5 text-sm font-semibold leading-[1.3] text-cursor-semantic-error">
+              Invalid workspace file
+            </h3>
+            <p className="m-0 break-words text-xs leading-relaxed text-cursor-body">
+              The selected file is not a valid NeuroFlow workspace file.
+            </p>
+            <div className="mt-3 flex items-center justify-end">
+              <Button variant="primary" onClick={() => setWorkspaceInvalid(false)}>
+                OK
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
