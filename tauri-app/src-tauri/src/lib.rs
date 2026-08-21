@@ -76,10 +76,12 @@ fn portable_root_from_app_dir(app_dir: &Path) -> PathBuf {
 }
 
 fn find_backend_exe(resource_dir: &Path) -> Option<PathBuf> {
+    let backend_name = backend_executable_name();
+
     // Check next to the running executable (portable folder layout)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            let candidate = exe_dir.join("backend").join("neuroflow-backend.exe");
+            let candidate = exe_dir.join("backend").join(backend_name);
             if candidate.exists() {
                 return Some(candidate);
             }
@@ -88,13 +90,13 @@ fn find_backend_exe(resource_dir: &Path) -> Option<PathBuf> {
 
     // Check in Tauri resource directory
     let candidates = [
-        resource_dir.join("backend").join("neuroflow-backend.exe"),
-        resource_dir.join("neuroflow-backend.exe"),
+        resource_dir.join("backend").join(backend_name),
+        resource_dir.join(backend_name),
         resource_dir
             .join("_up_")
             .join("_up_")
             .join("backend")
-            .join("neuroflow-backend.exe"),
+            .join(backend_name),
     ];
     for candidate in &candidates {
         if candidate.exists() {
@@ -102,6 +104,14 @@ fn find_backend_exe(resource_dir: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn backend_executable_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "neuroflow-backend.exe"
+    } else {
+        "neuroflow-backend"
+    }
 }
 
 fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Result<Child, std::io::Error> {
@@ -208,7 +218,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_backend_exe, find_resource_backend_root};
+    use super::{backend_executable_name, find_backend_exe, find_resource_backend_root};
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -238,22 +248,22 @@ mod tests {
         let resources = test_dir("exe-backend-subdir");
         let backend_dir = resources.join("backend");
         fs::create_dir_all(&backend_dir).unwrap();
-        fs::write(backend_dir.join("neuroflow-backend.exe"), b"fake").unwrap();
+        fs::write(backend_dir.join(backend_executable_name()), b"fake").unwrap();
 
         let found = find_backend_exe(&resources);
 
-        assert_eq!(found, Some(backend_dir.join("neuroflow-backend.exe")));
+        assert_eq!(found, Some(backend_dir.join(backend_executable_name())));
     }
 
     #[test]
     fn finds_backend_exe_at_resource_root() {
         let resources = test_dir("exe-resource-root");
         fs::create_dir_all(&resources).unwrap();
-        fs::write(resources.join("neuroflow-backend.exe"), b"fake").unwrap();
+        fs::write(resources.join(backend_executable_name()), b"fake").unwrap();
 
         let found = find_backend_exe(&resources);
 
-        assert_eq!(found, Some(resources.join("neuroflow-backend.exe")));
+        assert_eq!(found, Some(resources.join(backend_executable_name())));
     }
 
     #[test]

@@ -31,6 +31,36 @@ function Assert-Command {
     Write-Host "  OK: $Name"
 }
 
+function Stop-PortableProcesses {
+    param([string]$PortableDir)
+
+    if (-not ($env:OS -eq "Windows_NT")) {
+        return
+    }
+    if (-not (Test-Path $PortableDir)) {
+        return
+    }
+
+    $portableRoot = [System.IO.Path]::GetFullPath($PortableDir).TrimEnd('\') + '\'
+    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        if (-not $_.ExecutablePath) {
+            $false
+        } else {
+            $exePath = [System.IO.Path]::GetFullPath($_.ExecutablePath)
+            $exePath.StartsWith($portableRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+    }
+
+    foreach ($process in $processes) {
+        Write-Host "  Stopping running portable process: $($process.Name) (PID $($process.ProcessId))"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processes) {
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 Assert-Command "node" "Install Node.js from https://nodejs.org/"
 Assert-Command "npm" "Install Node.js from https://nodejs.org/"
 Assert-Command "cargo" "Install Rust from https://rustup.rs/"
@@ -134,6 +164,7 @@ Write-Host "[7/7] Assembling portable folder..." -ForegroundColor Yellow
 $portableDir = Join-Path (Join-Path (Join-Path $ProjectRoot "dist-portable") "windows") "NeuroFlowPortable"
 
 if (Test-Path $portableDir) {
+    Stop-PortableProcesses -PortableDir $portableDir
     Remove-Item -Recurse -Force $portableDir
 }
 New-Item -ItemType Directory -Path $portableDir -Force | Out-Null

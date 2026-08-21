@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for neuroflow-backend (one-dir mode)."""
+"""PyInstaller spec for neuroflow-backend on macOS (one-dir mode)."""
 
 import os
 
@@ -65,8 +65,6 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "scipy", "numpy.testing"],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
@@ -82,8 +80,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,
+    upx=False,
+    console=True,
     disable_windowed_traceback=False,
 )
 
@@ -93,7 +91,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="neuroflow-backend",
 )
