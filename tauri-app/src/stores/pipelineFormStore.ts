@@ -71,7 +71,6 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
   applyWorkspaceConfig: (workspace, metadata) => {
     const remote = (workspace.remote as Record<string, unknown>) || {};
     const pipelineMode = (workspace.pipeline_mode as string) || 'Custom';
-    const isCustom = pipelineMode === 'Custom';
     const workspaceTools = (workspace.tools as Record<string, unknown>) || {};
     set((state) => {
       const nextFormValues = {...state.formValues};
@@ -112,7 +111,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.neuroflowEstimationMode = (workspace.neuroflow_estimation_mode as 'balanced' | 'conservative' | 'aggressive') || 'balanced';
       nextFormValues.neuroflowMaxIoHeavyTasks = Math.max(1, (workspace.neuroflow_max_io_heavy_tasks as number) ?? 2);
       nextFormValues.neuroflowMachineProfileId = (workspace.neuroflow_machine_profile_id as string) || 'application_default';
-      if (isCustom) {
+      if (Object.keys(workspaceTools).length > 0) {
         for (const [stage, toolKey] of Object.entries(workspaceTools)) {
           (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = String(toolKey);
         }

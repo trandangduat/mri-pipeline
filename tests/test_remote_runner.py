@@ -226,6 +226,12 @@ def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path)
 
 def test_remote_runner_lists_rich_background_jobs_with_stable_remote_id(mocker, tmp_path) -> None:
     workspace = tmp_path / "mri-remote-jobs"
+    incomplete_job_dir = workspace / "job_20260814_102226"
+    incomplete_job_dir.mkdir(parents=True)
+    (incomplete_job_dir / "job_metadata.json").write_text(
+        json.dumps({"job_id": "job_20260814_102226", "created_at": 1786702969.0}),
+        encoding="utf-8",
+    )
     job_dir = workspace / "job_20260814_102225"
     job_dir.mkdir(parents=True)
     (job_dir / "job_metadata.json").write_text(

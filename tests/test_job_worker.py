@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 
 from pipeline.config import StepResult
+from pipeline.presets import PRESET_CONFIGS
 
 
 def test_job_worker_module_imports_after_report_refactor() -> None:
@@ -84,3 +85,27 @@ def test_job_worker_normalizes_stats_vector_config_before_from_dict(mocker, tmp_
         "subcortical_volume": True,
     }
     assert normalized["atlases"]["subcortical_volume"] == ["freesurfer_aseg"]
+
+
+def test_job_worker_infers_neuroflow_preset_from_custom_tool_set(mocker, tmp_path) -> None:
+    job_worker = importlib.import_module("pipeline.job_worker")
+    captured: dict[str, object] = {}
+
+    def fake_run_neuroflow_batch(**kwargs):
+        captured.update(kwargs["req"])
+        return []
+
+    mocker.patch("pipeline.neuroflow_adapter.run_neuroflow_batch", side_effect=fake_run_neuroflow_batch)
+    req = {
+        "mode": "file",
+        "input_file": "/input/sub-01.nii",
+        "output_dir": str(tmp_path / "outputs"),
+        "pipeline_mode": "Custom",
+        "selected_tools": dict(PRESET_CONFIGS["FreeSurfer 8 + Volume + Cortical Thickness"]["tools"]),
+        "neuroflow_enabled": True,
+    }
+
+    code = job_worker._run_job(tmp_path, req)
+
+    assert code == 0
+    assert captured["pipeline_mode"] == "FreeSurfer 8 + Volume + Cortical Thickness"

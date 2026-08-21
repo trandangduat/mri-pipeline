@@ -411,6 +411,26 @@ def test_normalize_stats_vector_config_infers_preset_enabled_stats_from_raw_atla
     }
 
 
+def test_prepare_run_request_preserves_pipeline_mode_for_remote_preset() -> None:
+    result = prepare_run_request(
+        {
+            "input_source": "Server",
+            "run_target": "Server",
+            "input_mode": "file",
+            "input_path": "/data/sub-01.nii",
+            "output_dir": "/out",
+            "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
+            "neuroflow_enabled": True,
+            "license_dir": "/license/license.txt",
+        }
+    )
+
+    assert result["ok"] is True
+    request = result["request"]
+    assert request["pipeline_mode"] == "FreeSurfer 8 + Volume + Cortical Thickness"
+    assert request["neuroflow_enabled"] is True
+
+
 def test_normalize_stats_vector_config_filters_invalid_atlases_for_preset() -> None:
     raw = {"atlases": {"subcortical_volume": ["freesurfer_aseg", "not_a_real_atlas"]}}
 
@@ -443,4 +463,3 @@ def test_normalize_stats_vector_config_ignores_missing_config_for_preset() -> No
             "subcortical_volume": ["freesurfer_aseg"],
         },
     }
-

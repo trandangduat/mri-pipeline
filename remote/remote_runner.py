@@ -768,6 +768,8 @@ class RemoteRunner:
                     "            exit_code = int(f.read().strip())",
                     "    except Exception:",
                     "        pass",
+                    "    if not cfg:",
+                    "        continue",
                     "    state = 'uploaded'",
                     "    if exit_code is not None:",
                     "        state = 'completed' if exit_code == 0 else 'failed'",

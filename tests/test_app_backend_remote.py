@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app_backend.remote import RemoteJobService
+from pipeline.presets import PRESET_CONFIGS
 from remote.remote_runner import RemoteRunConfig
 
 
@@ -241,6 +242,42 @@ def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None
     assert configs[-1].license_dir == str(license_file)
 
 
+def test_stream_start_job_infers_preset_mode_for_neuroflow_custom_tools() -> None:
+    configs: list[RemoteRunConfig] = []
+
+    def runner_factory(config: RemoteRunConfig) -> FakeRunner:
+        configs.append(config)
+        return FakeRunner([])
+
+    service = RemoteJobService(runner_factory=runner_factory)
+
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": dict(PRESET_CONFIGS["FreeSurfer 8 + Volume + Cortical Thickness"]["tools"]),
+                    "neuroflow_enabled": True,
+                    "license_dir": "/license",
+                },
+            }
+        )
+    )
+
+    assert events[-1]["event"] == "complete"
+    assert events[-1]["data"]["ok"] is True
+    assert configs[-1].pipeline_mode == "FreeSurfer 8 + Volume + Cortical Thickness"
+    assert events[-1]["data"]["job"]["run_request_summary"]["pipeline_mode"] == "FreeSurfer 8 + Volume + Cortical Thickness"
+
+
 class FakeSFTPAttr:
     def __init__(self, filename: str, is_dir: bool, size: int = 100, mtime: int = 1700000000) -> None:
         import stat as _stat
@@ -364,4 +401,3 @@ def test_scan_batch_via_sftp_groups_dicom_series_and_computes_metadata(monkeypat
     assert sub2["is_dicom_series"] is True
     assert sub2["slice_count"] == 10
     assert sub2["size"] == 2000
-

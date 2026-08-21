@@ -10,6 +10,7 @@ from pipeline.config import ExportConfig, StatsVectorConfig
 from pipeline.discovery import _is_dicom_file, _is_dicom_series_dir, _is_supported_mri_input
 from pipeline.presets import (
     PRESET_CONFIGS,
+    infer_pipeline_mode_from_tools,
     normalize_pipeline_mode,
     normalize_stats_vector_config_for_pipeline_mode,
 )
@@ -217,8 +218,15 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
     is_batch = config.input_mode == "dir"
     batch_output_name = f"batch_{_batch_timestamp(config)}" if is_batch else ""
     output_dir = config.output_dir.strip()
+    selected_tools = _selected_tools(config)
+    pipeline_mode = config.pipeline_mode
+    if pipeline_mode == "Custom" and config.neuroflow_enabled:
+        inferred_mode = infer_pipeline_mode_from_tools(selected_tools)
+        if inferred_mode != "Custom":
+            pipeline_mode = inferred_mode
     return {
         "mode": config.input_mode,
+        "pipeline_mode": pipeline_mode,
         "output_dir": output_dir,
         "server_output_dir": config.server_output_dir.strip(),
         "effective_output_dir": str(Path(output_dir) / batch_output_name) if batch_output_name else output_dir,
@@ -228,13 +236,13 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "device": config.device,
         "threads": config.threads,
         "ram_percent": config.ram_percent,
-        "selected_tools": _selected_tools(config),
+        "selected_tools": selected_tools,
         "export_config": config.export_config,
-        "stats_vector_config": _stats_vector_config(config),
+        "stats_vector_config": normalize_stats_vector_config_for_pipeline_mode(pipeline_mode, config.stats_vector_config),
         "input_source": config.input_source,
         "run_target": config.run_target,
         "neuroflow_enabled": bool(config.neuroflow_enabled)
-        and is_neuroflow_supported({"pipeline_mode": config.pipeline_mode}),
+        and is_neuroflow_supported({"pipeline_mode": pipeline_mode}),
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
         "neuroflow_max_retries": config.neuroflow_max_retries,
         "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,

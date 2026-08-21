@@ -1,3 +1,4 @@
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -68,11 +69,21 @@ fn cleanup_stale_backend(python: &Path, repo_root: &Path) {
         .status();
 }
 
-fn portable_root_from_app_dir(app_dir: &Path) -> PathBuf {
+fn portable_root_for_backend(exe_path: &Path, app_dir: Option<&Path>) -> PathBuf {
     if let Ok(root) = std::env::var("NEUROFLOW_PORTABLE_ROOT") {
         return PathBuf::from(root);
     }
-    app_dir.to_path_buf()
+    if let Some(exe_dir) = exe_path.parent() {
+        if exe_dir.file_name().and_then(|name| name.to_str()) == Some("backend") {
+            if let Some(portable_dir) = exe_dir.parent() {
+                return portable_dir.to_path_buf();
+            }
+        }
+    }
+    app_dir
+        .map(PathBuf::from)
+        .or_else(|| exe_path.parent().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn find_backend_exe(resource_dir: &Path) -> Option<PathBuf> {
@@ -124,18 +135,12 @@ fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Res
 }
 
 fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<Child, std::io::Error> {
-    let portable_root = app_dir
-        .map(|d| portable_root_from_app_dir(d))
-        .unwrap_or_else(|| {
-            exe_path
-                .parent()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."))
-        });
+    let portable_root = portable_root_for_backend(&exe_path, app_dir);
 
     let config_root = portable_root.join("config");
     let jobs_root = portable_root.join("outputs").join("jobs");
     let license_root = portable_root.join("licenses");
+    let (stdout, stderr) = backend_log_stdio(&portable_root);
 
     let mut cmd = Command::new(&exe_path);
     cmd.args(["server", "--host", "127.0.0.1", "--port", "8765"])
@@ -144,10 +149,30 @@ fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<Chi
         .env("NEUROFLOW_JOBS_ROOT", &jobs_root)
         .env("NEUROFLOW_LICENSE_ROOT", &license_root)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(stdout)
+        .stderr(stderr);
 
     cmd.spawn()
+}
+
+fn backend_log_stdio(portable_root: &Path) -> (Stdio, Stdio) {
+    let log_dir = portable_root.join("logs");
+    if fs::create_dir_all(&log_dir).is_err() {
+        return (Stdio::null(), Stdio::null());
+    }
+
+    let stdout = open_append_log(&log_dir.join("neuroflow-backend.out.log"));
+    let stderr = open_append_log(&log_dir.join("neuroflow-backend.err.log"));
+    (stdout, stderr)
+}
+
+fn open_append_log(path: &Path) -> Stdio {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null())
 }
 
 fn spawn_dev_backend(resource_dir: Option<PathBuf>) -> Result<Child, std::io::Error> {
@@ -218,7 +243,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{backend_executable_name, find_backend_exe, find_resource_backend_root};
+    use super::{
+        backend_executable_name, find_backend_exe, find_resource_backend_root,
+        portable_root_for_backend,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -274,6 +302,17 @@ mod tests {
         let found = find_backend_exe(&resources);
 
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn portable_root_uses_parent_of_backend_dir() {
+        let portable = test_dir("portable-root");
+        let exe_path = portable.join("backend").join(backend_executable_name());
+        fs::create_dir_all(exe_path.parent().unwrap()).unwrap();
+
+        let root = portable_root_for_backend(&exe_path, Some(Path::new("/tmp/app-data")));
+
+        assert_eq!(root, portable);
     }
 
     fn test_dir(name: &str) -> PathBuf {

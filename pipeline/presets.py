@@ -38,6 +38,22 @@ def normalize_pipeline_mode(mode: str) -> str:
     normalized = PIPELINE_MODE_ALIASES.get(normalized, normalized)
     return normalized if normalized in PIPELINE_MODES else "Custom"
 
+
+def infer_pipeline_mode_from_tools(selected_tools: object) -> str:
+    if not isinstance(selected_tools, dict) or not selected_tools:
+        return "Custom"
+    normalized_tools = {str(stage): str(tool) for stage, tool in selected_tools.items() if tool}
+    if not normalized_tools:
+        return "Custom"
+    matches: list[tuple[int, str]] = []
+    for mode, preset in PRESET_CONFIGS.items():
+        preset_tools = {str(stage): str(tool) for stage, tool in dict(preset.get("tools", {})).items() if tool}
+        if normalized_tools == preset_tools:
+            matches.append((len(preset.get("stats", ())), mode))
+    if not matches:
+        return "Custom"
+    return sorted(matches, key=lambda item: (-item[0], item[1]))[0][1]
+
 VOLUME_SKIPPED_STAGES = {
     "brain_extraction",
     "template_registration",

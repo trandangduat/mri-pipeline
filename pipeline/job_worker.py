@@ -14,6 +14,7 @@ from .discovery import _derive_subject_id, _discover_mri_files, build_subject_id
 from .presets import (
     PIPELINE_MODE_ALIASES,
     PRESET_CONFIGS,
+    infer_pipeline_mode_from_tools,
     normalize_stats_vector_config_for_pipeline_mode,
 )
 from .reports import BatchReportContext, write_batch_reports
@@ -74,6 +75,11 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     mode = req.get("mode")
     output_dir = req.get("effective_output_dir", req.get("output_dir", ""))
     pipeline_mode = PIPELINE_MODE_ALIASES.get(str(req.get("pipeline_mode") or ""), str(req.get("pipeline_mode") or ""))
+    if pipeline_mode == "Custom" and req.get("neuroflow_enabled"):
+        inferred_mode = infer_pipeline_mode_from_tools(req.get("selected_tools"))
+        if inferred_mode != "Custom":
+            pipeline_mode = inferred_mode
+            req["pipeline_mode"] = inferred_mode
     if pipeline_mode != "Custom" and pipeline_mode in PRESET_CONFIGS:
         selected_tools = dict(PRESET_CONFIGS[pipeline_mode]["tools"])
         req["selected_tools"] = selected_tools

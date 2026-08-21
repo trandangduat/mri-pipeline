@@ -73,6 +73,7 @@ export function buildRunConfig(
 ): Record<string, unknown> {
   const mode = formValues.pipelineMode || 'Custom';
   const preset = metadata?.presets?.[mode];
+  const selectedTools = preset?.tools || selectedToolsFromForm(formValues);
   const inputMode = formValues.inputMode || 'file';
   const normalizedInputMode = inputMode === 'batch_folder' ? 'dir' : inputMode;
   const inputPath = formValues.inputPath || '';
@@ -94,7 +95,7 @@ export function buildRunConfig(
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
     output_dir: formValues.outputDir,
     pipeline_mode: mode,
-    selected_tools: preset?.tools || {},
+    selected_tools: selectedTools,
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},
     stats_vector_config: {enabled_stats: {}, atlases: selectedStatsAtlases || {}},
     non_recursive: Boolean(formValues.nonRecursive),
@@ -113,6 +114,16 @@ export function buildRunConfig(
     neuroflow_max_io_heavy_tasks: Math.max(1, Number(formValues.neuroflowMaxIoHeavyTasks || 2)),
     neuroflow_machine_profile_id: String(formValues.neuroflowMachineProfileId || 'application_default'),
   } satisfies PreparedRunRequest;
+}
+
+export function selectedToolsFromForm(formValues: PipelineFormValues): Record<string, string> {
+  const selectedTools: Record<string, string> = {};
+  for (const [key, value] of Object.entries(formValues)) {
+    if (!key.startsWith('stage_')) continue;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    selectedTools[key.slice('stage_'.length)] = value.trim();
+  }
+  return selectedTools;
 }
 
 export interface RemotePayload {

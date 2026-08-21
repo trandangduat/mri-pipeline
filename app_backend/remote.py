@@ -258,6 +258,13 @@ class RemoteJobService:
         # Step 8: Start remote worker
         yield step_event("start", "running", "Starting remote worker...")
 
+        if run_request.get("pipeline_mode") == "Custom" and run_request.get("neuroflow_enabled"):
+            from pipeline.presets import infer_pipeline_mode_from_tools
+
+            inferred_mode = infer_pipeline_mode_from_tools(run_request.get("selected_tools"))
+            if inferred_mode != "Custom":
+                run_request = {**run_request, "pipeline_mode": inferred_mode}
+
         remote_config = RemoteRunConfig(
             ssh=base_config.ssh,
             remote_workspace=base_config.remote_workspace,

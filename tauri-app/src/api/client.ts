@@ -274,7 +274,14 @@ export class BackendClient {
     if (typeof this.fetchImpl !== 'function') {
       throw new Error('Fetch is not available in this environment.');
     }
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, options);
+    const url = `${this.baseUrl}${path}`;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Cannot reach NeuroFlow backend at ${url}: ${message}`);
+    }
     const payload: unknown = await response.json();
     if (!response.ok) {
       const errorPayload = (payload ?? {}) as {error?: unknown};
