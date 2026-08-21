@@ -4,8 +4,10 @@ import {
   Activity,
   ArrowLeft,
   BrainCircuit,
+  Check,
   ChevronRight,
   Clock,
+  Copy,
   Download,
   Eraser,
   Eye,
@@ -22,6 +24,7 @@ import {
   Server,
   Square,
   X,
+  Zap,
 } from 'lucide-react';
 import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
@@ -100,6 +103,116 @@ export function StatusDotLarge({state, className = ''}: {state: unknown; classNa
     return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none ${className}`} />;
   }
   return <span className={`h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none ${className}`} />;
+}
+
+export function BatchPieChart({
+  success,
+  failed,
+  running,
+  pending,
+  total,
+}: {
+  success: number;
+  failed: number;
+  running: number;
+  pending: number;
+  total: number;
+}) {
+  const radius = 44;
+  const center = 50;
+
+  if (total <= 0) {
+    return (
+      <div
+        className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
+        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+      >
+        <svg
+          viewBox="0 0 100 100"
+          className="w-20 h-20 min-w-20 min-h-20 block flex-none"
+          style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+        >
+          <circle cx={center} cy={center} r={radius} fill="#e6e5e0" />
+        </svg>
+      </div>
+    );
+  }
+
+  const segments = [
+    {count: success, color: '#1f8a65', key: 'success'}, // Semantic Success
+    {count: failed, color: '#cf2d56', key: 'failed'},   // Semantic Error
+    {count: running, color: '#0077b6', key: 'running'}, // Primary
+    {count: pending, color: '#cfcdc4', key: 'pending'}, // Muted / Pending
+  ].filter((s) => s.count > 0);
+
+  // If only 1 category exists, render a full solid circle
+  const singleSeg = segments.length === 1 ? segments[0] : undefined;
+  if (singleSeg) {
+    return (
+      <div
+        className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
+        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+      >
+        <svg
+          viewBox="0 0 100 100"
+          className="w-20 h-20 min-w-20 min-h-20 block flex-none"
+          style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+        >
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill={singleSeg.color}
+            stroke="#ffffff"
+            strokeWidth="1.5"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  // Multiple segments: generate SVG pie slice paths
+  let currentAngle = -Math.PI / 2; // Start from top (12 o'clock)
+  const paths = segments.map((seg) => {
+    const sliceAngle = (seg.count / total) * 2 * Math.PI;
+    const startAngle = currentAngle;
+    const endAngle = currentAngle + sliceAngle;
+    currentAngle = endAngle;
+
+    const x1 = center + radius * Math.cos(startAngle);
+    const y1 = center + radius * Math.sin(startAngle);
+    const x2 = center + radius * Math.cos(endAngle);
+    const y2 = center + radius * Math.sin(endAngle);
+    const largeArcFlag = sliceAngle > Math.PI ? 1 : 0;
+
+    const d = `M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+
+    return (
+      <path
+        key={seg.key}
+        d={d}
+        fill={seg.color}
+        stroke="#ffffff"
+        strokeWidth="1.5"
+        className="transition-all duration-300"
+      />
+    );
+  });
+
+  return (
+    <div
+      className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
+      style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+    >
+      <svg
+        viewBox="0 0 100 100"
+        className="w-20 h-20 min-w-20 min-h-20 block flex-none"
+        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+      >
+        {paths}
+      </svg>
+    </div>
+  );
 }
 
 function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => void}) {
@@ -273,6 +386,14 @@ export function JobsPage() {
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
   const [showRawLog, setShowRawLog] = useState<boolean>(false);
   const [subjectViewMode, setSubjectViewMode] = useState<'grid' | 'list'>('grid');
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopy = (key: string, text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedField(key);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   // Subject panel search, filter & modal state
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
@@ -567,7 +688,6 @@ export function JobsPage() {
   const handleDownloadClick = () => {
     if (!job || !isTerminal) return;
     if (isServerJob) {
-      const effDir = String(displayMeta.output_dir_str);
       const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
       const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
       const remotePath = rawOutputDir && rawOutputDir !== 'N/A'
@@ -724,13 +844,6 @@ export function JobsPage() {
     return 'Processing...';
   };
 
-  // Stacked bar ratios for Batch Summary (four-segment)
-  const totalCount = batchSummary.total || 1;
-  const successPct = (batchSummary.success / totalCount) * 100;
-  const failedPct = (batchSummary.failed / totalCount) * 100;
-  const runningPct = (batchSummary.running / totalCount) * 100;
-  const pendingPct = (batchSummary.pending / totalCount) * 100;
-
   if (!selectedJobId && !urlJobId) {
     return (
       <JobsListView
@@ -747,36 +860,31 @@ export function JobsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6">
-      {/* Back Button Bar */}
-      <div className="flex items-center justify-between gap-4 flex-none">
-        <Button
-          variant="outline"
-          onClick={() => {
-            setSelectedJobId(null);
-            navigate('/jobs');
-          }}
-          className="h-9 px-3.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1.5 text-cursor-body" />
-          Back to Jobs
-        </Button>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-cursor-muted font-mono">{String(job?.job_id || selectedJobId || '')}</span>
-        </div>
-      </div>
-
       {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
         {/* Left: Job Detail Card */}
         <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
-          {/* Header: Icon + Title + Status Indicators */}
+          {/* Header: Back Button + Icon + Title + Status Indicators */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedJobId(null);
+                  navigate('/jobs');
+                }}
+                className="h-7.5 px-2.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
+                aria-label="Back to Jobs"
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1 text-cursor-body" />
+                Back to Jobs
+              </Button>
+              <div className="flex h-7.5 w-7.5 items-center justify-center rounded-md bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
                 <BrainCircuit className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate">
+                <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate" title={(job?.display_name as string) || (job?.job_id as string) || ''}>
                   {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
                 </h2>
               </div>
@@ -796,141 +904,293 @@ export function JobsPage() {
             </div>
           </div>
 
-          {/* Metadata Table */}
-          <div className="mt-2.5 overflow-hidden rounded-md border border-cursor-hairline">
-            <div className="divide-y divide-cursor-hairline-soft text-xs">
-              {[
-                ['Started', displayMeta.started_at_str],
-                ['Preset', String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')],
-                ['Process PID', String(job?.pid || 'None')],
-                ['Mode / Device', `${String(reqSummary.mode || 'N/A')} / ${String(reqSummary.device || 'cpu')}`],
-                ['Threads', String(reqSummary.threads || 4)],
-                ['RAM Alloc', `${String(reqSummary.ram_percent || 100)}%`],
-                ['Container', modalMetricsSeries.latestContainer || 'None'],
-                ['Input Path', displayMeta.input_path_str],
-                ['Output Path', displayMeta.output_dir_str],
-              ].map(([label, value]) => (
-                <div key={label} className="grid grid-cols-[7.5rem_minmax(0,1fr)]">
-                  <span className="py-1 px-2 font-medium text-cursor-ink border-r border-cursor-hairline-soft bg-cursor-canvas-soft">{label}</span>
-                  <span className={`py-1 px-2 text-cursor-body ${label === 'Input Path' || label === 'Output Path' ? 'font-mono truncate text-xs' : ''}`} title={String(value)}>
-                    {String(value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Perfectly Aligned Unified Metadata Table */}
+          {(() => {
+            const isCustomMode = String(reqSummary.pipeline_mode || job?.pipeline_mode || '') === 'Custom';
+            const neuroflowEnabled = reqSummary.neuroflow_enabled !== undefined
+              ? Boolean(reqSummary.neuroflow_enabled)
+              : (reqSummary.neuroflowEnabled !== undefined ? Boolean(reqSummary.neuroflowEnabled) : !isCustomMode);
+            const maxConcurrent = Number(reqSummary.neuroflow_max_concurrent_tasks ?? reqSummary.neuroflowMaxConcurrentTasks ?? 2);
+            const estimationMode = String(reqSummary.neuroflow_estimation_mode || reqSummary.neuroflowEstimationMode || 'balanced');
+            const warmupEnabled = Boolean(reqSummary.neuroflow_warmup_enabled ?? reqSummary.neuroflowWarmupEnabled);
+            const maxRetries = Number(reqSummary.neuroflow_max_retries ?? reqSummary.neuroflowMaxRetries ?? 3);
+
+            const schedulerDisplay = neuroflowEnabled && !isCustomMode
+              ? 'NeuroFLOW (Adaptive DAG)'
+              : isCustomMode
+                ? 'Standard Runner (Custom Mode)'
+                : 'Standard Runner';
+
+            const schedulerDetails = neuroflowEnabled && !isCustomMode
+              ? `${maxConcurrent} tasks · ${estimationMode} · ${warmupEnabled ? 'Warmup: On' : 'Direct'} · ${maxRetries} retries`
+              : 'Sequential';
+
+            return (
+              <div className="mt-2.5 overflow-hidden rounded-md border border-cursor-hairline bg-cursor-surface-card">
+                <table className="w-full text-xs divide-y divide-cursor-hairline-soft table-fixed border-collapse">
+                  <tbody className="divide-y divide-cursor-hairline-soft">
+                    {/* Row 1: Started & Preset */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Started
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body truncate" title={displayMeta.started_at_str}>
+                        {displayMeta.started_at_str}
+                      </td>
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Preset
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body truncate" title={String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')}>
+                        {String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')}
+                      </td>
+                    </tr>
+
+                    {/* Row 2: Process PID & Scheduler */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Process PID
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body font-mono">
+                        {String(job?.pid || 'None')}
+                      </td>
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Scheduler
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <span className="font-semibold text-cursor-ink truncate">{schedulerDisplay}</span>
+                          {neuroflowEnabled && !isCustomMode && (
+                            <span className="inline-flex items-center gap-1 rounded bg-cursor-primary/10 px-1.5 py-0.25 text-2xs font-semibold text-cursor-primary flex-none" title={schedulerDetails}>
+                              <Zap className="h-3 w-3" />
+                              {maxConcurrent} tasks
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Row 3: Mode / Device & Threads / RAM */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Mode / Device
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
+                        {String(reqSummary.mode || 'N/A')} / {String(reqSummary.device || 'cpu')}
+                      </td>
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Threads / RAM
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
+                        {String(reqSummary.threads || 4)} threads · {String(reqSummary.ram_percent || 100)}% RAM
+                      </td>
+                    </tr>
+
+                    {/* Row 4: Container & Output Path */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Container
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body truncate" title={modalMetricsSeries.latestContainer || 'None (Native)'}>
+                        {modalMetricsSeries.latestContainer || 'None (Native)'}
+                      </td>
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Output Path
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
+                        <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
+                          <span className="font-mono text-2xs text-cursor-body truncate break-all flex-1" title={displayMeta.output_dir_str}>
+                            {displayMeta.output_dir_str}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy('output', displayMeta.output_dir_str)}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas flex-none border border-cursor-hairline transition-colors cursor-pointer"
+                            title="Copy Output Path"
+                          >
+                            {copiedField === 'output' ? (
+                              <>
+                                <Check className="h-3 w-3 text-cursor-semantic-success" />
+                                <span className="text-cursor-semantic-success font-medium">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Row 5: Input Path spanning across bottom */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Input Path
+                      </td>
+                      <td colSpan={3} className="py-1.5 px-2.5 text-cursor-body min-w-0">
+                        <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+                          <span className="font-mono text-2xs text-cursor-body truncate break-all flex-1" title={displayMeta.input_path_str}>
+                            {displayMeta.input_path_str}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy('input', displayMeta.input_path_str)}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas flex-none border border-cursor-hairline transition-colors cursor-pointer"
+                            title="Copy Input Path"
+                          >
+                            {copiedField === 'input' ? (
+                              <>
+                                <Check className="h-3 w-3 text-cursor-semantic-success" />
+                                <span className="text-cursor-semantic-success font-medium">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </Card>
 
         {/* Right: Batch Summary / Actions Card */}
         {job ? (
           <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5 flex flex-col justify-between">
             <div>
-              <div className="flex items-center gap-1.5 pb-2 border-b border-cursor-hairline-soft mb-2.5">
-                <Layers className="h-3.5 w-3.5 text-cursor-primary" />
-                <CardTitle className="font-semibold text-base text-cursor-ink">Batch Summary</CardTitle>
+              <div className="flex items-center justify-between pb-2 border-b border-cursor-hairline-soft mb-2.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Layers className="h-4 w-4 text-cursor-primary" />
+                  <CardTitle className="font-semibold text-base text-cursor-ink">Batch Summary</CardTitle>
+                </div>
+                <span className="text-2xs font-mono font-semibold text-cursor-ink bg-cursor-surface-strong px-2 py-0.5 rounded-full">
+                  {batchSummary.total} {batchSummary.total === 1 ? 'Subject' : 'Subjects'}
+                </span>
               </div>
 
-              {/* Four-Segment Stacked Bar */}
-              {batchSummary.total > 0 ? (
-                <div className="flex w-full h-4 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-2">
-                  {successPct > 0 && (
-                    <div
-                      style={{width: `${successPct}%`}}
-                      className="bg-cursor-semantic-success transition-all"
-                      title={`Success: ${batchSummary.success}`}
-                    />
-                  )}
-                  {failedPct > 0 && (
-                    <div
-                      style={{width: `${failedPct}%`}}
-                      className="bg-cursor-semantic-error transition-all"
-                      title={`Failed: ${batchSummary.failed}`}
-                    />
-                  )}
-                  {runningPct > 0 && (
-                    <div
-                      style={{width: `${runningPct}%`}}
-                      className="bg-cursor-primary transition-all"
-                      title={`Running: ${batchSummary.running}`}
-                    />
-                  )}
-                  {pendingPct > 0 && (
-                    <div
-                      style={{width: `${pendingPct}%`}}
-                      className="bg-cursor-hairline-strong transition-all"
-                      title={`Pending: ${batchSummary.pending}`}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="flex w-full h-4 rounded-full overflow-hidden bg-cursor-canvas border border-cursor-hairline mb-2 items-center justify-center">
-                  <span className="text-2xs text-cursor-muted">No subjects yet</span>
-                </div>
-              )}
-
-              {/* Legend */}
-              <div className="grid grid-cols-2 gap-1 text-xs mb-2.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-semantic-success flex-none" />
-                  <span className="text-cursor-body">Success</span>
-                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.success}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-semantic-error flex-none" />
-                  <span className="text-cursor-body">Failed</span>
-                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.failed}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary flex-none" />
-                  <span className="text-cursor-body">Running</span>
-                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.running}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-cursor-hairline-strong flex-none" />
-                  <span className="text-cursor-body">Pending</span>
-                  <span className="font-semibold text-cursor-ink ml-auto">{batchSummary.pending}</span>
+              {/* Solid Pie Chart (Left) + Vertically Aligned Legends (Right) */}
+              <div className="flex items-center gap-4 py-1 mb-3">
+                <BatchPieChart
+                  success={batchSummary.success}
+                  failed={batchSummary.failed}
+                  running={batchSummary.running}
+                  pending={batchSummary.pending}
+                  total={batchSummary.total}
+                />
+                <div className="flex-1 flex flex-col justify-center gap-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-success flex-none" />
+                      <span className="text-cursor-ink text-xs font-medium">Success</span>
+                    </div>
+                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.success}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-error flex-none" />
+                      <span className="text-cursor-ink text-xs font-medium">Failed</span>
+                    </div>
+                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.failed}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full bg-cursor-primary flex-none" />
+                      <span className="text-cursor-ink text-xs font-medium">Running</span>
+                    </div>
+                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.running}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full bg-cursor-hairline-strong flex-none" />
+                      <span className="text-cursor-muted text-xs font-medium">Pending</span>
+                    </div>
+                    <span className="font-semibold text-cursor-muted font-mono">{batchSummary.pending}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-1.5">
-              <Button
-                id="refreshJobsButton"
-                variant="default"
-                onClick={refreshJobs}
-                disabled={busy.refreshJobs}
-                className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs"
-              >
-                {busy.refreshJobs ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
-                disabled={!job || normState !== 'running' || isTerminal}
-                className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs"
-              >
-                <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={handleDownloadClick}
-                disabled={!job || !isTerminal || downloadRunning}
-                className="w-full h-8 border-cursor-hairline text-cursor-body bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs"
-              >
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
-              </Button>
+              {isTerminal && displayMeta.status_reconciled === 'completed' ? (
+                <Button
+                  variant="default"
+                  onClick={handleDownloadClick}
+                  disabled={downloadRunning}
+                  className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs shadow-none cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
+                </Button>
+              ) : (
+                <Button
+                  id="refreshJobsButton"
+                  variant="default"
+                  onClick={refreshJobs}
+                  disabled={busy.refreshJobs}
+                  className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs shadow-none cursor-pointer"
+                >
+                  {busy.refreshJobs ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {(!isTerminal || displayMeta.status_reconciled !== 'completed') && (
+                <Button
+                  onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
+                  disabled={!job || normState !== 'running' || isTerminal}
+                  className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs cursor-pointer"
+                >
+                  <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
+                </Button>
+              )}
+
+              {isTerminal && displayMeta.status_reconciled === 'completed' ? (
+                <Button
+                  id="refreshJobsButton"
+                  variant="outline"
+                  onClick={refreshJobs}
+                  disabled={busy.refreshJobs}
+                  className="w-full h-8 border-cursor-hairline text-cursor-ink bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs cursor-pointer"
+                >
+                  {busy.refreshJobs ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  onClick={handleDownloadClick}
+                  disabled={!job || !isTerminal || downloadRunning}
+                  className="w-full h-8 border-cursor-hairline text-cursor-body bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
+                </Button>
+              )}
+
               {downloadNotice && (
                 <div className="flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-canvas px-2.5 py-1.5 text-xs text-cursor-body mt-0.5">
                   <FileCheck className="h-3.5 w-3.5 text-cursor-semantic-success flex-none" />
-                  <span>{downloadNotice}</span>
+                  <span className="truncate">{downloadNotice}</span>
                 </div>
               )}
             </div>
@@ -946,17 +1206,20 @@ export function JobsPage() {
       {job ? (
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border-cursor-hairline bg-cursor-surface-card p-0 shadow-none">
           {/* Header */}
-          <div className="border-b border-cursor-hairline bg-cursor-surface-card px-3.5 py-2 flex-none">
+          <div className="border-b border-cursor-hairline bg-cursor-surface-card px-3.5 py-2.5 flex-none">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
-                <Layers className="h-3.5 w-3.5 text-cursor-primary flex-none" />
-                <h3 className="m-0 text-xs font-semibold leading-[1.3] text-cursor-ink">Batch Subjects</h3>
+                <Layers className="h-4 w-4 text-cursor-primary flex-none" />
+                <CardTitle className="font-semibold text-base text-cursor-ink">Batch Subjects</CardTitle>
+                <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
+                  {filteredBatchImages.length}
+                </span>
               </div>
               <div className="flex items-center gap-1 flex-none">
                 <button
                   type="button"
                   onClick={() => setSubjectViewMode('grid')}
-                  className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
+                  className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer ${
                     subjectViewMode === 'grid'
                       ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
@@ -968,7 +1231,7 @@ export function JobsPage() {
                 <button
                   type="button"
                   onClick={() => setSubjectViewMode('list')}
-                  className={`inline-flex items-center justify-center h-6.5 w-6.5 rounded-md border transition-colors ${
+                  className={`inline-flex items-center justify-center h-7 w-7 rounded-md border transition-colors cursor-pointer ${
                     subjectViewMode === 'list'
                       ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink'
                       : 'border-transparent text-cursor-muted hover:text-cursor-ink'
@@ -998,18 +1261,34 @@ export function JobsPage() {
               <div className="flex flex-wrap items-center gap-1">
                 {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
                   const label = st === 'success' ? 'OK' : st;
+                  const count =
+                    st === 'all'
+                      ? batchImages.length
+                      : st === 'success'
+                        ? batchSummary.success
+                        : st === 'running'
+                          ? batchSummary.running
+                          : st === 'failed'
+                            ? batchSummary.failed
+                            : batchSummary.pending;
+
                   return (
                     <button
                       key={st}
                       type="button"
                       onClick={() => setSubjectStatusFilter(st)}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer capitalize border ${
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer capitalize border ${
                         subjectStatusFilter === st
                           ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink font-semibold'
                           : 'border-transparent text-cursor-body hover:text-cursor-ink'
                       }`}
                     >
                       <span>{label}</span>
+                      <span className={`text-2xs font-mono px-1 rounded-full ${
+                        subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink' : 'text-cursor-muted'
+                      }`}>
+                        {count}
+                      </span>
                     </button>
                   );
                 })}
@@ -1018,24 +1297,27 @@ export function JobsPage() {
 
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-2 overflow-y-auto flex-1 min-h-0 p-0.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2.5 items-start overflow-y-auto flex-1 min-h-0 p-1">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2.5">
-                              <div className="flex items-center gap-2">
-                                <Skeleton className="h-5 w-5 rounded flex-none" />
-                                <div className="flex-1 space-y-1">
-                                  <Skeleton className="h-2 w-12" />
-                                  <Skeleton className="h-3 w-3/4" />
+                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 min-h-[86px]">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <Skeleton className="h-5 w-5 rounded flex-none" />
+                                  <Skeleton className="h-2.5 w-10" />
                                 </div>
+                                <Skeleton className="h-4 w-14 rounded-full" />
                               </div>
-                              <div className="mt-2 pt-1.5 border-t border-cursor-hairline-soft flex items-center justify-between">
+                              <div className="my-2">
+                                <Skeleton className="h-3 w-3/4" />
+                              </div>
+                              <div className="pt-1.5 border-t border-cursor-hairline-soft flex items-center justify-between">
                                 <Skeleton className="h-2 w-20" />
-                                <Skeleton className="h-2 w-12" />
+                                <Skeleton className="h-2 w-10" />
                               </div>
                             </div>
                           ))}
@@ -1061,32 +1343,45 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2.5 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
+                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs focus:outline-none focus:ring-1 focus:ring-cursor-primary/30 min-h-[86px]"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}>
-                            <BrainCircuit className="h-3 w-3" />
-                          </div>
-                          <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
+                        {/* Card Header: Index & Status Badge */}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}>
+                              <BrainCircuit className="h-3 w-3" />
+                            </div>
+                            <span className="font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
                               #{String(img.idx).padStart(3, '0')}
                             </span>
-                            <span className="truncate text-xs font-semibold leading-tight text-cursor-ink group-hover:text-cursor-primary transition-colors">
-                              {img.subject_id}
-                            </span>
                           </div>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-cursor-hairline-soft text-2xs">
-                          <span className="truncate text-cursor-body text-2xs" title={currentStepText}>
-                            {currentStepText}
-                          </span>
-                          <span className={`font-semibold uppercase tracking-[0.06em] flex-none ${
-                            img.status === 'success' ? 'text-cursor-semantic-success' :
-                            img.status === 'failed' ? 'text-cursor-semantic-error' :
-                            img.status === 'running' ? 'text-cursor-primary' :
-                            'text-cursor-muted'
+                          <span className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded-full flex-none ${
+                            img.status === 'success' ? 'text-cursor-semantic-success bg-cursor-semantic-success/10 border border-cursor-semantic-success/20' :
+                            img.status === 'failed' ? 'text-cursor-semantic-error bg-cursor-semantic-error/10 border border-cursor-semantic-error/20' :
+                            img.status === 'running' ? 'text-cursor-primary bg-cursor-primary/10 border border-cursor-primary/20' :
+                            'text-cursor-muted bg-cursor-canvas-soft border border-cursor-hairline'
                           }`}>
                             {img.status.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {/* Card Body: Subject ID with full width & 2 lines */}
+                        <div className="my-1.5 min-w-0">
+                          <h4
+                            className="text-xs font-semibold leading-snug text-cursor-ink group-hover:text-cursor-primary transition-colors line-clamp-2 break-all"
+                            title={img.subject_id}
+                          >
+                            {img.subject_id}
+                          </h4>
+                        </div>
+
+                        {/* Card Footer */}
+                        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-cursor-hairline-soft text-2xs text-cursor-muted">
+                          <span className="truncate max-w-[70%]" title={currentStepText}>
+                            {currentStepText}
+                          </span>
+                          <span className="font-mono text-3xs text-cursor-body flex-none flex items-center gap-0.5 group-hover:text-cursor-primary transition-colors">
+                            Details <ChevronRight className="h-3 w-3" />
                           </span>
                         </div>
                       </button>
