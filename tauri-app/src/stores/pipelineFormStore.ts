@@ -92,7 +92,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.runtimeTarget = workspace.run_target === 'Server' ? 'Server' : 'Local';
       nextFormValues.ramPercent = (workspace.ram_percent as number) ?? 100;
       nextFormValues.cpuThreads = (workspace.threads as number) ?? 4;
-      nextFormValues.gpuMode = workspace.device === 'cuda' || workspace.device === 'gpu' ? 'enabled' : 'disabled';
+      nextFormValues.gpuMode = workspace.device === 'cuda' || workspace.device === 'gpu' ? 'on' : 'off';
       nextFormValues.host = (remote.host as string) || '';
       nextFormValues.port = (remote.port as number) ?? 22;
       nextFormValues.username = (remote.username as string) || '';

@@ -533,3 +533,89 @@ def test_remote_runner_uses_preset_tools_for_cat12_volume() -> None:
         "--stats-extraction",
         "cat12_volume_stats_extraction",
     ]
+
+
+def test_parse_gpu_rows_parses_nvidia_smi_output() -> None:
+    from remote.remote_runner import _parse_gpu_rows
+
+    raw = "24508, 25568, NVIDIA GeForce RTX 4090|31200, 32510, NVIDIA A100-SXM4-40GB|"
+    gpus = _parse_gpu_rows(raw)
+    assert [g["name"] for g in gpus] == ["NVIDIA GeForce RTX 4090", "NVIDIA A100-SXM4-40GB"]
+    assert gpus[0]["free_memory_mib"] == 24508
+    assert gpus[0]["total_memory_mib"] == 25568
+
+
+def test_parse_gpu_rows_handles_absence_and_garbage() -> None:
+    from remote.remote_runner import _parse_gpu_rows
+
+    # nvidia-smi missing -> empty payload between marker and newline.
+    assert _parse_gpu_rows("") == []
+    # Malformed rows are skipped.
+    assert _parse_gpu_rows("not-a-number, 1234, GPU|12, 24, OK") == [
+        {"name": "OK", "total_memory_mib": 24, "free_memory_mib": 12}
+    ]
+
+
+def test_remote_hardware_info_includes_gpus(mocker) -> None:
+    from remote.remote_runner import RemoteRunner
+    from remote.ssh_client import SSHConfig
+
+    probe_output = (
+        "hostname=gpu-box\n"
+        "logical_cores=16\n"
+        "phys_pages=33720786\n"
+        "page_size=4096\n"
+        "gpus=24508, 25568, NVIDIA GeForce RTX 4090|\n"
+    )
+
+    class GpuSSH:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            pass
+
+        def read_text(self, command: str) -> tuple[int, str]:
+            if "nvidia-smi" in command:
+                return 0, probe_output
+            return 0, ""
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", GpuSSH)
+    config = type("Cfg", (), {"ssh": SSHConfig(host="h", username="u", password="p")})()
+    runner = RemoteRunner(config)
+    info = runner.remote_hardware_info()
+    assert info["gpus"] == [
+        {
+            "name": "NVIDIA GeForce RTX 4090",
+            "total_memory_mib": 25568,
+            "free_memory_mib": 24508,
+        }
+    ]
+    assert info["logical_cores"] == 16
+
+
+def test_remote_hardware_info_without_nvidia_smi_yields_empty_gpus(mocker) -> None:
+    from remote.remote_runner import RemoteRunner
+    from remote.ssh_client import SSHConfig
+
+    class NoGpuSSH:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            pass
+
+        def read_text(self, command: str) -> tuple[int, str]:
+            return 0, "hostname=cpu-box\nlogical_cores=8\nphys_pages=2031616\npage_size=4096\ngpus=\n"
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", NoGpuSSH)
+    config = type("Cfg", (), {"ssh": SSHConfig(host="h", username="u", password="p")})()
+    runner = RemoteRunner(config)
+    info = runner.remote_hardware_info()
+    assert info["gpus"] == []

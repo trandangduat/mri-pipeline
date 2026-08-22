@@ -10,7 +10,7 @@ export interface PipelineFormValues {
   runtimeTarget: 'Local' | 'Server';
   ramPercent: number;
   cpuThreads: number;
-  gpuMode: string;
+  gpuMode: 'on' | 'off';
   host: string;
   port: number;
   username: string;
@@ -45,7 +45,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   runtimeTarget: 'Local',
   ramPercent: 80,
   cpuThreads: 4,
-  gpuMode: 'auto',
+  gpuMode: 'off',
   host: '',
   port: 22,
   username: '',
@@ -99,7 +99,7 @@ export function buildRunConfig(
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},
     stats_vector_config: {enabled_stats: {}, atlases: selectedStatsAtlases || {}},
     non_recursive: Boolean(formValues.nonRecursive),
-    device: formValues.gpuMode === 'enabled' ? 'cuda' : 'cpu',
+    device: formValues.gpuMode === 'on' ? 'cuda' : 'cpu',
     threads: formValues.cpuThreads ?? 4,
     ram_percent: formValues.ramPercent ?? 100,
     license_dir: formValues.licensePath || '',

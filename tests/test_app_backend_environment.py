@@ -29,3 +29,28 @@ def test_local_environment_status_reports_missing_dependencies() -> None:
     assert result["docker"] == {"ok": False, "path": ""}
     assert result["ssh"] == {"ok": False, "path": ""}
     assert isinstance(result["hardware"], dict)
+
+
+def test_hardware_status_includes_local_gpu_probe(monkeypatch) -> None:
+    from app_backend import environment as env_module
+
+    monkeypatch.setattr(env_module, "_host_info", lambda: {
+        "hostname": "local",
+        "logical_cores": 8,
+        "physical_cores": 4,
+        "total_ram_bytes": 16_000_000_000,
+        "gpus": [{"name": "RTX 4090", "total_memory_mib": 25568, "free_memory_mib": 24000}],
+    })
+
+    status = env_module._hardware_status()
+    assert status["gpus"] == [{"name": "RTX 4090", "total_memory_mib": 25568, "free_memory_mib": 24000}]
+
+
+def test_gpu_info_returns_empty_when_nvidia_smi_missing(monkeypatch) -> None:
+    from pipeline import hardware
+
+    def raise_os_error(*_args, **_kwargs):
+        raise FileNotFoundError("nvidia-smi")
+
+    monkeypatch.setattr(hardware.subprocess, "run", raise_os_error)
+    assert hardware._gpu_info() == []

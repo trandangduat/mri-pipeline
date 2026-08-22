@@ -15,11 +15,18 @@ export const pythonStatusSchema = commandStatusSchema.extend({
   version: z.string(),
 });
 
+export const gpuInfoSchema = z.object({
+  name: z.string(),
+  total_memory_mib: z.number().nullable(),
+  free_memory_mib: z.number().nullable(),
+});
+
 export const hardwareSchema = z.object({
   hostname: z.string(),
   logical_cores: z.number().nullable(),
   physical_cores: z.number().nullable(),
   total_ram_bytes: z.number().nullable(),
+  gpus: z.array(gpuInfoSchema).optional(),
 });
 
 export const environmentSchema = z.object({
@@ -131,6 +138,7 @@ export const remoteHardwareSchema = z.object({
   hostname: z.string(),
   logical_cores: z.number().nullable(),
   total_ram_bytes: z.number().nullable(),
+  gpus: z.array(gpuInfoSchema).optional(),
 });
 
 export const remoteValidateResponseSchema = z.object({

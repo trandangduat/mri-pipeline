@@ -3,6 +3,7 @@ import os
 import socket
 import platform
 import json
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -62,6 +63,40 @@ def _total_ram_bytes() -> int | None:
     except (AttributeError, OSError, ValueError):
         return None
 
+
+def _gpu_info() -> list[dict]:
+    """Probe local NVIDIA GPUs via nvidia-smi; [] when unavailable."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free,memory.total,name", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    gpus: list[dict] = []
+    for index, line in enumerate(result.stdout.splitlines()):
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            free_mib = int(parts[0])
+            total_mib = int(parts[1])
+        except ValueError:
+            continue
+        gpus.append(
+            {
+                "name": parts[2] if len(parts) > 2 else f"gpu_{index}",
+                "total_memory_mib": total_mib,
+                "free_memory_mib": free_mib,
+            }
+        )
+    return gpus
+
+
 def _host_info() -> dict:
     cpuinfo = _read_cpuinfo()
     return {
@@ -76,6 +111,7 @@ def _host_info() -> dict:
         "logical_cores": os.cpu_count(),
         "physical_cores": cpuinfo.get("physical_cores"),
         "total_ram_bytes": _total_ram_bytes(),
+        "gpus": _gpu_info(),
     }
 
 def _safe_batch_config(config: dict | None) -> dict:

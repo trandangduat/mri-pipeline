@@ -5,6 +5,7 @@ import type {
   environmentSchema,
   eventsResponseSchema,
   genericResponseSchema,
+  gpuInfoSchema,
   hardwareSchema,
   healthSchema,
   licenseUploadResponseSchema,
@@ -31,6 +32,7 @@ import type {
 
 export type HealthResponse = z.infer<typeof healthSchema>;
 export type CommandStatus = z.infer<typeof commandStatusSchema>;
+export type GpuInfo = z.infer<typeof gpuInfoSchema>;
 export type HardwareStatus = z.infer<typeof hardwareSchema>;
 export type EnvironmentResponse = z.infer<typeof environmentSchema>;
 export type LocalJobSummary = z.infer<typeof localJobSummarySchema>;

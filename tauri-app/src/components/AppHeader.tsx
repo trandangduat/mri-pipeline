@@ -159,7 +159,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         batch_scan_mode: fv.batchScanMode || (fv.nonRecursive ? 'one-level' : 'recursive'),
         output_dir: fv.outputDir,
         pipeline_mode: fv.pipelineMode,
-        device: fv.gpuMode === 'enabled' ? 'cuda' : 'cpu',
+        device: fv.gpuMode === 'on' ? 'cuda' : 'cpu',
         threads: fv.cpuThreads,
         ram_percent: fv.ramPercent,
         non_recursive: Boolean(fv.nonRecursive),

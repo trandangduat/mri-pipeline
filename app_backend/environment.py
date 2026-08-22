@@ -44,4 +44,5 @@ def _hardware_status() -> dict[str, JsonValue]:
         "logical_cores": info.get("logical_cores"),
         "physical_cores": info.get("physical_cores"),
         "total_ram_bytes": info.get("total_ram_bytes"),
+        "gpus": info.get("gpus", []),
     }

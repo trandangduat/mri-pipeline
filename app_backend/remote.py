@@ -842,11 +842,23 @@ def _safe_error_message(exc: Exception, config: RemoteRunConfig | None = None) -
 
 
 def _hardware_summary(hardware: dict[str, object]) -> dict[str, JsonValue]:
-    return {
+    summary: dict[str, JsonValue] = {
         "hostname": str(hardware.get("hostname", "") or ""),
         "logical_cores": _int_or_none(hardware.get("logical_cores")),
         "total_ram_bytes": _int_or_none(hardware.get("total_ram_bytes")),
     }
+    gpus = hardware.get("gpus")
+    if isinstance(gpus, list):
+        summary["gpus"] = [
+            {
+                "name": str(gpu.get("name", "")) if isinstance(gpu, dict) else "",
+                "total_memory_mib": _int_or_none(gpu.get("total_memory_mib")) if isinstance(gpu, dict) else None,
+                "free_memory_mib": _int_or_none(gpu.get("free_memory_mib")) if isinstance(gpu, dict) else None,
+            }
+            for gpu in gpus
+            if isinstance(gpu, dict)
+        ]
+    return summary
 
 
 def _int_or_none(value: object) -> int | None:

@@ -1,5 +1,6 @@
 import type {
   EnvironmentResponse,
+  GpuInfo,
   HardwareStatus,
   RemoteResultState,
   RemoteValidateResponse,
@@ -11,6 +12,15 @@ export interface TargetHardware {
   connected: boolean;
   logicalCores: number | null;
   totalRamBytes: number | null;
+  gpus: GpuInfo[];
+}
+
+function normalizedGpus(gpus: GpuInfo[] | undefined): GpuInfo[] {
+  return (gpus || []).map((gpu) => ({
+    name: String(gpu.name || ''),
+    total_memory_mib: Number(gpu.total_memory_mib ?? 0) || null,
+    free_memory_mib: Number(gpu.free_memory_mib ?? 0) || null,
+  }));
 }
 
 export function currentTargetHardware({
@@ -27,6 +37,7 @@ export function currentTargetHardware({
       connected: remoteResult?.connected === true,
       logicalCores: Number(remoteResult?.hardware?.logical_cores || 0) || null,
       totalRamBytes: Number(remoteResult?.hardware?.total_ram_bytes || 0) || null,
+      gpus: normalizedGpus(remoteResult?.hardware?.gpus),
       label: 'Server',
     };
   }
@@ -40,6 +51,7 @@ export function currentTargetHardware({
     connected: true,
     logicalCores: Number(hardware.logical_cores || 0) || null,
     totalRamBytes: Number(hardware.total_ram_bytes || 0) || null,
+    gpus: normalizedGpus(hardware.gpus),
     label: 'Local',
   };
 }

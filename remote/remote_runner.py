@@ -29,6 +29,32 @@ def _positive_int(value: object) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _parse_gpu_rows(raw: str) -> list[dict[str, object]]:
+    """Parse `nvidia-smi --query-gpu=memory.free,memory.total,name` rows.
+
+    Rows are '|'-joined by the probe; missing/malformed rows are skipped so a
+    host without nvidia-smi yields [] (treated as "no GPU").
+    """
+    gpus: list[dict[str, object]] = []
+    for row in str(raw or "").split("|"):
+        parts = [part.strip() for part in row.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            free_mib = int(parts[0])
+            total_mib = int(parts[1])
+        except ValueError:
+            continue
+        gpus.append(
+            {
+                "name": parts[2] if len(parts) > 2 else f"gpu_{len(gpus)}",
+                "total_memory_mib": total_mib,
+                "free_memory_mib": free_mib,
+            }
+        )
+    return gpus
+
+
 def _neuroflow_source_dir() -> Path | None:
     candidates: list[Path] = []
     for env_name in ("NEUROFLOW_SOURCE_DIR", "NEUROFLOW_PORTABLE_ROOT"):
@@ -184,16 +210,18 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             ssh.run("uname -a && whoami && pwd", check=True)
 
-    def remote_hardware_info(self) -> dict[str, int | str | None]:
+    def remote_hardware_info(self) -> dict[str, object]:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             code, text = ssh.read_text(
                 "printf 'hostname='; hostname; "
-                "printf '\nlogical_cores='; getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 0; "
-                "printf '\nphys_pages='; getconf _PHYS_PAGES 2>/dev/null || printf 0; "
-                "printf '\npage_size='; getconf PAGE_SIZE 2>/dev/null || printf 0; "
+                "printf '\\nlogical_cores='; getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 0; "
+                "printf '\\nphys_pages='; getconf _PHYS_PAGES 2>/dev/null || printf 0; "
+                "printf '\\npage_size='; getconf PAGE_SIZE 2>/dev/null || printf 0; "
+                "printf '\\ngpus='; nvidia-smi --query-gpu=memory.free,memory.total,name "
+                "--format=csv,noheader,nounits 2>/dev/null | tr '\\n' '|'; printf '\\n';"
             )
             if code != 0:
-                return {"hostname": "", "logical_cores": None, "total_ram_bytes": None}
+                return {"hostname": "", "logical_cores": None, "total_ram_bytes": None, "gpus": []}
             values: dict[str, str] = {}
             for line in text.splitlines():
                 if "=" in line:
@@ -207,6 +235,7 @@ class RemoteRunner:
                 "hostname": values.get("hostname", ""),
                 "logical_cores": logical_cores,
                 "total_ram_bytes": total_ram_bytes,
+                "gpus": _parse_gpu_rows(values.get("gpus", "")),
             }
 
     def check_python_details(self) -> dict[str, str | bool]:

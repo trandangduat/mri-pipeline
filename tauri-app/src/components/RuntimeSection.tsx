@@ -2,6 +2,7 @@ import React from 'react';
 import {
   FolderOpen,
   Cpu,
+  Gpu,
   ShieldCheck,
   ServerCog,
   Loader2,
@@ -135,7 +136,7 @@ export function RuntimeSection() {
     <Panel icon={<Cpu className="h-4 w-4 text-cursor-primary" />} title="Runtime" className="min-w-0">
       {/* 1. Core Compute Grid */}
       <div className="grid gap-2.5 grid-cols-2">
-        <label className={labelCls}>
+        <label className={`${labelCls} col-span-2`}>
           <span className="flex items-center justify-between">
             <span>Runtime target</span>
             {formValues.runtimeTarget === 'Server' && (
@@ -198,19 +199,43 @@ export function RuntimeSection() {
             className={inputCls}
           />
         </label>
-        <label className={labelCls}>
-          <span>GPU acceleration</span>
-          <select
-            name="gpuMode"
-            value={formValues.gpuMode}
-            onChange={(e) => setFormField('gpuMode', e.target.value)}
-            className={inputCls}
-          >
-            <option value="auto">Auto</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-          </select>
-        </label>
+        {hardware.gpus.length > 0 && (
+          <div className="col-span-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-cursor-ink">
+                <Gpu className="h-3.5 w-3.5 text-cursor-primary" />
+                <span>GPU acceleration</span>
+              </div>
+              <div className="inline-flex overflow-hidden rounded-md border border-cursor-hairline-strong">
+                {(['off', 'on'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    name={`gpuMode_${mode}`}
+                    onClick={() => setFormField('gpuMode', mode)}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      formValues.gpuMode === mode
+                        ? 'bg-cursor-primary text-white'
+                        : 'bg-cursor-surface-card text-cursor-muted hover:bg-cursor-canvas-soft'
+                    }`}
+                  >
+                    {mode === 'on' ? 'On' : 'Off'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-0.5">
+              {hardware.gpus.map((gpu, index) => (
+                <div key={index} className="text-2xs text-cursor-muted">
+                  {gpu.name || `GPU ${index + 1}`}
+                  {' — '}
+                  {formatBytes((gpu.total_memory_mib || 0) * 1024 * 1024)} VRAM
+                  {gpu.free_memory_mib ? ` (${formatBytes(gpu.free_memory_mib * 1024 * 1024)} free)` : ''}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Warnings */}
@@ -348,7 +373,7 @@ export function RuntimeSection() {
               <span className="flex items-center gap-1.5 text-xs font-medium text-cursor-semantic-success">
                 <CheckCircle2 className="h-3.5 w-3.5 flex-none" />
                 <span>
-                  Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM)
+                  Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM{remoteResult.hardware?.gpus?.length ? `, ${remoteResult.hardware.gpus.length} GPU${remoteResult.hardware.gpus.length > 1 ? 's' : ''}` : ''})
                 </span>
               </span>
             ) : remoteResult.error ? (

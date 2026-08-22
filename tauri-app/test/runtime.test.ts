@@ -108,3 +108,46 @@ test('applyWorkspaceConfig normalizes workspace settings, inputMode, and batch f
   expect(values.batchScanMode).toBe('recursive');
 });
 
+
+test('currentTargetHardware exposes probed gpus for Local target', () => {
+  const hardware = currentTargetHardware({
+    runtimeTarget: 'Local',
+    environment: {
+      ok: true,
+      python: {ok: true, path: '', version: ''},
+      docker: {ok: true, path: ''},
+      ssh: {ok: true, path: ''},
+      hardware: {
+        hostname: '',
+        logical_cores: 8,
+        physical_cores: null,
+        total_ram_bytes: 17179869184,
+        gpus: [{name: 'RTX 4090', total_memory_mib: 25568, free_memory_mib: 24000}],
+      },
+    },
+    remoteResult: {},
+  });
+  expect(hardware.gpus).toEqual([{name: 'RTX 4090', total_memory_mib: 25568, free_memory_mib: 24000}]);
+});
+
+test('currentTargetHardware defaults gpus to empty array when absent', () => {
+  const local = currentTargetHardware({runtimeTarget: 'Local', environment: undefined, remoteResult: {}});
+  expect(local.gpus).toEqual([]);
+
+  const server = currentTargetHardware({
+    runtimeTarget: 'Server',
+    environment: undefined,
+    remoteResult: {connected: true, hardware: {hostname: 's', logical_cores: 4, total_ram_bytes: 8}},
+  });
+  expect(server.gpus).toEqual([]);
+});
+
+test('runtimeWarnings unchanged shape with gpu-aware TargetHardware', () => {
+  const warnings = runtimeWarnings({
+    runtimeTarget: 'Server',
+    hardware: {label: 'Server', connected: false, logicalCores: null, totalRamBytes: null, gpus: []},
+    cpuThreads: 2,
+    ramPercent: 40,
+  });
+  expect(warnings.some((w) => w.includes('SSH'))).toBe(true);
+});

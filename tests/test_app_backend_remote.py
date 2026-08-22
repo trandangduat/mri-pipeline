@@ -18,7 +18,12 @@ class FakeRunner:
             raise RuntimeError("auth failed for secret")
 
     def remote_hardware_info(self) -> dict[str, object]:
-        return {"hostname": "server", "logical_cores": 32, "total_ram_bytes": 128_000_000_000}
+        return {
+            "hostname": "server",
+            "logical_cores": 32,
+            "total_ram_bytes": 128_000_000_000,
+            "gpus": [{"name": "NVIDIA A100", "total_memory_mib": 40960, "free_memory_mib": 39321}],
+        }
 
     def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
         return {image: True for image in image_names}
@@ -66,9 +71,29 @@ def test_validate_remote_config_connects_and_redacts_secrets() -> None:
             "workspace": "~/mri-remote-jobs",
             "python": "python3",
         },
-        "hardware": {"hostname": "server", "logical_cores": 32, "total_ram_bytes": 128_000_000_000},
+        "hardware": {
+            "hostname": "server",
+            "logical_cores": 32,
+            "total_ram_bytes": 128_000_000_000,
+            "gpus": [{"name": "NVIDIA A100", "total_memory_mib": 40960, "free_memory_mib": 39321}],
+        },
     }
     assert calls == [{"host": "server.example.edu", "password": "secret"}]
+
+
+def test_validate_remote_config_tolerates_hardware_without_gpus() -> None:
+    class NoGpuRunner(FakeRunner):
+        def remote_hardware_info(self) -> dict[str, object]:
+            return {"hostname": "server", "logical_cores": 32, "total_ram_bytes": 128_000_000_000}
+
+    service = RemoteJobService(runner_factory=lambda _config: NoGpuRunner([]))
+
+    result = service.validate_config(
+        {"host": "server.example.edu", "port": 22, "username": "alice", "password": "secret"}
+    )
+
+    assert result["ok"] is True
+    assert "gpus" not in result["hardware"]
 
 
 def test_validate_remote_config_returns_safe_connection_error_without_secret() -> None:
