@@ -9,11 +9,13 @@ const REMOTE_STEPS: PipelineStep[] = [
   {id: 'code', label: 'Checking code changes', status: 'pending'},
   {id: 'venv', label: 'Checking Python environment', status: 'pending'},
   {id: 'config', label: 'Uploading job configuration', status: 'pending'},
+  {id: 'license', label: 'Checking FreeSurfer license', status: 'pending'},
   {id: 'start', label: 'Starting remote worker', status: 'pending'},
 ];
 
 const LOCAL_STEPS: PipelineStep[] = [
   {id: 'validate', label: 'Validating configuration', status: 'pending'},
+  {id: 'license', label: 'Checking FreeSurfer license', status: 'pending'},
   {id: 'config', label: 'Preparing job configuration', status: 'pending'},
   {id: 'start', label: 'Starting local worker', status: 'pending'},
 ];

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map
+from pipeline.docker_ops import license_check_script, license_check_tool
 from pipeline.presets import PIPELINE_MODE_ALIASES, PRESET_CONFIGS
 from pipeline.registry import is_tool_enabled
 from remote.ssh_client import RemoteSSHClient, SSHConfig
@@ -557,6 +558,25 @@ class RemoteRunner:
     def attach_job(self, remote_job_dir: str, remote_output_dir: str = "") -> None:
         self.remote_job_dir = remote_job_dir.rstrip("/")
         self.remote_output_dir = remote_output_dir or posixpath.join(self.remote_job_dir, "outputs")
+
+    def check_freesurfer_license(self) -> tuple[bool, str]:
+        selected = license_check_tool(self.config.selected_tools)
+        if selected is None:
+            return True, "No FreeSurfer license is required for the selected tools."
+        if not self.remote_job_dir:
+            return False, "Remote job directory is not ready for the FreeSurfer license check."
+
+        _tool_key, image = selected
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            license_dir = self._job_child_path(ssh, "license")
+            command = (
+                f"docker run --rm --entrypoint /bin/bash -v {shlex.quote(license_dir)}:/license:ro "
+                f"{shlex.quote(image)} -lc {shlex.quote(license_check_script())}"
+            )
+            code = ssh.run(command, stream=False, check=False)
+        if code == 0:
+            return True, "FreeSurfer license check passed."
+        return False, "FreeSurfer license check failed on the remote server."
 
     def read_remote_metadata(self) -> dict:
         if not self.remote_job_dir:

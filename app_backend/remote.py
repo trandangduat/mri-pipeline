@@ -252,7 +252,7 @@ class RemoteJobService:
         yield step_event("venv", "running", "Checking Python environment...")
         yield step_event("venv", "done", "Python environment ready")
 
-        # Step 7: Upload job config
+        # Step 7: Upload job config and license
         yield step_event("config", "running", "Uploading job configuration...")
 
         # Step 8: Start remote worker
@@ -264,7 +264,6 @@ class RemoteJobService:
             inferred_mode = infer_pipeline_mode_from_tools(run_request.get("selected_tools"))
             if inferred_mode != "Custom":
                 run_request = {**run_request, "pipeline_mode": inferred_mode}
-
         remote_config = RemoteRunConfig(
             ssh=base_config.ssh,
             remote_workspace=base_config.remote_workspace,
@@ -297,10 +296,22 @@ class RemoteJobService:
 
         try:
             runner = self.runner_factory(remote_config)
-            remote_job_dir = runner.start_remote_detached()
-            remote_status = runner.remote_status()
+            remote_job_dir = runner.upload_job()
 
             yield step_event("config", "done", "Job configuration uploaded")
+
+            yield step_event("license", "running", "Checking FreeSurfer license...")
+            license_ok, license_detail = runner.check_freesurfer_license()
+            if not license_ok:
+                yield step_event("license", "failed", license_detail)
+                yield complete_event(False, error=license_detail)
+                return
+            yield step_event("license", "done", license_detail)
+
+            # Step 8: Start remote worker
+            yield step_event("start", "running", "Starting remote worker...")
+            runner.start_remote_detached()
+            remote_status = runner.remote_status()
             yield step_event("start", "done", f"Worker started at {remote_job_dir}")
 
             job_id = f"remote_{remote_job_dir.split('/')[-1]}"

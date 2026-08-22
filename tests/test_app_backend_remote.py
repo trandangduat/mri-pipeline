@@ -23,6 +23,12 @@ class FakeRunner:
     def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
         return {image: True for image in image_names}
 
+    def upload_job(self) -> str:
+        return "/workspace/job_1"
+
+    def check_freesurfer_license(self) -> tuple[bool, str]:
+        return True, "FreeSurfer license check passed."
+
     def start_remote_detached(self) -> str:
         return "/workspace/job_1"
 

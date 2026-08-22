@@ -9,6 +9,7 @@ from typing import Callable, Iterator, TypeAlias
 
 from app_backend import paths
 from app_backend.sse_utils import step_event, complete_event, SSEEvent
+from pipeline.docker_ops import check_freesurfer_license
 from pipeline.config import PROJECT_ROOT
 from pipeline.jobs import read_json, write_json
 
@@ -94,6 +95,17 @@ class LocalJobService:
             return
         request = result["request"]
         yield step_event("validate", "done", "Configuration valid")
+
+        yield step_event("license", "running", "Checking FreeSurfer license...")
+        license_ok, license_detail = check_freesurfer_license(
+            request.get("selected_tools"),
+            str(request.get("license_dir", "")),
+        )
+        if not license_ok:
+            yield step_event("license", "failed", license_detail)
+            yield complete_event(False, error=license_detail)
+            return
+        yield step_event("license", "done", license_detail)
 
         yield step_event("config", "running", "Preparing job configuration...")
         yield step_event("config", "done", "Job configuration ready")

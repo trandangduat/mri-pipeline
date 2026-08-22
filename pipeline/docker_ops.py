@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback
@@ -14,6 +15,75 @@ from .registry import TOOL_DEFS, is_tool_enabled, tool_display_name
 
 
 log = logging.getLogger(__name__)
+
+LICENSE_CHECK_TIMEOUT_SEC = 30
+
+
+def license_check_tool(selected_tools: object) -> tuple[str, str] | None:
+    if not isinstance(selected_tools, dict):
+        return None
+    for tool_key in selected_tools.values():
+        tool = TOOL_DEFS.get(str(tool_key))
+        if tool and tool.get("needs_license") and tool.get("image"):
+            return str(tool_key), str(tool["image"])
+    return None
+
+
+def license_check_script() -> str:
+    return (
+        "set -eu; "
+        "LICENSE_FILE=$(find /license -maxdepth 1 -type f -print -quit); "
+        "test -s \"$LICENSE_FILE\"; "
+        "export FS_LICENSE=\"$LICENSE_FILE\"; "
+        "if [ -f \"${FREESURFER_HOME:-}/SetUpFreeSurfer.sh\" ]; then "
+        "set +u; . \"$FREESURFER_HOME/SetUpFreeSurfer.sh\" >/dev/null; set -u; "
+        "fi; "
+        "recon-all -version >/dev/null"
+    )
+
+
+def check_freesurfer_license(selected_tools: object, license_path: str) -> tuple[bool, str]:
+    selected = license_check_tool(selected_tools)
+    if selected is None:
+        return True, "No FreeSurfer license is required for the selected tools."
+
+    tool_key, image = selected
+    path = Path(str(license_path or "")).expanduser()
+    if not path.exists():
+        return False, "FreeSurfer license file or directory does not exist."
+    if not image_exists(image):
+        return False, f"FreeSurfer image is not available locally: {image}"
+
+    mount_target = "/license/license.txt" if path.is_file() else "/license"
+    mount = f"{path.resolve()}:{mount_target}:ro"
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "/bin/bash",
+                "-v",
+                mount,
+                image,
+                "-lc",
+                license_check_script(),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=LICENSE_CHECK_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"FreeSurfer license check timed out after {LICENSE_CHECK_TIMEOUT_SEC} seconds ({tool_key})."
+    except OSError as exc:
+        return False, f"Could not run FreeSurfer license check: {exc}"
+
+    if result.returncode == 0:
+        return True, "FreeSurfer license check passed."
+    detail = (result.stderr or result.stdout).strip().splitlines()
+    suffix = f": {detail[-1][:300]}" if detail else ""
+    return False, f"FreeSurfer license check failed ({tool_key}){suffix}"
 
 
 def image_exists(image: str) -> bool:
@@ -194,5 +264,4 @@ def pull_or_build_image_for_tool(tool_key: str, on_progress: ProgressCallback | 
             else:
                 return False, f"Image {image} not available", total_build
     return True, "", total_build
-
 

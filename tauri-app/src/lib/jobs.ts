@@ -2,7 +2,7 @@ import {formatTime} from './format';
 import {formatDuration, normalizeJobState} from '../jobFormatters';
 import type {JobState, LocalJobSummary, PipelineEvent, RemoteJobSummary} from '../types/backend';
 
-type AnyJob = Partial<LocalJobSummary> & Partial<RemoteJobSummary> & Record<string, unknown>;
+export type AnyJob = Partial<LocalJobSummary> & Partial<RemoteJobSummary> & Record<string, unknown>;
 
 export interface BatchImageItem {
   input_file: string;

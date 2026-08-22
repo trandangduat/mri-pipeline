@@ -201,6 +201,25 @@ def test_remote_runner_upload_rejects_missing_license(mocker, tmp_path) -> None:
             runner._upload_license(ssh)
 
 
+def test_remote_runner_checks_uploaded_license_before_start(mocker) -> None:
+    FakeRemoteSSHClient.commands = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    run_config = RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"),
+        remote_workspace="~/mri-remote-jobs",
+        selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+    )
+    runner = RemoteRunner(run_config)
+    runner.remote_job_dir = "/home/tester/mri-remote-jobs/job_123"
+
+    ok, detail = runner.check_freesurfer_license()
+
+    assert ok is True
+    assert detail == "FreeSurfer license check passed."
+    assert "docker run --rm --entrypoint /bin/bash" in FakeRemoteSSHClient.commands[0]
+    assert "recon-all -version" in FakeRemoteSSHClient.commands[0]
+
+
 def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path) -> None:
     FakeRemoteSSHClient.downloaded_dirs = []
     FakeRemoteSSHClient.downloaded_files = []

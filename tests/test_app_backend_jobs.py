@@ -65,6 +65,33 @@ def test_start_local_job_writes_worker_files_and_registry(tmp_path: Path) -> Non
     assert runner.commands[0][1:] == ["-m", "pipeline.job_worker", "--job-config", str(job_dir / "job_config.json")]
 
 
+def test_stream_start_job_reports_license_failure_before_worker_start(tmp_path: Path, mocker) -> None:
+    request = _request(tmp_path)
+    Path(str(request["license_dir"])).write_text("license", encoding="utf-8")
+    request["input_path"] = request["input_file"]
+    request["input_mode"] = "file"
+    runner = FakeProcessRunner()
+    service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=runner)
+    mocker.patch(
+        "app_backend.jobs.check_freesurfer_license",
+        return_value=(False, "FreeSurfer license check failed."),
+    )
+
+    events = list(service.stream_start_job(request))
+
+    assert [(event["event"], event["data"].get("status")) for event in events] == [
+        ("step", "running"),
+        ("step", "done"),
+        ("step", "running"),
+        ("step", "failed"),
+        ("complete", None),
+    ]
+    assert events[2]["data"]["step"] == "license"
+    assert events[3]["data"]["detail"] == "FreeSurfer license check failed."
+    assert events[-1]["data"]["ok"] is False
+    assert runner.commands == []
+
+
 
 def test_list_local_jobs_refreshes_status_from_exit_code(tmp_path: Path) -> None:
     service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 123.0)
