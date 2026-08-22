@@ -1270,7 +1270,7 @@ function BatchConfigModal({
     cacheMatches ? new Set(batchScanCache!.selectedPaths) : new Set(),
   );
   const [scanStatus, setScanStatus] = React.useState(cacheMatches ? batchScanCache!.status : '');
-  const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'one-level');
+  const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'recursive');
   const [scanned, setScanned] = React.useState(cacheMatches ? batchScanCache!.scanned : false);
   const [hasConflict, setHasConflict] = React.useState(cacheMatches ? batchScanCache!.hasConflict : false);
 
