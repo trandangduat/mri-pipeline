@@ -1,6 +1,6 @@
 import React, {useRef, useEffect} from 'react';
-import {ChevronDown, ChevronRight, AlertCircle, Terminal} from 'lucide-react';
-import {Button, StatusPill} from './ui';
+import {ChevronDown, ChevronRight, Terminal} from 'lucide-react';
+import {Alert, Button, StatusPill} from './ui';
 import type {ImageDownloadState} from '../stores/toolsStore';
 
 interface DownloadProgressProps {
@@ -61,10 +61,7 @@ export function DownloadProgress({image, state, onClear}: DownloadProgressProps)
       )}
 
       {state.status === 'failed' && state.error && !expanded && (
-        <div className="mt-1.5 flex items-start gap-1 rounded border border-cursor-semantic-error/20 bg-cursor-semantic-error/5 p-1.5">
-          <AlertCircle className="mt-0.5 h-3 w-3 flex-none text-cursor-semantic-error" />
-          <span className="text-xs text-cursor-semantic-error">{state.error}</span>
-        </div>
+        <Alert severity="error" size="sm" className="mt-1.5">{state.error}</Alert>
       )}
     </div>
   );

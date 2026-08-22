@@ -2,7 +2,7 @@ import React, {useRef} from 'react';
 import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
-import {Panel, Button, inputCls, labelCls} from '../components/ui';
+import {Panel, Button, Alert, inputCls, labelCls} from '../components/ui';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
@@ -210,15 +210,15 @@ export function PipelineStepsSection() {
         </div>
       )}
       {metaError && !metaLoading && (
-        <div className="rounded-lg border border-cursor-semantic-error/30 bg-cursor-semantic-error/5 px-3 py-3">
-          <p className="m-0 text-xs font-medium text-cursor-semantic-error">Backend unavailable</p>
-          <p className="mt-1 text-xs text-cursor-muted">
+        <Alert severity="error">
+          <p className="m-0 font-medium">Backend unavailable</p>
+          <p className="mt-1 text-cursor-muted">
             The MRI pipeline backend is not running. Start the dev server with{' '}
             <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">npm run dev</code>{' '}
             from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">tauri-app/</code>{' '}
             directory, which also starts the Python backend on port 8765.
           </p>
-        </div>
+        </Alert>
       )}
       {!metaLoading && !metaError && showTools && (() => {
         const isCat12Preset = typeof formValues.pipelineMode === 'string' && formValues.pipelineMode.startsWith('CAT12 +');
@@ -485,8 +485,10 @@ export function StatsAtlasSection() {
                 </div>
 
                 {showUnavailableWarning && (
-                  <div className="col-span-2 mt-1 rounded-md border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2.5 py-1 text-2xs text-cursor-semantic-warn">
-                    This stats vector has selected atlases, but Statistics & Atlas mapping is set to Not available.
+                  <div className="col-span-2 mt-1">
+                    <Alert severity="warning" size="sm">
+                      This stats vector has selected atlases, but Statistics &amp; Atlas mapping is set to Not available.
+                    </Alert>
                   </div>
                 )}
               </div>
@@ -1063,7 +1065,9 @@ function ServerBrowserModal({
 
         {/* Error */}
         {!isLoading && isError && statusMsg && (
-          <div className="px-4 py-3 text-xs text-cursor-semantic-error">{statusMsg}</div>
+          <div className="px-4 py-3">
+            <Alert severity="error" size="sm">{statusMsg}</Alert>
+          </div>
         )}
 
         {/* Empty */}

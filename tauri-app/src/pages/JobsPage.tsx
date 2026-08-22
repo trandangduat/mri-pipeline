@@ -30,7 +30,7 @@ import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
-import {StatusPill, statusDotClasses} from '../components/ui';
+import {StatusPill, StatusDotLarge, statusDotClasses} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
   deriveBatchImages,
@@ -64,45 +64,6 @@ function hasTauriInternals() {
 function selectedDialogPath(selected: unknown) {
   if (Array.isArray(selected)) return selected[0] || '';
   return (selected as string) || '';
-}
-
-export function statusDotLargeClasses(state: unknown): string {
-  const norm = normalizeJobState(state);
-  if (norm === 'running') {
-    return 'h-3 w-3 rounded-full bg-cursor-primary flex-none';
-  }
-  if (norm === 'completed') {
-    return 'h-3 w-3 rounded-full bg-cursor-semantic-success flex-none';
-  }
-  if (norm === 'failed') {
-    return 'h-3 w-3 rounded-full bg-cursor-semantic-error flex-none';
-  }
-  if (norm === 'stopped') {
-    return 'h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none';
-  }
-  return 'h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none';
-}
-
-export function StatusDotLarge({state, className = ''}: {state: unknown; className?: string}) {
-  const norm = normalizeJobState(state);
-  if (norm === 'running') {
-    return (
-      <span className={`relative flex h-3 w-3 flex-none ${className}`}>
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cursor-primary opacity-75" />
-        <span className="relative inline-flex rounded-full h-3 w-3 bg-cursor-primary" />
-      </span>
-    );
-  }
-  if (norm === 'completed') {
-    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-success flex-none ${className}`} />;
-  }
-  if (norm === 'failed') {
-    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-error flex-none ${className}`} />;
-  }
-  if (norm === 'stopped') {
-    return <span className={`h-3 w-3 rounded-full bg-cursor-semantic-warn flex-none ${className}`} />;
-  }
-  return <span className={`h-3 w-3 rounded-full bg-cursor-hairline-strong flex-none ${className}`} />;
 }
 
 export function BatchPieChart({

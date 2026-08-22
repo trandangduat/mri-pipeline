@@ -7,10 +7,9 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
-import {Panel, Button, inputCls, labelCls} from './ui';
+import {Panel, Button, Alert, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, currentTargetHardware} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
@@ -218,13 +217,7 @@ export function RuntimeSection() {
       {warnings.length > 0 && (
         <div className="mt-2.5 grid gap-1.5">
           {warnings.map((warning) => (
-            <div
-              key={warning}
-              className="flex items-center gap-1.5 rounded-md border border-cursor-timeline-thinking bg-cursor-timeline-thinking/30 px-2.5 py-1.5 text-xs text-cursor-ink"
-            >
-              <AlertTriangle className="h-3.5 w-3.5 text-cursor-semantic-warn flex-none" />
-              <span>{warning}</span>
-            </div>
+            <Alert key={warning} severity="warning" size="sm">{warning}</Alert>
           ))}
         </div>
       )}

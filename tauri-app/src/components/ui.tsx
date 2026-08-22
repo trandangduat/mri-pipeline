@@ -1,7 +1,35 @@
 import React, {type ReactNode, type ButtonHTMLAttributes} from 'react';
-import {BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses} from '../lib/uiTokens';
+import {AlertTriangle, AlertCircle} from 'lucide-react';
+import {ALERT, BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses} from '../lib/uiTokens';
 
-export {BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses};
+export {ALERT, BUTTON, inputCls, labelCls, statusPillClasses, statusDotClasses};
+
+export type AlertSeverity = 'warning' | 'error';
+
+export interface AlertProps {
+  severity: AlertSeverity;
+  size?: 'sm' | 'md';
+  icon?: boolean | ReactNode;
+  children: ReactNode;
+  className?: string;
+}
+
+const ALERT_ICONS: Record<AlertSeverity, ReactNode> = {
+  warning: <AlertTriangle className="h-3.5 w-3.5 flex-none" />,
+  error: <AlertCircle className="h-3.5 w-3.5 flex-none" />,
+};
+
+export function Alert({severity, size = 'md', icon = true, children, className = ''}: AlertProps) {
+  const v = ALERT[severity];
+  return (
+    <div role="alert" className={`${ALERT.base} ${ALERT[size]} ${v.border} ${v.bg} ${v.text} ${className}`}>
+      {icon === false ? null : (
+        <span className={`flex h-3.5 w-3.5 flex-none ${v.text}`}>{icon === true ? ALERT_ICONS[severity] : icon}</span>
+      )}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
 
 export interface PanelProps {
   icon?: ReactNode;

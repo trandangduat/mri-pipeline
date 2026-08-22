@@ -15,6 +15,22 @@ export const inputCls =
   'h-8 w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-sm font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
 export const labelCls = 'grid gap-1.5 text-xs font-normal leading-[1.3] text-cursor-body';
 
+export const ALERT = {
+  base: 'flex items-start gap-1.5 border leading-[1.4]',
+  sm: 'rounded-md px-2 py-1 gap-1',
+  md: 'rounded-lg px-2.5 py-2',
+  warning: {
+    border: 'border-cursor-semantic-warn/40',
+    bg: 'bg-cursor-semantic-warn/10',
+    text: 'text-cursor-semantic-warn',
+  },
+  error: {
+    border: 'border-cursor-semantic-error/30',
+    bg: 'bg-cursor-semantic-error/10',
+    text: 'text-cursor-semantic-error',
+  },
+} as const;
+
 export function statusPillClasses(state: string | null | undefined): string {
   const normalized = String(state || 'unknown').toLowerCase();
   if (['installed', 'ok', 'completed', 'done', 'success'].includes(normalized)) {

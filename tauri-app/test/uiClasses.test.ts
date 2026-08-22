@@ -1,5 +1,5 @@
 import {expect, test} from 'vitest';
-import {BUTTON, inputCls, labelCls, statusDotClasses, statusPillClasses} from '../src/lib/uiTokens';
+import {ALERT, BUTTON, inputCls, labelCls, statusDotClasses, statusPillClasses} from '../src/lib/uiTokens';
 
 test('BUTTON.variants produce distinct class strings', () => {
   expect(BUTTON.primary).not.toBe(BUTTON.ghost);
@@ -59,6 +59,24 @@ test('StatusDotLarge renders radar pulse for running and solid dot for completed
   const {container: completedContainer} = render(React.createElement(StatusDotLarge, {state: 'completed'}));
   expect(completedContainer.querySelector('.bg-cursor-semantic-success')).not.toBeNull();
   expect(completedContainer.querySelector('.ring-4')).toBeNull();
+});
+
+test('StatusDotLarge renders orange warn dot for stopped state', async () => {
+  const React = await import('react');
+  const {render} = await import('@testing-library/react');
+  const {StatusDotLarge} = await import('../src/components/ui');
+
+  const {container} = render(React.createElement(StatusDotLarge, {state: 'stopped'}));
+  expect(container.querySelector('.bg-cursor-semantic-warn')).not.toBeNull();
+});
+
+test('ALERT variants reference their semantic tokens', () => {
+  expect(ALERT.warning.text).toMatch(/text-cursor-semantic-warn/);
+  expect(ALERT.warning.border).toMatch(/border-cursor-semantic-warn/);
+  expect(ALERT.error.text).toMatch(/text-cursor-semantic-error/);
+  expect(ALERT.error.bg).toMatch(/bg-cursor-semantic-error/);
+  expect(ALERT.warning).not.toEqual(ALERT.error);
+  expect(ALERT.sm).not.toBe(ALERT.md);
 });
 
 

@@ -26,6 +26,7 @@ colors:
   timeline-done: "#c08532"
   semantic-error: "#cf2d56"
   semantic-success: "#1f8a65"
+  semantic-warn: "#b45309"
 
 typography:
   display-mega:
@@ -333,6 +334,7 @@ The brand's strongest visual signature is the **AI-timeline pill palette**: five
 ### Semantic
 - **Success** (`{colors.semantic-success}` — #1f8a65): Confirmation indicators.
 - **Error** (`{colors.semantic-error}` — #cf2d56): Validation errors.
+- **Warning** (`{colors.semantic-warn}` — #b45309, dark-mode #f59e0b): Cautionary notices and degraded-state indicators. Amber family — distinct from Error red.
 
 ## Typography
 
