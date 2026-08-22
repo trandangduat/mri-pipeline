@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useNavigate} from 'react-router';
 import {
-  Activity,
   ArrowLeft,
   BrainCircuit,
   Check,
@@ -23,6 +22,7 @@ import {
   Search,
   Server,
   Square,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react';
@@ -30,7 +30,7 @@ import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
-import {StatusPill, statusDotClasses} from '../components/ui';
+import {StatusPill} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
   deriveBatchImages,
@@ -111,27 +111,26 @@ export function BatchPieChart({
   running,
   pending,
   total,
+  size = 80,
 }: {
   success: number;
   failed: number;
   running: number;
   pending: number;
   total: number;
+  size?: number;
 }) {
   const radius = 44;
   const center = 50;
+  const chartStyle = {width: `${size}px`, height: `${size}px`, minWidth: `${size}px`, minHeight: `${size}px`};
 
   if (total <= 0) {
     return (
       <div
         className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
-        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+        style={chartStyle}
       >
-        <svg
-          viewBox="0 0 100 100"
-          className="w-20 h-20 min-w-20 min-h-20 block flex-none"
-          style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
-        >
+        <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
           <circle cx={center} cy={center} r={radius} fill="#e6e5e0" />
         </svg>
       </div>
@@ -140,7 +139,7 @@ export function BatchPieChart({
 
   const segments = [
     {count: success, color: '#1f8a65', key: 'success'}, // Semantic Success
-    {count: failed, color: '#cf2d56', key: 'failed'},   // Semantic Error
+    {count: failed, color: '#cf2d56', key: 'failed'}, // Semantic Error
     {count: running, color: '#0077b6', key: 'running'}, // Primary
     {count: pending, color: '#cfcdc4', key: 'pending'}, // Muted / Pending
   ].filter((s) => s.count > 0);
@@ -151,21 +150,10 @@ export function BatchPieChart({
     return (
       <div
         className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
-        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
+        style={chartStyle}
       >
-        <svg
-          viewBox="0 0 100 100"
-          className="w-20 h-20 min-w-20 min-h-20 block flex-none"
-          style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
-        >
-          <circle
-            cx={center}
-            cy={center}
-            r={radius}
-            fill={singleSeg.color}
-            stroke="#ffffff"
-            strokeWidth="1.5"
-          />
+        <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
+          <circle cx={center} cy={center} r={radius} fill={singleSeg.color} stroke="#ffffff" strokeWidth="1.5" />
         </svg>
       </div>
     );
@@ -200,23 +188,47 @@ export function BatchPieChart({
   });
 
   return (
-    <div
-      className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
-      style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        className="w-20 h-20 min-w-20 min-h-20 block flex-none"
-        style={{width: '80px', height: '80px', minWidth: '80px', minHeight: '80px'}}
-      >
+    <div className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20" style={chartStyle}>
+      <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
         {paths}
       </svg>
     </div>
   );
 }
 
-function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => void}) {
+function jobStatusLabel(state: unknown): string {
+  const normalized = normalizeJobState(state);
+  if (normalized === 'completed') return 'Finished';
+  if (normalized === 'failed' || normalized === 'stopped') return 'Failed';
+  if (normalized === 'running') return 'Running';
+  return 'Unknown';
+}
+
+function jobStatusBadgeClasses(state: unknown): string {
+  const normalized = normalizeJobState(state);
+  if (normalized === 'completed')
+    return 'text-cursor-semantic-success bg-cursor-semantic-success/10 border-cursor-semantic-success/20';
+  if (normalized === 'failed' || normalized === 'stopped')
+    return 'text-cursor-semantic-error bg-cursor-semantic-error/10 border-cursor-semantic-error/20';
+  if (normalized === 'running') return 'text-cursor-primary bg-cursor-primary/10 border-cursor-primary/20';
+  return 'text-cursor-muted bg-cursor-canvas-soft border-cursor-hairline';
+}
+
+function JobCard({
+  job,
+  onClick,
+  onDelete,
+  deleting,
+  lagging = false,
+}: {
+  job: Record<string, unknown>;
+  onClick: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+  lagging?: boolean;
+}) {
   const normState = normalizeJobState(job.state);
+  const batchSummary = deriveBatchSummary(deriveBatchImages([], job));
   const title = jobBasename(job.display_name || job.job_id);
   const startedAt = Number(job.started_at || job.created_at || 0);
   const startedStr =
@@ -247,11 +259,28 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
       }}
       className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex items-center gap-2.5 min-w-0">
-        <StatusDotLarge state={normState} />
+      <div className="flex items-start gap-2.5 min-w-0">
+        <div
+          className="flex items-center justify-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-1"
+          title="Batch summary"
+        >
+          <BatchPieChart {...batchSummary} size={34} />
+        </div>
         <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors flex-1">
           {title}
         </strong>
+        <div className="flex flex-wrap justify-end gap-1">
+          {lagging && (
+            <span className="inline-flex rounded-full border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] text-cursor-semantic-warn">
+              Lagging
+            </span>
+          )}
+          <span
+            className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] ${jobStatusBadgeClasses(normState)}`}
+          >
+            {jobStatusLabel(normState)}
+          </span>
+        </div>
       </div>
 
       <div className="flex items-center">
@@ -265,9 +294,24 @@ function JobCard({job, onClick}: {job: Record<string, unknown>; onClick: () => v
           <Clock className="h-3 w-3" />
           {startedStr}
         </span>
-        <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={`Delete ${title}`}
+            title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
+            disabled={normState === 'running' || deleting}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-cursor-muted transition-colors hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          </button>
+          <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -278,11 +322,17 @@ function JobsListView({
   onSelectJob,
   onRefresh,
   isRefreshing,
+  onDeleteJob,
+  deletingJobId,
+  remoteLagging,
 }: {
   jobs: Record<string, unknown>[];
   onSelectJob: (jobId: string) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  onDeleteJob: (job: Record<string, unknown>) => void;
+  deletingJobId: string | null;
+  remoteLagging: boolean;
 }) {
   const sortedJobs = sortJobsByStartedAtDesc(jobs);
   const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
@@ -330,6 +380,8 @@ function JobsListView({
                 key={String(j.job_id || j.display_name)}
                 job={j}
                 onClick={() => onSelectJob(String(j.job_id))}
+                onDelete={() => onDeleteJob(j)}
+                deleting={deletingJobId === String(j.job_id)}
               />
             ))}
           </div>
@@ -357,6 +409,9 @@ function JobsListView({
                 key={String(j.job_id || j.display_name)}
                 job={j}
                 onClick={() => onSelectJob(String(j.job_id))}
+                onDelete={() => onDeleteJob(j)}
+                deleting={deletingJobId === String(j.job_id)}
+                lagging={remoteLagging}
               />
             ))}
           </div>
@@ -397,7 +452,9 @@ export function JobsPage() {
 
   // Subject panel search, filter & modal state
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
-  const [subjectStatusFilter, setSubjectStatusFilter] = useState<'all' | 'success' | 'running' | 'failed' | 'pending'>('all');
+  const [subjectStatusFilter, setSubjectStatusFilter] = useState<'all' | 'success' | 'running' | 'failed' | 'pending'>(
+    'all',
+  );
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
 
   // Download dialog state
@@ -412,6 +469,9 @@ export function JobsPage() {
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
   const [downloadRunning, setDownloadRunning] = useState(false);
   const [webBrowseHint, setWebBrowseHint] = useState(false);
+  const [remoteLagging, setRemoteLagging] = useState(false);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [stoppingJob, setStoppingJob] = useState(false);
 
   const reqSeqRef = useRef<number>(0);
   const hasInitialRefreshed = useRef<boolean>(false);
@@ -425,9 +485,9 @@ export function JobsPage() {
 
   const {data: metadata} = useMetadata();
 
-  const print = (label: string, payload: unknown) => {
+  const print = useCallback((label: string, payload: unknown) => {
     appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
-  };
+  }, [appendOutput]);
 
   const listLocalJobsMutation = useListLocalJobsMutation();
   const readEventsMutation = useReadLocalEventsMutation();
@@ -511,20 +571,28 @@ export function JobsPage() {
     ],
   );
 
-  const refreshJobs = async () => {
+  const refreshJobs = useCallback(async () => {
     setBusyKey('refreshJobs', true);
     try {
       const localRes = await listLocalJobsMutation.mutateAsync().catch(() => ({jobs: []}));
-      const remoteRes = remoteResult.connected
-        ? await listRemoteJobsMutation.mutateAsync(buildRemotePayload(formValues)).catch(() => ({jobs: []}))
-        : {jobs: []};
+      let remoteJobs: unknown[] = [];
+      if (remoteResult.connected) {
+        const remoteStartedAt = Date.now();
+        try {
+          const remoteRes = await listRemoteJobsMutation.mutateAsync(buildRemotePayload(formValues));
+          remoteJobs = Array.isArray(remoteRes.jobs) ? remoteRes.jobs : [];
+          setRemoteLagging(remoteRes.ok === false || Date.now() - remoteStartedAt >= 5_000);
+        } catch {
+          setRemoteLagging(true);
+        }
+      } else {
+        setRemoteLagging(false);
+      }
       const localJobs = (Array.isArray(localRes?.jobs) ? localRes.jobs : []).map((j) =>
         normalizeJob(j as Record<string, unknown>, 'Local'),
       );
-      const remoteJobs = (Array.isArray(remoteRes?.jobs) ? remoteRes.jobs : []).map((j) =>
-        normalizeJob(j as Record<string, unknown>, 'Server'),
-      );
-      const jobs = sortJobsByStartedAtDesc([...localJobs, ...remoteJobs] as Record<string, unknown>[]);
+      const normalizedRemoteJobs = remoteJobs.map((j) => normalizeJob(j as Record<string, unknown>, 'Server'));
+      const jobs = sortJobsByStartedAtDesc([...localJobs, ...normalizedRemoteJobs] as Record<string, unknown>[]);
       setLatestJobs(jobs as Record<string, unknown>[]);
 
       if (urlJobId || selectedJobId) {
@@ -540,6 +608,73 @@ export function JobsPage() {
       print('Refresh jobs failed', {error: (err as Error).message});
     } finally {
       setBusyKey('refreshJobs', false);
+    }
+  }, [
+    formValues,
+    listLocalJobsMutation,
+    listRemoteJobsMutation,
+    loadJobDetails,
+    remoteResult.connected,
+    selectedJobId,
+    setBusyKey,
+    setLatestJobs,
+    urlJobId,
+    print,
+  ]);
+
+  const handleDeleteJob = async (targetJob: Record<string, unknown>) => {
+    const jobId = String(targetJob.job_id || '');
+    if (!jobId || normalizeJobState(targetJob.state) === 'running') return;
+    if (!window.confirm(`Delete job "${jobBasename(targetJob.display_name || jobId)}"?`)) return;
+
+    setDeletingJobId(jobId);
+    try {
+      const client = new BackendClient(DEFAULT_BACKEND_URL);
+      const result =
+        String(targetJob.target || 'Local') === 'Server'
+          ? await client.deleteRemoteJob({
+              ...buildRemotePayload(formValues),
+              job_id: jobId,
+              remote_job_dir: String(targetJob.remote_job_dir || targetJob.job_dir || ''),
+            })
+          : await client.deleteLocalJob(jobId);
+      if (!result.ok) {
+        print('Delete job failed', {error: result.error || 'Unknown error'});
+        return;
+      }
+      if (selectedJobId === jobId) {
+        setSelectedJobId(null);
+        navigate('/jobs');
+      }
+      await refreshJobs();
+    } catch (err: unknown) {
+      print('Delete job failed', {error: (err as Error).message});
+    } finally {
+      setDeletingJobId(null);
+    }
+  };
+
+  const handleStopJob = async () => {
+    if (!job || normState !== 'running' || isTerminal || stoppingJob) return;
+    setStoppingJob(true);
+    try {
+      const client = new BackendClient(DEFAULT_BACKEND_URL);
+      const result = isServerJob
+        ? await client.stopRemoteJob({
+            ...buildRemotePayload(formValues),
+            job_id: String(job.job_id || ''),
+            remote_job_dir: String(job.remote_job_dir || job.job_dir || ''),
+          })
+        : await client.stopLocalJob(String(job.job_id || ''));
+      if (!result.ok) {
+        print('Stop job failed', {error: result.error || 'Unknown error'});
+        return;
+      }
+      await refreshJobs();
+    } catch (err: unknown) {
+      print('Stop job failed', {error: (err as Error).message});
+    } finally {
+      setStoppingJob(false);
     }
   };
 
@@ -566,8 +701,7 @@ export function JobsPage() {
     if (selectedJobId) {
       const jobs = Array.isArray(latestJobs) ? latestJobs : [];
       const jobObj = jobs.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       queueMicrotask(() => {
         void loadJobDetails(selectedJobId, jobObj);
       });
@@ -618,28 +752,11 @@ export function JobsPage() {
   const displayMeta = deriveJobDisplayMetadata(job, safeEvents);
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
-  // Polling every 2s for running job
+  // Refresh job status and selected details every 30 seconds.
   useEffect(() => {
-    if (!selectedJobId || (normState !== 'running' && displayMeta.status_reconciled !== 'running')) {
-      return;
-    }
-    const interval = setInterval(() => {
-      const jobs = Array.isArray(latestJobs) ? latestJobs : [];
-      const targetJob = jobs.find((j) => j && (j as { job_id?: string }).job_id === selectedJobId) as
-        | Record<string, unknown>
-        | undefined;
-      void loadJobDetails(selectedJobId, targetJob, {resetUi: false});
-      void refreshJobs();
-    }, 2000);
+    const interval = setInterval(() => void refreshJobs(), 30_000);
     return () => clearInterval(interval);
-  }, [selectedJobId, normState, displayMeta.status_reconciled, loadJobDetails, latestJobs, refreshJobs]);
-
-  // When status_reconciled becomes terminal, refresh parent jobs store once
-  useEffect(() => {
-    if (selectedJobId && isTerminal && normState === 'running') {
-      void refreshJobs();
-    }
-  }, [selectedJobId, isTerminal, normState, refreshJobs]);
+  }, [refreshJobs]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = React.useMemo(() => {
@@ -657,7 +774,13 @@ export function JobsPage() {
     }
 
     return fromJob;
-  }, [job?.pipeline_mode, metadata?.pipeline_modes, metadata?.presets, reqSummary.pipeline_mode, reqSummary.selected_tools]);
+  }, [
+    job?.pipeline_mode,
+    metadata?.pipeline_modes,
+    metadata?.presets,
+    reqSummary.pipeline_mode,
+    reqSummary.selected_tools,
+  ]);
   const stageOrder = metadata?.stage_order || [
     'format_conversion',
     'brain_extraction',
@@ -690,11 +813,8 @@ export function JobsPage() {
     if (isServerJob) {
       const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
       const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
-      const remotePath = rawOutputDir && rawOutputDir !== 'N/A'
-        ? rawOutputDir
-        : remoteJobDir
-          ? `${remoteJobDir}/outputs`
-          : '';
+      const remotePath =
+        rawOutputDir && rawOutputDir !== 'N/A' ? rawOutputDir : remoteJobDir ? `${remoteJobDir}/outputs` : '';
       setDownloadDialogOpen(true);
       setDownloadLocalDir(formValues.outputDir || '');
       setDownloadPhase('select');
@@ -827,12 +947,14 @@ export function JobsPage() {
   const modalImageSteps = modalSubject
     ? deriveImageSteps(safeEvents, modalSubject, selectedTools, stageOrder, stageLabels)
     : [];
-  const modalMetricsSeries = modalSubject ? deriveMetricsSeries(safeEvents, modalSubject) : {cpuSeries: [], ramSeries: [], latestContainer: ''};
+  const modalMetricsSeries = modalSubject
+    ? deriveMetricsSeries(safeEvents, modalSubject)
+    : {cpuSeries: [], ramSeries: [], latestContainer: ''};
 
   const totalModalStages = modalImageSteps.length;
   const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
 
-  const getSubjectCurrentStepLabel = (img: typeof batchImages[0]) => {
+  const getSubjectCurrentStepLabel = (img: (typeof batchImages)[0]) => {
     if (img.status === 'success') return 'Completed';
     if (img.status === 'failed') return 'Failed';
     if (img.status === 'pending') return 'Waiting in queue';
@@ -854,6 +976,9 @@ export function JobsPage() {
         }}
         onRefresh={refreshJobs}
         isRefreshing={busy.refreshJobs}
+        onDeleteJob={handleDeleteJob}
+        deletingJobId={deletingJobId}
+        remoteLagging={remoteLagging}
       />
     );
   }
@@ -884,7 +1009,10 @@ export function JobsPage() {
                 <BrainCircuit className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate" title={(job?.display_name as string) || (job?.job_id as string) || ''}>
+                <h2
+                  className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate"
+                  title={(job?.display_name as string) || (job?.job_id as string) || ''}
+                >
                   {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
                 </h2>
               </div>
@@ -907,23 +1035,32 @@ export function JobsPage() {
           {/* Perfectly Aligned Unified Metadata Table */}
           {(() => {
             const isCustomMode = String(reqSummary.pipeline_mode || job?.pipeline_mode || '') === 'Custom';
-            const neuroflowEnabled = reqSummary.neuroflow_enabled !== undefined
-              ? Boolean(reqSummary.neuroflow_enabled)
-              : (reqSummary.neuroflowEnabled !== undefined ? Boolean(reqSummary.neuroflowEnabled) : !isCustomMode);
-            const maxConcurrent = Number(reqSummary.neuroflow_max_concurrent_tasks ?? reqSummary.neuroflowMaxConcurrentTasks ?? 2);
-            const estimationMode = String(reqSummary.neuroflow_estimation_mode || reqSummary.neuroflowEstimationMode || 'balanced');
+            const neuroflowEnabled =
+              reqSummary.neuroflow_enabled !== undefined
+                ? Boolean(reqSummary.neuroflow_enabled)
+                : reqSummary.neuroflowEnabled !== undefined
+                  ? Boolean(reqSummary.neuroflowEnabled)
+                  : !isCustomMode;
+            const maxConcurrent = Number(
+              reqSummary.neuroflow_max_concurrent_tasks ?? reqSummary.neuroflowMaxConcurrentTasks ?? 2,
+            );
+            const estimationMode = String(
+              reqSummary.neuroflow_estimation_mode || reqSummary.neuroflowEstimationMode || 'balanced',
+            );
             const warmupEnabled = Boolean(reqSummary.neuroflow_warmup_enabled ?? reqSummary.neuroflowWarmupEnabled);
             const maxRetries = Number(reqSummary.neuroflow_max_retries ?? reqSummary.neuroflowMaxRetries ?? 3);
 
-            const schedulerDisplay = neuroflowEnabled && !isCustomMode
-              ? 'NeuroFLOW'
-              : isCustomMode
-                ? 'Standard Runner (Custom Mode)'
-                : 'Standard Runner';
+            const schedulerDisplay =
+              neuroflowEnabled && !isCustomMode
+                ? 'NeuroFLOW'
+                : isCustomMode
+                  ? 'Standard Runner (Custom Mode)'
+                  : 'Standard Runner';
 
-            const schedulerDetails = neuroflowEnabled && !isCustomMode
-              ? `${maxConcurrent} tasks · ${estimationMode} · ${warmupEnabled ? 'Warmup: On' : 'Direct'} · ${maxRetries} retries`
-              : 'Sequential';
+            const schedulerDetails =
+              neuroflowEnabled && !isCustomMode
+                ? `${maxConcurrent} tasks · ${estimationMode} · ${warmupEnabled ? 'Warmup: On' : 'Direct'} · ${maxRetries} retries`
+                : 'Sequential';
 
             return (
               <div className="mt-2.5 overflow-hidden rounded-md border border-cursor-hairline bg-cursor-surface-card">
@@ -940,7 +1077,10 @@ export function JobsPage() {
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Preset
                       </td>
-                      <td className="py-1.5 px-2.5 text-cursor-body truncate" title={String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')}>
+                      <td
+                        className="py-1.5 px-2.5 text-cursor-body truncate"
+                        title={String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')}
+                      >
                         {String(reqSummary.pipeline_mode || job?.pipeline_mode || 'Custom')}
                       </td>
                     </tr>
@@ -950,9 +1090,7 @@ export function JobsPage() {
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Process PID
                       </td>
-                      <td className="py-1.5 px-2.5 text-cursor-body font-mono">
-                        {String(job?.pid || 'None')}
-                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body font-mono">{String(job?.pid || 'None')}</td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Scheduler
                       </td>
@@ -960,7 +1098,10 @@ export function JobsPage() {
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                           <span className="font-semibold text-cursor-ink truncate">{schedulerDisplay}</span>
                           {neuroflowEnabled && !isCustomMode && (
-                            <span className="inline-flex items-center gap-1 rounded bg-cursor-primary/10 px-1.5 py-0.25 text-2xs font-semibold text-cursor-primary flex-none" title={schedulerDetails}>
+                            <span
+                              className="inline-flex items-center gap-1 rounded bg-cursor-primary/10 px-1.5 py-0.25 text-2xs font-semibold text-cursor-primary flex-none"
+                              title={schedulerDetails}
+                            >
                               <Zap className="h-3 w-3" />
                               {maxConcurrent} tasks
                             </span>
@@ -990,7 +1131,10 @@ export function JobsPage() {
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Container
                       </td>
-                      <td className="py-1.5 px-2.5 text-cursor-body truncate" title={modalMetricsSeries.latestContainer || 'None (Native)'}>
+                      <td
+                        className="py-1.5 px-2.5 text-cursor-body truncate"
+                        title={modalMetricsSeries.latestContainer || 'None (Native)'}
+                      >
                         {modalMetricsSeries.latestContainer || 'None (Native)'}
                       </td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
@@ -998,7 +1142,10 @@ export function JobsPage() {
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
                         <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
-                          <span className="font-mono text-2xs text-cursor-body truncate break-all flex-1" title={displayMeta.output_dir_str}>
+                          <span
+                            className="font-mono text-2xs text-cursor-body truncate break-all flex-1"
+                            title={displayMeta.output_dir_str}
+                          >
                             {displayMeta.output_dir_str}
                           </span>
                           <button
@@ -1030,7 +1177,10 @@ export function JobsPage() {
                       </td>
                       <td colSpan={3} className="py-1.5 px-2.5 text-cursor-body min-w-0">
                         <div className="flex items-center justify-between gap-2 min-w-0 w-full">
-                          <span className="font-mono text-2xs text-cursor-body truncate break-all flex-1" title={displayMeta.input_path_str}>
+                          <span
+                            className="font-mono text-2xs text-cursor-body truncate break-all flex-1"
+                            title={displayMeta.input_path_str}
+                          >
                             {displayMeta.input_path_str}
                           </span>
                           <button
@@ -1150,11 +1300,16 @@ export function JobsPage() {
 
               {(!isTerminal || displayMeta.status_reconciled !== 'completed') && (
                 <Button
-                  onClick={() => print('Stop job', {ok: false, error: 'Stop job requested.'})}
-                  disabled={!job || normState !== 'running' || isTerminal}
+                  onClick={handleStopJob}
+                  disabled={!job || normState !== 'running' || isTerminal || stoppingJob}
                   className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs cursor-pointer"
                 >
-                  <Square className="h-3.5 w-3.5 mr-1.5" /> Stop Job
+                  {stoppingJob ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5 mr-1.5" />
+                  )}{' '}
+                  {stoppingJob ? 'Stopping...' : 'Stop Job'}
                 </Button>
               )}
 
@@ -1284,9 +1439,11 @@ export function JobsPage() {
                       }`}
                     >
                       <span>{label}</span>
-                      <span className={`text-2xs font-mono px-1 rounded-full ${
-                        subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink' : 'text-cursor-muted'
-                      }`}>
+                      <span
+                        className={`text-2xs font-mono px-1 rounded-full ${
+                          subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink' : 'text-cursor-muted'
+                        }`}
+                      >
                         {count}
                       </span>
                     </button>
@@ -1304,7 +1461,10 @@ export function JobsPage() {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 min-h-[86px]">
+                            <div
+                              key={i}
+                              className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 min-h-[86px]"
+                            >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5">
                                   <Skeleton className="h-5 w-5 rounded flex-none" />
@@ -1331,7 +1491,9 @@ export function JobsPage() {
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
                         </h4>
                         <p className="m-0 text-xs text-cursor-body">
-                          {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                          {batchImages.length === 0
+                            ? 'Subjects will appear as the pipeline processes images.'
+                            : 'Try a different status filter or search term.'}
                         </p>
                       </div>
                     );
@@ -1348,19 +1510,26 @@ export function JobsPage() {
                         {/* Card Header: Index & Status Badge */}
                         <div className="flex items-center justify-between gap-2 min-w-0">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <div className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}>
+                            <div
+                              className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}
+                            >
                               <BrainCircuit className="h-3 w-3" />
                             </div>
                             <span className="font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
                               #{String(img.idx).padStart(3, '0')}
                             </span>
                           </div>
-                          <span className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded-full flex-none ${
-                            img.status === 'success' ? 'text-cursor-semantic-success bg-cursor-semantic-success/10 border border-cursor-semantic-success/20' :
-                            img.status === 'failed' ? 'text-cursor-semantic-error bg-cursor-semantic-error/10 border border-cursor-semantic-error/20' :
-                            img.status === 'running' ? 'text-cursor-primary bg-cursor-primary/10 border border-cursor-primary/20' :
-                            'text-cursor-muted bg-cursor-canvas-soft border border-cursor-hairline'
-                          }`}>
+                          <span
+                            className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded-full flex-none ${
+                              img.status === 'success'
+                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10 border border-cursor-semantic-success/20'
+                                : img.status === 'failed'
+                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10 border border-cursor-semantic-error/20'
+                                  : img.status === 'running'
+                                    ? 'text-cursor-primary bg-cursor-primary/10 border border-cursor-primary/20'
+                                    : 'text-cursor-muted bg-cursor-canvas-soft border border-cursor-hairline'
+                            }`}
+                          >
                             {img.status.toUpperCase()}
                           </span>
                         </div>
@@ -1397,7 +1566,10 @@ export function JobsPage() {
                       return (
                         <>
                           {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div key={i} className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2">
+                            <div
+                              key={i}
+                              className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2"
+                            >
                               <Skeleton className="h-7 w-7 rounded-md flex-none" />
                               <div className="flex-1 space-y-1">
                                 <Skeleton className="h-2.5 w-14" />
@@ -1416,7 +1588,9 @@ export function JobsPage() {
                           {batchImages.length === 0 ? 'No subject events yet' : 'No subjects match these filters'}
                         </h4>
                         <p className="m-0 text-xs text-cursor-body">
-                          {batchImages.length === 0 ? 'Subjects will appear as the pipeline processes images.' : 'Try a different status filter or search term.'}
+                          {batchImages.length === 0
+                            ? 'Subjects will appear as the pipeline processes images.'
+                            : 'Try a different status filter or search term.'}
                         </p>
                       </div>
                     );
@@ -1430,13 +1604,13 @@ export function JobsPage() {
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
                         className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
-                        <div className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}>
+                        <div
+                          className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}
+                        >
                           <BrainCircuit className="h-3 w-3" />
                         </div>
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-2xs text-cursor-muted">
-                            #{String(img.idx).padStart(3, '0')}
-                          </span>
+                          <span className="text-2xs text-cursor-muted">#{String(img.idx).padStart(3, '0')}</span>
                           <span className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
                             {img.subject_id}
                           </span>
@@ -1446,12 +1620,17 @@ export function JobsPage() {
                             <span className="text-2xs uppercase tracking-[0.06em] text-cursor-muted">Stage</span>
                             <span className="text-xs text-cursor-ink">{currentStepText}</span>
                           </div>
-                          <span className={`text-xs font-semibold uppercase tracking-[0.06em] min-w-[4rem] text-right ${
-                            img.status === 'success' ? 'text-cursor-semantic-success' :
-                            img.status === 'failed' ? 'text-cursor-semantic-error' :
-                            img.status === 'running' ? 'text-cursor-primary' :
-                            'text-cursor-muted'
-                          }`}>
+                          <span
+                            className={`text-xs font-semibold uppercase tracking-[0.06em] min-w-[4rem] text-right ${
+                              img.status === 'success'
+                                ? 'text-cursor-semantic-success'
+                                : img.status === 'failed'
+                                  ? 'text-cursor-semantic-error'
+                                  : img.status === 'running'
+                                    ? 'text-cursor-primary'
+                                    : 'text-cursor-muted'
+                            }`}
+                          >
                             {img.status.toUpperCase()}
                           </span>
                         </div>
@@ -1503,7 +1682,10 @@ export function JobsPage() {
                   <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
-                  <span className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body" title={modalSubject.input_file}>
+                  <span
+                    className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body"
+                    title={modalSubject.input_file}
+                  >
                     {modalSubject.input_file}
                   </span>
                 </div>
@@ -1539,7 +1721,12 @@ export function JobsPage() {
                 <div className="p-0 flex-1 overflow-auto min-h-0">
                   <div className="space-y-1.5">
                     {modalImageSteps.map((step, idx) => (
-                      <VerticalTimelineStepRow key={step.stage} step={step} isLast={idx === modalImageSteps.length - 1} toolDisplayNames={toolDisplayNames} />
+                      <VerticalTimelineStepRow
+                        key={step.stage}
+                        step={step}
+                        isLast={idx === modalImageSteps.length - 1}
+                        toolDisplayNames={toolDisplayNames}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1560,7 +1747,9 @@ export function JobsPage() {
                     </div>
                     <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
                       <span>GPU Usage: Not reported (CPU Mode)</span>
-                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">CPU Mode</span>
+                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                        CPU Mode
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1598,7 +1787,12 @@ export function JobsPage() {
                         />
                         <Search className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
                       </label>
-                      <Button variant="ghost" size="sm" onClick={clearJobLog} className="h-7 px-2 text-xs text-cursor-body">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearJobLog}
+                        className="h-7 px-2 text-xs text-cursor-body"
+                      >
                         <Eraser className="h-3 w-3 mr-1" /> Clear
                       </Button>
                     </div>
@@ -1622,14 +1816,12 @@ export function JobsPage() {
       <DownloadOutputsDialog
         open={downloadDialogOpen}
         jobId={String(job?.job_id || '')}
-        remotePath={
-          (() => {
-            const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
-            if (rawOutputDir && rawOutputDir !== 'N/A') return rawOutputDir;
-            const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
-            return remoteJobDir ? `${remoteJobDir}/outputs` : '';
-          })()
-        }
+        remotePath={(() => {
+          const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
+          if (rawOutputDir && rawOutputDir !== 'N/A') return rawOutputDir;
+          const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
+          return remoteJobDir ? `${remoteJobDir}/outputs` : '';
+        })()}
         localDir={downloadLocalDir}
         onLocalDirChange={setDownloadLocalDir}
         phase={downloadPhase}
@@ -1682,17 +1874,29 @@ function StageStatusPill({status}: {status: string}) {
             ? 'border-cursor-hairline-soft bg-cursor-canvas-soft text-cursor-muted-soft'
             : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted';
   const label =
-    status === 'success' ? 'OK' : status === 'running' ? 'RUNNING' : status === 'failed' ? 'FAIL' : isSkipped ? 'SKIPPED' : 'PENDING';
+    status === 'success'
+      ? 'OK'
+      : status === 'running'
+        ? 'RUNNING'
+        : status === 'failed'
+          ? 'FAIL'
+          : isSkipped
+            ? 'SKIPPED'
+            : 'PENDING';
   return (
-    <span className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em] ${cls}`}>
+    <span
+      className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em] ${cls}`}
+    >
       {label}
     </span>
   );
 }
 
 function subjectAccentClasses(status: string) {
-  if (status === 'success') return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
-  if (status === 'failed') return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
+  if (status === 'success')
+    return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
+  if (status === 'failed')
+    return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
   if (status === 'running') return 'text-cursor-primary border-cursor-primary/25 bg-cursor-primary/5';
   return 'text-cursor-muted border-cursor-hairline bg-cursor-canvas-soft';
 }
@@ -1706,7 +1910,15 @@ function StageMetric({label, value}: {label: string; value: string}) {
   );
 }
 
-function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageStepDetail; isLast: boolean; toolDisplayNames: Record<string, string>}) {
+function VerticalTimelineStepRow({
+  step,
+  isLast,
+  toolDisplayNames,
+}: {
+  step: StageStepDetail;
+  isLast: boolean;
+  toolDisplayNames: Record<string, string>;
+}) {
   const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
 
   const rowClass =
@@ -1729,7 +1941,7 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
             ? 'bg-cursor-hairline-strong'
             : 'bg-cursor-surface-card border-2 border-cursor-muted-soft';
 
-  const displayTool = step?.tool ? (toolDisplayNames[step.tool] || step.tool) : '';
+  const displayTool = step?.tool ? toolDisplayNames[step.tool] || step.tool : '';
   const toolLabel = isSkipped ? 'Not available' : displayTool || 'Not available';
 
   return (
@@ -1742,10 +1954,18 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <h4 className={`m-0 text-sm font-semibold leading-[1.3] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{step?.label || step?.stage}</h4>
+              <h4
+                className={`m-0 text-sm font-semibold leading-[1.3] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}
+              >
+                {step?.label || step?.stage}
+              </h4>
               <StageStatusPill status={step?.status || 'pending'} />
             </div>
-            <p className={`m-0 mt-0.5 text-xs leading-[1.3] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}>{toolLabel}</p>
+            <p
+              className={`m-0 mt-0.5 text-xs leading-[1.3] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}
+            >
+              {toolLabel}
+            </p>
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
             <div className="flex flex-wrap justify-end overflow-hidden rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 text-2xs">
@@ -1763,9 +1983,7 @@ function VerticalTimelineStepRow({step, isLast, toolDisplayNames}: {step: StageS
 }
 
 function MetricSparkline({label, points, unit = '%'}: {label: string; points: number[]; unit?: string}) {
-  const safePoints = (Array.isArray(points) ? points : []).filter((v) =>
-    typeof v === 'number' && Number.isFinite(v),
-  );
+  const safePoints = (Array.isArray(points) ? points : []).filter((v) => typeof v === 'number' && Number.isFinite(v));
 
   const formatValue = (v: number) => {
     if (unit === 'MB' && v >= 1024) return `${(v / 1024).toFixed(1)} GB`;
@@ -1827,13 +2045,22 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-cursor-ink">{label}</span>
         <span className="font-mono text-cursor-primary font-semibold text-xs">
-          {formatValue(currentVal)} <span className="text-2xs text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
+          {formatValue(currentVal)}{' '}
+          <span className="text-2xs text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
         </span>
       </div>
       <div className="relative">
         <svg className="h-20 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
           {gridLines.map((g) => (
-            <line key={g.y} x1="0" y1={g.y} x2={width} y2={g.y} className="stroke-cursor-hairline-soft" strokeWidth="1" />
+            <line
+              key={g.y}
+              x1="0"
+              y1={g.y}
+              x2={width}
+              y2={g.y}
+              className="stroke-cursor-hairline-soft"
+              strokeWidth="1"
+            />
           ))}
           <polygon className="fill-cursor-primary/10" points={areaPoints} />
           <polyline className="fill-none stroke-cursor-primary stroke-2" points={pointsStr} />

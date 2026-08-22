@@ -87,6 +87,46 @@ class RemoteJobService:
             return {"ok": False, "error": "Remote job listing failed"}
         return {"ok": True, "jobs": [_job_summary(job) for job in jobs]}
 
+    def delete_job(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        if not remote_job_dir:
+            return {"ok": False, "error": "remote_job_dir is required"}
+        try:
+            runner = self.runner_factory(config)
+            if hasattr(runner, "attach_job"):
+                runner.attach_job(remote_job_dir)
+            if not hasattr(runner, "clean_remote"):
+                return {"ok": False, "error": "Remote job deletion is unavailable"}
+            runner.clean_remote()  # type: ignore[attr-defined]
+            return {"ok": True, "job_id": str(data.get("job_id") or remote_job_dir)}
+        except Exception:
+            return {"ok": False, "error": "Remote job deletion failed"}
+
+    def stop_job(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        if not remote_job_dir:
+            return {"ok": False, "error": "remote_job_dir is required"}
+        try:
+            runner = self.runner_factory(config)
+            if hasattr(runner, "attach_job"):
+                runner.attach_job(remote_job_dir)
+            if not hasattr(runner, "request_pause"):
+                return {"ok": False, "error": "Remote job stopping is unavailable"}
+            runner.request_pause()  # type: ignore[attr-defined]
+            return {"ok": True, "accepted": True, "job_id": str(data.get("job_id") or remote_job_dir)}
+        except Exception:
+            return {"ok": False, "error": "Remote job stop failed"}
+
     def read_job_events(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:

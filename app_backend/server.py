@@ -142,6 +142,15 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             status = HTTPStatus.OK if result.get("ok") else HTTPStatus.NOT_FOUND
             self._write_json(status, result)
             return
+        if self.path == "/jobs/local/delete":
+            job_id = str(payload.get("job_id", "") or "")
+            if not job_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "job_id is required"})
+                return
+            result = self._local_jobs().delete_local_job(job_id)
+            status = HTTPStatus.OK if result.get("ok") else HTTPStatus.NOT_FOUND
+            self._write_json(status, result)
+            return
         if self.path == "/config/workspaces/save":
             name = str(payload.get("name", "") or "")
             data = payload.get("data")
@@ -169,6 +178,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/jobs":
             self._write_json(HTTPStatus.OK, self._remote_jobs().list_jobs(payload))
+            return
+        if self.path == "/remote/jobs/delete":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().delete_job(payload))
+            return
+        if self.path == "/remote/jobs/stop":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().stop_job(payload))
             return
         if self.path == "/remote/jobs/events":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_events(payload))

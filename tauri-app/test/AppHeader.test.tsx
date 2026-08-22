@@ -80,7 +80,7 @@ test('renders workspace and pipeline action buttons', () => {
   expect(screen.getByText('Save Workspace')).toBeInTheDocument();
   expect(screen.getByText('Load Workspace')).toBeInTheDocument();
   expect(screen.getByText('Start Pipeline')).toBeInTheDocument();
-  expect(screen.getByText('Stop Pipeline')).toBeInTheDocument();
+  expect(screen.queryByText('Stop Pipeline')).not.toBeInTheDocument();
 });
 
 test('renders AppFooter with system status, version, and links', () => {

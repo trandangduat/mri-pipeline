@@ -8,7 +8,6 @@ import {
   Save,
   FolderOpen,
   Play,
-  Square,
   Loader2,
 } from 'lucide-react';
 import {Button} from './ui';
@@ -288,19 +287,6 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
             disabled={startDisabled}
           >
             {startButtonText}
-          </Button>
-
-          <Button
-            variant="danger"
-            icon={<Square className="h-3.5 w-3.5" />}
-            onClick={() =>
-              print('Stop pipeline', {
-                ok: false,
-                error: 'Select a running job in Jobs Monitor to stop it in a later slice.',
-              })
-            }
-          >
-            Stop Pipeline
           </Button>
         </div>
       </div>
