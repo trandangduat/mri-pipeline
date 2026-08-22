@@ -199,6 +199,12 @@ export const appMetadataSchema = z.object({
   fs7_recon_style_stage_order: z.array(z.string()),
   tools: z.record(z.string(), toolMetadataSchema),
   tools_by_stage: z.record(z.string(), z.array(z.string())),
+  tool_contracts: z
+    .record(
+      z.string(),
+      z.object({requires: z.array(z.string()), produces: z.array(z.string())}),
+    )
+    .optional(),
   export_items: z.record(
     z.string(),
     z.object({id: z.string(), stage: z.string(), label: z.string(), default_name: z.string()}),

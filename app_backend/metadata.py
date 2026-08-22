@@ -16,6 +16,7 @@ from pipeline.registry import (
     tool_display_name,
 )
 from pipeline.stats import VECTOR_SPECS
+from pipeline.tool_compat import tool_contracts_payload
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -99,6 +100,7 @@ def get_app_metadata() -> dict[str, JsonValue]:
         "fs7_recon_style_stage_order": list(FS7_RECON_STYLE_STAGE_ORDER),
         "tools": {tool_key: _tool_metadata(tool_key, tool) for tool_key, tool in TOOL_DEFS.items()},
         "tools_by_stage": {stage: enabled_tools_for_stage(stage) for stage in STAGE_ORDER},
+        "tool_contracts": tool_contracts_payload(),
         "export_items": {
             item_id: {
                 "id": item_id,

@@ -194,7 +194,7 @@ def test_stream_start_job_blocks_when_selected_tool_image_missing() -> None:
                     "input_path": "/data/image.nii.gz",
                     "output_dir": "/out",
                     "pipeline_mode": "Custom",
-                    "selected_tools": {"segmentation": "fastsurfer_segmentation"},
+                    "selected_tools": {"reorientation": "fastsurfer_reorientation", "segmentation": "fastsurfer_segmentation"},
                     "license_dir": "/license",
                 },
             }
@@ -236,7 +236,7 @@ def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None
                     "input_path": "/data/image.nii.gz",
                     "output_dir": "/out",
                     "pipeline_mode": "Custom",
-                    "selected_tools": {"segmentation": "fastsurfer_segmentation"},
+                    "selected_tools": {"reorientation": "fastsurfer_reorientation", "segmentation": "fastsurfer_segmentation"},
                     "license_dir": str(license_file),
                 },
             }
@@ -306,7 +306,7 @@ def test_stream_start_job_succeeds_when_local_remote_registry_update_fails() -> 
                     "input_path": "/data/image.nii.gz",
                     "output_dir": "/out",
                     "pipeline_mode": "Custom",
-                    "selected_tools": {"segmentation": "fastsurfer_segmentation"},
+                    "selected_tools": {"reorientation": "fastsurfer_reorientation", "segmentation": "fastsurfer_segmentation"},
                     "license_dir": "/license",
                 },
             }

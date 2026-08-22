@@ -180,6 +180,9 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     license_error = _license_error(config)
     if license_error:
         return [license_error]
+    tool_combo_error = _tool_combo_error(config)
+    if tool_combo_error:
+        return [tool_combo_error]
     neuroflow_error = _neuroflow_error(config)
     if neuroflow_error:
         return [neuroflow_error]
@@ -318,6 +321,23 @@ def _license_error(config: RunRequestInput) -> str:
     if config.run_target != "Server" and not Path(license_path).expanduser().exists():
         return "FreeSurfer license file or directory does not exist."
     return ""
+
+
+def _tool_combo_error(config: RunRequestInput) -> str:
+    from pipeline.presets import infer_pipeline_mode_from_tools
+    from pipeline.tool_compat import validate_tool_combo
+
+    selected = _selected_tools(config)
+    # A Custom map identical to a named preset executes as that preset.
+    if config.pipeline_mode == "Custom" and infer_pipeline_mode_from_tools(selected) != "Custom":
+        return ""
+    violations = validate_tool_combo(selected)
+    if not violations:
+        return ""
+    parts = [f"{v['stage']}: {v['reason']}" for v in violations[:3]]
+    if len(violations) > 3:
+        parts.append(f"(+{len(violations) - 3} more)")
+    return "Invalid tool combination — " + "; ".join(parts)
 
 
 def _neuroflow_error(config: RunRequestInput) -> str:

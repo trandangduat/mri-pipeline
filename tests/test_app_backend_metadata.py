@@ -86,3 +86,14 @@ def test_app_metadata_exposes_visible_tools_without_non_serializable_fields() ->
 
     for stage in STAGE_ORDER:
         assert metadata["tools_by_stage"][stage] == enabled_tools_for_stage(stage)
+
+
+def test_app_metadata_exposes_tool_contracts() -> None:
+    from pipeline.tool_compat import TOOL_CONTRACTS, tool_contracts_payload
+
+    metadata = _get_app_metadata()
+
+    assert metadata["tool_contracts"] == tool_contracts_payload()
+    assert set(metadata["tool_contracts"]) == set(TOOL_CONTRACTS)
+    entry = metadata["tool_contracts"]["fastsurfer_reorientation"]
+    assert entry == {"requires": [], "produces": ["orig_mgz"]}

@@ -463,3 +463,63 @@ def test_normalize_stats_vector_config_ignores_missing_config_for_preset() -> No
             "subcortical_volume": ["freesurfer_aseg"],
         },
     }
+
+
+def test_prepare_run_request_rejects_invalid_custom_tool_combo(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            pipeline_mode="Custom",
+            selected_tools={
+                "reorientation": "fastsurfer_reorientation",
+                "segmentation": "fastsurfer_segmentation",
+                "stats_extraction": "fs8_reduced54_stats",
+            },
+        )
+    )
+
+    assert result["ok"] is False
+    errors = result["errors"]
+    assert isinstance(errors, list) and errors
+    assert "Invalid tool combination" in str(errors[0])
+    assert "stats_extraction" in str(errors[0])
+
+
+def test_prepare_run_request_accepts_custom_combo_matching_preset(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+    preset_tools = dict(PRESET_CONFIGS["FastSurfer + Volume"]["tools"])
+
+    result = prepare_run_request(
+        _base_config(tmp_path, pipeline_mode="Custom", selected_tools=preset_tools)
+    )
+
+    request = _ok_request(result)
+    assert request["selected_tools"]["segmentation"] == "fastsurfer_segmentation"
+
+
+def test_prepare_run_request_skips_combo_check_when_custom_infers_named_preset(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+    preset_tools = dict(PRESET_CONFIGS["FreeSurfer 8 + Volume"]["tools"])
+
+    result = prepare_run_request(
+        _base_config(tmp_path, pipeline_mode="Custom", selected_tools=preset_tools, neuroflow_enabled=True)
+    )
+
+    _ok_request(result)
+
+
+def test_prepare_run_request_rejects_empty_tool_selection(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(_base_config(tmp_path, pipeline_mode="Custom", selected_tools={}))
+
+    assert result["ok"] is False
+    errors = result["errors"]
+    assert isinstance(errors, list) and errors
+    assert "No pipeline steps selected" in str(errors[0])

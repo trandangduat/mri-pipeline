@@ -178,6 +178,15 @@ const mockMetadata = {
     freesurfer_aparc: {key: 'freesurfer_aparc', label: 'FreeSurfer Aparc'},
     aparc: {key: 'aparc', label: 'Desikan-Killiany (aparc)'},
   },
+  tool_contracts: {
+    fs8_reduced54_reorientation: {requires: [], produces: ['orig_mgz']},
+    cat12_volume_segmentation: {requires: [], produces: ['cat12_seg']},
+    cat12_full_segmentation: {requires: [], produces: ['cat12_seg']},
+    cat12_volume_stats_extraction: {requires: ['cat12_seg'], produces: []},
+    cat12_full_stats_extraction: {requires: ['cat12_seg'], produces: []},
+    synthseg_freesurfer_fs8: {requires: [], produces: ['seg_synthseg_rca']},
+    fs8_reduced54_stats: {requires: ['seg_synthseg_rca'], produces: []},
+  },
 };
 
 vi.mock('../src/query/useEnvironment', () => ({
@@ -486,5 +495,48 @@ describe('PipelineStepsSection CAT12 preset display', () => {
 
     expect(usePipelineFormStore.getState().formValues.pipelineMode).toBe('Custom');
     expect(usePipelineFormStore.getState().formValues.stage_segmentation).toBe('cat12_volume_segmentation');
+  });
+});
+
+describe('PipelineStepsSection custom-mode tool compatibility', () => {
+  beforeEach(() => {
+    usePipelineFormStore.getState().resetForm();
+  });
+
+  it('shows a red error and highlights rows for an invalid Custom combo, clearing on preset switch', async () => {
+    const user = userEvent.setup();
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'Custom',
+      stage_reorientation: 'fs8_reduced54_reorientation',
+      stage_stats_extraction: 'fs8_reduced54_stats',
+    });
+
+    const {container} = renderPipelineSteps();
+
+    // FS8 stats needs SynthSeg RCA outputs which this selection cannot produce.
+    expect(screen.getByText('Invalid tool combination')).toBeTruthy();
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert!.className).toMatch(/cursor-semantic-error/);
+    expect(container.querySelector('.border-l-cursor-semantic-error')).not.toBeNull();
+
+    // Switching to a named preset clears the error + highlights.
+    const modeSelect = container.querySelector('#pipelineMode') as HTMLSelectElement | null;
+    if (modeSelect) {
+      await user.selectOptions(modeSelect, 'FreeSurfer 8 + Volume');
+      expect(screen.queryByText('Invalid tool combination')).toBeNull();
+      expect(container.querySelector('.border-l-cursor-semantic-error')).toBeNull();
+    }
+  });
+
+  it('shows no error when a valid Custom combo is selected', () => {
+    usePipelineFormStore.getState().setFormFields({
+      pipelineMode: 'Custom',
+      stage_segmentation: 'cat12_volume_segmentation',
+      stage_stats_extraction: 'cat12_volume_stats_extraction',
+    });
+    const {container} = renderPipelineSteps();
+    expect(screen.queryByText('Invalid tool combination')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey,
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, Alert, inputCls, labelCls} from '../components/ui';
+import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
@@ -64,6 +65,15 @@ export function PipelineStepsSection() {
     }
     return false;
   }, [metadata, formValues]);
+
+  const stageViolations = React.useMemo(
+    () => (metadata ? validateStageTools(metadata, formValues) : EMPTY_STAGE_VIOLATIONS),
+    [metadata, formValues],
+  );
+  const invalidStageIds = React.useMemo(
+    () => new Set(stageViolations.map((violation) => violation.stageId)),
+    [stageViolations],
+  );
 
   const presetFileInput = useRef<HTMLInputElement>(null);
 
@@ -236,6 +246,7 @@ export function PipelineStepsSection() {
               const tools = metadata?.tools_by_stage?.[stage.id] || [];
               const selectedToolKey = ((formValues as Record<string, unknown>)[`stage_${stage.id}`] as string) || '';
               const isUnavailable = selectedToolKey === '';
+              const isInvalid = invalidStageIds.has(stage.id);
               const stageLabel = isCat12Preset
                 ? stage.id === 'segmentation'
                   ? 'CAT12 Processing'
@@ -246,10 +257,10 @@ export function PipelineStepsSection() {
               return (
                 <div
                   key={stage.id}
-                  className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-cursor-surface-card'}`}
+                  className={`grid items-center gap-x-3 gap-y-1.5 border-b border-cursor-hairline-soft px-3 py-1.5 last:border-b-0 grid-cols-[minmax(11rem,0.5fr)_minmax(13rem,1fr)] ${isInvalid ? 'border-l-2 border-l-cursor-semantic-error bg-cursor-semantic-error/10' : isUnavailable ? 'bg-cursor-canvas-soft/70 border-l-2 border-l-cursor-hairline-strong' : 'bg-cursor-surface-card'}`}
                 >
                   <div className="flex min-h-8 items-center">
-                    <strong className={`font-medium text-xs leading-none ${isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stageLabel}</strong>
+                    <strong className={`font-medium text-xs leading-none ${isInvalid ? 'text-cursor-semantic-error' : isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stageLabel}</strong>
                   </div>
                   <select
                     name={`stage_${stage.id}`}
@@ -273,6 +284,22 @@ export function PipelineStepsSection() {
           </div>
         );
       })()}
+      {stageViolations.length > 0 && (
+        <Alert severity="error" className="mt-2.5">
+          <p className="m-0 font-medium">Invalid tool combination</p>
+          <ul className="m-0 mt-1 list-disc pl-4">
+            {stageViolations.map((violation) => {
+              const stageLabel = metadata?.stages?.find((stage) => stage.id === violation.stageId)?.label;
+              return (
+                <li key={`${violation.stageId}:${violation.toolKey}`}>
+                  {stageLabel ? `${stageLabel}: ` : ''}
+                  {violation.reason}
+                </li>
+              );
+            })}
+          </ul>
+        </Alert>
+      )}
       {needsLicense && (
         <div className="mt-2.5 flex flex-wrap items-end gap-2">
           <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>

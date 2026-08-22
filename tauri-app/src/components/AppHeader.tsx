@@ -16,6 +16,7 @@ import {ThemeToggle} from './ThemeToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient} from '../query/useEnvironment';
+import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -221,10 +222,16 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
     }
   };
 
+  const stageViolations = useMemo(
+    () => (metadata ? validateStageTools(metadata, formValues) : EMPTY_STAGE_VIOLATIONS),
+    [metadata, formValues],
+  );
+
   const startDisabled =
     starting ||
     (formValues.runtimeTarget === 'Server' && !remoteResult.connected) ||
-    (needsLicense && !formValues.licensePath);
+    (needsLicense && !formValues.licensePath) ||
+    stageViolations.length > 0;
 
   const startButtonText = starting
     ? 'Starting...'
@@ -232,7 +239,9 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
       ? 'Connect SSH first'
       : needsLicense && !formValues.licensePath
         ? 'License required'
-        : 'Start Pipeline';
+        : stageViolations.length > 0
+          ? 'Fix tool combination'
+          : 'Start Pipeline';
 
   return (
     <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card">
