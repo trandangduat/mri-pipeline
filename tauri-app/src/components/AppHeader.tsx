@@ -173,7 +173,9 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
           fv.neuroflowPreserveOomBounds !== undefined ? Boolean(fv.neuroflowPreserveOomBounds) : true,
         neuroflow_estimation_mode: String(fv.neuroflowEstimationMode || 'balanced'),
         neuroflow_max_io_heavy_tasks: Math.max(1, Number(fv.neuroflowMaxIoHeavyTasks || 2)),
-        neuroflow_machine_profile_id: String(fv.neuroflowMachineProfileId || 'application_default'),
+        neuroflow_machine_profile_id: 'application_default',
+        neuroflow_preset_file: String(fv.neuroflowPresetFile || ''),
+        neuroflow_profile_file: String(fv.neuroflowProfileFile || ''),
         stats_vectors: sv,
         tools,
         ...(fv.runtimeTarget === 'Server'

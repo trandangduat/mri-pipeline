@@ -298,7 +298,11 @@ class RemoteJobService:
         # Step 8: Start remote worker
         yield step_event("start", "running", "Starting remote worker...")
 
-        if run_request.get("pipeline_mode") == "Custom" and run_request.get("neuroflow_enabled"):
+        if (
+            run_request.get("pipeline_mode") == "Custom"
+            and run_request.get("neuroflow_enabled")
+            and not run_request.get("neuroflow_preset_file")
+        ):
             from pipeline.presets import infer_pipeline_mode_from_tools
 
             inferred_mode = infer_pipeline_mode_from_tools(run_request.get("selected_tools"))
@@ -332,6 +336,8 @@ class RemoteJobService:
             neuroflow_estimation_mode=str(run_request.get("neuroflow_estimation_mode", "balanced")),
             neuroflow_max_io_heavy_tasks=int(run_request.get("neuroflow_max_io_heavy_tasks", 2) or 2),
             neuroflow_machine_profile_id=str(run_request.get("neuroflow_machine_profile_id", "application_default")),
+            neuroflow_preset_file=str(run_request.get("neuroflow_preset_file", "") or ""),
+            neuroflow_profile_file=str(run_request.get("neuroflow_profile_file", "") or ""),
         )
 
         try:

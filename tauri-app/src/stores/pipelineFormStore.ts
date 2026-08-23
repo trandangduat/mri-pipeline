@@ -1,5 +1,5 @@
 import {create} from 'zustand';
-import {DEFAULT_FORM_VALUES} from '../api/runConfig';
+import {DEFAULT_FORM_VALUES, neuroflowConfigFilesForMode} from '../api/runConfig';
 import type {PipelineFormValues} from '../api/runConfig';
 
 interface PipelineFormState {
@@ -105,12 +105,22 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 2);
       nextFormValues.neuroflowMaxRetries = Math.max(0, (workspace.neuroflow_max_retries as number) ?? 3);
       nextFormValues.neuroflowWarmupEnabled = workspace.neuroflow_warmup_enabled !== undefined ? Boolean(workspace.neuroflow_warmup_enabled) : true;
-      nextFormValues.neuroflowWarmupInitialConcurrency = Math.max(1, (workspace.neuroflow_warmup_initial_concurrency as number) ?? 2);
+      nextFormValues.neuroflowWarmupInitialConcurrency = Math.min(
+        Math.max(1, (workspace.neuroflow_warmup_initial_concurrency as number) ?? 2),
+        nextFormValues.neuroflowMaxConcurrentTasks,
+      );
       nextFormValues.neuroflowWarmupSafeSuccesses = Math.max(1, (workspace.neuroflow_warmup_safe_successes as number) ?? 3);
       nextFormValues.neuroflowPreserveOomBounds = workspace.neuroflow_preserve_oom_bounds !== undefined ? Boolean(workspace.neuroflow_preserve_oom_bounds) : true;
       nextFormValues.neuroflowEstimationMode = (workspace.neuroflow_estimation_mode as 'balanced' | 'conservative' | 'aggressive') || 'balanced';
       nextFormValues.neuroflowMaxIoHeavyTasks = Math.max(1, (workspace.neuroflow_max_io_heavy_tasks as number) ?? 2);
-      nextFormValues.neuroflowMachineProfileId = (workspace.neuroflow_machine_profile_id as string) || 'application_default';
+      nextFormValues.neuroflowMachineProfileId = 'application_default';
+      const neuroflowFiles = neuroflowConfigFilesForMode(pipelineMode);
+      nextFormValues.neuroflowPresetFile = pipelineMode === 'Custom'
+        ? String(workspace.neuroflow_preset_file || '')
+        : neuroflowFiles.preset;
+      nextFormValues.neuroflowProfileFile = pipelineMode === 'Custom'
+        ? String(workspace.neuroflow_profile_file || '')
+        : neuroflowFiles.profile;
       if (Object.keys(workspaceTools).length > 0) {
         for (const [stage, toolKey] of Object.entries(workspaceTools)) {
           (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = String(toolKey);

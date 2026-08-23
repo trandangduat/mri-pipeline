@@ -32,7 +32,30 @@ export interface PipelineFormValues {
   neuroflowEstimationMode?: 'balanced' | 'conservative' | 'aggressive';
   neuroflowMaxIoHeavyTasks?: number;
   neuroflowMachineProfileId?: string;
+  neuroflowPresetFile?: string;
+  neuroflowProfileFile?: string;
   [key: string]: unknown;
+}
+
+export const NEUROFLOW_PIPELINE_CONFIGS: Record<string, string> = {
+  'FreeSurfer 8 + Volume': 'freesurfer8_volumetrics',
+  'FreeSurfer 8 + Cortical Thickness': 'freesurfer8_cortical_thickness',
+  'FreeSurfer 8 + Volume + Cortical Thickness': 'freesurfer8_all',
+  'FreeSurfer 7 + Volume': 'freesurfer7_volumetrics',
+  'FreeSurfer 7 + Cortical Thickness': 'freesurfer7_cortical_thickness',
+  'FreeSurfer 7 + Volume + Cortical Thickness': 'freesurfer7_all',
+  'FastSurfer + Volume': 'fastsurfer_volumetrics',
+  'FastSurfer + Cortical Thickness': 'fastsurfer_cortical_thickness',
+  'FastSurfer + Volume + Cortical Thickness': 'fastsurfer_all',
+};
+
+export function neuroflowConfigFilesForMode(mode: string): {preset: string; profile: string} {
+  const presetId = NEUROFLOW_PIPELINE_CONFIGS[mode];
+  if (!presetId) return {preset: '', profile: ''};
+  return {
+    preset: `configs/neuroflow/presets/${presetId}.yaml`,
+    profile: `configs/neuroflow/profiles/${presetId}_default.yaml`,
+  };
 }
 
 export const DEFAULT_FORM_VALUES: PipelineFormValues = {
@@ -64,6 +87,8 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   neuroflowEstimationMode: 'balanced',
   neuroflowMaxIoHeavyTasks: 2,
   neuroflowMachineProfileId: 'application_default',
+  neuroflowPresetFile: 'configs/neuroflow/presets/freesurfer8_all.yaml',
+  neuroflowProfileFile: 'configs/neuroflow/profiles/freesurfer8_all_default.yaml',
 };
 
 export function buildRunConfig(
@@ -112,7 +137,9 @@ export function buildRunConfig(
     neuroflow_preserve_oom_bounds: formValues.neuroflowPreserveOomBounds !== undefined ? Boolean(formValues.neuroflowPreserveOomBounds) : true,
     neuroflow_estimation_mode: String(formValues.neuroflowEstimationMode || 'balanced'),
     neuroflow_max_io_heavy_tasks: Math.max(1, Number(formValues.neuroflowMaxIoHeavyTasks || 2)),
-    neuroflow_machine_profile_id: String(formValues.neuroflowMachineProfileId || 'application_default'),
+    neuroflow_machine_profile_id: 'application_default',
+    neuroflow_preset_file: String(formValues.neuroflowPresetFile || '').trim(),
+    neuroflow_profile_file: String(formValues.neuroflowProfileFile || '').trim(),
   } satisfies PreparedRunRequest;
 }
 

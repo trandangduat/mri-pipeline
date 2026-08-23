@@ -52,6 +52,52 @@ def test_prepare_run_request_builds_local_file_request(tmp_path: Path) -> None:
     json.dumps(result)
 
 
+def test_prepare_run_request_preserves_neuroflow_configuration_files(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    preset = tmp_path / "preset.yaml"
+    profile = tmp_path / "profile.yaml"
+    image.write_text("fake", encoding="utf-8")
+    preset.write_text("pipeline", encoding="utf-8")
+    profile.write_text("profile", encoding="utf-8")
+
+    request = _ok_request(
+        prepare_run_request(
+            _base_config(
+                tmp_path,
+                neuroflow_preset_file=str(preset),
+                neuroflow_profile_file=str(profile),
+            )
+        )
+    )
+
+    assert request["neuroflow_preset_file"] == str(preset)
+    assert request["neuroflow_profile_file"] == str(profile)
+
+
+def test_custom_neuroflow_configuration_keeps_custom_pipeline_mode(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    preset = tmp_path / "custom-preset.yaml"
+    profile = tmp_path / "custom-profile.yaml"
+    image.write_text("fake", encoding="utf-8")
+    preset.write_text("pipeline", encoding="utf-8")
+    profile.write_text("profile", encoding="utf-8")
+
+    request = _ok_request(
+        prepare_run_request(
+            _base_config(
+                tmp_path,
+                pipeline_mode="Custom",
+                neuroflow_enabled=True,
+                neuroflow_preset_file=str(preset),
+                neuroflow_profile_file=str(profile),
+            )
+        )
+    )
+
+    assert request["pipeline_mode"] == "Custom"
+    assert request["neuroflow_enabled"] is True
+
+
 def test_prepare_run_request_requires_existing_license_for_licensed_tools(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
     image.write_text("fake", encoding="utf-8")

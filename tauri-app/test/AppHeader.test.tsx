@@ -163,7 +163,7 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     expect(data.neuroflow_preserve_oom_bounds).toBe(false);
     expect(data.neuroflow_estimation_mode).toBe('conservative');
     expect(data.neuroflow_max_io_heavy_tasks).toBe(3);
-    expect(data.neuroflow_machine_profile_id).toBe('workstation_32c');
+    expect(data.neuroflow_machine_profile_id).toBe('application_default');
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.prompt = originalPrompt;

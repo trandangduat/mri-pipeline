@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, inputCls, labelCls} from '../components/ui';
@@ -13,7 +13,7 @@ import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemot
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
+import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode} from '../api/runConfig';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
@@ -78,7 +78,12 @@ export function PipelineStepsSection() {
     }
     const preset = metadata?.presets?.[mode];
     if (preset) {
-      const formFields: Record<string, string> = {pipelineMode: mode};
+      const neuroflowFiles = neuroflowConfigFilesForMode(mode);
+      const formFields: Record<string, string> = {
+        pipelineMode: mode,
+        neuroflowPresetFile: neuroflowFiles.preset,
+        neuroflowProfileFile: neuroflowFiles.profile,
+      };
       for (const stageKey of metadata?.stage_order || []) {
         formFields[`stage_${stageKey}`] = '';
       }
@@ -88,7 +93,7 @@ export function PipelineStepsSection() {
       setFormFields(formFields);
       setSelectedStatsAtlases(presetDefaultAtlases(metadata, mode));
     } else {
-      setFormField('pipelineMode', mode);
+      setFormFields({pipelineMode: mode, neuroflowPresetFile: '', neuroflowProfileFile: ''});
     }
   };
 
@@ -659,17 +664,46 @@ function InfoTooltip({content}: {content: React.ReactNode}) {
 export function AdvancedSettingsSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
+  const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+  const presetConfigInput = useRef<HTMLInputElement>(null);
+  const profileConfigInput = useRef<HTMLInputElement>(null);
   const isCustomMode = formValues.pipelineMode === 'Custom';
+  const hasCustomNeuroflowConfig = Boolean(
+    String(formValues.neuroflowPresetFile || '').trim() && String(formValues.neuroflowProfileFile || '').trim(),
+  );
+  const neuroflowAvailable = !isCustomMode || hasCustomNeuroflowConfig;
   const neuroflowEnabled = formValues.neuroflowEnabled !== undefined ? Boolean(formValues.neuroflowEnabled) : true;
   const neuroflowWarmupEnabled = Boolean(formValues.neuroflowWarmupEnabled);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const neuroflowPresetId = NEUROFLOW_PIPELINE_CONFIGS[formValues.pipelineMode];
+  const canShowAdvanced = isCustomMode || (neuroflowEnabled && neuroflowAvailable);
+
+  const browseNeuroflowConfig = async (
+    field: 'neuroflowPresetFile' | 'neuroflowProfileFile',
+    inputRef: React.RefObject<HTMLInputElement | null>,
+  ) => {
+    if (!hasTauriInternals()) {
+      inputRef.current?.click();
+      return;
+    }
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{name: 'NeuroFLOW configuration', extensions: ['yaml', 'yml', 'json']}],
+      });
+      const path = selectedDialogPath(selected);
+      if (path) setFormFields({pipelineMode: 'Custom', [field]: path});
+    } catch {
+      return;
+    }
+  };
 
   return (
     <Panel
       icon={<SlidersHorizontal className="h-4 w-4 text-cursor-primary" />}
       title="Advanced Settings"
       titleRight={
-        neuroflowEnabled && !isCustomMode ? (
+        canShowAdvanced ? (
           <Button
             variant="ghost"
             icon={showAdvanced ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -684,25 +718,25 @@ export function AdvancedSettingsSection() {
       <TooltipProvider>
         <div className="grid gap-3">
           <div>
-            <label className={`flex cursor-pointer items-center gap-2 ${isCustomMode ? 'cursor-not-allowed' : ''}`}>
+            <label className={`flex cursor-pointer items-center gap-2 ${!neuroflowAvailable ? 'cursor-not-allowed' : ''}`}>
               <input
                 type="checkbox"
-                checked={neuroflowEnabled && !isCustomMode}
-                disabled={isCustomMode}
+                checked={neuroflowEnabled && neuroflowAvailable}
+                disabled={!neuroflowAvailable}
                 onChange={(e) => setFormField('neuroflowEnabled', e.target.checked)}
                 className="h-4 w-4 accent-cursor-primary cursor-pointer disabled:cursor-not-allowed"
               />
               <span className="text-sm font-medium text-cursor-ink">Use NeuroFLOW scheduler</span>
               <InfoTooltip content="Optimizes multi-subject pipeline runs with adaptive concurrency, memory forecasting, and automatic fault recovery." />
             </label>
-            {isCustomMode && (
+            {isCustomMode && !hasCustomNeuroflowConfig && (
               <p className="mt-2 text-xs text-cursor-muted">
-                NeuroFLOW is available for built-in FreeSurfer/FastSurfer presets. Custom mode uses the standard runner.
+                Select both a NeuroFLOW preset and profile configuration to enable the scheduler for a custom pipeline.
               </p>
             )}
           </div>
 
-          {showAdvanced && neuroflowEnabled && !isCustomMode && (
+          {showAdvanced && canShowAdvanced && (
             <div className="grid gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className={labelCls}>
@@ -716,7 +750,16 @@ export function AdvancedSettingsSection() {
                     min={1}
                     step={1}
                     value={formValues.neuroflowMaxConcurrentTasks ?? 2}
-                    onChange={(e) => setFormField('neuroflowMaxConcurrentTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    onChange={(e) => {
+                      const maxConcurrent = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      setFormFields({
+                        neuroflowMaxConcurrentTasks: maxConcurrent,
+                        neuroflowWarmupInitialConcurrency: Math.min(
+                          Number(formValues.neuroflowWarmupInitialConcurrency ?? 2),
+                          maxConcurrent,
+                        ),
+                      });
+                    }}
                     className={inputCls}
                   />
                   {Number(formValues.neuroflowMaxConcurrentTasks) === 1 && (
@@ -758,16 +801,16 @@ export function AdvancedSettingsSection() {
                   <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
                     <Gauge className="h-3.5 w-3.5 text-cursor-primary" />
                     Scheduling risk
-                    <InfoTooltip content="Controls resource prediction margins. Balanced (90th percentile), Conservative (95th percentile - maximizes safety against OOM), Aggressive (75th percentile - maximizes task density)." />
+                    <InfoTooltip content="Controls runtime and RAM prediction margins. Conservative uses higher safety margins; Aggressive packs tasks more densely." />
                   </span>
                   <select
                     value={formValues.neuroflowEstimationMode ?? 'balanced'}
                     onChange={(e) => setFormField('neuroflowEstimationMode', e.target.value as 'balanced' | 'conservative' | 'aggressive')}
                     className={inputCls}
                   >
-                    <option value="balanced">Balanced (90th percentile - Standard)</option>
-                    <option value="conservative">Conservative (95th percentile - Safe RAM)</option>
-                    <option value="aggressive">Aggressive (75th percentile - Max packing)</option>
+                    <option value="balanced">Balanced (runtime 90th / RAM 95th)</option>
+                    <option value="conservative">Conservative (runtime 95th / RAM 98th)</option>
+                    <option value="aggressive">Aggressive (runtime 75th / RAM 85th)</option>
                   </select>
                 </label>
 
@@ -799,7 +842,13 @@ export function AdvancedSettingsSection() {
                         min={1}
                         step={1}
                         value={formValues.neuroflowWarmupInitialConcurrency ?? 2}
-                        onChange={(e) => setFormField('neuroflowWarmupInitialConcurrency', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        onChange={(e) => setFormField(
+                          'neuroflowWarmupInitialConcurrency',
+                          Math.min(
+                            Math.max(1, parseInt(e.target.value, 10) || 1),
+                            Number(formValues.neuroflowMaxConcurrentTasks ?? 2),
+                          ),
+                        )}
                         className={inputCls}
                       />
                     </label>
@@ -822,20 +871,58 @@ export function AdvancedSettingsSection() {
                 )}
               </div>
 
-              <label className={labelCls}>
-                <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                  <Cpu className="h-3.5 w-3.5 text-cursor-primary" />
-                  Machine Profile Identifier
-                  <InfoTooltip content="Hardware benchmark profile ID (e.g. application_default, workstation_32c) used to calibrate runtime and memory priors." />
-                </span>
-                <input
-                  type="text"
-                  value={formValues.neuroflowMachineProfileId ?? 'application_default'}
-                  onChange={(e) => setFormField('neuroflowMachineProfileId', e.target.value)}
-                  placeholder="application_default"
-                  className={inputCls}
-                />
-              </label>
+              <div className="flex items-center gap-1.5 text-xs text-cursor-muted">
+                <Cpu className="h-3.5 w-3.5 text-cursor-primary" />
+                Machine profile: <span className="font-medium text-cursor-ink">application_default</span>
+                <InfoTooltip content="The machine profile is fixed to application_default, matching the selected NeuroFLOW profile configuration." />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className={labelCls}>
+                  <span className="font-medium text-cursor-ink">
+                    {neuroflowPresetId ? 'Preset configuration (automatic)' : 'Preset configuration (custom)'}
+                  </span>
+                  <input
+                    type="text"
+                    value={formValues.neuroflowPresetFile ?? ''}
+                    onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowPresetFile: e.target.value})}
+                    placeholder="Path to preset YAML/JSON"
+                    className={inputCls}
+                  />
+                  <div className="mt-1.5 flex gap-1.5">
+                    <Button
+                      variant="ghost"
+                      icon={<FolderOpen className="h-3.5 w-3.5" />}
+                      onClick={() => void browseNeuroflowConfig('neuroflowPresetFile', presetConfigInput)}
+                    >
+                      Browse
+                    </Button>
+                    <input ref={presetConfigInput} className="hidden" type="file" accept=".yaml,.yml,.json" />
+                  </div>
+                </label>
+                <label className={labelCls}>
+                  <span className="font-medium text-cursor-ink">
+                    {neuroflowPresetId ? 'Profile configuration (automatic)' : 'Profile configuration (custom)'}
+                  </span>
+                  <input
+                    type="text"
+                    value={formValues.neuroflowProfileFile ?? ''}
+                    onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowProfileFile: e.target.value})}
+                    placeholder="Path to profile YAML/JSON"
+                    className={inputCls}
+                  />
+                  <div className="mt-1.5 flex gap-1.5">
+                    <Button
+                      variant="ghost"
+                      icon={<FolderOpen className="h-3.5 w-3.5" />}
+                      onClick={() => void browseNeuroflowConfig('neuroflowProfileFile', profileConfigInput)}
+                    >
+                      Browse
+                    </Button>
+                    <input ref={profileConfigInput} className="hidden" type="file" accept=".yaml,.yml,.json" />
+                  </div>
+                </label>
+              </div>
 
               <label className="flex cursor-pointer items-center gap-2">
                 <input
@@ -844,8 +931,8 @@ export function AdvancedSettingsSection() {
                   onChange={(e) => setFormField('neuroflowPreserveOomBounds', e.target.checked)}
                   className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
                 />
-                <span className="text-xs font-medium text-cursor-ink">Remember memory failures</span>
-                <InfoTooltip content="Remembers peak RAM thresholds if a container crashes due to Out-Of-Memory (OOM exit code 137) to automatically grant higher memory limits on subsequent retries." />
+                <span className="text-xs font-medium text-cursor-ink">Preserve OOM limits on manual retry</span>
+                <InfoTooltip content="Preserves the scheduler's OOM resource bounds when a task is manually retried." />
               </label>
             </div>
           )}
