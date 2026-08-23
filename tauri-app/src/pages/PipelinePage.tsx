@@ -798,7 +798,7 @@ export function AdvancedSettingsSection() {
                         type="number"
                         min={1}
                         step={1}
-                        value={formValues.neuroflowWarmupInitialConcurrency ?? 1}
+                        value={formValues.neuroflowWarmupInitialConcurrency ?? 2}
                         onChange={(e) => setFormField('neuroflowWarmupInitialConcurrency', Math.max(1, parseInt(e.target.value, 10) || 1))}
                         className={inputCls}
                       />

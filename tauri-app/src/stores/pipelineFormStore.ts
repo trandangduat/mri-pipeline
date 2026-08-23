@@ -104,8 +104,8 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.neuroflowEnabled = workspace.neuroflow_enabled !== undefined ? Boolean(workspace.neuroflow_enabled) : true;
       nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 2);
       nextFormValues.neuroflowMaxRetries = Math.max(0, (workspace.neuroflow_max_retries as number) ?? 3);
-      nextFormValues.neuroflowWarmupEnabled = Boolean(workspace.neuroflow_warmup_enabled);
-      nextFormValues.neuroflowWarmupInitialConcurrency = Math.max(1, (workspace.neuroflow_warmup_initial_concurrency as number) ?? 1);
+      nextFormValues.neuroflowWarmupEnabled = workspace.neuroflow_warmup_enabled !== undefined ? Boolean(workspace.neuroflow_warmup_enabled) : true;
+      nextFormValues.neuroflowWarmupInitialConcurrency = Math.max(1, (workspace.neuroflow_warmup_initial_concurrency as number) ?? 2);
       nextFormValues.neuroflowWarmupSafeSuccesses = Math.max(1, (workspace.neuroflow_warmup_safe_successes as number) ?? 3);
       nextFormValues.neuroflowPreserveOomBounds = workspace.neuroflow_preserve_oom_bounds !== undefined ? Boolean(workspace.neuroflow_preserve_oom_bounds) : true;
       nextFormValues.neuroflowEstimationMode = (workspace.neuroflow_estimation_mode as 'balanced' | 'conservative' | 'aggressive') || 'balanced';

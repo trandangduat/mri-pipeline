@@ -179,8 +179,8 @@ def _scheduler_config(req: dict) -> object:
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     ram_mib = _ram_limit_mib(int(req.get("ram_percent", 100) or 100))
 
-    warmup_enabled = bool(req.get("neuroflow_warmup_enabled", False))
-    warmup_initial = max(1, min(max_concurrent, int(req.get("neuroflow_warmup_initial_concurrency", 1) or 1)))
+    warmup_enabled = bool(req.get("neuroflow_warmup_enabled", True))
+    warmup_initial = max(1, min(max_concurrent, int(req.get("neuroflow_warmup_initial_concurrency", 2) or 2)))
     warmup_safe_successes = max(1, int(req.get("neuroflow_warmup_safe_successes", 3) or 3))
 
     max_retries = max(0, min(5, int(req.get("neuroflow_max_retries", 3) if req.get("neuroflow_max_retries") is not None else 3)))

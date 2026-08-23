@@ -82,10 +82,10 @@ class RemoteRunConfig:
     lazy_watch: bool = False
     pipeline_mode: str = "Custom"
     neuroflow_enabled: bool = False
-    neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_max_concurrent_tasks: int = 2
     neuroflow_max_retries: int = 3
-    neuroflow_warmup_enabled: bool = False
-    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_enabled: bool = True
+    neuroflow_warmup_initial_concurrency: int = 2
     neuroflow_warmup_safe_successes: int = 3
     neuroflow_preserve_oom_bounds: bool = True
     neuroflow_estimation_mode: str = "balanced"

@@ -39,8 +39,8 @@ class RunRequestInput:
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
     neuroflow_max_retries: int = 3
-    neuroflow_warmup_enabled: bool = False
-    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_enabled: bool = True
+    neuroflow_warmup_initial_concurrency: int = 2
     neuroflow_warmup_safe_successes: int = 3
     neuroflow_preserve_oom_bounds: bool = True
     neuroflow_estimation_mode: str = "balanced"
@@ -72,8 +72,8 @@ class RunRequestInput:
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
             neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 2)),
             neuroflow_max_retries=max(0, _int_from_data(data.get("neuroflow_max_retries"), 3)),
-            neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), False),
-            neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 1)),
+            neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), True),
+            neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 2)),
             neuroflow_warmup_safe_successes=max(1, _int_from_data(data.get("neuroflow_warmup_safe_successes"), 3)),
             neuroflow_preserve_oom_bounds=_bool_from_data(data.get("neuroflow_preserve_oom_bounds"), True),
             neuroflow_estimation_mode=str(data.get("neuroflow_estimation_mode", "balanced") or "balanced"),

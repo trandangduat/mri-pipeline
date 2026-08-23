@@ -167,7 +167,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 2)),
         neuroflow_max_retries: Math.max(0, Number(fv.neuroflowMaxRetries ?? 3)),
         neuroflow_warmup_enabled: Boolean(fv.neuroflowWarmupEnabled),
-        neuroflow_warmup_initial_concurrency: Math.max(1, Number(fv.neuroflowWarmupInitialConcurrency || 1)),
+        neuroflow_warmup_initial_concurrency: Math.max(1, Number(fv.neuroflowWarmupInitialConcurrency || 2)),
         neuroflow_warmup_safe_successes: Math.max(1, Number(fv.neuroflowWarmupSafeSuccesses || 3)),
         neuroflow_preserve_oom_bounds:
           fv.neuroflowPreserveOomBounds !== undefined ? Boolean(fv.neuroflowPreserveOomBounds) : true,

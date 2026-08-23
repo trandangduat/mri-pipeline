@@ -38,6 +38,22 @@ test('shows unsupported-mode notice and disables NeuroFLOW toggle in Custom mode
   expect(screen.queryByText('Max parallel tasks')).not.toBeInTheDocument();
 });
 
+test('uses the expected NeuroFLOW scheduler defaults', () => {
+  resetStore();
+  const {formValues} = usePipelineFormStore.getState();
+
+  expect(formValues.neuroflowEnabled).toBe(true);
+  expect(formValues.neuroflowMaxConcurrentTasks).toBe(2);
+  expect(formValues.neuroflowMaxRetries).toBe(3);
+  expect(formValues.neuroflowWarmupEnabled).toBe(true);
+  expect(formValues.neuroflowWarmupInitialConcurrency).toBe(2);
+  expect(formValues.neuroflowWarmupSafeSuccesses).toBe(3);
+  expect(formValues.neuroflowPreserveOomBounds).toBe(true);
+  expect(formValues.neuroflowEstimationMode).toBe('balanced');
+  expect(formValues.neuroflowMaxIoHeavyTasks).toBe(2);
+  expect(formValues.neuroflowMachineProfileId).toBe('application_default');
+});
+
 test('shows NeuroFLOW fields for preset mode', () => {
   resetStore();
   usePipelineFormStore.getState().setFormField('pipelineMode', 'FreeSurfer 8 + Volume');
