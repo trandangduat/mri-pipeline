@@ -106,6 +106,9 @@ class RemoteRunConfig:
     resume: bool = False
     restart: bool = False
     lazy_watch: bool = False
+    lazy_upload: bool = False
+    input_source: str = "Server"
+    input_server_dir: str = ""
     pipeline_mode: str = "Custom"
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 1
@@ -126,6 +129,7 @@ class RemoteRunner:
         self.job_id = f"job_{time.strftime('%Y%m%d_%H%M%S')}"
         self.remote_job_dir = ""
         self.remote_output_dir = ""
+        self._expanded_staging_root = ""
 
     def remote_venv_display_path(self) -> str:
         return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
@@ -562,11 +566,16 @@ class RemoteRunner:
             workspace = self._remote_workspace(ssh)
             self.remote_job_dir = self._require_workspace_child(ssh, posixpath.join(workspace, self.job_id), "remote job directory")
             if self.config.server_output_dir:
-                self.remote_output_dir = self._require_workspace_child(ssh, self.config.server_output_dir, "remote output directory")
+                # User-supplied outputs root: create if missing, no containment.
+                self.remote_output_dir = self._remote_path(ssh, self.config.server_output_dir)
             else:
                 self.remote_output_dir = self._require_workspace_child(ssh, posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
             ssh.mkdir_p(workspace)
             ssh.mkdir_p(self.remote_output_dir)
+            if self.config.lazy_upload:
+                staging_root = self.config.input_server_dir.strip() or posixpath.join("~/mri-uploads", self.job_id)
+                self._expanded_staging_root = ssh.expand_path(staging_root)
+                ssh.mkdir_p(self._expanded_staging_root)
             for sub in ("license",):
                 ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
@@ -576,7 +585,10 @@ class RemoteRunner:
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
             self._ensure_shared_code(ssh)
-            self.on_log("Using MRI input paths already on the server.")
+            if self.config.lazy_upload:
+                self.on_log("Inputs will be uploaded lazily as the scheduler schedules them.")
+            else:
+                self.on_log("Using MRI input paths already on the server.")
             self.on_log("Uploading license files...")
             self._upload_license(ssh)
             self._write_job_config(ssh)
@@ -587,6 +599,14 @@ class RemoteRunner:
     def attach_job(self, remote_job_dir: str, remote_output_dir: str = "") -> None:
         self.remote_job_dir = remote_job_dir.rstrip("/")
         self.remote_output_dir = remote_output_dir or posixpath.join(self.remote_job_dir, "outputs")
+
+    def lazy_source_paths(self) -> dict[str, str]:
+        """staging -> local mapping for lazy-upload orchestration (empty unless lazy)."""
+        if not self.config.lazy_upload:
+            return {}
+        request = self._base_remote_input_request()
+        rewritten = self._rewrite_inputs_for_lazy_upload(request)
+        return dict(rewritten.get("source_paths", {}))
 
     def check_freesurfer_license(self) -> tuple[bool, str]:
         selected = license_check_tool(self.config.selected_tools)
@@ -649,7 +669,7 @@ class RemoteRunner:
             "remote_output_dir": self.remote_output_dir,
             "remote_code_dir": self._remote_code_dir(ssh),
             "created_at": time.time(),
-            "input_source": "Server",
+            "input_source": "Local" if self.config.lazy_upload else "Server",
             "input_mode": self.config.input_mode,
             "output_dir": self.config.output_dir,
             "download_subdir": self.config.download_subdir,
@@ -657,7 +677,45 @@ class RemoteRunner:
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(metadata, indent=2))
 
-    def _remote_input_request(self) -> dict:
+    def _lazy_staging_path(self, local_path: str, subject_id: str) -> str:
+        """Job-scoped staging path: <input_server_dir>/<job_id>/<subject>/<filename>."""
+        base = self._expanded_staging_root or posixpath.join("~/mri-uploads", self.job_id)
+        return posixpath.join(base, subject_id, Path(local_path).name)
+
+    def _rewrite_inputs_for_lazy_upload(self, request: dict) -> dict:
+        """Rewrite input paths to their server staging locations.
+
+        Keeps the original structure (worker-side behavior identical to a
+        Server-source run) and adds `source_paths` mapping staging -> local
+        plus a `lazy_upload` flag for the client orchestrator.
+        """
+        rewritten = dict(request)
+        source_paths: dict[str, str] = {}
+        if rewritten.get("mode") == "file":
+            local = str(rewritten.get("input_file", ""))
+            staged = self._lazy_staging_path(local, str(rewritten.get("subject_id", "")))
+            source_paths[staged] = local
+            rewritten["input_file"] = staged
+            map_key = local
+            if map_key in rewritten.get("subject_id_map", {}):
+                rewritten["subject_id_map"][staged] = rewritten["subject_id_map"].pop(map_key)
+        else:
+            files = [str(path) for path in rewritten.get("input_files", [])]
+            staged_files = []
+            id_map = dict(rewritten.get("subject_id_map", {}))
+            for local in files:
+                staged = self._lazy_staging_path(local, id_map.get(local, _derive_subject_id(local)))
+                staged_files.append(staged)
+                source_paths[staged] = local
+                if local in id_map:
+                    id_map[staged] = id_map.pop(local)
+            rewritten["input_files"] = staged_files
+            rewritten["subject_id_map"] = id_map
+        rewritten["lazy_upload"] = True
+        rewritten["source_paths"] = source_paths
+        return rewritten
+
+    def _base_remote_input_request(self) -> dict:
         subject_id_map: dict[str, str] = {}
         if self.config.input_mode == "file" and self.config.input_file:
             subject_id_map[self.config.input_file] = _derive_subject_id(self.config.input_file)
@@ -693,6 +751,12 @@ class RemoteRunner:
             "recursive": self.config.recursive,
             "subject_id_map": subject_id_map,
         }
+
+    def _remote_input_request(self) -> dict:
+        request = self._base_remote_input_request()
+        if self.config.lazy_upload:
+            request = self._rewrite_inputs_for_lazy_upload(request)
+        return request
 
     def _write_job_config(self, ssh: RemoteSSHClient) -> None:
         remote_path = self._job_child_path(ssh, "job_config.json")

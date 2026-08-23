@@ -26,6 +26,7 @@ class RunRequestInput:
     selected_files: list[str] = field(default_factory=list)
     output_dir: str = ""
     server_output_dir: str = ""
+    input_server_dir: str = ""
     license_dir: str = ""
     device: str = "cpu"
     threads: int = 4
@@ -59,6 +60,7 @@ class RunRequestInput:
             else [],
             output_dir=str(data.get("output_dir", "") or ""),
             server_output_dir=str(data.get("server_output_dir", "") or ""),
+            input_server_dir=str(data.get("input_server_dir", "") or ""),
             license_dir=str(data.get("license_dir", "") or ""),
             device=str(data.get("device", "cpu") or "cpu"),
             threads=_int_from_data(data.get("threads"), 4),
@@ -162,8 +164,10 @@ def _prepare_run_request_result(config: RunRequestInput | dict[str, object]) -> 
 def validate_run_request_input(config: RunRequestInput) -> list[str]:
     is_remote = config.run_target == "Server"
 
-    if is_remote and config.input_source != "Server":
-        return ["Remote jobs require input source to be 'Server' (files must be on the remote server)."]
+    if is_remote and config.input_source == "Local" and not config.input_server_dir.strip():
+        return [
+            "Provide an input location on the server (staging directory) for uploaded local inputs."
+        ]
     if not is_remote and config.input_source == "Server":
         return ["Local runs can only use local input data."]
 
@@ -187,9 +191,10 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     if neuroflow_error:
         return [neuroflow_error]
 
-    # Skip local file existence checks for remote jobs
-    # (files are on the server, not accessible locally)
-    if is_remote:
+    # Skip local file existence checks for remote jobs with server-side inputs
+    # (files are on the server, not accessible locally). Lazy-upload jobs keep
+    # their inputs local, so those still get validated here.
+    if is_remote and config.input_source != "Local":
         return []
 
     mode = config.input_mode
@@ -232,6 +237,7 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "pipeline_mode": pipeline_mode,
         "output_dir": output_dir,
         "server_output_dir": config.server_output_dir.strip(),
+        "input_server_dir": config.input_server_dir.strip(),
         "effective_output_dir": str(Path(output_dir) / batch_output_name) if batch_output_name else output_dir,
         "is_batch": is_batch,
         "batch_output_name": batch_output_name,

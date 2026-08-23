@@ -7,6 +7,7 @@ export interface PipelineFormValues {
   inputPath: string;
   additionalInputPaths: string;
   outputDir: string;
+  inputServerDir: string;
   runtimeTarget: 'Local' | 'Server';
   ramPercent: number;
   cpuThreads: number;
@@ -42,6 +43,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   inputPath: '',
   additionalInputPaths: '',
   outputDir: '',
+  inputServerDir: '',
   runtimeTarget: 'Local',
   ramPercent: 80,
   cpuThreads: 4,
@@ -94,6 +96,7 @@ export function buildRunConfig(
           : [],
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
     output_dir: formValues.outputDir,
+    input_server_dir: formValues.inputServerDir || '',
     pipeline_mode: mode,
     selected_tools: selectedTools,
     export_config: {enabled: false, folder: 'exports', default_format: '.nii.gz', names: {}, formats: {}},

@@ -176,6 +176,19 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/jobs/log":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_log(payload))
             return
+        if self.path == "/remote/jobs/upload/state":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().upload_state(payload))
+            return
+        if self.path == "/remote/jobs/upload/cancel":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().upload_cancel(payload))
+            return
+        if self.path == "/remote/jobs/stop":
+            job_id = str(payload.get("job_id", "") or "")
+            remote_job_dir = str(payload.get("remote_job_dir", "") or "")
+            result = self._remote_jobs().request_remote_stop(job_id, remote_job_dir)
+            status = HTTPStatus.OK if result.get("ok") else HTTPStatus.NOT_FOUND
+            self._write_json(status, result)
+            return
         if self.path == "/remote/jobs/start/stream":
             self._handle_remote_start_stream(payload)
             return

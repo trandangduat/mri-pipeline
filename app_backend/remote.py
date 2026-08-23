@@ -38,6 +38,59 @@ class RemoteJobService:
     ) -> None:
         self.runner_factory = runner_factory or _default_runner_factory
         self.register_remote_job = register_remote_job
+        self._lazy_uploads: dict[str, object] = {}
+
+    # ------------------------------------------------------------- lazy upload
+    def upload_state(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        job_id = str(data.get("job_id", "")).strip()
+        orchestrator = self._lazy_uploads.get(job_id)
+        if orchestrator is None:
+            return {"ok": False, "error": f"No active upload for {job_id}"}
+        return {"ok": True, "uploads": orchestrator.snapshot(), "terminal": orchestrator.is_terminal()}
+
+    def upload_cancel(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        job_id = str(data.get("job_id", "")).strip()
+        orchestrator = self._lazy_uploads.pop(job_id, None)
+        if orchestrator is None:
+            return {"ok": True, "cancelled": False}
+        orchestrator.cancel()
+        return {"ok": True, "cancelled": True}
+
+    def request_remote_stop(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        if not remote_job_dir:
+            return {"ok": False, "errors": ["remote_job_dir or job_id is required"]}
+        # Also abort any in-flight lazy uploads for this job.
+        self.upload_cancel({"job_id": remote_job_dir.split("/")[-1]})
+        runner = self.runner_factory(config)
+        runner.remote_job_dir = remote_job_dir
+        try:
+            runner.request_pause()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "errors": [_safe_error_message(exc)]}
+
+    def _start_lazy_uploads(self, job_id: str, runner, source_paths: dict[str, str], max_concurrent: int) -> None:
+        if not source_paths:
+            return
+        from remote.lazy_upload import LazyUploadOrchestrator
+
+        try:
+            orchestrator = LazyUploadOrchestrator(
+                runner,
+                source_paths=source_paths,
+                max_concurrent=max_concurrent,
+                on_log=lambda line: print(f"[lazy-upload] {line}", flush=True),
+            )
+            orchestrator.start()
+            self._lazy_uploads[job_id] = orchestrator
+        except Exception as exc:
+            print(f"[lazy-upload] failed to start orchestrator: {exc}", flush=True)
 
     def validate_config(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
@@ -292,6 +345,14 @@ class RemoteJobService:
             neuroflow_estimation_mode=str(run_request.get("neuroflow_estimation_mode", "balanced")),
             neuroflow_max_io_heavy_tasks=int(run_request.get("neuroflow_max_io_heavy_tasks", 2) or 2),
             neuroflow_machine_profile_id=str(run_request.get("neuroflow_machine_profile_id", "application_default")),
+            resume=bool(run_request.get("resume", False)),
+            restart=bool(run_request.get("restart", False)),
+            lazy_upload=(
+                str(run_request.get("input_source", "")) == "Local"
+                and str(run_request.get("run_target", "")) == "Server"
+            ),
+            input_source=str(run_request.get("input_source", "Server")),
+            input_server_dir=str(run_request.get("input_server_dir", "")),
         )
 
         try:
@@ -315,6 +376,18 @@ class RemoteJobService:
             yield step_event("start", "done", f"Worker started at {remote_job_dir}")
 
             job_id = f"remote_{remote_job_dir.split('/')[-1]}"
+
+            if remote_config.lazy_upload and remote_config.neuroflow_enabled:
+                try:
+                    source_paths = runner.lazy_source_paths()
+                except Exception:
+                    source_paths = {}
+                self._start_lazy_uploads(
+                    job_id,
+                    runner,
+                    source_paths=source_paths,
+                    max_concurrent=int(remote_config.neuroflow_max_concurrent_tasks),
+                )
 
             if self.register_remote_job is not None:
                 try:

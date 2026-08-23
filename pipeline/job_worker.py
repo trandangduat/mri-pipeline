@@ -147,6 +147,12 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         if is_lazy_watch:
             _log(job_dir, "NeuroFLOW scheduler is not supported for lazy-watch jobs yet.")
             return 1
+        lazy_upload = bool(req.get("lazy_upload"))
+
+        def image_awaiting_input_cb(input_file: str, subject_id: str, stage: str) -> None:
+            _log(job_dir, f"Awaiting input upload {subject_id} (stage: {stage})")
+            _emit_event(job_dir, "image_awaiting_input", input_file=input_file, subject_id=subject_id, stage=stage)
+
         if not is_neuroflow_supported(req):
             _log(
                 job_dir,
@@ -181,6 +187,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 on_progress=progress_cb,
                 on_build_log=build_log_cb,
                 on_image_start=image_start_cb,
+                on_image_awaiting_input=image_awaiting_input_cb if lazy_upload else None,
                 on_image_done=image_done_cb,
                 on_metrics=metrics_cb,
                 should_stop=should_stop,

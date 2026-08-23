@@ -265,7 +265,7 @@ def test_prepare_run_request_allows_remote_with_server_input(tmp_path: Path) -> 
     assert result["request"]["input_source"] == "Server"
 
 
-def test_prepare_run_request_rejects_remote_with_local_input(tmp_path: Path) -> None:
+def test_prepare_run_request_rejects_remote_with_local_input_without_staging(tmp_path: Path) -> None:
     result = prepare_run_request(
         _base_config(
             tmp_path,
@@ -278,7 +278,29 @@ def test_prepare_run_request_rejects_remote_with_local_input(tmp_path: Path) -> 
 
     assert result["ok"] is False
     assert result["request"] is None
-    assert any("input source" in e.lower() for e in result["errors"])
+    assert any("staging" in e.lower() for e in result["errors"])
+
+
+def test_prepare_run_request_accepts_remote_local_input_with_staging(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_source="Local",
+            run_target="Server",
+            input_path=str(image),
+            output_dir=str(tmp_path / "out"),
+            input_server_dir="~/mri-uploads",
+            neuroflow_enabled=True,
+        )
+    )
+
+    request = _ok_request(result)
+    assert request["input_source"] == "Local"
+    assert request["input_server_dir"] == "~/mri-uploads"
+    assert request["run_target"] == "Server"
 
 
 def test_prepare_run_request_rejects_local_with_server_input(tmp_path: Path) -> None:

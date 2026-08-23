@@ -173,7 +173,8 @@ def test_remote_runner_clean_rejects_workspace_root(mocker) -> None:
         runner.clean_remote()
 
 
-def test_remote_runner_upload_rejects_output_outside_workspace(mocker) -> None:
+def test_remote_runner_upload_creates_output_outside_workspace(mocker) -> None:
+    """User-supplied output roots are no longer workspace-contained: mkdir instead."""
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
     run_config = RemoteRunConfig(
         ssh=SSHConfig(host="example", username="tester"),
@@ -181,9 +182,22 @@ def test_remote_runner_upload_rejects_output_outside_workspace(mocker) -> None:
         server_output_dir="/tmp/outside",
     )
     runner = RemoteRunner(run_config)
+    for step_name in (
+        "_upload_export_config",
+        "_upload_stats_vector_config",
+        "_upload_subject_id_map",
+        "_ensure_shared_code",
+        "_upload_license",
+        "_write_job_config",
+        "_write_job_metadata",
+    ):
+        mocker.patch.object(runner, step_name, lambda *_args, **_kwargs: None)
 
-    with pytest.raises(ValueError, match="remote output directory is outside"):
-        runner.upload_job()
+    job_dir = runner.upload_job()
+
+    assert job_dir
+    assert runner.remote_output_dir == "/tmp/outside"
+    assert any("mkdir -p /tmp/outside" in command for command in FakeRemoteSSHClient.commands)
 
 
 def test_remote_runner_upload_rejects_missing_license(mocker, tmp_path) -> None:

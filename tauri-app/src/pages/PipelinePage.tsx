@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, Alert, inputCls, labelCls} from '../components/ui';
@@ -1748,13 +1748,13 @@ export function InputOutputSection() {
 
   // Modal states
   const [serverInputModal, setServerInputModal] = React.useState(false);
+  const [serverStagingModal, setServerStagingModal] = React.useState(false);
   const [serverOutputModal, setServerOutputModal] = React.useState(false);
   const [batchModal, setBatchModal] = React.useState(false);
-  const [uploadNotice, setUploadNotice] = React.useState(false);
 
   // Batch scan cache — persists across modal open/close
   const [batchScanCache, setBatchScanCache] = React.useState<BatchScanCache | null>(null);
-  const batchCacheKey = `${inputSource}|${formValues.inputPath}|${JSON.stringify(remotePayload)}`;
+  const batchCacheKey = `${inputSource}|${formValues.inputPath}|${formValues.inputServerDir || ''}|${JSON.stringify(remotePayload)}`;
 
   // Invalidate cache when inputs change
   React.useEffect(() => {
@@ -1844,12 +1844,6 @@ export function InputOutputSection() {
     setLocalFileListLen(files.length);
   };
 
-  // Upload to server — intentionally no-op
-  const handleUploadToServer = () => {
-    setUploadNotice(true);
-    setTimeout(() => setUploadNotice(false), 3500);
-  };
-
   return (
     <>
       <Panel icon={<FolderInput className="h-4 w-4 text-cursor-primary" />} title="Input & Output" className="min-w-0">
@@ -1872,14 +1866,9 @@ export function InputOutputSection() {
                 </p>
               )}
               {isServerSource && remoteConnected && (
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" icon={<Upload className="h-3.5 w-3.5" />} onClick={handleUploadToServer}>
-                    Upload data to server
-                  </Button>
-                  {uploadNotice && (
-                    <span className="text-xs text-cursor-muted">Not wired yet - upload feature coming soon.</span>
-                  )}
-                </div>
+                <p className="text-2xs leading-[1.3] text-cursor-muted">
+                  Files stay on the server; no upload needed.
+                </p>
               )}
             </div>
 
@@ -1918,8 +1907,63 @@ export function InputOutputSection() {
             </div>
           )}
 
+          {/* Row 2: Path fields — Local target, or Server target with lazy upload */}
+          {inputSource === 'Local' && !isLocal && (
+            <div className="grid gap-3">
+              {isBatch ? (
+                <PathField
+                  id="inputPath"
+                  label="Input location (local)"
+                  value={formValues.inputPath}
+                  placeholder="/data/batch_subjects_folder"
+                  onChange={(v) => setFormField('inputPath', v)}
+                  onBrowse={handleLocalBrowseFolder}
+                  browseLabel="Browse Folder"
+                  required
+                />
+              ) : (
+                <PathField
+                  id="inputPath"
+                  label="Input location (local)"
+                  value={formValues.inputPath}
+                  placeholder="/data/sub-001_T1w.nii.gz or /data/dicom_series_folder"
+                  onChange={(v) => setFormField('inputPath', v)}
+                  onBrowse={handleLocalBrowseFile}
+                  browseLabel="Browse File"
+                  secondaryBrowse={{
+                    label: 'Folder (DICOM)',
+                    title: 'Browse DICOM series folder',
+                    onClick: handleLocalBrowseFolder,
+                  }}
+                  required
+                />
+              )}
+              <p className="text-2xs leading-[1.3] text-cursor-muted">
+                Inputs are uploaded lazily to the server as the scheduler needs them.
+              </p>
+              <PathField
+                id="inputServerDir"
+                label="Input location (server)"
+                value={formValues.inputServerDir || ''}
+                placeholder="~/mri-uploads"
+                onChange={(v) => setFormField('inputServerDir', v)}
+                onBrowse={() => setServerStagingModal(true)}
+                required
+              />
+              <PathField
+                id="outputDir"
+                label="Output location (server)"
+                value={formValues.outputDir}
+                placeholder="/home/user/mri-outputs"
+                onChange={(v) => setFormField('outputDir', v)}
+                onBrowse={() => setServerOutputModal(true)}
+                required
+              />
+            </div>
+          )}
+
           {/* Row 2: Path fields — Local */}
-          {inputSource === 'Local' && (
+          {inputSource === 'Local' && isLocal && (
             <div className="grid gap-3">
               {isBatch ? (
                 <PathField
@@ -1995,6 +2039,36 @@ export function InputOutputSection() {
 
         </div>
       </Panel>
+
+      {/* Server staging browse modal (lazy-upload inputs root) */}
+      {serverStagingModal && (
+        remoteConnected ? (
+          <ServerBrowserModal
+            title="Browse server - Input staging location"
+            initialPath={formValues.inputServerDir || '~'}
+            remotePayload={remotePayload}
+            selectMode="path"
+            onConfirm={(p) => {
+              setFormField('inputServerDir', p);
+              setServerStagingModal(false);
+            }}
+            onClose={() => setServerStagingModal(false)}
+          />
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
+            onMouseDown={() => setServerStagingModal(false)}
+          >
+            <div className="rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 max-w-sm w-full">
+              <h3 className="m-0 mb-2 text-sm font-semibold text-cursor-ink">SSH not connected</h3>
+              <p className="text-xs text-cursor-muted">Connect in the SSH Server card first, then browse.</p>
+              <div className="mt-3 flex justify-end">
+                <Button variant="ghost" onClick={() => setServerStagingModal(false)}>Close</Button>
+              </div>
+            </div>
+          </div>
+        )
+      )}
 
       {/* Server input browse modal */}
       {serverInputModal && (

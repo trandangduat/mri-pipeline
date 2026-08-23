@@ -150,6 +150,19 @@ class RemoteSSHClient:
         self.on_log(f"Uploading file: {local} -> {remote_path}")
         self.sftp.put(str(local), remote_path)
 
+    def upload_file_with_progress(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        callback=None,
+    ) -> None:
+        """sftp.put with an optional paramiko progress callback(transferred, total)."""
+        local = Path(local_path)
+        remote_path = self.expand_path(remote_path)
+        self.mkdir_p(posixpath.dirname(remote_path))
+        kwargs = {"callback": callback} if callback else {}
+        self.sftp.put(str(local), remote_path, **kwargs)
+
     def upload_dir(self, local_dir: str | Path, remote_dir: str, skip_dirs: set[str] | None = None, allowed_extensions: set[str] | None = None) -> None:
         local_root = Path(local_dir)
         remote_root = self.expand_path(remote_dir)

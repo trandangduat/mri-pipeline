@@ -51,8 +51,32 @@ PIPELINE_MODE_TO_PRESET = {
 ProgressCallback = Callable[[str, str, float, str], None]
 BuildLogCallback = Callable[[str], None]
 ImageStartCallback = Callable[[str, int, int], None]
+ImageAwaitingInputCallback = Callable[[str, str, str], None]
 ImageDoneCallback = Callable[[BatchImageResult, int, int], None]
 MetricsCallback = Callable[[str, str, Optional[float], Optional[int], float, str], None]
+
+LAZY_UPLOAD_TIMEOUT_SEC = 3600.0
+LAZY_UPLOAD_POLL_SEC = 1.0
+
+
+def _wait_for_input_marker(
+    input_file: str,
+    should_stop: Callable[[], bool] | None,
+    timeout_sec: float | None = None,
+) -> tuple[bool, str]:
+    """Block until the lazy-upload `.ready` marker for `input_file` appears.
+
+    Returns (ok, message). ok=False on cancel/timeout.
+    """
+    deadline = time.monotonic() + (timeout_sec if timeout_sec is not None else LAZY_UPLOAD_TIMEOUT_SEC)
+    marker = Path(str(input_file) + ".ready")
+    while not marker.exists():
+        if should_stop and should_stop():
+            return False, "cancelled while waiting for input upload"
+        if time.monotonic() > deadline:
+            return False, f"timed out waiting for input upload marker: {marker}"
+        time.sleep(LAZY_UPLOAD_POLL_SEC)
+    return True, ""
 
 
 @dataclass
@@ -351,6 +375,7 @@ def run_neuroflow_batch(
     on_progress: ProgressCallback | None = None,
     on_build_log: BuildLogCallback | None = None,
     on_image_start: ImageStartCallback | None = None,
+    on_image_awaiting_input: ImageAwaitingInputCallback | None = None,
     on_image_done: ImageDoneCallback | None = None,
     on_metrics: MetricsCallback | None = None,
     should_stop: Callable[[], bool] | None = None,
@@ -442,6 +467,8 @@ def run_neuroflow_batch(
         on_progress("batch", "running", 0.0, f"NeuroFLOW preset {preset_id} loaded with profile {profile_set_id}")
 
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
+    lazy_upload = bool(req.get("lazy_upload"))
+    awaiting_emitted: set[str] = set()
 
     def _run_launch_stage(
         launch: object,
@@ -449,6 +476,14 @@ def run_neuroflow_batch(
         local_stage: str,
         execution_id: str,
     ) -> tuple[object, dict[str, object]]:
+        if lazy_upload and context.input_for_stage(local_stage) is None:
+            ok, message = _wait_for_input_marker(context.input_file, should_stop)
+            if not ok:
+                raise RuntimeError(
+                    f"Input upload for {context.subject_id} {message}."
+                )
+            if on_progress:
+                on_progress("upload", "success", 100.0, f"Input upload complete: {context.subject_id}")
         stage_config = PipelineConfig(
             input_file=context.config.input_file,
             output_dir=context.config.output_dir,
@@ -600,6 +635,9 @@ def run_neuroflow_batch(
                         execution_id = str(launch.attempt_id)
                         if on_image_start:
                             on_image_start(context.input_file, context.idx, context.total)
+                        if on_image_awaiting_input and context.subject_id not in awaiting_emitted:
+                            awaiting_emitted.add(context.subject_id)
+                            on_image_awaiting_input(context.input_file, context.subject_id, local_stage)
                         scheduler.confirm_started(
                             confirmation=ConfirmStart(
                                 confirmation_id=f"confirm-{launch.attempt_id}",

@@ -161,6 +161,29 @@ export class BackendClient {
     return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}));
   }
 
+  async fetchUploadState(
+    payload: RemotePayload & {job_id: string},
+  ): Promise<{ok: boolean; uploads?: Array<{staging_path: string; subject: string; pct: number; state: string; error?: string}>; terminal?: boolean; error?: string}> {
+    return (await this.post('/remote/jobs/upload/state', {...payload})) as {
+      ok: boolean;
+      uploads?: Array<{staging_path: string; subject: string; pct: number; state: string; error?: string}>;
+      terminal?: boolean;
+      error?: string;
+    };
+  }
+
+  async cancelUploads(
+    payload: RemotePayload & {job_id: string},
+  ): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/remote/jobs/upload/cancel', {...payload}));
+  }
+
+  async stopRemoteJob(
+    payload: RemotePayload & {job_id?: string; remote_job_dir?: string},
+  ): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/remote/jobs/stop', {...payload}));
+  }
+
   async stopLocalJob(jobId: string): Promise<GenericResponse> {
     return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}));
   }
