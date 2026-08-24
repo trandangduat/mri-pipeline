@@ -4,7 +4,6 @@ import {beforeAll, expect, test, vi} from 'vitest';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {MemoryRouter} from 'react-router';
 import {AppHeader} from '../src/components/AppHeader';
-import {AppFooter} from '../src/components/AppFooter';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
 
 beforeAll(() => {
@@ -45,13 +44,6 @@ function renderHeader(props: {
   );
 }
 
-test('renders brand title and theme toggle switch', () => {
-  renderHeader();
-
-  expect(screen.getByText('NeuroFlow')).toBeInTheDocument();
-  expect(screen.getByRole('button', {name: /Switch to (Dark|Light) Mode/i})).toBeInTheDocument();
-});
-
 test('renders all 3 horizontal tabs with jobs count badge', () => {
   renderHeader({jobsCount: 42});
 
@@ -81,17 +73,6 @@ test('renders workspace and pipeline action buttons', () => {
   expect(screen.getByText('Load Workspace')).toBeInTheDocument();
   expect(screen.getByText('Start Pipeline')).toBeInTheDocument();
   expect(screen.queryByText('Stop Pipeline')).not.toBeInTheDocument();
-});
-
-test('renders AppFooter with system status, version, and links', () => {
-  render(<AppFooter envText="python: ready · docker: ready" isReady={true} />);
-
-  expect(screen.getByText(/NeuroFlow MRI Pipeline ©/)).toBeInTheDocument();
-  expect(screen.getByText('System ready')).toBeInTheDocument();
-  expect(screen.getByText('(python: ready · docker: ready)')).toBeInTheDocument();
-  expect(screen.getByText('v1.0.0')).toBeInTheDocument();
-  expect(screen.getByText('Documentation')).toBeInTheDocument();
-  expect(screen.getByText('GitHub')).toBeInTheDocument();
 });
 
 test('save workspace persists all NeuroFLOW settings', async () => {

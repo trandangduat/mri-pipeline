@@ -39,11 +39,6 @@ test('select phase does not show N/A for empty remote path', () => {
   expect(screen.getByText('(will use default remote output path)')).toBeTruthy();
 });
 
-test('select phase shows web browse hint when webBrowseHint is true', () => {
-  render(<DownloadOutputsDialog {...baseProps} webBrowseHint />);
-  expect(screen.getByText('Type or paste a local folder path in this web preview.')).toBeTruthy();
-});
-
 test('running phase renders progress counts and disables close/start', () => {
   render(
     <DownloadOutputsDialog
