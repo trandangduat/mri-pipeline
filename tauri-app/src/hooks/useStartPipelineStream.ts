@@ -4,6 +4,7 @@ import type {PipelineStep} from '../components/StartPipelineDialog';
 
 export const REMOTE_STEPS: PipelineStep[] = [
   {id: 'ssh', label: 'Checking SSH connection', status: 'pending'},
+  {id: 'validate', label: 'Validating configuration', status: 'pending'},
   {id: 'paths', label: 'Validating input/output paths', status: 'pending'},
   {id: 'images', label: 'Checking Docker images', status: 'pending'},
   {id: 'code', label: 'Checking code changes', status: 'pending'},
@@ -54,7 +55,10 @@ export function useStartPipelineStream() {
           if (ok) {
             setJob(data.job as Record<string, unknown>);
           } else {
-            setErrorMessage((data.error as string) || 'Start failed');
+            const errors = Array.isArray(data.errors)
+              ? data.errors.filter((error): error is string => typeof error === 'string').join('; ')
+              : '';
+            setErrorMessage((data.error as string) || errors || 'Start failed');
           }
         }
       },

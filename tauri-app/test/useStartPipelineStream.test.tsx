@@ -21,6 +21,7 @@ function Harness() {
 test('remote preflight lists license before config and keeps later steps pending on failure', async () => {
   expect(REMOTE_STEPS.map((step) => step.id)).toEqual([
     'ssh',
+    'validate',
     'paths',
     'images',
     'code',
