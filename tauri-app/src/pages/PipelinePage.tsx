@@ -469,10 +469,7 @@ export function StatsAtlasSection() {
                 <div className="flex min-h-7 items-center gap-2">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cursor-primary" />
                   <span className="text-sm font-semibold text-cursor-ink">
-                    {statLabel}
-                  </span>
-                  <span className="inline-flex items-center justify-center rounded-full bg-cursor-canvas-soft border border-cursor-hairline px-1.5 py-0.25 text-2xs font-semibold text-cursor-body min-w-4">
-                    {selectedAtlases.length}
+                    {statLabel} ({selectedAtlases.length})
                   </span>
                 </div>
 
@@ -547,7 +544,7 @@ export function StatsAtlasSection() {
         });
 
         return (
-          <ModalOverlay onClose={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}>
+          <ModalOverlay className="max-w-[42rem]" onClose={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}>
             <div className="flex flex-col max-h-[85vh]">
               {/* Modal Header */}
               <div className="flex items-center justify-between gap-3 border-b border-cursor-hairline pb-2.5 flex-none">
@@ -598,7 +595,7 @@ export function StatsAtlasSection() {
               </div>
 
               {/* Atlases List */}
-              <div className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-1">
+              <div className="max-h-[30rem] space-y-1.5 overflow-y-auto pr-1">
                 {filteredAtlasKeys.length ? (
                   filteredAtlasKeys.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
@@ -994,7 +991,15 @@ function BarChartIcon() {
 // Shared small components for Input & Output section
 // ---------------------------------------------------------------------------
 
-function ModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
+function ModalOverlay({
+  onClose,
+  children,
+  className = 'max-w-[32rem]',
+}: {
+  onClose: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
@@ -1002,7 +1007,7 @@ function ModalOverlay({onClose, children}: {onClose: () => void; children: React
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-[32rem] rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+      <div className={`relative w-full rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none ${className}`}>
         {children}
       </div>
     </div>
@@ -1947,11 +1952,6 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('inputSource', v)}
                 disabled={isLocal}
               />
-              {isLocal && (
-                <p className="text-2xs leading-[1.3] text-cursor-muted">
-                  Server source is unavailable when Runtime Target is Local.
-                </p>
-              )}
               {isServerSource && remoteConnected && (
                 <p className="text-2xs leading-[1.3] text-cursor-muted">
                   Files stay on the server; no upload needed.
@@ -1983,16 +1983,6 @@ export function InputOutputSection() {
 
           {/* Divider */}
           <div className="border-t border-cursor-hairline-soft" />
-
-          {/* Server not-connected notice */}
-          {isServerSource && !remoteConnected && (
-            <div className="rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-3 py-2">
-              <p className="text-xs font-medium text-cursor-ink">SSH not connected</p>
-              <p className="mt-0.5 text-xs text-cursor-muted">
-                Connect in the SSH Server card below to enable server browsing.
-              </p>
-            </div>
-          )}
 
           {/* Row 2: Path fields — Local target, or Server target with lazy upload */}
           {inputSource === 'Local' && !isLocal && (

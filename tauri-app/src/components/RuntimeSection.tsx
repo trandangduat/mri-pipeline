@@ -250,20 +250,6 @@ export function RuntimeSection() {
               <ServerCog className="h-4 w-4 text-cursor-primary" />
               <span>SSH Server Settings</span>
             </div>
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.25 text-2xs font-semibold ${
-                remoteResult.connected
-                  ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success'
-                  : 'bg-cursor-surface-strong text-cursor-muted'
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  remoteResult.connected ? 'bg-cursor-semantic-success' : 'bg-cursor-muted'
-                }`}
-              />
-              {remoteResult.connected ? 'Connected' : 'Not Connected'}
-            </span>
           </div>
 
           <div className="grid gap-2.5 grid-cols-2">
