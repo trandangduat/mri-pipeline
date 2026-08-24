@@ -132,6 +132,8 @@ export function ToolsPage() {
     return () => clearInterval(interval);
   }, [hasDownloading, refreshTools]);
 
+  const isRefreshing = Boolean(busy.checkEnv || busy.refreshTools);
+
   const refreshEnvironment = async () => {
     setBusyKey('checkEnv', true);
     try {
@@ -139,6 +141,13 @@ export function ToolsPage() {
     } finally {
       setBusyKey('checkEnv', false);
     }
+  };
+
+  const refreshAll = async () => {
+    await Promise.all([
+      refreshEnvironment(),
+      refreshTools({manual: true}),
+    ]);
   };
 
   const handleRemove = async (image: string) => {
@@ -190,12 +199,12 @@ export function ToolsPage() {
               Environment Status
             </h2>
             <Button
-              variant="primary"
-              icon={busy.checkEnv ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              onClick={refreshEnvironment}
-              disabled={busy.checkEnv}
+              variant="ghost"
+              icon={isRefreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              onClick={() => void refreshAll()}
+              disabled={isRefreshing}
             >
-              {busy.checkEnv ? 'Checking...' : 'Check Environment'}
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
 
@@ -248,21 +257,8 @@ export function ToolsPage() {
           <div className="mb-2.5 flex items-center justify-between">
             <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
               <CheckCircle2 className="h-4 w-4 text-cursor-semantic-success" />
-              Available Images
-              {installedImages.length > 0 && (
-                <span className="ml-0.5 inline-flex rounded-full bg-cursor-semantic-success/10 px-2 py-0.25 text-2xs font-semibold text-cursor-semantic-success">
-                  {installedImages.length}
-                </span>
-              )}
+              Available Images ({installedImages.length})
             </h2>
-            <Button
-              variant="ghost"
-              icon={busy.refreshTools ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              onClick={() => void refreshTools({manual: true})}
-              disabled={busy.refreshTools}
-            >
-              {busy.refreshTools ? 'Refreshing...' : 'Refresh'}
-            </Button>
           </div>
 
           {installedImages.length > 0 ? (
@@ -294,12 +290,7 @@ export function ToolsPage() {
           <div className="mb-2.5 flex items-center justify-between">
             <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
               <AlertCircle className="h-4 w-4 text-cursor-semantic-error" />
-              Not Available
-              {missingImages.length > 0 && (
-                <span className="ml-0.5 inline-flex rounded-full bg-cursor-semantic-error/10 px-2 py-0.25 text-2xs font-semibold text-cursor-semantic-error">
-                  {missingImages.length}
-                </span>
-              )}
+              Not Available ({missingImages.length})
             </h2>
           </div>
 

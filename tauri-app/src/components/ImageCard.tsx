@@ -20,30 +20,24 @@ export function InstalledImageCard({
   maxToolChips = 4,
 }: InstalledCardProps) {
   const toolDetails = image.tool_details || [];
-  const tag = image.image.split(':').pop() || 'latest';
   const repo = image.image.split(':')[0] || image.image;
   const visibleTools = toolDetails.slice(0, maxToolChips);
   const extraCount = toolDetails.length - maxToolChips;
 
   return (
     <div className="flex flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
-      {/* Header: Icon + Repo name + Tag */}
+      {/* Header: Icon + Repo name */}
       <div className="mb-2 flex items-center gap-2">
         <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-success/10">
           <Container className="h-4 w-4 text-cursor-semantic-success" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-1.5">
-            <span
-              className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-cursor-ink"
-              title={image.image}
-            >
-              {repo}
-            </span>
-            <span className="flex-none rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1 py-0.25 font-mono text-2xs font-medium text-cursor-muted">
-              :{tag}
-            </span>
-          </div>
+          <span
+            className="block truncate text-base font-semibold text-cursor-ink"
+            title={image.image}
+          >
+            {repo}
+          </span>
           {image.image_id && (
             <span className="block truncate font-mono text-2xs text-cursor-muted-soft">
               {image.image_id}
@@ -135,7 +129,6 @@ export function MissingImageCard({
   maxToolChips = 4,
 }: MissingCardProps) {
   const toolDetails = image.tool_details || [];
-  const tag = image.image.split(':').pop() || 'latest';
   const repo = image.image.split(':')[0] || image.image;
   const downloading = isDownloading || isFrontendPulling;
   const failed = isImageFailed(image);
@@ -144,23 +137,18 @@ export function MissingImageCard({
 
   return (
     <div className="flex flex-col rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[160px]">
-      {/* Header: Icon + Repo name + Tag */}
+      {/* Header: Icon + Repo name */}
       <div className="mb-2 flex items-center gap-2">
         <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-semantic-error/10">
           <Container className="h-4 w-4 text-cursor-semantic-error" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-1.5">
-            <span
-              className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-cursor-ink"
-              title={image.image}
-            >
-              {repo}
-            </span>
-            <span className="flex-none rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1 py-0.25 font-mono text-2xs font-medium text-cursor-muted">
-              :{tag}
-            </span>
-          </div>
+          <span
+            className="block truncate text-base font-semibold text-cursor-ink"
+            title={image.image}
+          >
+            {repo}
+          </span>
         </div>
       </div>
 
