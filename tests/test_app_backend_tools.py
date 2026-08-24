@@ -129,3 +129,111 @@ def test_tool_service_checks_server_target_images() -> None:
         "warnings": [],
     }
     assert fake_remote.checked_images == ["mkdayyyy/mri-fs7-all:latest"]
+
+
+def test_server_pull_status_reads_state_and_log_tail(monkeypatch) -> None:
+    from app_backend import tools as tools_module
+
+    class FakeSSH:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read_text(self, command: str):
+            if ".json" in command:
+                return 0, '{"status": "pulling", "pid": 42, "exit_code": null, "error": null}'
+            return 0, "layer: Downloading 50MB/100MB\nlayer: Pull complete\n"
+
+    class FakeConfig:
+        class ssh:
+            host = "server"
+            port = 22
+            username = "alice"
+            password = ""
+            key_path = ""
+
+        remote_workspace = "~/ws"
+        remote_python = "python3"
+        output_dir = ""
+
+    class FakeRunner:
+        config = FakeConfig
+        on_log = staticmethod(lambda _line: None)
+
+    monkeypatch.setattr(tools_module, "RemoteSSHClient", FakeSSH)
+
+    service = LocalToolService(
+        command_runner=FakeCommandRunner(installed=set()),
+        remote_runner_factory=lambda _cfg: FakeRunner(),
+        image_info_provider=_fake_image_info,
+    )
+
+    result = service.server_pull_status(
+        "mkdayyyy/mri-fs7-all:latest",
+        {"host": "server", "username": "alice", "port": 22},
+        log_offset=0,
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "pulling"
+    assert result["exit_code"] is None
+    log_text = result["log_text"]
+    assert isinstance(log_text, str) and "Pull complete" in log_text
+    assert result["next_offset"] == len(log_text.encode("utf-8"))
+
+
+def test_server_pull_status_reports_terminal_failure(monkeypatch) -> None:
+    from app_backend import tools as tools_module
+
+    class FakeSSH:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read_text(self, command: str):
+            if ".json" in command:
+                return 0, '{"status": "failed", "exit_code": 1, "error": "no space left on device"}'
+            return 0, ""
+
+    monkeypatch.setattr(tools_module, "RemoteSSHClient", FakeSSH)
+
+    class FakeConfig:
+        class ssh:
+            host = "server"
+            port = 22
+            username = "alice"
+            password = ""
+            key_path = ""
+
+        remote_workspace = "~/ws"
+        remote_python = "python3"
+        output_dir = ""
+
+    class FakeRunner:
+        config = FakeConfig
+        on_log = staticmethod(lambda _line: None)
+
+    service = LocalToolService(
+        command_runner=FakeCommandRunner(installed=set()),
+        remote_runner_factory=lambda _cfg: FakeRunner(),
+        image_info_provider=_fake_image_info,
+    )
+
+    result = service.server_pull_status(
+        "mkdayyyy/mri-fs7-all:latest",
+        {"host": "server", "username": "alice", "port": 22},
+    )
+
+    assert result["ok"] is True
+    assert result["exit_code"] == 1
+    assert result["error"] == "no space left on device"

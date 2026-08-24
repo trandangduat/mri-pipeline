@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shlex
 import subprocess
 from dataclasses import dataclass
 from typing import Callable, TypeAlias
@@ -7,6 +9,7 @@ from typing import Callable, TypeAlias
 from pipeline.docker_ops import format_image_size, image_size_bytes
 from pipeline.registry import TOOL_DEFS, tool_display_name
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
+from remote.ssh_client import RemoteSSHClient
 from app_backend.remote import parse_remote_config
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -164,6 +167,57 @@ class LocalToolService:
             runner: RemoteRunner = self.remote_runner_factory(config)  # type: ignore[assignment]
             result = runner.start_remote_image_pull(image)
             return result  # type: ignore[return-value]
+        except Exception as exc:
+            return {"ok": False, "target": "Server", "error": str(exc)}
+
+    def server_pull_status(
+        self,
+        image: str,
+        remote: dict[str, object] | None = None,
+        log_offset: int = 0,
+    ) -> dict[str, JsonValue]:
+        """Poll the background docker pull state on the server for the Tools page.
+
+        Reads the pull tracking JSON and the tail of the pull log (from
+        ``log_offset`` on) without modifying the remote runner.
+        """
+        if not isinstance(remote, dict):
+            return {"ok": False, "error": "remote config is required for Server target"}
+        parsed = parse_remote_config(remote)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        try:
+            runner: RemoteRunner = self.remote_runner_factory(config)  # type: ignore[assignment]
+            paths = RemoteRunner.remote_pull_paths(image)
+            state: dict[str, object] = {}
+            log_text = ""
+            with RemoteSSHClient(runner.config.ssh, runner.on_log) as ssh:
+                json_code, json_text = ssh.read_text(f"cat {shlex.quote(paths['json'])} 2>/dev/null")
+                if json_code == 0 and json_text.strip():
+                    try:
+                        loaded = json.loads(json_text.strip())
+                        if isinstance(loaded, dict):
+                            state = loaded
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                log_code, log_text = ssh.read_text(
+                    f"tail -c +{int(log_offset) + 1} {shlex.quote(paths['log'])} 2>/dev/null | head -c 65536"
+                )
+                if log_code != 0:
+                    log_text = ""
+            exit_code = state.get("exit_code") if isinstance(state.get("exit_code"), int) else None
+            return {
+                "ok": True,
+                "target": "Server",
+                "image": image,
+                "status": str(state.get("status") or ""),
+                "exit_code": exit_code,
+                "error": str(state.get("error") or "") or None,
+                "log_text": log_text,
+                "next_offset": int(log_offset) + len(log_text.encode("utf-8")),
+            }
         except Exception as exc:
             return {"ok": False, "target": "Server", "error": str(exc)}
 

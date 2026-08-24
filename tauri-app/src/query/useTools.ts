@@ -1,5 +1,5 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import {useCallback, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
 import {useClient} from './useEnvironment';
 import type {RuntimeTarget, ToolImage} from '../types/backend';
@@ -94,9 +94,71 @@ export function usePullImageStream() {
   const queryClient = useQueryClient();
   const [state, setState] = useState<PullStreamState>({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
   const abortRef = useRef<AbortController | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current != null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopPolling, [stopPolling]);
+
+  const startPolling = useCallback(
+    (image: string, remote: unknown) => {
+      stopPolling();
+      let offset = 0;
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const res = await fetch(`${DEFAULT_BACKEND_URL}/tools/server/pull/status`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({image, remote, log_offset: offset}),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as {
+            ok?: boolean;
+            status?: string;
+            exit_code?: number | null;
+            error?: string | null;
+            log_text?: string;
+            next_offset?: number;
+          };
+          if (!data?.ok) return;
+          if (data.log_text) {
+            const newLines = data.log_text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+            if (newLines.length > 0) {
+              setState((s) => ({...s, logs: [...s.logs, ...newLines]}));
+            }
+          }
+          if (typeof data.next_offset === 'number') {
+            offset = data.next_offset;
+          }
+          if (data.exit_code != null) {
+            stopPolling();
+            if (data.exit_code === 0) {
+              setState((s) => ({...s, status: 'success', logs: [...s.logs, 'Server pull completed.']}));
+            } else {
+              setState((s) => ({
+                ...s,
+                status: 'failed',
+                error: data.error || `Server pull failed (exit ${data.exit_code})`,
+              }));
+            }
+            void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
+          }
+        } catch {
+          // transient network error while polling - keep retrying until terminal state
+        }
+      }, 3000);
+    },
+    [queryClient, stopPolling],
+  );
 
   const pull = useCallback(
     async (image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}) => {
+      stopPolling();
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -145,6 +207,7 @@ export function usePullImageStream() {
                   if (data.ok) {
                     if (target === 'Server' && data.status === 'pulling') {
                       setState((s) => ({...s, status: 'pulling', logs: [...s.logs, 'Server pull is running in the background.']}));
+                      startPolling(image, remote);
                     } else {
                       setState((s) => ({...s, status: 'success'}));
                     }
@@ -179,13 +242,14 @@ export function usePullImageStream() {
         }
       }
     },
-    [queryClient],
+    [queryClient, startPolling, stopPolling],
   );
 
   const reset = useCallback(() => {
+    stopPolling();
     abortRef.current?.abort();
     setState({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
-  }, []);
+  }, [stopPolling]);
 
   return {...state, pull, reset};
 }

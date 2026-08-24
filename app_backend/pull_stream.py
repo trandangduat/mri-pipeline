@@ -6,12 +6,22 @@ Extracted from server.py so the watchdog behavior is unit-testable.
 from __future__ import annotations
 
 import queue
+import re
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from typing import Any, Callable
 
 DEFAULT_STALL_TIMEOUT_S = 30
+PROGRESS_EMIT_INTERVAL_S = 0.2
+
+# docker pull sends per-layer progress frames separated by carriage returns;
+# these keywords mark meaningful transitions that should always be emitted.
+_ALWAYS_EMIT_RE = re.compile(
+    r"(Pull complete|Download complete|Extracting complete|Already exists|"
+    r"Status:|Digest:|Pulling from|Error|error)",
+)
 
 _NETWORK_HINTS = (
     "timeout",
@@ -36,6 +46,13 @@ def friendly_pull_error(tail: list[str], exit_code: int) -> str:
     return last_line or f"Pull failed (exit {exit_code})"
 
 
+def _split_stream_segments(buffer: str) -> tuple[list[str], str]:
+    """Split decoded chunks on both newlines and carriage returns."""
+    parts = re.split(r"[\r\n]", buffer)
+    remaining = parts.pop() if parts else ""
+    return [part for part in parts if part], remaining
+
+
 def pull_image_events(
     image: str,
     *,
@@ -44,9 +61,11 @@ def pull_image_events(
 ) -> Iterator[dict[str, Any]]:
     """Yield SSE-style ``{"event": ..., "data": ...}`` dicts for a docker pull.
 
-    If the pull produces no output for ``stall_timeout_s`` seconds (typical
-    when the network connection drops mid-download), the process is killed
-    and a clear failure event is emitted instead of hanging forever.
+    - Per-layer progress frames (separated by ``\\r``) are streamed with light
+      throttling so the UI can show download/extract progress per layer.
+    - If the pull produces no output for ``stall_timeout_s`` seconds (typical
+      when the network connection drops mid-download), the process is killed
+      and a clear failure event is emitted instead of hanging forever.
     """
     popen_fn = popen or subprocess.Popen
     try:
@@ -54,7 +73,6 @@ def pull_image_events(
             ["docker", "pull", image],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
             bufsize=1,
         )
     except Exception as exc:
@@ -62,15 +80,25 @@ def pull_image_events(
         yield {"event": "complete", "data": {"ok": False, "error": str(exc)}}
         return
 
-    lines: queue.Queue = queue.Queue()
+    segments: queue.Queue = queue.Queue()
 
     def reader() -> None:
         assert proc.stdout is not None
+        buffer = ""
         try:
-            for line in proc.stdout:
-                lines.put(line)
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                text = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else chunk
+                buffer += text
+                parts, buffer = _split_stream_segments(buffer)
+                for part in parts:
+                    segments.put(part)
         finally:
-            lines.put(None)
+            if buffer.strip():
+                segments.put(buffer)
+            segments.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
 
@@ -78,9 +106,10 @@ def pull_image_events(
 
     tail: list[str] = []
     timed_out = False
+    last_progress_emit = 0.0
     while True:
         try:
-            item = lines.get(timeout=stall_timeout_s)
+            item = segments.get(timeout=stall_timeout_s)
         except queue.Empty:
             timed_out = True
             break
@@ -91,7 +120,13 @@ def pull_image_events(
             continue
         tail.append(line)
         tail = tail[-5:]
-        yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line}}
+        if _ALWAYS_EMIT_RE.search(line):
+            yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line}}
+            continue
+        now = time.monotonic()
+        if (now - last_progress_emit) >= PROGRESS_EMIT_INTERVAL_S:
+            last_progress_emit = now
+            yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line}}
 
     if timed_out:
         try:
