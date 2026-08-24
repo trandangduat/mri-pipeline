@@ -424,24 +424,10 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
     def _handle_tools_pull_stream(self, image: str) -> None:
         self._write_sse_headers()
         try:
-            self._send_sse_event("step", {"step": "pull", "status": "running", "detail": f"Pulling {image}..."})
-            import subprocess
-            proc = subprocess.Popen(
-                ["docker", "pull", image],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            for line in proc.stdout:
-                line = line.strip()
-                if line:
-                    self._send_sse_event("step", {"step": "pull", "status": "running", "detail": line})
-            proc.wait()
-            if proc.returncode == 0:
-                self._send_sse_event("complete", {"ok": True})
-            else:
-                self._send_sse_event("complete", {"ok": False, "error": f"Pull failed (exit {proc.returncode})"})
+            from app_backend.pull_stream import pull_image_events
+
+            for event in pull_image_events(image):
+                self._send_sse_event(event["event"], event["data"])
         except Exception as exc:
             self._send_sse_event("step", {"step": "pull", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})

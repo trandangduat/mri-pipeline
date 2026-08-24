@@ -124,6 +124,7 @@ export function usePullImageStream() {
         const decoder = new TextDecoder();
         let buffer = '';
         let currentEvent = '';
+        let sawComplete = false;
 
         while (true) {
           const {done, value} = await reader.read();
@@ -140,6 +141,7 @@ export function usePullImageStream() {
                 if (currentEvent === 'step' && data.detail) {
                   setState((s) => ({...s, logs: [...s.logs, data.detail]}));
                 } else if (currentEvent === 'complete') {
+                  sawComplete = true;
                   if (data.ok) {
                     if (target === 'Server' && data.status === 'pulling') {
                       setState((s) => ({...s, status: 'pulling', logs: [...s.logs, 'Server pull is running in the background.']}));
@@ -157,6 +159,19 @@ export function usePullImageStream() {
               }
             }
           }
+        }
+
+        if (!sawComplete) {
+          setState((s) => {
+            if (s.status !== 'pulling') {
+              return s;
+            }
+            return {
+              ...s,
+              status: 'failed',
+              error: 'Connection to the server was lost during pull. Check your network and try again.',
+            };
+          });
         }
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
