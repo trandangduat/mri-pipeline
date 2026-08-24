@@ -287,8 +287,10 @@ def test_sidecar_local_job_events_and_log_endpoints(tmp_path: Path) -> None:
 def test_sidecar_service_errors_return_json(tmp_path: Path) -> None:
     jobs_root = tmp_path / "jobs"
     jobs_root.mkdir()
-    (jobs_root / "job_registry.json").write_text("not json", encoding="utf-8")
     service = LocalJobService(jobs_root=jobs_root, process_runner=FakeProcessRunner(), clock=lambda: 456.0)
+    def _fail() -> dict[str, JsonValue]:
+        raise RuntimeError("boom")
+    service.list_local_jobs = _fail  # type: ignore[method-assign]
     server, thread, base_url = _serve_in_thread(service)
     try:
         try:

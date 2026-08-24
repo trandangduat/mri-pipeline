@@ -140,6 +140,46 @@ class RemoteJobService:
             return {"ok": False, "error": "Remote job listing failed"}
         return {"ok": True, "jobs": [_job_summary(job) for job in jobs]}
 
+    def delete_job(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        if not remote_job_dir:
+            return {"ok": False, "error": "remote_job_dir is required"}
+        try:
+            runner = self.runner_factory(config)
+            if hasattr(runner, "attach_job"):
+                runner.attach_job(remote_job_dir)
+            if not hasattr(runner, "clean_remote"):
+                return {"ok": False, "error": "Remote job deletion is unavailable"}
+            runner.clean_remote()  # type: ignore[attr-defined]
+            return {"ok": True, "job_id": str(data.get("job_id") or remote_job_dir)}
+        except Exception:
+            return {"ok": False, "error": "Remote job deletion failed"}
+
+    def stop_job(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        if not remote_job_dir:
+            return {"ok": False, "error": "remote_job_dir is required"}
+        try:
+            runner = self.runner_factory(config)
+            if hasattr(runner, "attach_job"):
+                runner.attach_job(remote_job_dir)
+            if not hasattr(runner, "request_pause"):
+                return {"ok": False, "error": "Remote job stopping is unavailable"}
+            runner.request_pause()  # type: ignore[attr-defined]
+            return {"ok": True, "accepted": True, "job_id": str(data.get("job_id") or remote_job_dir)}
+        except Exception:
+            return {"ok": False, "error": "Remote job stop failed"}
+
     def read_job_events(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:
@@ -311,7 +351,11 @@ class RemoteJobService:
         # Step 8: Start remote worker
         yield step_event("start", "running", "Starting remote worker...")
 
-        if run_request.get("pipeline_mode") == "Custom" and run_request.get("neuroflow_enabled"):
+        if (
+            run_request.get("pipeline_mode") == "Custom"
+            and run_request.get("neuroflow_enabled")
+            and not run_request.get("neuroflow_preset_file")
+        ):
             from pipeline.presets import infer_pipeline_mode_from_tools
 
             inferred_mode = infer_pipeline_mode_from_tools(run_request.get("selected_tools"))
@@ -338,13 +382,15 @@ class RemoteJobService:
             neuroflow_enabled=bool(run_request.get("neuroflow_enabled", False)),
             neuroflow_max_concurrent_tasks=int(run_request.get("neuroflow_max_concurrent_tasks", 2) or 2),
             neuroflow_max_retries=int(run_request.get("neuroflow_max_retries", 3) or 3),
-            neuroflow_warmup_enabled=bool(run_request.get("neuroflow_warmup_enabled", False)),
-            neuroflow_warmup_initial_concurrency=int(run_request.get("neuroflow_warmup_initial_concurrency", 1) or 1),
+            neuroflow_warmup_enabled=bool(run_request.get("neuroflow_warmup_enabled", True)),
+            neuroflow_warmup_initial_concurrency=int(run_request.get("neuroflow_warmup_initial_concurrency", 2) or 2),
             neuroflow_warmup_safe_successes=int(run_request.get("neuroflow_warmup_safe_successes", 3) or 3),
             neuroflow_preserve_oom_bounds=bool(run_request.get("neuroflow_preserve_oom_bounds", True)),
             neuroflow_estimation_mode=str(run_request.get("neuroflow_estimation_mode", "balanced")),
             neuroflow_max_io_heavy_tasks=int(run_request.get("neuroflow_max_io_heavy_tasks", 2) or 2),
             neuroflow_machine_profile_id=str(run_request.get("neuroflow_machine_profile_id", "application_default")),
+            neuroflow_preset_file=str(run_request.get("neuroflow_preset_file", "") or ""),
+            neuroflow_profile_file=str(run_request.get("neuroflow_profile_file", "") or ""),
             resume=bool(run_request.get("resume", False)),
             restart=bool(run_request.get("restart", False)),
             lazy_upload=(

@@ -164,6 +164,22 @@ def test_stop_local_job_rejects_unknown_id(tmp_path: Path) -> None:
     assert result == {"ok": False, "error": "Local job not found"}
 
 
+def test_delete_local_job_removes_terminal_job_and_registry_entry(tmp_path: Path) -> None:
+    service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 123.0)
+    started = service.start_local_job(_request(tmp_path))
+    job = started["job"]
+    assert isinstance(job, dict)
+    job_dir = Path(str(job["job_dir"]))
+    (job_dir / "exit_code.txt").write_text("0", encoding="utf-8")
+    service.list_local_jobs()
+
+    result = service.delete_local_job(str(job["job_id"]))
+
+    assert result == {"ok": True, "job_id": job["job_id"]}
+    assert not job_dir.exists()
+    assert service.list_local_jobs()["jobs"] == []
+
+
 def test_read_json_returns_default_for_malformed_registry(tmp_path: Path) -> None:
     path = tmp_path / "job_registry.json"
     path.write_text('{"jobs": [\n  {"job_id" "missing colon"}\n]}', encoding="utf-8")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -82,6 +83,25 @@ class LocalJobService:
         if not _write_stop_marker(job_dir / "stop_requested"):
             return {"ok": False, "error": "Stop marker path is not safe"}
         return {"ok": True, "accepted": True, "job": _job_summary(entry)}
+
+    def delete_local_job(self, job_id: str) -> dict[str, JsonValue]:
+        jobs = self._load_registry()
+        entry = next((job for job in jobs if job.get("target") == "Local" and job.get("job_id") == job_id), None)
+        if entry is None:
+            return {"ok": False, "error": "Local job not found"}
+        if str(entry.get("state", "")).lower() == "running":
+            return {"ok": False, "error": "Stop the job before deleting it"}
+
+        job_dir = Path(str(entry.get("job_dir", ""))).resolve()
+        if not _is_relative_to(job_dir, self.jobs_root.resolve()):
+            return {"ok": False, "error": "Local job path is not safe"}
+        if job_dir.exists():
+            if not job_dir.is_dir() or job_dir.is_symlink():
+                return {"ok": False, "error": "Local job path is not safe"}
+            shutil.rmtree(job_dir)
+
+        self._save_registry([job for job in jobs if job is not entry])
+        return {"ok": True, "job_id": job_id}
 
     def stream_start_job(self, payload: dict[str, object]) -> Iterator[SSEEvent]:
         from app_backend.run_request import prepare_run_request

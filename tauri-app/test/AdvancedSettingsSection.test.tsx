@@ -23,19 +23,54 @@ function resetStore() {
   usePipelineFormStore.getState().resetForm();
 }
 
-test('shows unsupported-mode notice and disables NeuroFLOW toggle in Custom mode', () => {
+test('requires both configuration files before enabling NeuroFLOW in Custom mode', () => {
   resetStore();
-  usePipelineFormStore.getState().setFormField('pipelineMode', 'Custom');
+  usePipelineFormStore.getState().setFormFields({
+    pipelineMode: 'Custom',
+    neuroflowPresetFile: '',
+    neuroflowProfileFile: '',
+  });
 
   render(<AdvancedSettingsSection />);
 
   expect(
-    screen.getByText('NeuroFLOW is available for built-in FreeSurfer/FastSurfer presets. Custom mode uses the standard runner.'),
+    screen.getByText('Select both a NeuroFLOW preset and profile configuration to enable the scheduler for a custom pipeline.'),
   ).toBeInTheDocument();
   const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
   expect(toggle).toBeDisabled();
   expect(toggle).not.toBeChecked();
   expect(screen.queryByText('Max parallel tasks')).not.toBeInTheDocument();
+});
+
+test('allows NeuroFLOW with custom preset and profile files', () => {
+  resetStore();
+  usePipelineFormStore.getState().setFormFields({
+    pipelineMode: 'Custom',
+    neuroflowPresetFile: '/tmp/custom-preset.yaml',
+    neuroflowProfileFile: '/tmp/custom-profile.yaml',
+  });
+
+  render(<AdvancedSettingsSection />);
+
+  const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
+  expect(toggle).toBeEnabled();
+  expect(toggle).toBeChecked();
+});
+
+test('uses the expected NeuroFLOW scheduler defaults', () => {
+  resetStore();
+  const {formValues} = usePipelineFormStore.getState();
+
+  expect(formValues.neuroflowEnabled).toBe(true);
+  expect(formValues.neuroflowMaxConcurrentTasks).toBe(2);
+  expect(formValues.neuroflowMaxRetries).toBe(3);
+  expect(formValues.neuroflowWarmupEnabled).toBe(true);
+  expect(formValues.neuroflowWarmupInitialConcurrency).toBe(2);
+  expect(formValues.neuroflowWarmupSafeSuccesses).toBe(3);
+  expect(formValues.neuroflowPreserveOomBounds).toBe(true);
+  expect(formValues.neuroflowEstimationMode).toBe('balanced');
+  expect(formValues.neuroflowMaxIoHeavyTasks).toBe(2);
+  expect(formValues.neuroflowMachineProfileId).toBe('application_default');
 });
 
 test('shows NeuroFLOW fields for preset mode', () => {
@@ -59,8 +94,8 @@ test('shows NeuroFLOW fields for preset mode', () => {
   expect(screen.getByText('Max Retries Per Task')).toBeInTheDocument();
   expect(screen.getByText('Scheduling risk')).toBeInTheDocument();
   expect(screen.getByText('Max I/O-Heavy Tasks')).toBeInTheDocument();
-  expect(screen.getByText('Machine Profile Identifier')).toBeInTheDocument();
-  expect(screen.getByText('Remember memory failures')).toBeInTheDocument();
+  expect(screen.getByText(/Machine profile:/)).toBeInTheDocument();
+  expect(screen.getByText('Preserve OOM limits on manual retry')).toBeInTheDocument();
 });
 
 test('shows workspace-loaded helper text when max parallel tasks is 1', () => {

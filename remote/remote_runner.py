@@ -111,15 +111,17 @@ class RemoteRunConfig:
     input_server_dir: str = ""
     pipeline_mode: str = "Custom"
     neuroflow_enabled: bool = False
-    neuroflow_max_concurrent_tasks: int = 1
+    neuroflow_max_concurrent_tasks: int = 2
     neuroflow_max_retries: int = 3
-    neuroflow_warmup_enabled: bool = False
-    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_enabled: bool = True
+    neuroflow_warmup_initial_concurrency: int = 2
     neuroflow_warmup_safe_successes: int = 3
     neuroflow_preserve_oom_bounds: bool = True
     neuroflow_estimation_mode: str = "balanced"
     neuroflow_max_io_heavy_tasks: int = 2
     neuroflow_machine_profile_id: str = "application_default"
+    neuroflow_preset_file: str = ""
+    neuroflow_profile_file: str = ""
 
 
 class RemoteRunner:
@@ -201,8 +203,8 @@ class RemoteRunner:
                         path = Path(root) / name
                         if path.suffix in extensions:
                             roots.append(path)
-        neuroflow_pyproject = neuroflow / "pyproject.toml" if neuroflow else Path()
-        if neuroflow_pyproject.exists():
+        neuroflow_pyproject = neuroflow / "pyproject.toml" if neuroflow else None
+        if neuroflow_pyproject and neuroflow_pyproject.exists():
             roots.append(neuroflow_pyproject)
         for path in sorted((p for p in roots if p.exists()), key=_manifest_path_key):
             rel = _manifest_path_key(path)
@@ -584,6 +586,7 @@ class RemoteRunner:
             self._upload_export_config(ssh)
             self._upload_stats_vector_config(ssh)
             self._upload_subject_id_map(ssh)
+            self._upload_neuroflow_configs(ssh)
             self._ensure_shared_code(ssh)
             if self.config.lazy_upload:
                 self.on_log("Inputs will be uploaded lazily as the scheduler schedules them.")
@@ -592,7 +595,6 @@ class RemoteRunner:
             self.on_log("Uploading license files...")
             self._upload_license(ssh)
             self._write_job_config(ssh)
-            self._write_job_metadata(ssh)
             self.on_log("Remote upload complete.")
             return self.remote_job_dir
 
@@ -786,6 +788,8 @@ class RemoteRunner:
             "neuroflow_estimation_mode": str(self.config.neuroflow_estimation_mode),
             "neuroflow_max_io_heavy_tasks": int(self.config.neuroflow_max_io_heavy_tasks),
             "neuroflow_machine_profile_id": self.config.neuroflow_machine_profile_id,
+            "neuroflow_preset_file": self._job_child_path(ssh, "neuroflow_preset.yaml") if self.config.neuroflow_preset_file else "",
+            "neuroflow_profile_file": self._job_child_path(ssh, "neuroflow_profile.yaml") if self.config.neuroflow_profile_file else "",
         }
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(remote_request, indent=2))
@@ -799,6 +803,20 @@ class RemoteRunner:
         remote_path = self._job_child_path(ssh, "stats_vector_config.json")
         with ssh.sftp.open(remote_path, "w") as f:
             f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
+
+    def _upload_neuroflow_configs(self, ssh: RemoteSSHClient) -> None:
+        for field_name, remote_name in (
+            ("neuroflow_preset_file", "neuroflow_preset.yaml"),
+            ("neuroflow_profile_file", "neuroflow_profile.yaml"),
+        ):
+            raw_path = str(getattr(self.config, field_name, "") or "").strip()
+            if not raw_path:
+                continue
+            local_path = Path(raw_path).expanduser()
+            if not local_path.is_file():
+                raise FileNotFoundError(f"NeuroFLOW configuration not found locally: {local_path}")
+            self.on_log(f"Uploading NeuroFLOW {field_name.removeprefix('neuroflow_').removesuffix('_file')} configuration: {local_path.name}")
+            ssh.upload_file(local_path, self._job_child_path(ssh, remote_name))
 
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
         mapping = self._remote_input_request().get("subject_id_map", {})

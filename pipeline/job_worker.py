@@ -75,7 +75,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     mode = req.get("mode")
     output_dir = req.get("effective_output_dir", req.get("output_dir", ""))
     pipeline_mode = PIPELINE_MODE_ALIASES.get(str(req.get("pipeline_mode") or ""), str(req.get("pipeline_mode") or ""))
-    if pipeline_mode == "Custom" and req.get("neuroflow_enabled"):
+    if pipeline_mode == "Custom" and req.get("neuroflow_enabled") and not req.get("neuroflow_preset_file"):
         inferred_mode = infer_pipeline_mode_from_tools(req.get("selected_tools"))
         if inferred_mode != "Custom":
             pipeline_mode = inferred_mode

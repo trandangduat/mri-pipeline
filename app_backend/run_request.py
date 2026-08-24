@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
-from pipeline.config import ExportConfig, StatsVectorConfig
+from pipeline.config import PROJECT_ROOT, ExportConfig, StatsVectorConfig
 from pipeline.discovery import _is_dicom_file, _is_dicom_series_dir, _is_supported_mri_input
 from pipeline.presets import (
     PRESET_CONFIGS,
@@ -40,13 +40,15 @@ class RunRequestInput:
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
     neuroflow_max_retries: int = 3
-    neuroflow_warmup_enabled: bool = False
-    neuroflow_warmup_initial_concurrency: int = 1
+    neuroflow_warmup_enabled: bool = True
+    neuroflow_warmup_initial_concurrency: int = 2
     neuroflow_warmup_safe_successes: int = 3
     neuroflow_preserve_oom_bounds: bool = True
     neuroflow_estimation_mode: str = "balanced"
     neuroflow_max_io_heavy_tasks: int = 2
     neuroflow_machine_profile_id: str = "application_default"
+    neuroflow_preset_file: str = ""
+    neuroflow_profile_file: str = ""
     batch_timestamp: str = ""
 
     @classmethod
@@ -74,13 +76,15 @@ class RunRequestInput:
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
             neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 2)),
             neuroflow_max_retries=max(0, _int_from_data(data.get("neuroflow_max_retries"), 3)),
-            neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), False),
-            neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 1)),
+            neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), True),
+            neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 2)),
             neuroflow_warmup_safe_successes=max(1, _int_from_data(data.get("neuroflow_warmup_safe_successes"), 3)),
             neuroflow_preserve_oom_bounds=_bool_from_data(data.get("neuroflow_preserve_oom_bounds"), True),
             neuroflow_estimation_mode=str(data.get("neuroflow_estimation_mode", "balanced") or "balanced"),
             neuroflow_max_io_heavy_tasks=max(1, _int_from_data(data.get("neuroflow_max_io_heavy_tasks"), 2)),
             neuroflow_machine_profile_id=str(data.get("neuroflow_machine_profile_id", "") or "application_default"),
+            neuroflow_preset_file=_neuroflow_config_path(data.get("neuroflow_preset_file")),
+            neuroflow_profile_file=_neuroflow_config_path(data.get("neuroflow_profile_file")),
             batch_timestamp=str(data.get("batch_timestamp", "") or ""),
         )
 
@@ -191,6 +195,13 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     if neuroflow_error:
         return [neuroflow_error]
 
+    for label, raw_path in (
+        ("preset", config.neuroflow_preset_file),
+        ("profile", config.neuroflow_profile_file),
+    ):
+        if raw_path and not Path(raw_path).expanduser().is_file():
+            return [f"NeuroFLOW {label} configuration file does not exist."]
+
     # Skip local file existence checks for remote jobs with server-side inputs
     # (files are on the server, not accessible locally). Lazy-upload jobs keep
     # their inputs local, so those still get validated here.
@@ -228,7 +239,7 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
     output_dir = config.output_dir.strip()
     selected_tools = _selected_tools(config)
     pipeline_mode = config.pipeline_mode
-    if pipeline_mode == "Custom" and config.neuroflow_enabled:
+    if pipeline_mode == "Custom" and config.neuroflow_enabled and not config.neuroflow_preset_file:
         inferred_mode = infer_pipeline_mode_from_tools(selected_tools)
         if inferred_mode != "Custom":
             pipeline_mode = inferred_mode
@@ -251,7 +262,13 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "input_source": config.input_source,
         "run_target": config.run_target,
         "neuroflow_enabled": bool(config.neuroflow_enabled)
-        and is_neuroflow_supported({"pipeline_mode": pipeline_mode}),
+        and is_neuroflow_supported(
+            {
+                "pipeline_mode": pipeline_mode,
+                "neuroflow_preset_file": config.neuroflow_preset_file,
+                "neuroflow_profile_file": config.neuroflow_profile_file,
+            }
+        ),
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
         "neuroflow_max_retries": config.neuroflow_max_retries,
         "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,
@@ -261,7 +278,21 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         "neuroflow_estimation_mode": config.neuroflow_estimation_mode,
         "neuroflow_max_io_heavy_tasks": config.neuroflow_max_io_heavy_tasks,
         "neuroflow_machine_profile_id": config.neuroflow_machine_profile_id.strip() or "application_default",
+        "neuroflow_preset_file": config.neuroflow_preset_file,
+        "neuroflow_profile_file": config.neuroflow_profile_file,
     }
+
+
+def _neuroflow_config_path(value: object) -> str:
+    raw_path = str(value or "").strip()
+    if not raw_path:
+        return ""
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        project_path = PROJECT_ROOT / path
+        if project_path.is_file():
+            return str(project_path)
+    return str(path)
 
 
 def _selected_tools(config: RunRequestInput) -> dict[str, str]:

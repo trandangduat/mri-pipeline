@@ -8,7 +8,6 @@ import {
   Save,
   FolderOpen,
   Play,
-  Square,
   Loader2,
 } from 'lucide-react';
 import {Button} from './ui';
@@ -170,13 +169,15 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 2)),
         neuroflow_max_retries: Math.max(0, Number(fv.neuroflowMaxRetries ?? 3)),
         neuroflow_warmup_enabled: Boolean(fv.neuroflowWarmupEnabled),
-        neuroflow_warmup_initial_concurrency: Math.max(1, Number(fv.neuroflowWarmupInitialConcurrency || 1)),
+        neuroflow_warmup_initial_concurrency: Math.max(1, Number(fv.neuroflowWarmupInitialConcurrency || 2)),
         neuroflow_warmup_safe_successes: Math.max(1, Number(fv.neuroflowWarmupSafeSuccesses || 3)),
         neuroflow_preserve_oom_bounds:
           fv.neuroflowPreserveOomBounds !== undefined ? Boolean(fv.neuroflowPreserveOomBounds) : true,
         neuroflow_estimation_mode: String(fv.neuroflowEstimationMode || 'balanced'),
         neuroflow_max_io_heavy_tasks: Math.max(1, Number(fv.neuroflowMaxIoHeavyTasks || 2)),
-        neuroflow_machine_profile_id: String(fv.neuroflowMachineProfileId || 'application_default'),
+        neuroflow_machine_profile_id: 'application_default',
+        neuroflow_preset_file: String(fv.neuroflowPresetFile || ''),
+        neuroflow_profile_file: String(fv.neuroflowProfileFile || ''),
         stats_vectors: sv,
         tools,
         ...(fv.runtimeTarget === 'Server'
@@ -298,19 +299,6 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
             disabled={startDisabled}
           >
             {startButtonText}
-          </Button>
-
-          <Button
-            variant="danger"
-            icon={<Square className="h-3.5 w-3.5" />}
-            onClick={() =>
-              print('Stop pipeline', {
-                ok: false,
-                error: 'Select a running job in Jobs Monitor to stop it in a later slice.',
-              })
-            }
-          >
-            Stop Pipeline
           </Button>
         </div>
       </div>

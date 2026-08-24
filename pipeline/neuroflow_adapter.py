@@ -125,7 +125,9 @@ def _ensure_neuroflow_import_path() -> None:
 
 def is_neuroflow_supported(req: dict) -> bool:
     explicit = str(req.get("neuroflow_preset") or "").strip()
-    if explicit:
+    preset_file = str(req.get("neuroflow_preset_file") or "").strip()
+    profile_file = str(req.get("neuroflow_profile_file") or "").strip()
+    if explicit or (preset_file and profile_file):
         return True
     mode = str(req.get("pipeline_mode") or "")
     return mode in PIPELINE_MODE_TO_PRESET
@@ -135,6 +137,9 @@ def _preset_id_from_request(req: dict) -> str:
     explicit = str(req.get("neuroflow_preset") or "").strip()
     if explicit:
         return explicit
+    preset_file = str(req.get("neuroflow_preset_file") or "").strip()
+    if preset_file:
+        return Path(preset_file).stem
     mode = str(req.get("pipeline_mode") or "")
     preset_id = PIPELINE_MODE_TO_PRESET.get(mode)
     if not preset_id:
@@ -203,8 +208,8 @@ def _scheduler_config(req: dict) -> object:
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     ram_mib = _ram_limit_mib(int(req.get("ram_percent", 100) or 100))
 
-    warmup_enabled = bool(req.get("neuroflow_warmup_enabled", False))
-    warmup_initial = max(1, min(max_concurrent, int(req.get("neuroflow_warmup_initial_concurrency", 1) or 1)))
+    warmup_enabled = bool(req.get("neuroflow_warmup_enabled", True))
+    warmup_initial = max(1, min(max_concurrent, int(req.get("neuroflow_warmup_initial_concurrency", 2) or 2)))
     warmup_safe_successes = max(1, int(req.get("neuroflow_warmup_safe_successes", 3) or 3))
 
     max_retries = max(0, min(5, int(req.get("neuroflow_max_retries", 3) if req.get("neuroflow_max_retries") is not None else 3)))
@@ -399,8 +404,14 @@ def run_neuroflow_batch(
     preset_id = _preset_id_from_request(req)
     profile_set_id = str(req.get("neuroflow_profile") or f"{preset_id}_default")
     config_root = _neuroflow_config_root()
-    pipeline = load_pipeline_file(config_root / "presets" / f"{preset_id}.yaml")
-    profiles = load_profile_set_file(config_root / "profiles" / f"{profile_set_id}.yaml")
+    preset_file = str(req.get("neuroflow_preset_file") or "").strip()
+    profile_file = str(req.get("neuroflow_profile_file") or "").strip()
+    pipeline = load_pipeline_file(preset_file or config_root / "presets" / f"{preset_id}.yaml")
+    if not profile_file and preset_file:
+        profile_set_id = f"{pipeline.pipeline_id}_default"
+    profiles = load_profile_set_file(profile_file or config_root / "profiles" / f"{profile_set_id}.yaml")
+    preset_id = str(pipeline.pipeline_id)
+    profile_set_id = str(getattr(profiles, "profile_set_id", profile_set_id))
     thread_limit = max(1, int(req.get("threads", 1) or 1))
     pipeline, profiles = _filter_profiles_for_thread_limit(pipeline, profiles, thread_limit)
     scheduler_config = _scheduler_config(req)

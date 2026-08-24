@@ -188,6 +188,14 @@ export class BackendClient {
     return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}));
   }
 
+  async deleteLocalJob(jobId: string): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/jobs/local/delete', {job_id: jobId}));
+  }
+
+  async deleteRemoteJob(payload: RemotePayload & {job_id?: string; remote_job_dir?: string}): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/remote/jobs/delete', {...payload}));
+  }
+
   async browseRemotePath(
     payload: RemotePayload & {path?: string; purpose?: string; recursive?: boolean; max_depth?: number},
   ): Promise<RemoteBrowseResponse> {
