@@ -2,12 +2,9 @@ import React from 'react';
 import {
   FolderOpen,
   Cpu,
-  Gpu,
   ShieldCheck,
   ServerCog,
   Loader2,
-  CheckCircle2,
-  XCircle,
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {Panel, Button, Alert, inputCls, labelCls} from './ui';
@@ -200,50 +197,48 @@ export function RuntimeSection() {
           />
         </label>
         {hardware.gpus.length > 0 && (
-          <div className="col-span-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-cursor-ink">
-                <Gpu className="h-3.5 w-3.5 text-cursor-primary" />
-                <span>GPU acceleration</span>
-              </div>
-              <div className="inline-flex overflow-hidden rounded-md border border-cursor-hairline-strong">
-                {(['off', 'on'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    name={`gpuMode_${mode}`}
-                    onClick={() => setFormField('gpuMode', mode)}
-                    className={`px-3 py-1 text-xs font-medium transition-colors ${
-                      formValues.gpuMode === mode
-                        ? 'bg-cursor-primary text-white'
-                        : 'bg-cursor-surface-card text-cursor-muted hover:bg-cursor-canvas-soft'
-                    }`}
-                  >
-                    {mode === 'on' ? 'On' : 'Off'}
-                  </button>
+          <label className={`${labelCls} col-span-2`}>
+            <span className="flex items-center justify-between">
+              <span>GPU acceleration</span>
+              <span className="text-2xs font-normal text-cursor-muted">
+                {hardware.gpus.map((gpu, index) => (
+                  <span key={index}>
+                    {gpu.name || `GPU ${index + 1}`}
+                    {' — '}
+                    {formatBytes((gpu.total_memory_mib || 0) * 1024 * 1024)} VRAM
+                    {gpu.free_memory_mib ? ` (${formatBytes(gpu.free_memory_mib * 1024 * 1024)} free)` : ''}
+                  </span>
                 ))}
-              </div>
-            </div>
-            <div className="grid gap-0.5">
-              {hardware.gpus.map((gpu, index) => (
-                <div key={index} className="text-2xs text-cursor-muted">
-                  {gpu.name || `GPU ${index + 1}`}
-                  {' — '}
-                  {formatBytes((gpu.total_memory_mib || 0) * 1024 * 1024)} VRAM
-                  {gpu.free_memory_mib ? ` (${formatBytes(gpu.free_memory_mib * 1024 * 1024)} free)` : ''}
-                </div>
-              ))}
-            </div>
-          </div>
+              </span>
+            </span>
+            <select
+              id="gpuMode"
+              name="gpuMode"
+              value={formValues.gpuMode}
+              onChange={(e) => setFormField('gpuMode', e.target.value as 'on' | 'off')}
+              className={inputCls}
+            >
+              <option value="off">Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
         )}
       </div>
 
       {/* Warnings */}
       {warnings.length > 0 && (
-        <div className="mt-2.5 grid gap-1.5">
-          {warnings.map((warning) => (
-            <Alert key={warning} severity="warning" size="sm">{warning}</Alert>
-          ))}
+        <div className="mt-2.5">
+          <Alert severity="warning" size="sm">
+            {warnings.length > 1 ? (
+              <ul className="m-0 list-disc space-y-1 pl-4 text-sm">
+                {warnings.map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm">{warnings[0]}</div>
+            )}
+          </Alert>
         </div>
       )}
 
@@ -359,32 +354,40 @@ export function RuntimeSection() {
             </label>
           </div>
 
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <Button
-              variant="primary"
-              icon={busy.connect ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-              onClick={connectRemote}
-              disabled={busy.connect}
-            >
-              {busy.connect ? 'Connecting...' : remoteResult.connected ? 'Reconnect' : 'Connect'}
-            </Button>
+          <div className="mt-3 flex flex-col gap-2.5">
+            <div>
+              <Button
+                variant="primary"
+                icon={busy.connect ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                onClick={connectRemote}
+                disabled={busy.connect}
+              >
+                {busy.connect ? 'Connecting...' : remoteResult.connected ? 'Reconnect' : 'Connect'}
+              </Button>
+            </div>
 
             {remoteResult.connected ? (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-cursor-semantic-success">
-                <CheckCircle2 className="h-3.5 w-3.5 flex-none" />
-                <span>
-                  Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM{remoteResult.hardware?.gpus?.length ? `, ${remoteResult.hardware.gpus.length} GPU${remoteResult.hardware.gpus.length > 1 ? 's' : ''}` : ''})
-                </span>
-              </span>
+              <Alert severity="success" size="sm">
+                Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM{remoteResult.hardware?.gpus?.length ? `, ${remoteResult.hardware.gpus.length} GPU${remoteResult.hardware.gpus.length > 1 ? 's' : ''}` : ''})
+              </Alert>
             ) : remoteResult.error ? (
-              <span className="flex items-center gap-1.5 text-xs text-cursor-semantic-error">
-                <XCircle className="h-3.5 w-3.5 flex-none" />
-                <span>{remoteResult.error}</span>
-              </span>
-            ) : (
-              <span className="text-xs text-cursor-muted">
-                Click Connect to test SSH connection
-              </span>
+              <Alert severity="error" size="sm">
+                {remoteResult.error}
+              </Alert>
+            ) : null}
+
+            {remoteResult.connected && Array.isArray(remoteResult.warnings) && remoteResult.warnings.length > 0 && (
+              <Alert severity="warning" size="sm">
+                {remoteResult.warnings.length > 1 ? (
+                  <ul className="m-0 list-disc space-y-1 pl-4 text-sm">
+                    {remoteResult.warnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm">{remoteResult.warnings[0]}</div>
+                )}
+              </Alert>
             )}
           </div>
         </div>

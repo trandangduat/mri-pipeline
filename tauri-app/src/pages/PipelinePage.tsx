@@ -226,8 +226,8 @@ export function PipelineStepsSection() {
       )}
       {metaError && !metaLoading && (
         <Alert severity="error">
-          <p className="m-0 font-medium">Backend unavailable</p>
-          <p className="mt-1 text-cursor-muted">
+          <p className="m-0 font-semibold text-sm">Backend unavailable</p>
+          <p className="mt-1 text-sm text-cursor-muted">
             The MRI pipeline backend is not running. Start the dev server with{' '}
             <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">npm run dev</code>{' '}
             from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">tauri-app/</code>{' '}
@@ -291,8 +291,8 @@ export function PipelineStepsSection() {
       })()}
       {stageViolations.length > 0 && (
         <Alert severity="error" className="mt-2.5">
-          <p className="m-0 font-medium">Invalid tool combination</p>
-          <ul className="m-0 mt-1 list-disc pl-4">
+          <p className="m-0 font-semibold text-sm">Invalid tool combination</p>
+          <ul className="m-0 mt-1 list-disc space-y-1 pl-4 text-sm">
             {stageViolations.map((violation) => {
               const stageLabel = metadata?.stages?.find((stage) => stage.id === violation.stageId)?.label;
               return (

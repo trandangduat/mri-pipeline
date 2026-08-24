@@ -516,8 +516,7 @@ describe('PipelineStepsSection custom-mode tool compatibility', () => {
     // FS8 stats needs SynthSeg RCA outputs which this selection cannot produce.
     expect(screen.getByText('Invalid tool combination')).toBeTruthy();
     const alert = container.querySelector('[role="alert"]');
-    expect(alert).not.toBeNull();
-    expect(alert!.className).toMatch(/cursor-semantic-error/);
+    expect(alert!.className).toMatch(/rose-500|cursor-semantic-error/);
     expect(container.querySelector('.border-l-cursor-semantic-error')).not.toBeNull();
 
     // Switching to a named preset clears the error + highlights.

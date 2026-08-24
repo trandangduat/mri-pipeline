@@ -112,10 +112,7 @@ def inspect_ssh_key(key_path: str) -> SSHKeyInspection:
 
     if is_too_open:
         if is_wsl_mount:
-            warning_message = (
-                "SSH key is on a Windows-mounted WSL path; "
-                "NeuroFlow uses a temporary secure Linux copy for this connection."
-            )
+            warning_message = ""
         else:
             error_message = (
                 f"SSH key file permissions are too open ({mode:04o}). "

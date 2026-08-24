@@ -129,7 +129,7 @@ def test_validate_remote_config_rejects_key_with_open_permissions(tmp_path) -> N
     assert "SSH key file permissions are too open" in str(result["error"])
 
 
-def test_validate_remote_config_wsl_windows_mount_adds_warning(tmp_path, monkeypatch) -> None:
+def test_validate_remote_config_wsl_windows_mount_no_warning(tmp_path, monkeypatch) -> None:
     key_path = tmp_path / "duat"
     key_path.write_text("private key", encoding="utf-8")
     key_path.chmod(0o777)
@@ -141,8 +141,7 @@ def test_validate_remote_config_wsl_windows_mount_adds_warning(tmp_path, monkeyp
 
     assert result["ok"] is True
     assert result["connected"] is True
-    assert "warnings" in result
-    assert any("Windows-mounted WSL path" in w for w in result["warnings"])
+    assert "warnings" not in result
 
 
 def test_validate_remote_config_rejects_invalid_required_fields() -> None:

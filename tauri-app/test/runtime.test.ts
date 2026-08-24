@@ -43,23 +43,23 @@ test('currentTargetHardware reports disconnected Server', () => {
 test('runtimeWarnings flags threads above 90% of max', () => {
   const warnings = runtimeWarnings({
     runtimeTarget: 'Local',
-    hardware: {label: 'Local', logicalCores: 8, totalRamBytes: null, connected: true},
+    hardware: {label: 'Local', logicalCores: 8, totalRamBytes: null, connected: true, gpus: []},
     cpuThreads: 8,
     ramPercent: 40,
   });
   expect(warnings.length).toBe(1);
-  expect(warnings[0]).toMatch(/CPU threads 8/);
+  expect(warnings[0]).toMatch(/CPU threads is above 90%/);
 });
 
 test('runtimeWarnings flags RAM above 90%', () => {
   const warnings = runtimeWarnings({
     runtimeTarget: 'Local',
-    hardware: {label: 'Local', logicalCores: 8, totalRamBytes: null, connected: true},
+    hardware: {label: 'Local', logicalCores: 8, totalRamBytes: null, connected: true, gpus: []},
     cpuThreads: 2,
     ramPercent: 95,
   });
   expect(warnings.length).toBe(1);
-  expect(warnings[0]).toMatch(/RAM 95%/);
+  expect(warnings[0]).toMatch(/RAM allocation is above 90%/);
 });
 
 test('runtimeWarnings flags disconnected server target', () => {

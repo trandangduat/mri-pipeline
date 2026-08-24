@@ -71,10 +71,12 @@ test('StatusDotLarge renders orange warn dot for stopped state', async () => {
 });
 
 test('ALERT variants reference their semantic tokens', () => {
-  expect(ALERT.warning.text).toMatch(/text-cursor-semantic-warn/);
-  expect(ALERT.warning.border).toMatch(/border-cursor-semantic-warn/);
-  expect(ALERT.error.text).toMatch(/text-cursor-semantic-error/);
-  expect(ALERT.error.bg).toMatch(/bg-cursor-semantic-error/);
+  expect(ALERT.warning.text).toMatch(/amber/);
+  expect(ALERT.warning.bg).toMatch(/amber/);
+  expect(ALERT.error.text).toMatch(/rose/);
+  expect(ALERT.error.bg).toMatch(/rose/);
+  expect(ALERT.success.text).toMatch(/emerald/);
+  expect(ALERT.success.bg).toMatch(/emerald/);
   expect(ALERT.warning).not.toEqual(ALERT.error);
   expect(ALERT.sm).not.toBe(ALERT.md);
 });

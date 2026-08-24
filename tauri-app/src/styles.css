@@ -121,9 +121,9 @@
   --cursor-timeline-read: #9fbbe0;
   --cursor-timeline-edit: #c0a8dd;
   --cursor-timeline-done: #c08532;
-  --cursor-semantic-error: #cf2d56;
-  --cursor-semantic-success: #1f8a65;
-  --cursor-semantic-warn: #b45309;
+  --cursor-semantic-error: #f43f5e;
+  --cursor-semantic-success: #10b981;
+  --cursor-semantic-warn: #f59e0b;
 
   --background: #f7f7f4;
   --foreground: #26251e;

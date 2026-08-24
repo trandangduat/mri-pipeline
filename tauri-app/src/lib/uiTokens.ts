@@ -15,19 +15,35 @@ export const inputCls =
   'h-8 w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-sm font-normal text-cursor-ink outline-none focus:border-cursor-hairline-strong';
 export const labelCls = 'grid gap-1.5 text-xs font-normal leading-[1.3] text-cursor-body';
 
+export type AlertSeverity = 'warning' | 'error' | 'success' | 'info';
+
 export const ALERT = {
-  base: 'flex items-start gap-1.5 border leading-[1.4]',
-  sm: 'rounded-md px-2 py-1 gap-1',
-  md: 'rounded-lg px-2.5 py-2',
+  base: 'flex flex-col border-none leading-[1.4]',
+  sm: 'rounded-lg px-4 py-2.5 gap-2',
+  md: 'rounded-xl px-5 py-3.5 gap-2.5',
   warning: {
-    border: 'border-cursor-semantic-warn/40',
-    bg: 'bg-cursor-semantic-warn/10',
-    text: 'text-cursor-semantic-warn',
+    bg: 'bg-amber-500/10 dark:bg-amber-500/15',
+    text: 'text-amber-950 dark:text-amber-100',
+    badgeBg: 'bg-amber-700 text-white dark:bg-amber-600',
+    label: 'Warning',
   },
   error: {
-    border: 'border-cursor-semantic-error/30',
-    bg: 'bg-cursor-semantic-error/10',
-    text: 'text-cursor-semantic-error',
+    bg: 'bg-rose-500/10 dark:bg-rose-500/15',
+    text: 'text-rose-950 dark:text-rose-100',
+    badgeBg: 'bg-rose-700 text-white dark:bg-rose-700',
+    label: 'Error',
+  },
+  success: {
+    bg: 'bg-emerald-500/10 dark:bg-emerald-500/15',
+    text: 'text-emerald-950 dark:text-emerald-100',
+    badgeBg: 'bg-emerald-700 text-white dark:bg-emerald-700',
+    label: 'Success',
+  },
+  info: {
+    bg: 'bg-sky-500/10 dark:bg-sky-500/15',
+    text: 'text-sky-950 dark:text-sky-100',
+    badgeBg: 'bg-sky-700 text-white dark:bg-sky-700',
+    label: 'Info',
   },
 } as const;
 

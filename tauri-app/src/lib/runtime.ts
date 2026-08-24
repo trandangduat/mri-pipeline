@@ -71,10 +71,10 @@ export function runtimeWarnings({
   const requestedThreads = Number(cpuThreads || 0);
   const requestedRam = Number(ramPercent || 0);
   if (hardware.logicalCores && requestedThreads > hardware.logicalCores * 0.9) {
-    warnings.push(`CPU threads ${requestedThreads} is above 90% of target max (${hardware.logicalCores}).`);
+    warnings.push("CPU threads is above 90% of machine's max CPU threads.");
   }
   if (requestedRam > 90) {
-    warnings.push(`RAM ${requestedRam}% is above 90% of target memory.`);
+    warnings.push("RAM allocation is above 90% of machine's RAM.");
   }
   if (runtimeTarget === 'Server' && !hardware.connected) {
     warnings.push('Server runtime selected, but SSH is not connected yet.');

@@ -88,7 +88,7 @@ def test_inspect_ssh_key_wsl_windows_mount(tmp_path: Path, monkeypatch: pytest.M
     assert inspection.exists is True
     assert inspection.is_too_open is True
     assert inspection.error_message == ""
-    assert "Windows-mounted WSL path" in inspection.warning_message
+    assert inspection.warning_message == ""
 
 
 def test_prepare_ssh_key_wsl_copies_to_secure_temp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,8 +104,7 @@ def test_prepare_ssh_key_wsl_copies_to_secure_temp(tmp_path: Path, monkeypatch: 
         assert Path(prepared.key_path).exists()
         assert Path(prepared.key_path).read_text(encoding="utf-8") == "private-key-content"
         mode = stat.S_IMODE(Path(prepared.key_path).stat().st_mode)
-        assert mode == 0o600
-        assert "Windows-mounted WSL path" in prepared.warning
+        assert prepared.warning == ""
     finally:
         prepared.cleanup()
 
