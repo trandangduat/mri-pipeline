@@ -52,6 +52,7 @@ import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 import type {PipelineEvent} from '../types/backend';
 import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
+import {LazyUploadProgress} from '../components/LazyUploadProgress';
 import type {DownloadStep} from '../components/DownloadOutputsDialog';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
 
@@ -864,6 +865,14 @@ export function JobsPage() {
                 )}
             </div>
           </div>
+
+          {/* Lazy upload progress (Server target + Local inputs) */}
+          {String(job?.target) === 'Server' && (
+            <LazyUploadProgress
+              jobId={String(job?.job_id || '')}
+              remoteJobDir={String(job?.remote_job_dir || job?.job_dir || '')}
+            />
+          )}
 
           {/* Perfectly Aligned Unified Metadata Table */}
           {(() => {
