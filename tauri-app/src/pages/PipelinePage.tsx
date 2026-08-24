@@ -2015,9 +2015,6 @@ export function InputOutputSection() {
                   required
                 />
               )}
-              <p className="text-2xs leading-[1.3] text-cursor-muted">
-                Inputs are uploaded lazily to the server as the scheduler needs them.
-              </p>
               <PathField
                 id="inputServerDir"
                 label="Input location (server)"
