@@ -111,6 +111,37 @@ def test_list_local_jobs_refreshes_status_from_exit_code(tmp_path: Path) -> None
     assert jobs[0]["exit_code"] == 0
 
 
+def test_list_local_jobs_includes_image_batch_summary(tmp_path: Path) -> None:
+    service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 123.0)
+    request = _request(tmp_path)
+    request["mode"] = "files"
+    request["input_files"] = [f"/data/sub-{idx:03d}.nii.gz" for idx in range(10)]
+    started = service.start_local_job(request)
+    job = started["job"]
+    assert isinstance(job, dict)
+    job_dir = Path(str(job["job_dir"]))
+    events = [
+        {
+            "kind": "image_done",
+            "input_file": f"/data/sub-{idx:03d}.nii.gz",
+            "success": idx < 3,
+            "total": 10,
+        }
+        for idx in range(10)
+    ]
+    (job_dir / "events.jsonl").write_text("\n".join(json.dumps(event) for event in events), encoding="utf-8")
+
+    result = service.list_local_jobs()
+
+    assert result["jobs"][0]["batch_summary"] == {
+        "total": 10,
+        "success": 3,
+        "failed": 7,
+        "running": 0,
+        "pending": 0,
+    }
+
+
 def test_list_local_jobs_preserves_non_local_registry_entries(tmp_path: Path) -> None:
     service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 123.0)
     service.start_local_job(_request(tmp_path))

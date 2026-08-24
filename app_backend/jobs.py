@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -310,7 +311,13 @@ def _make_run_request_summary(request: dict[str, JsonValue]) -> dict[str, JsonVa
 def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
     run_req = entry.get("run_request")
     req_dict = run_req if isinstance(run_req, dict) else {}
-    return {
+    input_files = entry.get("input_files")
+    if not isinstance(input_files, list):
+        input_files = _input_files_for_request(req_dict)
+    batch_summary = entry.get("batch_summary")
+    if not isinstance(batch_summary, dict) and str(entry.get("target", "Local")) == "Local":
+        batch_summary = _read_batch_summary(Path(str(entry.get("job_dir", ""))), input_files)
+    summary = {
         "job_id": str(entry.get("job_id", "")),
         "target": str(entry.get("target", "Local")),
         "state": str(entry.get("state", "unknown")),
@@ -322,9 +329,12 @@ def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
         "output_dir": str(entry.get("output_dir", "")),
         "effective_output_dir": str(entry.get("effective_output_dir", "")),
         "download_subdir": str(entry.get("download_subdir", "")),
-        "input_files": _json_value(entry.get("input_files", [])) if isinstance(entry.get("input_files"), list) else [],
+        "input_files": _json_value(input_files),
         "run_request_summary": _make_run_request_summary(req_dict),
     }
+    if isinstance(batch_summary, dict):
+        summary["batch_summary"] = _json_value(batch_summary)
+    return summary
 
 
 
@@ -337,6 +347,47 @@ def _input_files_for_request(request: dict[str, JsonValue]) -> list[str]:
     if request.get("input_dir"):
         return [str(request.get("input_dir"))]
     return []
+
+
+def _read_batch_summary(job_dir: Path, input_files: list[JsonValue]) -> dict[str, int]:
+    """Summarize image events without inferring failures from job state."""
+    states: dict[str, str] = {}
+    event_total = 0
+    events_path = job_dir / "events.jsonl"
+    try:
+        with events_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    event = _json_dict(json.loads(line))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                kind = str(event.get("kind", ""))
+                if kind not in {"image_start", "image_done"}:
+                    continue
+                try:
+                    event_total = max(event_total, int(event.get("total", 0) or 0))
+                except (TypeError, ValueError):
+                    pass
+                input_file = str(event.get("input_file", ""))
+                if not input_file:
+                    continue
+                states[input_file] = "running" if kind == "image_start" else (
+                    "success" if bool(event.get("success")) else "failed"
+                )
+    except OSError:
+        pass
+
+    total = max(len(input_files), event_total, len(states))
+    success = sum(state == "success" for state in states.values())
+    failed = sum(state == "failed" for state in states.values())
+    running = sum(state == "running" for state in states.values())
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "running": running,
+        "pending": max(0, total - success - failed - running),
+    }
 
 
 def _exit_code(job_dir: Path, status: dict) -> int | None:

@@ -158,7 +158,17 @@ def test_list_remote_jobs_uses_injected_runner_and_normalizes_response() -> None
 
     def runner_factory(config: RemoteRunConfig) -> FakeRunner:
         calls.append({"host": config.ssh.host, "password": config.ssh.password})
-        return FakeRunner([{"job_id": "job_1", "state": "running", "pid": "123", "remote_job_dir": "/workspace/job_1"}])
+        return FakeRunner(
+            [
+                {
+                    "job_id": "job_1",
+                    "state": "running",
+                    "pid": "123",
+                    "remote_job_dir": "/workspace/job_1",
+                    "batch_summary": {"total": 10, "success": 3, "failed": 7, "running": 0, "pending": 0},
+                }
+            ]
+        )
 
     service = RemoteJobService(runner_factory=runner_factory)
     result = service.list_jobs({"host": "server", "username": "alice", "password": "secret"})
@@ -171,6 +181,7 @@ def test_list_remote_jobs_uses_injected_runner_and_normalizes_response() -> None
     assert job["pid"] == "123"
     assert job["remote_job_dir"] == "/workspace/job_1"
     assert job["job_id"] == "remote_job_1"
+    assert job["batch_summary"] == {"total": 10, "success": 3, "failed": 7, "running": 0, "pending": 0}
     assert "run_request_summary" in job
     assert calls == [{"host": "server", "password": "secret"}]
 

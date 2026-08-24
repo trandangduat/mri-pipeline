@@ -39,6 +39,14 @@ export const environmentSchema = z.object({
 
 export const runRequestSummarySchema = z.record(z.string(), z.unknown()).optional();
 
+export const batchSummarySchema = z.object({
+  total: z.number(),
+  success: z.number(),
+  failed: z.number(),
+  running: z.number(),
+  pending: z.number(),
+});
+
 export const localJobSummarySchema = z.object({
   job_id: z.string(),
   target: z.string().optional(),
@@ -52,6 +60,7 @@ export const localJobSummarySchema = z.object({
   effective_output_dir: z.string().optional(),
   download_subdir: z.string().optional(),
   input_files: z.array(z.string()).optional(),
+  batch_summary: batchSummarySchema.optional(),
   run_request_summary: runRequestSummarySchema,
 });
 
@@ -166,6 +175,7 @@ export const remoteJobSummarySchema = z.object({
   effective_output_dir: z.string().optional(),
   download_subdir: z.string().optional(),
   input_files: z.array(z.string()).optional(),
+  batch_summary: batchSummarySchema.optional(),
   run_request_summary: runRequestSummarySchema,
 }).passthrough();
 
