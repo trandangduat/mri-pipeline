@@ -109,6 +109,24 @@ def test_prepare_run_request_requires_existing_license_for_licensed_tools(tmp_pa
     assert result["errors"] == ["FreeSurfer license file or directory does not exist."]
 
 
+def test_prepare_run_request_requires_existing_license_for_server_tools(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_source="Server",
+            run_target="Server",
+            input_path="/data/image.nii.gz",
+            license_dir=str(tmp_path / "missing-license.txt"),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["errors"] == ["FreeSurfer license file or directory does not exist."]
+
+
 def test_run_request_module_is_tkinter_free_in_fresh_process() -> None:
     code = (
         "import sys; "
@@ -479,7 +497,9 @@ def test_normalize_stats_vector_config_infers_preset_enabled_stats_from_raw_atla
     }
 
 
-def test_prepare_run_request_preserves_pipeline_mode_for_remote_preset() -> None:
+def test_prepare_run_request_preserves_pipeline_mode_for_remote_preset(tmp_path: Path) -> None:
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
     result = prepare_run_request(
         {
             "input_source": "Server",
@@ -489,7 +509,7 @@ def test_prepare_run_request_preserves_pipeline_mode_for_remote_preset() -> None
             "output_dir": "/out",
             "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
             "neuroflow_enabled": True,
-            "license_dir": "/license/license.txt",
+            "license_dir": str(license_file),
         }
     )
 

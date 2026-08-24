@@ -132,6 +132,7 @@ class RemoteRunner:
         self.remote_job_dir = ""
         self.remote_output_dir = ""
         self._expanded_staging_root = ""
+        self._license_staged = False
 
     def remote_venv_display_path(self) -> str:
         return posixpath.join((self.config.remote_workspace or "~/mri-remote-jobs").rstrip("/"), ".venv")
@@ -565,21 +566,17 @@ class RemoteRunner:
 
     def upload_job(self) -> str:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            workspace = self._remote_workspace(ssh)
-            self.remote_job_dir = self._require_workspace_child(ssh, posixpath.join(workspace, self.job_id), "remote job directory")
+            workspace = self._initialize_remote_job(ssh)
             if self.config.server_output_dir:
                 # User-supplied outputs root: create if missing, no containment.
                 self.remote_output_dir = self._remote_path(ssh, self.config.server_output_dir)
             else:
                 self.remote_output_dir = self._require_workspace_child(ssh, posixpath.join(self.remote_job_dir, "outputs"), "remote output directory")
-            ssh.mkdir_p(workspace)
             ssh.mkdir_p(self.remote_output_dir)
             if self.config.lazy_upload:
                 staging_root = self.config.input_server_dir.strip() or posixpath.join("~/mri-uploads", self.job_id)
                 self._expanded_staging_root = ssh.expand_path(staging_root)
                 ssh.mkdir_p(self._expanded_staging_root)
-            for sub in ("license",):
-                ssh.mkdir_p(posixpath.join(self.remote_job_dir, sub))
 
             self.on_log(f"Remote job: {self.remote_job_dir}")
             self.on_log("Preparing run configuration...")
@@ -592,11 +589,41 @@ class RemoteRunner:
                 self.on_log("Inputs will be uploaded lazily as the scheduler schedules them.")
             else:
                 self.on_log("Using MRI input paths already on the server.")
-            self.on_log("Uploading license files...")
-            self._upload_license(ssh)
+            if license_check_tool(self.config.selected_tools) is not None and not self._license_staged:
+                self.on_log("Uploading license files...")
+                self._upload_license(ssh)
             self._write_job_config(ssh)
             self.on_log("Remote upload complete.")
             return self.remote_job_dir
+
+    def stage_freesurfer_license(self) -> None:
+        """Stage the local license before any job configuration is uploaded."""
+        if license_check_tool(self.config.selected_tools) is None:
+            return
+
+        raw_license = self.config.license_dir.strip()
+        if not raw_license:
+            raise FileNotFoundError("FreeSurfer license file is required for the selected pipeline tools.")
+        local_license = Path(raw_license).expanduser()
+        if not local_license.exists():
+            raise FileNotFoundError(f"License not found locally: {local_license}")
+
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            self._initialize_remote_job(ssh)
+            self._upload_license(ssh)
+            self._license_staged = True
+
+    def _initialize_remote_job(self, ssh: RemoteSSHClient) -> str:
+        workspace = self._remote_workspace(ssh)
+        self.remote_job_dir = self._require_workspace_child(
+            ssh,
+            posixpath.join(workspace, self.job_id),
+            "remote job directory",
+        )
+        ssh.mkdir_p(workspace)
+        ssh.mkdir_p(self.remote_job_dir)
+        ssh.mkdir_p(posixpath.join(self.remote_job_dir, "license"))
+        return workspace
 
     def attach_job(self, remote_job_dir: str, remote_output_dir: str = "") -> None:
         self.remote_job_dir = remote_job_dir.rstrip("/")
@@ -1228,7 +1255,7 @@ class RemoteRunner:
     def _upload_license(self, ssh: RemoteSSHClient) -> None:
         if not self.config.license_dir:
             return
-        local_license = Path(self.config.license_dir)
+        local_license = Path(self.config.license_dir).expanduser()
         if not local_license.exists():
             raise FileNotFoundError(f"License not found locally: {local_license}")
             
