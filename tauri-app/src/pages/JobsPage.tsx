@@ -54,6 +54,7 @@ import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 import type {PipelineEvent} from '../types/backend';
 import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
+import {ConfirmDialog} from '../components/ConfirmDialog';
 import {LazyUploadProgress} from '../components/LazyUploadProgress';
 import type {DownloadStep} from '../components/DownloadOutputsDialog';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
@@ -529,7 +530,9 @@ export function JobsPage() {
   const [webBrowseHint, setWebBrowseHint] = useState(false);
   const [remoteLagging, setRemoteLagging] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [jobToDelete, setJobToDelete] = useState<Record<string, unknown> | null>(null);
   const [stoppingJob, setStoppingJob] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
 
   const reqSeqRef = useRef<number>(0);
   const hasInitialRefreshed = useRef<boolean>(false);
@@ -678,26 +681,33 @@ export function JobsPage() {
     print,
   ]);
 
-  const handleDeleteJob = async (targetJob: Record<string, unknown>) => {
+  const handleDeleteJob = (targetJob: Record<string, unknown>) => {
     const jobId = String(targetJob.job_id || '');
     if (!jobId || normalizeJobState(targetJob.state) === 'running') return;
-    if (!window.confirm(`Delete job "${jobBasename(targetJob.display_name || jobId)}"?`)) return;
+    setJobToDelete(targetJob);
+  };
+
+  const handleConfirmDeleteJob = async () => {
+    if (!jobToDelete) return;
+    const jobId = String(jobToDelete.job_id || '');
+    if (!jobId) return;
 
     setDeletingJobId(jobId);
     try {
       const client = new BackendClient(DEFAULT_BACKEND_URL);
       const result =
-        String(targetJob.target || 'Local') === 'Server'
+        String(jobToDelete.target || 'Local') === 'Server'
           ? await client.deleteRemoteJob({
               ...buildRemotePayload(formValues),
               job_id: jobId,
-              remote_job_dir: String(targetJob.remote_job_dir || targetJob.job_dir || ''),
+              remote_job_dir: String(jobToDelete.remote_job_dir || jobToDelete.job_dir || ''),
             })
           : await client.deleteLocalJob(jobId);
       if (!result.ok) {
         print('Delete job failed', {error: result.error || 'Unknown error'});
         return;
       }
+      setJobToDelete(null);
       if (selectedJobId === jobId) {
         setSelectedJobId(null);
         navigate('/jobs');
@@ -710,7 +720,12 @@ export function JobsPage() {
     }
   };
 
-  const handleStopJob = async () => {
+  const handleStopJob = () => {
+    if (!job || normState !== 'running' || isTerminal || stoppingJob) return;
+    setShowStopConfirm(true);
+  };
+
+  const handleConfirmStopJob = async () => {
     if (!job || normState !== 'running' || isTerminal || stoppingJob) return;
     setStoppingJob(true);
     try {
@@ -726,6 +741,7 @@ export function JobsPage() {
         print('Stop job failed', {error: result.error || 'Unknown error'});
         return;
       }
+      setShowStopConfirm(false);
       await refreshJobs();
     } catch (err: unknown) {
       print('Stop job failed', {error: (err as Error).message});
@@ -1020,18 +1036,34 @@ export function JobsPage() {
 
   if (!selectedJobId && !urlJobId) {
     return (
-      <JobsListView
-        jobs={jobsList}
-        onSelectJob={(id) => {
-          setSelectedJobId(id);
-          navigate(`/jobs/${encodeURIComponent(id)}`);
-        }}
-        onRefresh={refreshJobs}
-        isRefreshing={busy.refreshJobs}
-        onDeleteJob={handleDeleteJob}
-        deletingJobId={deletingJobId}
-        remoteLagging={remoteLagging}
-      />
+      <>
+        <JobsListView
+          jobs={jobsList}
+          onSelectJob={(id) => {
+            setSelectedJobId(id);
+            navigate(`/jobs/${encodeURIComponent(id)}`);
+          }}
+          onRefresh={refreshJobs}
+          isRefreshing={busy.refreshJobs}
+          onDeleteJob={handleDeleteJob}
+          deletingJobId={deletingJobId}
+          remoteLagging={remoteLagging}
+        />
+
+        <ConfirmDialog
+          open={jobToDelete !== null}
+          title="Delete Job"
+          entityName={jobToDelete ? jobBasename(jobToDelete.display_name || jobToDelete.job_id) : undefined}
+          description="Are you sure you want to delete this job? All associated output files, execution logs, and benchmark records will be permanently removed from disk."
+          confirmLabel="Delete Job"
+          confirmLoadingLabel="Deleting..."
+          isLoading={deletingJobId !== null}
+          onConfirm={handleConfirmDeleteJob}
+          onClose={() => {
+            if (deletingJobId === null) setJobToDelete(null);
+          }}
+        />
+      </>
     );
   }
 
@@ -1911,6 +1943,36 @@ export function JobsPage() {
         }}
         canClose={!downloadRunning}
         webBrowseHint={webBrowseHint}
+      />
+
+      {/* 5. Delete Job Confirm Dialog */}
+      <ConfirmDialog
+        open={jobToDelete !== null}
+        title="Delete Job"
+        entityName={jobToDelete ? jobBasename(jobToDelete.display_name || jobToDelete.job_id) : undefined}
+        description="Are you sure you want to delete this job? All associated output files, execution logs, and benchmark records will be permanently removed from disk."
+        confirmLabel="Delete Job"
+        confirmLoadingLabel="Deleting..."
+        isLoading={deletingJobId !== null}
+        onConfirm={handleConfirmDeleteJob}
+        onClose={() => {
+          if (deletingJobId === null) setJobToDelete(null);
+        }}
+      />
+
+      {/* 6. Stop Job Confirm Dialog */}
+      <ConfirmDialog
+        open={showStopConfirm}
+        title="Stop Job"
+        entityName={job ? jobBasename(job.display_name || job.job_id) : undefined}
+        description="Are you sure you want to stop this running pipeline job? Current active processing stages will be cancelled immediately."
+        confirmLabel="Stop Job"
+        confirmLoadingLabel="Stopping..."
+        isLoading={stoppingJob}
+        onConfirm={handleConfirmStopJob}
+        onClose={() => {
+          if (!stoppingJob) setShowStopConfirm(false);
+        }}
       />
     </div>
   );

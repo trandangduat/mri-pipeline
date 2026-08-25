@@ -3,6 +3,7 @@ import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircl
 import {Button, StatusPill} from '../components/ui';
 import {Skeleton} from '@/components/ui/skeleton';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
+import {ConfirmDialog} from '../components/ConfirmDialog';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
 import type {ToolImage} from '../types/backend';
 import {useEnvironment} from '../query/useEnvironment';
@@ -58,6 +59,7 @@ export function ToolsPage() {
   const localImageStatusMutation = useLocalImageStatusMutation();
 
   const [removingImage, setRemovingImage] = useState<string | null>(null);
+  const [imageToRemove, setImageToRemove] = useState<string | null>(null);
 
   const selectedRuntimeTarget = () => (formValues.runtimeTarget === 'Server' ? 'Server' : 'Local');
 
@@ -150,7 +152,13 @@ export function ToolsPage() {
     ]);
   };
 
-  const handleRemove = async (image: string) => {
+  const handleRequestRemove = (image: string) => {
+    setImageToRemove(image);
+  };
+
+  const handleConfirmRemove = async () => {
+    if (!imageToRemove) return;
+    const image = imageToRemove;
     const target = selectedRuntimeTarget();
     setRemovingImage(image);
     try {
@@ -160,6 +168,7 @@ export function ToolsPage() {
         remote: target === 'Server' ? buildRemotePayload(formValues) : null,
       });
       if (result.ok) {
+        setImageToRemove(null);
         await refreshTools({manual: false});
       }
     } finally {
@@ -268,7 +277,7 @@ export function ToolsPage() {
                   key={image.image}
                   image={image}
                   target={target}
-                  onRemove={handleRemove}
+                  onRemove={handleRequestRemove}
                   isRemoving={removingImage === image.image}
                 />
               ))}
@@ -346,6 +355,21 @@ export function ToolsPage() {
           )}
         </section>
       </div>
+
+      {/* Remove Image Confirm Dialog */}
+      <ConfirmDialog
+        open={imageToRemove !== null}
+        title="Remove Docker Image"
+        entityName={imageToRemove ?? undefined}
+        description="Are you sure you want to remove this Docker image? The image files will be deleted from the host disk and will need to be downloaded again before running pipelines that depend on it."
+        confirmLabel="Remove Image"
+        confirmLoadingLabel="Removing..."
+        isLoading={removingImage !== null}
+        onConfirm={handleConfirmRemove}
+        onClose={() => {
+          if (removingImage === null) setImageToRemove(null);
+        }}
+      />
     </div>
   );
 }

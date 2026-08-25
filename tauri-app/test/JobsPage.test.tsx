@@ -146,4 +146,52 @@ describe('JobsPage Redesign', () => {
       expect(title.closest('[role="button"]')?.querySelector('[title="Batch summary"] svg')?.querySelectorAll('path')).toHaveLength(2);
     });
   });
+
+  it('opens Delete Job ConfirmDialog when delete button is clicked on a completed job', () => {
+    renderJobsPage('/jobs');
+
+    const deleteBtn = screen.getByRole('button', {name: /Delete job_local_02/i});
+    fireEvent.click(deleteBtn);
+
+    // Confirm dialog should open
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Delete Job'})).toBeInTheDocument();
+    expect(screen.getAllByText('job_local_02').length).toBeGreaterThanOrEqual(2);
+
+    // Cancel closes dialog
+    const cancelBtn = screen.getByRole('button', {name: 'Cancel'});
+    fireEvent.click(cancelBtn);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens Stop Job ConfirmDialog when Stop Job button is clicked in detail view', () => {
+    useJobsStore.setState({
+      selectedJobId: 'job_local_01',
+      latestJobs: [
+        {
+          job_id: 'job_local_01',
+          display_name: 'job_local_01',
+          target: 'Local',
+          state: 'running',
+          started_at: 1700002000,
+        },
+      ],
+    });
+
+    renderJobsPage('/jobs/job_local_01');
+
+    const stopButton = screen.getByRole('button', {name: /stop job/i});
+    fireEvent.click(stopButton);
+
+    // Confirm dialog should open
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Stop Job'})).toBeInTheDocument();
+    expect(screen.getAllByText('job_local_01').length).toBeGreaterThanOrEqual(2);
+
+    // Cancel closes dialog
+    const cancelBtn = screen.getByRole('button', {name: 'Cancel'});
+    fireEvent.click(cancelBtn);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });
+
