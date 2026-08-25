@@ -1092,48 +1092,52 @@ export function JobsPage() {
       <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
         {/* Left: Job Detail Card */}
         <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
-          {/* Header: Back Button + Icon + Title + Status Indicators */}
-          <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSelectedJobId(null);
-                  navigate('/jobs');
-                }}
-                className="h-7.5 px-2.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
-                aria-label="Back to Jobs"
-              >
-                <ArrowLeft className="h-3.5 w-3.5 mr-1 text-cursor-body" />
-                Back to Jobs
-              </Button>
-              <div className="flex h-7.5 w-7.5 items-center justify-center rounded-md bg-cursor-canvas border border-cursor-hairline text-cursor-primary flex-none">
-                <BrainCircuit className="h-4 w-4" />
+          {/* Header: Back Button + Status Badge + Job Title */}
+          {(() => {
+            const isServerJob =
+              String(job?.target || '').toLowerCase() === 'server' ||
+              String(job?.job_id || '').startsWith('remote_job_') ||
+              String(job?.display_name || '').startsWith('remote_job_');
+            const baseJobTitle = (job?.display_name as string) || (job?.job_id as string) || 'No Job Selected';
+            const jobTitle =
+              isServerJob && !baseJobTitle.startsWith('[Server]') && !baseJobTitle.startsWith('[server]')
+                ? `[Server] ${baseJobTitle}`
+                : baseJobTitle;
+
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedJobId(null);
+                      navigate('/jobs');
+                    }}
+                    className="h-7.5 px-2.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
+                    aria-label="Back to Jobs"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 mr-1 text-cursor-body" />
+                    Back to Jobs
+                  </Button>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.06em] flex-none ${jobStatusBadgeClasses(displayMeta.status_reconciled)}`}
+                  >
+                    <StatusDotLarge state={displayMeta.status_reconciled} className="h-2 w-2" />
+                    {displayJobState(displayMeta.status_reconciled)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2
+                      className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate"
+                      title={jobTitle}
+                    >
+                      {jobTitle}
+                    </h2>
+                  </div>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <h2
-                  className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate"
-                  title={(job?.display_name as string) || (job?.job_id as string) || ''}
-                >
-                  {(job?.display_name as string) || (job?.job_id as string) || 'No Job Selected'}
-                </h2>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 flex-none">
-              <div className="flex items-center gap-1.5 font-medium text-xs text-cursor-ink">
-                <StatusDotLarge state={displayMeta.status_reconciled} />
-                <span className="capitalize">{displayJobState(displayMeta.status_reconciled)}</span>
-              </div>
-              {Boolean(job?.target) &&
-                job?.target !== 'Local' &&
-                !String((job?.display_name as string) || (job?.job_id as string) || '')
-                  .toLowerCase()
-                  .includes(String(job?.target).toLowerCase()) && (
-                  <Badge variant="default">{String(job?.target)}</Badge>
-                )}
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Lazy upload progress (Server target + Local inputs) */}
           {String(job?.target) === 'Server' && (
@@ -1331,9 +1335,6 @@ export function JobsPage() {
                   <Layers className="h-4 w-4 text-cursor-primary" />
                   <CardTitle className="font-semibold text-base text-cursor-ink">Batch Summary</CardTitle>
                 </div>
-                <span className="text-2xs font-mono font-semibold text-cursor-ink bg-cursor-surface-strong px-2 py-0.5 rounded-full">
-                  {batchSummary.total} {batchSummary.total === 1 ? 'Subject' : 'Subjects'}
-                </span>
               </div>
 
               {/* Solid Pie Chart (Left) + Vertically Aligned Legends (Right) */}
@@ -1479,10 +1480,9 @@ export function JobsPage() {
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <Layers className="h-4 w-4 text-cursor-primary flex-none" />
-                <CardTitle className="font-semibold text-base text-cursor-ink">Batch Subjects</CardTitle>
-                <span className="ml-1 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
-                  {filteredBatchImages.length}
-                </span>
+                <CardTitle className="font-semibold text-base text-cursor-ink">
+                  Batch Subjects ({batchImages.length})
+                </CardTitle>
               </div>
               <div className="flex items-center gap-1 flex-none">
                 <button
@@ -1514,9 +1514,9 @@ export function JobsPage() {
           </div>
 
           {/* Interior: Search + Filter + Grid */}
-          <div className="flex min-h-0 flex-1 flex-col bg-cursor-surface-card p-3 overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col bg-cursor-surface-card p-3.5 overflow-hidden">
             {/* Search & Filter Toolbar */}
-            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 flex-none">
+            <div className="mb-3 flex flex-wrap items-center justify-start gap-3 flex-none">
               <label className="relative m-0 block w-[min(18rem,100%)]">
                 <input
                   type="search"
@@ -1527,7 +1527,8 @@ export function JobsPage() {
                 />
                 <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
               </label>
-              <div className="flex flex-wrap items-center gap-1">
+              <div className="hidden sm:block h-4 w-px bg-cursor-hairline-strong flex-none" />
+              <div className="flex flex-wrap items-center gap-1.5">
                 {(
                   Boolean(batchSummary.interrupted && batchSummary.interrupted > 0)
                     ? (['all', 'success', 'running', 'interrupted', 'failed', 'pending'] as const)
@@ -1552,16 +1553,16 @@ export function JobsPage() {
                       key={st}
                       type="button"
                       onClick={() => setSubjectStatusFilter(st)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer capitalize border ${
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.75 text-xs font-medium transition-colors cursor-pointer capitalize border ${
                         subjectStatusFilter === st
-                          ? 'border-cursor-hairline-strong bg-cursor-surface-card text-cursor-ink font-semibold'
-                          : 'border-transparent text-cursor-body hover:text-cursor-ink'
+                          ? 'border-cursor-hairline-strong bg-cursor-canvas text-cursor-ink font-semibold shadow-2xs'
+                          : 'border-transparent text-cursor-body hover:text-cursor-ink hover:bg-cursor-canvas-soft'
                       }`}
                     >
                       <span>{label}</span>
                       <span
-                        className={`text-2xs font-mono px-1 rounded-full ${
-                          subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink' : 'text-cursor-muted'
+                        className={`text-2xs font-mono px-1.5 py-0.2 rounded-full ${
+                          subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink font-bold' : 'text-cursor-muted'
                         }`}
                       >
                         {count}
@@ -1574,7 +1575,7 @@ export function JobsPage() {
 
             {/* Subject Grid or List */}
             {subjectViewMode === 'grid' ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2.5 items-start overflow-y-auto flex-1 min-h-0 p-1">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] content-start gap-3 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
@@ -1583,7 +1584,7 @@ export function JobsPage() {
                           {[0, 1, 2, 3, 4, 5].map((i) => (
                             <div
                               key={i}
-                              className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 min-h-[86px]"
+                              className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 min-h-[96px]"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5">
@@ -1593,11 +1594,11 @@ export function JobsPage() {
                                 <Skeleton className="h-4 w-14 rounded-full" />
                               </div>
                               <div className="my-2">
-                                <Skeleton className="h-3 w-3/4" />
+                                <Skeleton className="h-3.5 w-3/4" />
                               </div>
-                              <div className="pt-1.5 border-t border-cursor-hairline-soft flex items-center justify-between">
-                                <Skeleton className="h-2 w-20" />
-                                <Skeleton className="h-2 w-10" />
+                              <div className="pt-2 border-t border-cursor-hairline-soft flex items-center justify-between">
+                                <Skeleton className="h-3 w-24" />
+                                <Skeleton className="h-3 w-12" />
                               </div>
                             </div>
                           ))}
@@ -1625,7 +1626,7 @@ export function JobsPage() {
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs focus:outline-none focus:ring-1 focus:ring-cursor-primary/30 min-h-[86px]"
+                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs focus:outline-none focus:ring-1 focus:ring-cursor-primary/30 min-h-[96px]"
                       >
                         {/* Card Header: Index & Status Badge */}
                         <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1635,7 +1636,7 @@ export function JobsPage() {
                             >
                               <BrainCircuit className="h-3 w-3" />
                             </div>
-                            <span className="font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted">
+                            <span className="font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted bg-cursor-canvas-soft px-1.5 py-0.5 rounded border border-cursor-hairline-soft">
                               #{String(img.idx).padStart(3, '0')}
                             </span>
                           </div>
@@ -1656,23 +1657,39 @@ export function JobsPage() {
                           </span>
                         </div>
 
-                        {/* Card Body: Subject ID with full width & 2 lines */}
-                        <div className="my-1.5 min-w-0">
+                        {/* Card Body: Subject ID with prominent mono font */}
+                        <div className="my-2 min-w-0">
                           <h4
-                            className="text-xs font-semibold leading-snug text-cursor-ink group-hover:text-cursor-primary transition-colors line-clamp-2 break-all"
+                            className="text-xs font-bold leading-snug text-cursor-ink font-mono group-hover:text-cursor-primary transition-colors line-clamp-1 break-all"
                             title={img.subject_id}
                           >
                             {img.subject_id}
                           </h4>
                         </div>
 
-                        {/* Card Footer */}
-                        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-cursor-hairline-soft text-2xs text-cursor-muted">
-                          <span className="truncate max-w-[70%]" title={currentStepText}>
-                            {currentStepText}
-                          </span>
-                          <span className="font-mono text-3xs text-cursor-body flex-none flex items-center gap-0.5 group-hover:text-cursor-primary transition-colors">
-                            Details <ChevronRight className="h-3 w-3" />
+                        {/* Card Footer: Full-Width Current Step Badge */}
+                        <div className="pt-2 border-t border-cursor-hairline-soft w-full min-w-0">
+                          <span
+                            className={`flex items-center justify-between gap-1.5 w-full text-2xs font-semibold px-2.5 py-1 rounded-md border transition-colors ${
+                              img.status === 'running'
+                                ? 'bg-cursor-primary/10 text-cursor-primary border-cursor-primary/20'
+                                : img.status === 'success'
+                                  ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20 font-medium'
+                                  : img.status === 'failed'
+                                    ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20 font-medium'
+                                    : img.status === 'interrupted'
+                                      ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn border-cursor-semantic-warn/20 font-medium'
+                                      : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft font-medium'
+                            }`}
+                            title={currentStepText}
+                          >
+                            <span className="flex items-center gap-1.5 min-w-0 truncate flex-1">
+                              {img.status === 'running' && (
+                                <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse flex-none" />
+                              )}
+                              <span className="truncate">{currentStepText}</span>
+                            </span>
+                            <ChevronRight className="h-3.5 w-3.5 text-cursor-muted group-hover:text-cursor-primary group-hover:translate-x-0.5 transition-all flex-none" />
                           </span>
                         </div>
                       </button>
@@ -1733,14 +1750,29 @@ export function JobsPage() {
                         </div>
                         <div className="flex flex-col min-w-0 flex-1">
                           <span className="text-2xs text-cursor-muted">#{String(img.idx).padStart(3, '0')}</span>
-                          <span className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                          <span className="truncate text-sm font-bold font-mono text-cursor-ink group-hover:text-cursor-primary transition-colors">
                             {img.subject_id}
                           </span>
                         </div>
                         <div className="flex items-center gap-4 flex-none">
-                          <div className="flex flex-col items-end">
-                            <span className="text-2xs uppercase tracking-[0.06em] text-cursor-muted">Stage</span>
-                            <span className="text-xs text-cursor-ink">{currentStepText}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Stage:</span>
+                            <span
+                              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-0.75 rounded-md font-semibold border ${
+                                img.status === 'running'
+                                  ? 'bg-cursor-primary/10 text-cursor-primary border-cursor-primary/20'
+                                  : img.status === 'success'
+                                    ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20'
+                                    : img.status === 'failed'
+                                      ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20'
+                                      : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft'
+                              }`}
+                            >
+                              {img.status === 'running' && (
+                                <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse flex-none" />
+                              )}
+                              {currentStepText}
+                            </span>
                           </div>
                           <span
                             className={`inline-flex items-center justify-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] min-w-[3.5rem] ${
