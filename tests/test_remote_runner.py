@@ -303,6 +303,17 @@ def test_remote_runner_lists_rich_background_jobs_with_stable_remote_id(mocker, 
         ),
         encoding="utf-8",
     )
+    (job_dir / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "kind": "image_done",
+                "input_file": "/data/sub-001.nii.gz",
+                "success": True,
+                "total": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
     runner = RemoteRunner(
@@ -327,6 +338,7 @@ def test_remote_runner_lists_rich_background_jobs_with_stable_remote_id(mocker, 
             "effective_output_dir": "/remote/output/batch_20260814_102225",
             "download_subdir": "",
             "input_files": ["/data/sub-001.nii.gz"],
+            "batch_summary": {"total": 1, "success": 1, "failed": 0, "running": 0, "pending": 0},
             "run_request_summary": {
                 "mode": "files",
                 "input_files": ["/data/sub-001.nii.gz"],

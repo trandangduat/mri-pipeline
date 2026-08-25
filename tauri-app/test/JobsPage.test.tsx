@@ -1,6 +1,6 @@
 import React from 'react';
 import {describe, it, expect, beforeEach} from 'vitest';
-import {render, screen, fireEvent} from '@testing-library/react';
+import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {MemoryRouter, Route, Routes} from 'react-router';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {JobsPage} from '../src/pages/JobsPage';
@@ -121,5 +121,29 @@ describe('JobsPage Redesign', () => {
     expect(screen.getByText('Preset')).toBeDefined();
     expect(screen.getByText('FastSurfer')).toBeDefined();
   });
-});
 
+  it('renders mixed batch summary slices and keeps long job names visible', async () => {
+    const longName = 'job_20260822_191740_with_a_long_workspace_name';
+    useJobsStore.setState({
+      selectedJobId: null,
+      latestJobs: [
+        {
+          job_id: 'job_mixed',
+          display_name: longName,
+          target: 'Server',
+          state: 'failed',
+          started_at: 1700003000,
+          batch_summary: {total: 10, success: 3, failed: 7, running: 0, pending: 0},
+        },
+      ],
+    });
+
+    renderJobsPage('/jobs');
+
+    await waitFor(() => {
+      const title = screen.getByText(longName);
+      expect(title.className).not.toContain('truncate');
+      expect(title.closest('[role="button"]')?.querySelector('[title="Batch summary"] svg')?.querySelectorAll('path')).toHaveLength(2);
+    });
+  });
+});

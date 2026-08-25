@@ -40,6 +40,7 @@ import {
   deriveMetricsSeries,
   displayJobState,
   filterLogLines,
+  type BatchSummary,
   StageStepDetail,
 } from '../lib/jobs';
 import {useListLocalJobsMutation, useReadLocalEventsMutation, useReadLocalLogMutation} from '../query/useJobs';
@@ -176,6 +177,19 @@ function jobStatusBadgeClasses(state: unknown): string {
   return 'text-cursor-muted bg-cursor-canvas-soft border-cursor-hairline';
 }
 
+function jobBatchSummary(job: Record<string, unknown>): BatchSummary {
+  const raw = job.batch_summary;
+  if (raw && typeof raw === 'object') {
+    const summary = raw as Partial<BatchSummary>;
+    const values = [summary.total, summary.success, summary.failed, summary.running, summary.pending];
+    if (values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+      const completed = Number(summary.success) + Number(summary.failed);
+      return {...(summary as BatchSummary), completedPercent: summary.total ? Math.round((completed / summary.total) * 100) : 0};
+    }
+  }
+  return {total: 0, success: 0, failed: 0, running: 0, pending: 0, completedPercent: 0};
+}
+
 function JobCard({
   job,
   onClick,
@@ -190,7 +204,7 @@ function JobCard({
   lagging?: boolean;
 }) {
   const normState = normalizeJobState(job.state);
-  const batchSummary = deriveBatchSummary(deriveBatchImages([], job));
+  const batchSummary = jobBatchSummary(job);
   const title = jobBasename(job.display_name || job.job_id);
   const startedAt = Number(job.started_at || job.created_at || 0);
   const startedStr =
@@ -219,60 +233,62 @@ function JobCard({
           onClick();
         }
       }}
-      className="group flex flex-col justify-between gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group grid grid-cols-[5.5rem_minmax(0,1fr)] items-stretch gap-3 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex items-start gap-2.5 min-w-0">
-        <div
-          className="flex items-center justify-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-1"
-          title="Batch summary"
-        >
-          <BatchPieChart {...batchSummary} size={34} />
-        </div>
-        <strong className="truncate text-sm font-semibold text-cursor-ink group-hover:text-cursor-primary transition-colors flex-1">
-          {title}
-        </strong>
-        <div className="flex flex-wrap justify-end gap-1">
-          {lagging && (
-            <span className="inline-flex rounded-full border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] text-cursor-semantic-warn">
-              Lagging
+      <div className="flex min-h-full items-center justify-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-1" title="Batch summary">
+        <BatchPieChart {...batchSummary} size={80} />
+      </div>
+      <div className="flex min-w-0 flex-col justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <strong
+            className="min-w-0 flex-1 break-words text-sm font-semibold text-cursor-ink transition-colors group-hover:text-cursor-primary"
+            title={title}
+          >
+            {title}
+          </strong>
+          <div className="flex shrink-0 flex-wrap justify-end gap-1">
+            {lagging && (
+              <span className="inline-flex rounded-full border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] text-cursor-semantic-warn">
+                Lagging
+              </span>
+            )}
+            <span
+              className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] ${jobStatusBadgeClasses(normState)}`}
+            >
+              {jobStatusLabel(normState)}
             </span>
-          )}
-          <span
-            className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] ${jobStatusBadgeClasses(normState)}`}
-          >
-            {jobStatusLabel(normState)}
+          </div>
+        </div>
+
+        <div className="flex items-center">
+          <span className="inline-flex max-w-full truncate rounded border border-cursor-hairline bg-cursor-canvas px-2 py-0.25 text-2xs font-medium text-cursor-body">
+            {mode}
           </span>
         </div>
-      </div>
 
-      <div className="flex items-center">
-        <span className="inline-flex max-w-full truncate rounded border border-cursor-hairline bg-cursor-canvas px-2 py-0.25 text-2xs font-medium text-cursor-body">
-          {mode}
-        </span>
-      </div>
-
-      <div className="flex items-center justify-between pt-1.5 border-t border-cursor-hairline-soft text-xs text-cursor-muted">
-        <span className="flex items-center gap-1 font-mono text-2xs">
-          <Clock className="h-3 w-3" />
-          {startedStr}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={`Delete ${title}`}
-            title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
-            disabled={normState === 'running' || deleting}
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-cursor-muted transition-colors hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-          </button>
-          <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 group-hover:opacity-100 transition-opacity">
-            <ChevronRight className="h-3.5 w-3.5" />
+        <div className="flex items-center justify-between border-t border-cursor-hairline-soft pt-1.5 text-xs text-cursor-muted">
+          <span className="flex items-center gap-1 font-mono text-2xs">
+            <Clock className="h-3 w-3" />
+            {startedStr}
           </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label={`Delete ${title}`}
+              title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
+              disabled={normState === 'running' || deleting}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+              }}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-cursor-muted transition-colors hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </button>
+            <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 transition-opacity group-hover:opacity-100">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          </div>
         </div>
       </div>
     </div>

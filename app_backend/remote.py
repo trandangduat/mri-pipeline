@@ -1097,7 +1097,7 @@ def _job_summary(job: dict[str, object]) -> dict[str, JsonValue]:
     run_req = job.get("run_request_summary")
     req_dict = run_req if isinstance(run_req, dict) else {}
     from app_backend.jobs import _make_run_request_summary
-    return {
+    summary = {
         "job_id": job_id,
         "target": "Server",
         "state": str(job.get("state", "unknown") or "unknown"),
@@ -1113,6 +1113,9 @@ def _job_summary(job: dict[str, object]) -> dict[str, JsonValue]:
         "input_files": _json_value(job.get("input_files", [])) if isinstance(job.get("input_files"), list) else [],
         "run_request_summary": _make_run_request_summary(req_dict),
     }
+    if isinstance(job.get("batch_summary"), dict):
+        summary["batch_summary"] = _json_value(job["batch_summary"])
+    return summary
 
 
 def _remote_job_id(raw_job_id: object, remote_dir: str) -> str:
