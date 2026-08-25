@@ -215,6 +215,98 @@ def test_remote_runner_upload_rejects_missing_license(mocker, tmp_path) -> None:
             runner._upload_license(ssh)
 
 
+def test_remote_runner_stages_license_without_writing_job_config(mocker, tmp_path) -> None:
+    FakeRemoteSSHClient.commands = []
+    FakeRemoteSSHClient.uploaded_files = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace="~/mri-remote-jobs",
+            license_dir=str(license_file),
+            selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+        )
+    )
+    write_config = mocker.patch.object(runner, "_write_job_config")
+
+    runner.stage_freesurfer_license()
+
+    write_config.assert_not_called()
+    assert FakeRemoteSSHClient.uploaded_files == [
+        (license_file, "/home/tester/mri-remote-jobs/" + runner.job_id + "/license/license.txt")
+    ]
+    assert all("job_config.json" not in command for command in FakeRemoteSSHClient.commands)
+
+
+def test_remote_runner_expands_local_license_path_before_upload(mocker, tmp_path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    license_file = home / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    FakeRemoteSSHClient.uploaded_files = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            license_dir="~/license.txt",
+            selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+        )
+    )
+
+    runner.stage_freesurfer_license()
+
+    assert FakeRemoteSSHClient.uploaded_files[0][0] == license_file
+
+
+def test_remote_runner_does_not_upload_staged_license_twice(mocker, tmp_path) -> None:
+    FakeRemoteSSHClient.uploaded_files = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace="~/mri-remote-jobs",
+            license_dir=str(license_file),
+            selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+        )
+    )
+    for method_name in (
+        "_upload_export_config",
+        "_upload_stats_vector_config",
+        "_upload_subject_id_map",
+        "_upload_neuroflow_configs",
+        "_ensure_shared_code",
+        "_write_job_config",
+    ):
+        mocker.patch.object(runner, method_name, lambda *_args, **_kwargs: None)
+
+    runner.stage_freesurfer_license()
+    runner.upload_job()
+
+    assert [path for path, _remote_path in FakeRemoteSSHClient.uploaded_files] == [license_file]
+
+
+def test_remote_runner_missing_staged_license_fails_before_ssh(mocker, tmp_path) -> None:
+    FakeRemoteSSHClient.commands = []
+    mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            license_dir=str(tmp_path / "missing-license.txt"),
+            selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+        )
+    )
+
+    with pytest.raises(FileNotFoundError, match="License not found locally"):
+        runner.stage_freesurfer_license()
+
+    assert FakeRemoteSSHClient.commands == []
+
+
 def test_remote_runner_checks_uploaded_license_before_start(mocker) -> None:
     FakeRemoteSSHClient.commands = []
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)

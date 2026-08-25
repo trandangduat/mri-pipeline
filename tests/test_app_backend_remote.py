@@ -9,6 +9,7 @@ class FakeRunner:
     def __init__(self, jobs: list[dict[str, object]], fail_connect: bool = False) -> None:
         self.jobs = jobs
         self.fail_connect = fail_connect
+        self.calls: list[str] = []
 
     def list_background_jobs(self) -> list[dict[str, object]]:
         return self.jobs
@@ -29,15 +30,22 @@ class FakeRunner:
         return {image: True for image in image_names}
 
     def upload_job(self) -> str:
+        self.calls.append("upload_job")
         return "/workspace/job_1"
 
+    def stage_freesurfer_license(self) -> None:
+        self.calls.append("stage_freesurfer_license")
+
     def check_freesurfer_license(self) -> tuple[bool, str]:
+        self.calls.append("check_freesurfer_license")
         return True, "FreeSurfer license check passed."
 
     def start_remote_detached(self) -> str:
+        self.calls.append("start_remote_detached")
         return "/workspace/job_1"
 
     def remote_status(self) -> dict[str, object]:
+        self.calls.append("remote_status")
         return {"state": "running", "pid": "123"}
 
 
@@ -281,6 +289,132 @@ def test_stream_start_job_passes_license_path_to_remote_config(tmp_path) -> None
     assert events[-1]["event"] == "complete"
     assert events[-1]["data"]["ok"] is True
     assert configs[-1].license_dir == str(license_file)
+
+
+def test_stream_start_job_reports_missing_license_as_license_failure() -> None:
+    class MissingLicenseRunner(FakeRunner):
+        def stage_freesurfer_license(self) -> None:
+            self.calls.append("stage_freesurfer_license")
+            raise FileNotFoundError("License not found locally: /tmp/license.txt")
+
+    fake = MissingLicenseRunner([])
+    service = RemoteJobService(runner_factory=lambda _config: fake)
+
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": {
+                        "reorientation": "fastsurfer_reorientation",
+                        "segmentation": "fastsurfer_segmentation",
+                    },
+                    "license_dir": "/tmp/license.txt",
+                },
+            }
+        )
+    )
+
+    step_events = [event for event in events if event.get("event") == "step"]
+    license_failed = [
+        event for event in step_events if event["data"].get("step") == "license" and event["data"].get("status") == "failed"
+    ]
+    assert len(license_failed) == 1
+    assert license_failed[0]["data"]["detail"] == "License not found locally: /tmp/license.txt"
+    assert "SSH connection failed" not in license_failed[0]["data"]["detail"]
+    assert fake.calls == ["stage_freesurfer_license"]
+    assert events[-1]["data"]["ok"] is False
+
+
+def test_stream_start_job_stops_after_invalid_license_check(tmp_path) -> None:
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("invalid", encoding="utf-8")
+
+    class InvalidLicenseRunner(FakeRunner):
+        def check_freesurfer_license(self) -> tuple[bool, str]:
+            self.calls.append("check_freesurfer_license")
+            return False, "FreeSurfer license check failed on the remote server."
+
+    fake = InvalidLicenseRunner([])
+    service = RemoteJobService(runner_factory=lambda _config: fake)
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": {
+                        "reorientation": "fastsurfer_reorientation",
+                        "segmentation": "fastsurfer_segmentation",
+                    },
+                    "license_dir": str(license_file),
+                },
+            }
+        )
+    )
+
+    step_events = [event for event in events if event.get("event") == "step"]
+    assert [(event["data"]["step"], event["data"]["status"]) for event in step_events[-2:]] == [
+        ("license", "running"),
+        ("license", "failed"),
+    ]
+    assert fake.calls == ["stage_freesurfer_license", "check_freesurfer_license"]
+    assert events[-1]["data"]["ok"] is False
+
+
+def test_stream_start_job_orders_license_config_and_worker(tmp_path) -> None:
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license", encoding="utf-8")
+    fake = FakeRunner([])
+    service = RemoteJobService(runner_factory=lambda _config: fake)
+
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "Custom",
+                    "selected_tools": {
+                        "reorientation": "fastsurfer_reorientation",
+                        "segmentation": "fastsurfer_segmentation",
+                    },
+                    "license_dir": str(license_file),
+                },
+            }
+        )
+    )
+
+    assert fake.calls == [
+        "stage_freesurfer_license",
+        "check_freesurfer_license",
+        "upload_job",
+        "start_remote_detached",
+        "remote_status",
+    ]
+    steps = [event["data"]["step"] for event in events if event.get("event") == "step"]
+    assert steps[-6:] == ["license", "license", "config", "config", "start", "start"]
 
 
 def test_stream_start_job_infers_preset_mode_for_neuroflow_custom_tools() -> None:

@@ -358,7 +358,10 @@ class RemoteJobService:
         # Step 2: Validate and normalize run request (maps input_path → input_dir/file/files)
         yield step_event("validate", "running", "Validating configuration...")
         from app_backend.run_request import prepare_run_request
-        result = prepare_run_request(raw_run_request)
+        # License validation is a distinct preflight step for remote runs. It
+        # must be reported by the license step rather than by generic request
+        # validation, before any remote job files are written.
+        result = prepare_run_request(raw_run_request, validate_license=False)
         if not result.get("ok"):
             errors = result.get("errors", [])
             yield step_event("validate", "failed", "; ".join(str(e) for e in errors))
@@ -413,9 +416,6 @@ class RemoteJobService:
         yield step_event("venv", "running", "Checking Python environment...")
         yield step_event("venv", "done", "Python environment ready")
 
-        # Step 7: Upload job config and license
-        yield step_event("config", "running", "Uploading job configuration...")
-
         if (
             run_request.get("pipeline_mode") == "Custom"
             and run_request.get("neuroflow_enabled")
@@ -466,33 +466,45 @@ class RemoteJobService:
             input_server_dir=str(run_request.get("input_server_dir", "")),
         )
 
+        # License staging and validation must happen before upload_job(),
+        # because upload_job() writes the remote job configuration.
+        yield step_event("license", "running", "Checking FreeSurfer license...")
         try:
             runner = self.runner_factory(remote_config)
-            remote_job_dir = runner.upload_job()
-            yield step_event("config", "done", "Job configuration uploaded")
+            runner.stage_freesurfer_license()
+            license_ok, license_detail = runner.check_freesurfer_license()
         except Exception as exc:
-            yield step_event("config", "failed", _safe_error_message(exc, remote_config))
-            yield complete_event(False, error=_safe_error_message(exc, remote_config))
+            license_detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("license", "failed", license_detail)
+            yield complete_event(False, error=license_detail)
             return
-
-        yield step_event("license", "running", "Checking FreeSurfer license...")
-        license_ok, license_detail = runner.check_freesurfer_license()
         if not license_ok:
             yield step_event("license", "failed", license_detail)
             yield complete_event(False, error=license_detail)
             return
         yield step_event("license", "done", license_detail)
 
-        # Step 8: Start remote worker
+        # Step 7: Upload job configuration
+        yield step_event("config", "running", "Uploading job configuration...")
+        try:
+            remote_job_dir = runner.upload_job()
+        except Exception as exc:
+            detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("config", "failed", detail)
+            yield complete_event(False, error=detail)
+            return
+        yield step_event("config", "done", "Job configuration uploaded")
+
         yield step_event("start", "running", "Starting remote worker...")
         try:
             runner.start_remote_detached()
             remote_status = runner.remote_status()
-            yield step_event("start", "done", f"Worker started at {remote_job_dir}")
         except Exception as exc:
-            yield step_event("start", "failed", _safe_error_message(exc, remote_config))
-            yield complete_event(False, error=_safe_error_message(exc, remote_config))
+            detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("start", "failed", detail)
+            yield complete_event(False, error=detail)
             return
+        yield step_event("start", "done", f"Worker started at {remote_job_dir}")
 
         job_id = f"remote_{remote_job_dir.split('/')[-1]}"
 
@@ -533,14 +545,14 @@ class RemoteJobService:
         yield complete_event(True, job={
             "job_id": job_id,
             "target": "Server",
-            "state": "running",
+            "state": remote_status.get("state", "running"),
             "remote_job_dir": remote_job_dir,
             "job_dir": remote_job_dir,
             "started_at": float(remote_status.get("started_at", 0) or 0) or None,
             "pid": remote_status.get("pid"),
-            "output_dir": remote_config.output_dir,
-            "effective_output_dir": remote_config.output_dir,
-            "download_subdir": remote_config.download_subdir,
+            "output_dir": remote_config.output_dir or str(run_request.get("output_dir", "")),
+            "effective_output_dir": remote_config.output_dir or str(run_request.get("effective_output_dir", run_request.get("output_dir", ""))),
+            "download_subdir": remote_config.download_subdir or str(run_request.get("download_subdir", "")),
             "input_files": list(run_request.get("input_files") or ([run_request["input_file"]] if run_request.get("input_file") else [])),
             "run_request_summary": _make_run_request_summary(run_request),
         })
@@ -1036,6 +1048,15 @@ def _safe_error_message(exc: Exception, config: RemoteRunConfig | None = None) -
     if isinstance(exc, (FileNotFoundError, PermissionError, ValueError, KeyError)) or "Permission denied" in message:
         return message
     return f"SSH connection failed: {message}"
+
+
+def _safe_preflight_error(exc: Exception, config: RemoteRunConfig) -> str:
+    """Redact connection secrets without mislabeling a preflight failure as SSH."""
+    message = str(exc).strip() or "Preflight check failed"
+    for secret in (config.ssh.password, config.ssh.key_path):
+        if secret:
+            message = message.replace(secret, "[redacted]")
+    return message
 
 
 def _hardware_summary(hardware: dict[str, object]) -> dict[str, JsonValue]:

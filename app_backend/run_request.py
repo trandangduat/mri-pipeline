@@ -106,13 +106,21 @@ class RunRequestResult:
         }
 
 
-def prepare_run_request(config: RunRequestInput | dict[str, object]) -> dict[str, JsonValue]:
-    return _prepare_run_request_result(config).to_dict()
+def prepare_run_request(
+    config: RunRequestInput | dict[str, object],
+    *,
+    validate_license: bool = True,
+) -> dict[str, JsonValue]:
+    return _prepare_run_request_result(config, validate_license=validate_license).to_dict()
 
 
-def _prepare_run_request_result(config: RunRequestInput | dict[str, object]) -> RunRequestResult:
+def _prepare_run_request_result(
+    config: RunRequestInput | dict[str, object],
+    *,
+    validate_license: bool = True,
+) -> RunRequestResult:
     run_config = config if isinstance(config, RunRequestInput) else RunRequestInput.from_dict(config)
-    errors = validate_run_request_input(run_config)
+    errors = validate_run_request_input(run_config, validate_license=validate_license)
     if errors:
         return RunRequestResult(errors=errors)
 
@@ -165,7 +173,7 @@ def _prepare_run_request_result(config: RunRequestInput | dict[str, object]) -> 
     return RunRequestResult(request=request)
 
 
-def validate_run_request_input(config: RunRequestInput) -> list[str]:
+def validate_run_request_input(config: RunRequestInput, *, validate_license: bool = True) -> list[str]:
     is_remote = config.run_target == "Server"
 
     if is_remote and config.input_source == "Local" and not config.input_server_dir.strip():
@@ -185,9 +193,10 @@ def validate_run_request_input(config: RunRequestInput) -> list[str]:
     runtime_error = _runtime_error(config)
     if runtime_error:
         return [runtime_error]
-    license_error = _license_error(config)
-    if license_error:
-        return [license_error]
+    if validate_license:
+        license_error = _license_error(config)
+        if license_error:
+            return [license_error]
     tool_combo_error = _tool_combo_error(config)
     if tool_combo_error:
         return [tool_combo_error]
@@ -355,7 +364,7 @@ def _license_error(config: RunRequestInput) -> str:
     license_path = config.license_dir.strip()
     if not license_path:
         return "FreeSurfer license file is required for the selected pipeline tools."
-    if config.run_target != "Server" and not Path(license_path).expanduser().exists():
+    if not Path(license_path).expanduser().exists():
         return "FreeSurfer license file or directory does not exist."
     return ""
 
