@@ -811,3 +811,61 @@ def test_neuroflow_batch_normalizes_raw_stats_vector_config_for_preset(
     assert stats_cfg.enabled_stats["cortical_volume"] is False
     assert stats_cfg.enabled_stats["cortical_thickness"] is False
     assert stats_cfg.atlases["subcortical_volume"] == ["freesurfer_aseg"]
+
+
+def test_neuroflow_batch_handles_stop_and_partial_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _install_fake_neuroflow(monkeypatch)
+
+    _FakeAdaptiveScheduler.instances = []
+
+    class AbortScheduler(_FakeAdaptiveScheduler):
+        def close(self) -> None:
+            raise RuntimeError("SchedulerNotSafeToClose: Workspace contains reserved or running work")
+
+    import neuroflow
+    neuroflow.AdaptiveScheduler = AbortScheduler
+
+    emitted_done: list[object] = []
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        return _FakeStep(success=True), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    stop_requested = [False]
+
+    def should_stop() -> bool:
+        return stop_requested[0]
+
+    # Run batch with 2 expected tools: reorientation and segmentation
+    # The fake scheduler only launches reorientation (reorient_resize), so segmentation is never run.
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 7 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_reorient", "segmentation": "fake_seg"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz")],
+        subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+        on_image_done=lambda res, idx, total: emitted_done.append(res),
+        should_stop=should_stop,
+    )
+
+    # Subject only ran 1 of 2 stages, so success must be False!
+    assert len(results) == 1
+    assert results[0].success is False
+    assert len(emitted_done) == 1
+    assert emitted_done[0].success is False
+

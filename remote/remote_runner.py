@@ -891,9 +891,12 @@ class RemoteRunner:
             exit_path = self._job_child_path(ssh, "exit_code.txt")
             pid_path = self._job_child_path(ssh, "pid.txt")
             status_path = self._job_child_path(ssh, "job_status.json")
+            stop_path = self._job_child_path(ssh, "stop_requested")
             exit_code, exit_text = ssh.read_text(f"cat {shlex.quote(exit_path)} 2>/dev/null")
             pid_code, pid_text = ssh.read_text(f"cat {shlex.quote(pid_path)} 2>/dev/null")
             status_code, status_text = ssh.read_text(f"cat {shlex.quote(status_path)} 2>/dev/null")
+            stop_code, _ = ssh.read_text(f"test -f {shlex.quote(stop_path)} && echo 1")
+            has_stop_requested = (stop_code == 0)
             status_data: dict = {}
             if status_code == 0 and status_text.strip():
                 try:
@@ -912,13 +915,15 @@ class RemoteRunner:
             }
             if exit_code == 0 and exit_text.strip() != "":
                 code = int(exit_text.strip().splitlines()[-1])
-                return {**base_status, "state": "completed" if code == 0 else "failed", "exit_code": code}
+                is_stopped = has_stop_requested or status_data.get("state") == "stopped"
+                return {**base_status, "state": "stopped" if is_stopped else ("completed" if code == 0 else "failed"), "exit_code": code}
             if pid_code == 0 and pid:
                 ps_code = ssh.run(f"kill -0 {shlex.quote(pid)} >/dev/null 2>&1", stream=False, check=False)
                 if ps_code == 0:
                     return {**base_status, "state": "running", "pid": pid}
-                return {**base_status, "state": "failed", "exit_code": None, "pid": pid, "error": "process exited before writing exit_code.txt"}
-            state = str(status_data.get("state") or "uploaded")
+                is_stopped = has_stop_requested or status_data.get("state") == "stopped"
+                return {**base_status, "state": "stopped" if is_stopped else "failed", "exit_code": None, "pid": pid, "error": "process exited before writing exit_code.txt"}
+            state = str(status_data.get("state") or ("stopped" if has_stop_requested else "uploaded"))
             return {**base_status, "state": state}
 
     def list_background_jobs(self) -> list[dict[str, object]]:
@@ -953,17 +958,23 @@ class RemoteRunner:
                     "        pass",
                     "    if not cfg:",
                     "        continue",
+                    "    has_stop_requested = os.path.exists(os.path.join(d, 'stop_requested'))",
                     "    state = 'uploaded'",
                     "    if exit_code is not None:",
-                    "        state = 'completed' if exit_code == 0 else 'failed'",
+                    "        if has_stop_requested or st.get('state') == 'stopped':",
+                    "            state = 'stopped'",
+                    "        else:",
+                    "            state = 'completed' if exit_code == 0 else 'failed'",
                     "    elif pid:",
                     "        try:",
                     "            os.kill(int(pid), 0)",
                     "            state = 'running'",
                     "        except Exception:",
-                    "            state = 'failed'",
+                    "            state = 'stopped' if (has_stop_requested or st.get('state') == 'stopped') else 'failed'",
                     "    elif st.get('state'):",
                     "        state = str(st.get('state'))",
+                    "    elif has_stop_requested:",
+                    "        state = 'stopped'",
                     "    folder = os.path.basename(d)",
                     "    meta_job_id = str(meta.get('job_id') or '')",
                     "    job_id = meta_job_id if meta_job_id.startswith('remote_') else 'remote_' + folder",

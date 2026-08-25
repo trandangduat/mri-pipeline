@@ -153,22 +153,37 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
     });
   });
 
+  function findMatchingImage(file: string, idx: number, subjectHint?: string): BatchImageItem | undefined {
+    if (file && imagesMap.has(file)) return imagesMap.get(file);
+    const {subject_id} = deriveSubjectLabel(file, idx);
+    const targetSubject = subjectHint || subject_id;
+    for (const item of imagesMap.values()) {
+      if (item.subject_id === targetSubject || item.idx === idx) {
+        return item;
+      }
+    }
+    return undefined;
+  }
+
   for (const event of events) {
     const kind = String(event.kind || '');
     if (kind === 'image_start') {
       const file = String(event.input_file || '');
       const idx = Number(event.idx || 1);
       const total = Number(event.total || initialFiles.length || 1);
-      const existing = imagesMap.get(file);
+      const existing = findMatchingImage(file, idx, event.subject_id ? String(event.subject_id) : undefined);
       if (existing) {
         existing.status = 'running';
         existing.idx = idx;
         existing.total = total;
+        if (event.subject_id) {
+          existing.subject_id = String(event.subject_id);
+        }
       } else if (file) {
         const {subject_id} = deriveSubjectLabel(file, idx);
         imagesMap.set(file, {
           input_file: file,
-          subject_id,
+          subject_id: event.subject_id ? String(event.subject_id) : subject_id,
           idx,
           total,
           status: 'running',
@@ -178,11 +193,24 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       const file = String(event.input_file || '');
       const idx = Number(event.idx || 1);
       const total = Number(event.total || initialFiles.length || 1);
-      const success = Boolean(event.success);
+      let success = Boolean(event.success);
       const duration_sec = typeof event.duration_sec === 'number' ? event.duration_sec : undefined;
       const subject_id = String(event.subject_id || '');
-      const existing = imagesMap.get(file);
+      const existing = findMatchingImage(file, idx, subject_id || undefined);
       const computedSubj = subject_id || deriveSubjectLabel(file, idx).subject_id;
+      const logText = String(event.log_text || '');
+
+      if (success && logText) {
+        const req = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
+        const tools = ((req.selected_tools || {}) as Record<string, string>) || {};
+        const scheduledCount = Object.values(tools).filter(Boolean).length;
+        if (scheduledCount > 0) {
+          const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*OK/gi) || []).length;
+          if (okLines < scheduledCount) {
+            success = false;
+          }
+        }
+      }
 
       if (existing) {
         existing.status = success ? 'success' : 'failed';
@@ -389,7 +417,7 @@ export function deriveImageSteps(
         }
         if (event.success === true) {
           stepMap.forEach((s) => {
-            if (s.status === 'running' || (s.tool && s.status === 'pending')) {
+            if (s.status === 'running') {
               s.status = 'success';
             }
           });
@@ -407,10 +435,10 @@ export function deriveImageSteps(
     }
   }
 
-  // If image is completed (success), ensure scheduled active stages are marked success
+  // If image is completed (success), ensure running active stages are marked success
   if (image.status === 'success') {
     stepMap.forEach((s) => {
-      if (s.status === 'running' || (s.tool && s.status === 'pending')) {
+      if (s.status === 'running') {
         s.status = 'success';
       }
     });

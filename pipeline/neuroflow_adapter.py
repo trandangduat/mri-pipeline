@@ -90,6 +90,7 @@ class _ImageRunContext:
     tracker: PipelineTracker
     started_at: float = field(default_factory=time.time)
     steps: list = field(default_factory=list)
+    completed_stages: set[str] = field(default_factory=set)
     stage_outputs: dict[str, str] = field(default_factory=dict)
     completed: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -109,8 +110,10 @@ class _ImageRunContext:
     def record_step(self, step: object, output_for_next: str | None, local_stage: str) -> None:
         with self.lock:
             self.steps.append(step)
-            if getattr(step, "success", False) and output_for_next:
-                self.stage_outputs[local_stage] = output_for_next
+            if getattr(step, "success", False):
+                self.completed_stages.add(local_stage)
+                if output_for_next:
+                    self.stage_outputs[local_stage] = output_for_next
 
 
 def _ensure_neuroflow_import_path() -> None:
@@ -673,12 +676,26 @@ def run_neuroflow_batch(
 
     results: list[BatchImageResult] = []
     generator = StatsGenerator(stats_vector_config)
+    expected_stages = [stage for stage, tool in selected_tools.items() if tool]
+    if not expected_stages and hasattr(pipeline, "stages"):
+        expected_stages = [NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(s.stage_id, s.stage_id) for s in pipeline.stages]
+    expected_stage_set = set(expected_stages)
+
+    is_stopped = bool(should_stop and should_stop())
     for context in contexts.values():
-        success = bool(context.steps) and all(step.success for step in context.steps)
+        all_stages_completed = bool(expected_stage_set) and expected_stage_set.issubset(context.completed_stages)
+        all_steps_succeeded = bool(context.steps) and all(getattr(step, "success", False) for step in context.steps)
+        success = all_stages_completed and all_steps_succeeded
         context.tracker.mark_completed(success)
         stats_result = generator.generate(context.subject_dir, context.subject_id)
         if stats_result.files or stats_result.warnings:
             context.tracker.set_stats_vectors(stats_result.files, stats_result.warnings)
+        if is_stopped and not success:
+            err = "Job stopped before all pipeline stages completed"
+        elif not success:
+            err = "one or more NeuroFLOW scheduled steps failed"
+        else:
+            err = ""
         image_result = BatchImageResult(
             input_file=context.input_file,
             subject_id=context.subject_id,
@@ -686,7 +703,7 @@ def run_neuroflow_batch(
             success=success,
             duration_sec=time.time() - context.started_at,
             steps=context.steps,
-            error="" if success else "one or more NeuroFLOW scheduled steps failed",
+            error=err,
         )
         results.append(image_result)
         if on_image_done:
@@ -702,6 +719,14 @@ def run_neuroflow_batch(
             stats_vector_config=stats_vector_config,
         )
     )
-    scheduler.save()
-    scheduler.close()
+    try:
+        scheduler.save()
+    except Exception as exc:
+        if on_build_log:
+            on_build_log(f"NeuroFLOW save notice: {exc}")
+    try:
+        scheduler.close()
+    except Exception as exc:
+        if on_build_log:
+            on_build_log(f"NeuroFLOW close notice: {exc}")
     return results

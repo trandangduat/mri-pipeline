@@ -193,6 +193,8 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 should_stop=should_stop,
             )
             failed = [result for result in results if not result.success]
+            if should_stop():
+                return 0
             return 1 if failed else 0
     
     if is_lazy_watch:
@@ -322,6 +324,8 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         batch_config=req,
     )
     failed = [result for result in results if not result.success]
+    if should_stop():
+        return 0
     return 1 if failed else 0
 
 
@@ -342,13 +346,25 @@ def main(argv: list[str] | None = None) -> int:
     _log(job_dir, f"Background job started: {job_dir}")
     try:
         code = _run_job(job_dir, req, args.lazy_watch)
-        state = "completed" if code == 0 else "failed"
+        stop_file = job_dir / "stop_requested"
+        if stop_file.exists():
+            state = "stopped"
+            code = 0
+        else:
+            state = "completed" if code == 0 else "failed"
         _write_status(job_dir, state=state, exit_code=code, finished_at=time.time(), duration_sec=time.time() - start)
-        _log(job_dir, f"Background job finished with exit code {code}")
+        _log(job_dir, f"Background job finished with state {state} (exit code {code})")
     except Exception as exc:
-        code = 1
-        _write_status(job_dir, state="failed", exit_code=1, error=f"{type(exc).__name__}: {exc}", finished_at=time.time(), duration_sec=time.time() - start)
-        _log(job_dir, f"ERROR: {type(exc).__name__}: {exc}")
+        stop_file = job_dir / "stop_requested"
+        if stop_file.exists():
+            state = "stopped"
+            code = 0
+            _write_status(job_dir, state="stopped", exit_code=0, finished_at=time.time(), duration_sec=time.time() - start)
+            _log(job_dir, f"Background job stopped upon request: {exc}")
+        else:
+            code = 1
+            _write_status(job_dir, state="failed", exit_code=1, error=f"{type(exc).__name__}: {exc}", finished_at=time.time(), duration_sec=time.time() - start)
+            _log(job_dir, f"ERROR: {type(exc).__name__}: {exc}")
     with open(job_dir / "exit_code.txt", "w", encoding="utf-8") as f:
         f.write(str(code))
     return code

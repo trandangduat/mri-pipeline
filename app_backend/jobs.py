@@ -218,11 +218,17 @@ class LocalJobService:
 
         status = read_json(job_dir / "job_status.json", {})
         exit_code = _exit_code(job_dir, status)
-        if exit_code is not None or status.get("state") in {"completed", "failed"}:
+        stop_requested = (job_dir / "stop_requested").exists()
+        if status.get("state") == "stopped" or (stop_requested and (exit_code is not None or status.get("state") in {"completed", "failed", "stopped"})):
+            entry["state"] = "stopped"
+            entry["exit_code"] = exit_code
+        elif exit_code is not None or status.get("state") in {"completed", "failed"}:
             entry["state"] = "completed" if exit_code == 0 else "failed"
             entry["exit_code"] = exit_code
         elif status.get("state"):
             entry["state"] = str(status.get("state"))
+        elif stop_requested:
+            entry["state"] = "stopped"
         entry["updated_at"] = self.clock()
         return entry
 

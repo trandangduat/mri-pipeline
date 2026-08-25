@@ -133,6 +133,23 @@ test('deriveBatchImages combines job initial files with events', () => {
   expect(images[1].status).toBe('running');
 });
 
+test('deriveBatchImages matches lazy upload local files with remote event paths without jumping count', () => {
+  const job = {
+    input_files: ['/home/trandangduat/mri-pipeline/data/001.nii.gz', '/home/trandangduat/mri-pipeline/data/002.nii.gz'],
+  };
+  const events = [
+    {kind: 'image_start', input_file: '/home/catcd1/duat-jobs/001.nii.gz', idx: 1, total: 2},
+    {kind: 'image_done', input_file: '/home/catcd1/duat-jobs/001.nii.gz', subject_id: '001', success: true, duration_sec: 4.2, idx: 1, total: 2},
+    {kind: 'image_start', input_file: '/home/catcd1/duat-jobs/002.nii.gz', idx: 2, total: 2},
+  ];
+
+  const images = deriveBatchImages(events, job);
+  expect(images).toHaveLength(2);
+  expect(images[0].status).toBe('success');
+  expect(images[0].duration_sec).toBe(4.2);
+  expect(images[1].status).toBe('running');
+});
+
 test('deriveBatchSummary computes correct counts and percentage', () => {
   const images = [
     {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 3, status: 'success' as const},
@@ -216,4 +233,67 @@ test('deriveJobDisplayMetadata reconciles status from terminal events and batch 
   const failedMeta = deriveJobDisplayMetadata(runningJob, failedEvents);
   expect(failedMeta.status_reconciled).toBe('failed');
 });
+
+test('deriveImageSteps keeps unexecuted stages as pending when subject only partially completed', () => {
+  const stageOrder = ['reorientation', 'brain_extraction', 'segmentation'];
+  const selectedTools = {
+    reorientation: 'fs_reorient',
+    brain_extraction: 'fs_bet',
+    segmentation: 'synthseg',
+  };
+  const image = {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'failed' as const};
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {kind: 'progress', stage: 'reorientation', status: 'ok', elapsed_sec: 10},
+    {kind: 'progress', stage: 'brain_extraction', status: 'ok', elapsed_sec: 75},
+    {
+      kind: 'image_done',
+      input_file: 'a.nii',
+      success: false,
+      log_text: '[reorientation] fs_reorient - OK (10.0s)\n[brain_extraction] fs_bet - OK (75.0s)',
+    },
+  ];
+  const steps = deriveImageSteps(events, image, selectedTools, stageOrder, {});
+  expect(steps[0].status).toBe('success');
+  expect(steps[1].status).toBe('success');
+  expect(steps[2].status).toBe('pending');
+});
+
+test('deriveBatchImages reconciles running/pending images to failed when job is stopped', () => {
+  const job = {state: 'stopped'};
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii', idx: 1, total: 2},
+    {kind: 'image_start', input_file: 'b.nii', idx: 2, total: 2},
+  ];
+  const images = deriveBatchImages(events, job);
+  expect(images.length).toBe(2);
+  expect(images[0].status).toBe('failed');
+  expect(images[1].status).toBe('failed');
+});
+
+test('deriveBatchImages marks subject as failed if image_done event has success=true but log_text only ran partial stages', () => {
+  const job = {
+    state: 'failed',
+    run_request_summary: {
+      selected_tools: {
+        reorientation: 'tool1',
+        brain_extraction: 'tool2',
+        segmentation: 'tool3',
+      },
+    },
+  };
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii', idx: 1, total: 1},
+    {
+      kind: 'image_done',
+      input_file: 'a.nii',
+      success: true,
+      log_text: '[reorientation] tool1 - OK (9.7s)\n[brain_extraction] tool2 - OK (76.9s)',
+    },
+  ];
+  const images = deriveBatchImages(events, job);
+  expect(images.length).toBe(1);
+  expect(images[0].status).toBe('failed');
+});
+
 

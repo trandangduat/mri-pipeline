@@ -9,6 +9,11 @@ export function normalizeJobState(value: unknown): JobState {
   return 'unknown';
 }
 
+export function normalizeJobTarget(target: unknown): 'Local' | 'Server' {
+  const str = String(target || '').toLowerCase();
+  return str === 'server' || str === 'remote' ? 'Server' : 'Local';
+}
+
 export function shortJobName(jobId: unknown): string {
   const str = String(jobId || 'unknown-job');
   if (str.length <= 22) return str;

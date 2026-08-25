@@ -109,3 +109,22 @@ def test_job_worker_infers_neuroflow_preset_from_custom_tool_set(mocker, tmp_pat
 
     assert code == 0
     assert captured["pipeline_mode"] == "FreeSurfer 8 + Volume + Cortical Thickness"
+
+
+def test_job_worker_main_sets_stopped_state_on_stop_requested(mocker, tmp_path) -> None:
+    import json
+    from pathlib import Path
+    job_worker = importlib.import_module("pipeline.job_worker")
+
+    config_file = tmp_path / "job_config.json"
+    config_file.write_text(json.dumps({"mode": "file", "input_file": "001.mgz", "output_dir": str(tmp_path / "out")}))
+    (tmp_path / "stop_requested").write_text("stop requested")
+
+    mocker.patch.object(job_worker, "_run_job", return_value=0)
+    code = job_worker.main(["--job-config", str(config_file)])
+
+    assert code == 0
+    status = json.loads((tmp_path / "job_status.json").read_text())
+    assert status["state"] == "stopped"
+    assert (tmp_path / "exit_code.txt").read_text().strip() == "0"
+
