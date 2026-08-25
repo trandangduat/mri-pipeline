@@ -105,7 +105,7 @@ export function BatchPieChart({
   const segments = [
     {count: success, color: '#1f8a65', key: 'success', label: `Finished: ${success}`}, // Semantic Success
     {count: failed, color: '#cf2d56', key: 'failed', label: `Failed: ${failed}`}, // Semantic Error
-    {count: interrupted, color: '#b45309', key: 'interrupted', label: `Interrupted: ${interrupted}`}, // Semantic Warn
+    {count: interrupted, color: '#f59e0b', key: 'interrupted', label: `Stopped: ${interrupted}`}, // Semantic Warn
     {count: running, color: '#0077b6', key: 'running', label: `Running: ${running}`}, // Primary
     {count: pending, color: '#cfcdc4', key: 'pending', label: `Pending: ${pending}`}, // Muted / Pending
   ].filter((s) => s.count > 0);
