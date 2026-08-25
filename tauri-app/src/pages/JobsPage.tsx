@@ -379,6 +379,7 @@ function JobCard({
 
 function JobsListView({
   jobs,
+  runtimeTarget,
   onSelectJob,
   onRefresh,
   isRefreshing,
@@ -387,6 +388,7 @@ function JobsListView({
   remoteLagging,
 }: {
   jobs: Record<string, unknown>[];
+  runtimeTarget?: string;
   onSelectJob: (jobId: string) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
@@ -397,86 +399,102 @@ function JobsListView({
   const sortedJobs = sortJobsByStartedAtDesc(jobs);
   const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
   const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
+  const isServerFirst = runtimeTarget === 'Server';
+
+  const refreshButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onRefresh}
+      disabled={isRefreshing}
+      className="h-8 px-3 text-xs font-medium border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
+    >
+      {isRefreshing ? (
+        <>
+          <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
+        </>
+      ) : (
+        <>
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
+        </>
+      )}
+    </Button>
+  );
+
+  const localSection = (
+    <section key="local-jobs">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-1.5">
+          <HardDrive className="h-4 w-4 text-cursor-primary" />
+          <h2 className="text-base font-semibold text-cursor-ink">Local Jobs ({localJobs.length})</h2>
+        </div>
+        {!isServerFirst && refreshButton}
+      </div>
+
+      {localJobs.length === 0 ? (
+        <p className="text-xs italic text-cursor-muted mt-1">
+          No local jobs found. Run a local pipeline to start.
+        </p>
+      ) : (
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+          {localJobs.map((j) => (
+            <JobCard
+              key={String(j.job_id || j.display_name)}
+              job={j}
+              onClick={() => onSelectJob(String(j.job_id))}
+              onDelete={() => onDeleteJob(j)}
+              deleting={deletingJobId === String(j.job_id)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
+  const serverSection = (
+    <section key="server-jobs">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-1.5">
+          <Server className="h-4 w-4 text-cursor-primary" />
+          <h2 className="text-base font-semibold text-cursor-ink">Server Jobs ({serverJobs.length})</h2>
+        </div>
+        {isServerFirst && refreshButton}
+      </div>
+
+      {serverJobs.length === 0 ? (
+        <p className="text-xs italic text-cursor-muted mt-1">
+          No server jobs found. Connect SSH and start a remote pipeline.
+        </p>
+      ) : (
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
+          {serverJobs.map((j) => (
+            <JobCard
+              key={String(j.job_id || j.display_name)}
+              job={j}
+              onClick={() => onSelectJob(String(j.job_id))}
+              onDelete={() => onDeleteJob(j)}
+              deleting={deletingJobId === String(j.job_id)}
+              lagging={remoteLagging}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <div className="h-full w-full overflow-y-auto p-4 flex flex-col gap-4 text-cursor-ink">
-      {/* Local Jobs Section */}
-      <section>
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="flex items-center gap-1.5">
-            <HardDrive className="h-4 w-4 text-cursor-primary" />
-            <h2 className="text-base font-semibold text-cursor-ink">Local Jobs</h2>
-            <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
-              {localJobs.length}
-            </span>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="h-7 px-2 text-xs font-medium border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft"
-          >
-            {isRefreshing ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Refreshing...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-3 w-3 mr-1" /> Refresh
-              </>
-            )}
-          </Button>
-        </div>
-
-        {localJobs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-4 text-center text-xs text-cursor-muted">
-            No local jobs found. Run a local pipeline to start.
-          </div>
-        ) : (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
-            {localJobs.map((j) => (
-              <JobCard
-                key={String(j.job_id || j.display_name)}
-                job={j}
-                onClick={() => onSelectJob(String(j.job_id))}
-                onDelete={() => onDeleteJob(j)}
-                deleting={deletingJobId === String(j.job_id)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Server Jobs Section */}
-      <section>
-        <div className="flex items-center gap-1.5 mb-2">
-          <Server className="h-4 w-4 text-cursor-primary" />
-          <h2 className="text-base font-semibold text-cursor-ink">Server Jobs</h2>
-          <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-2 py-0.25 text-2xs font-semibold text-cursor-ink">
-            {serverJobs.length}
-          </span>
-        </div>
-
-        {serverJobs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-4 text-center text-xs text-cursor-muted">
-            No server jobs found. Connect SSH and start a remote pipeline.
-          </div>
-        ) : (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
-            {serverJobs.map((j) => (
-              <JobCard
-                key={String(j.job_id || j.display_name)}
-                job={j}
-                onClick={() => onSelectJob(String(j.job_id))}
-                onDelete={() => onDeleteJob(j)}
-                deleting={deletingJobId === String(j.job_id)}
-                lagging={remoteLagging}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {isServerFirst ? (
+        <>
+          {serverSection}
+          {localSection}
+        </>
+      ) : (
+        <>
+          {localSection}
+          {serverSection}
+        </>
+      )}
     </div>
   );
 }
@@ -1039,6 +1057,7 @@ export function JobsPage() {
       <>
         <JobsListView
           jobs={jobsList}
+          runtimeTarget={formValues.runtimeTarget}
           onSelectJob={(id) => {
             setSelectedJobId(id);
             navigate(`/jobs/${encodeURIComponent(id)}`);

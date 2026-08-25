@@ -259,7 +259,7 @@ test('deriveImageSteps keeps unexecuted stages as pending when subject only part
   expect(steps[2].status).toBe('pending');
 });
 
-test('deriveBatchImages reconciles running/pending images to failed when job is stopped', () => {
+test('deriveBatchImages reconciles running/pending images to interrupted when job is stopped', () => {
   const job = {state: 'stopped'};
   const events = [
     {kind: 'image_start', input_file: 'a.nii', idx: 1, total: 2},
@@ -267,8 +267,8 @@ test('deriveBatchImages reconciles running/pending images to failed when job is 
   ];
   const images = deriveBatchImages(events, job);
   expect(images.length).toBe(2);
-  expect(images[0].status).toBe('failed');
-  expect(images[1].status).toBe('failed');
+  expect(images[0].status).toBe('interrupted');
+  expect(images[1].status).toBe('interrupted');
 });
 
 test('deriveBatchImages marks subject as failed if image_done event has success=true but log_text only ran partial stages', () => {

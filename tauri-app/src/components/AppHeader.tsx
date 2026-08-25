@@ -365,9 +365,6 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         >
           <Activity className="h-3.5 w-3.5" />
           <span>Jobs Monitor</span>
-          <span className="ml-0.5 inline-flex items-center rounded-full bg-cursor-surface-strong px-1.5 py-0.25 text-2xs font-semibold text-cursor-ink">
-            {jobsCount}
-          </span>
         </button>
       </nav>
 

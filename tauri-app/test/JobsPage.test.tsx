@@ -60,13 +60,13 @@ describe('JobsPage Redesign', () => {
   it('renders Jobs Overview list with Local Jobs and Server Jobs sections when no job is selected', () => {
     renderJobsPage('/jobs');
 
-    expect(screen.getByText('Local Jobs')).toBeDefined();
-    expect(screen.getByText('Server Jobs')).toBeDefined();
+    expect(screen.getByText(/Local Jobs \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Server Jobs \(1\)/)).toBeInTheDocument();
 
     // Check job cards exist
-    expect(screen.getByText('job_local_01')).toBeDefined();
-    expect(screen.getByText('job_local_02')).toBeDefined();
-    expect(screen.getByText('job_server_01')).toBeDefined();
+    expect(screen.getByText('job_local_01')).toBeInTheDocument();
+    expect(screen.getByText('job_local_02')).toBeInTheDocument();
+    expect(screen.getByText('job_server_01')).toBeInTheDocument();
   });
 
   it('navigates to job detail view when a job card is clicked', () => {
@@ -88,8 +88,32 @@ describe('JobsPage Redesign', () => {
     fireEvent.click(backButton);
 
     // Should return to the overview list
-    expect(screen.getByText('Local Jobs')).toBeDefined();
-    expect(screen.getByText('Server Jobs')).toBeDefined();
+    expect(screen.getByText(/Local Jobs \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Server Jobs \(1\)/)).toBeInTheDocument();
+  });
+
+  it('renders Server Jobs section first when runtimeTarget is Server', async () => {
+    const {usePipelineFormStore} = await import('../src/stores/pipelineFormStore');
+    usePipelineFormStore.setState({
+      formValues: {
+        ...usePipelineFormStore.getState().formValues,
+        runtimeTarget: 'Server',
+      },
+    });
+
+    renderJobsPage('/jobs');
+
+    const headings = screen.getAllByRole('heading', {level: 2});
+    expect(headings[0].textContent).toContain('Server Jobs (1)');
+    expect(headings[1].textContent).toContain('Local Jobs (2)');
+
+    // Reset back to Local
+    usePipelineFormStore.setState({
+      formValues: {
+        ...usePipelineFormStore.getState().formValues,
+        runtimeTarget: 'Local',
+      },
+    });
   });
 
   it('renders clean h2 title and Preset row in metadata table for single job view', () => {

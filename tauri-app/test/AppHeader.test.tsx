@@ -44,13 +44,13 @@ function renderHeader(props: {
   );
 }
 
-test('renders all 3 horizontal tabs with jobs count badge', () => {
+test('renders all 3 horizontal tabs without jobs count badge', () => {
   renderHeader({jobsCount: 42});
 
   expect(screen.getByText('Pipeline Configuration')).toBeInTheDocument();
   expect(screen.getByText('Tools Configuration')).toBeInTheDocument();
   expect(screen.getByText('Jobs Monitor')).toBeInTheDocument();
-  expect(screen.getByText('42')).toBeInTheDocument();
+  expect(screen.queryByText('42')).toBeNull();
 });
 
 test('triggers onSelectTab callback when clicking tabs', async () => {
