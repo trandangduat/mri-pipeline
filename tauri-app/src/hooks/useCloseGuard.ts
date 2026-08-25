@@ -8,9 +8,15 @@ import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUploadStore} from '../stores/uploadStore';
 
+function hasTauriInternals() {
+  if (typeof window === 'undefined') return false;
+  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
+  return typeof internals?.invoke === 'function';
+}
+
 export function useCloseGuard(enabled: boolean) {
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !hasTauriInternals()) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
 
