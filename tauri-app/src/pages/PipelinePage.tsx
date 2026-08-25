@@ -8,6 +8,7 @@ import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/compon
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
 import {StartPipelineDialog} from '../components/StartPipelineDialog';
+import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient} from '../query/useEnvironment';
 import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemote';
@@ -1741,6 +1742,7 @@ function PathField({
   browseLabel = 'Browse',
   secondaryBrowse,
   required,
+  disabled = false,
 }: {
   id: string;
   label: string;
@@ -1755,25 +1757,28 @@ function PathField({
     title?: string;
   };
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <label className={labelCls}>
+    <label className={`${labelCls} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
       {label}
       <div className="flex gap-1.5">
         <input
           id={id}
           name={id}
           value={value}
-          placeholder={placeholder}
-          required={required}
+          placeholder={disabled ? 'Connect to server first' : placeholder}
+          required={required && !disabled}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className={`${inputCls} flex-1`}
+          className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''}`}
         />
         <button
           type="button"
           onClick={onBrowse}
-          title={browseLabel}
-          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+          title={disabled ? 'Connect to server first' : browseLabel}
+          disabled={disabled}
+          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {browseLabel}
         </button>
@@ -1781,8 +1786,9 @@ function PathField({
           <button
             type="button"
             onClick={secondaryBrowse.onClick}
-            title={secondaryBrowse.title ?? secondaryBrowse.label}
-            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft"
+            title={disabled ? 'Connect to server first' : (secondaryBrowse.title ?? secondaryBrowse.label)}
+            disabled={disabled}
+            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
           >
             {secondaryBrowse.label}
           </button>
@@ -1889,6 +1895,7 @@ export function InputOutputSection() {
   };
 
   // Modal states
+  const [dualPaneModal, setDualPaneModal] = React.useState(false);
   const [serverInputModal, setServerInputModal] = React.useState(false);
   const [serverStagingModal, setServerStagingModal] = React.useState(false);
   const [serverOutputModal, setServerOutputModal] = React.useState(false);
@@ -2015,10 +2022,18 @@ export function InputOutputSection() {
                 value={inputSource}
                 onChange={(v) => setFormField('inputSource', v)}
               />
-              {isServerSource && remoteConnected && (
-                <p className="text-2xs leading-[1.3] text-cursor-muted">
-                  Files stay on the server; no upload needed.
-                </p>
+              {!isLocal && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon={<Upload className="h-3.5 w-3.5" />}
+                    onClick={() => setDualPaneModal(true)}
+                    disabled={!remoteConnected}
+                  >
+                    Upload data to server
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -2085,32 +2100,9 @@ export function InputOutputSection() {
                 placeholder="~/mri-uploads"
                 onChange={(v) => setFormField('inputServerDir', v)}
                 onBrowse={() => setServerStagingModal(true)}
+                disabled={!remoteConnected}
                 required
               />
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  icon={uploadingStaging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  onClick={handleManualUploadToServer}
-                  disabled={!remoteConnected || !formValues.inputPath || !formValues.inputServerDir || uploadingStaging}
-                >
-                  {uploadingStaging ? 'Uploading...' : 'Upload data to server'}
-                </Button>
-                {uploadStatus && (
-                  <span
-                    className={`text-xs ${
-                      uploadStatus.type === 'error'
-                        ? 'text-cursor-semantic-error'
-                        : uploadStatus.type === 'success'
-                          ? 'text-cursor-semantic-success'
-                          : 'text-cursor-muted'
-                    }`}
-                  >
-                    {uploadStatus.message}
-                  </span>
-                )}
-              </div>
               <PathField
                 id="outputDir"
                 label="Output location (server)"
@@ -2118,6 +2110,7 @@ export function InputOutputSection() {
                 placeholder="/home/user/mri-outputs"
                 onChange={(v) => setFormField('outputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
+                disabled={!remoteConnected}
                 required
               />
             </div>
@@ -2184,6 +2177,7 @@ export function InputOutputSection() {
                 placeholder="/home/user/mri-data"
                 onChange={(v) => setFormField('inputPath', v)}
                 onBrowse={() => setServerInputModal(true)}
+                disabled={!remoteConnected}
                 required
               />
               <PathField
@@ -2193,6 +2187,7 @@ export function InputOutputSection() {
                 placeholder="/home/user/mri-outputs"
                 onChange={(v) => setFormField('outputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
+                disabled={!remoteConnected}
                 required
               />
             </div>
@@ -2321,6 +2316,23 @@ export function InputOutputSection() {
             setBatchModal(false);
           }}
           onClose={() => setBatchModal(false)}
+        />
+      )}
+
+      {/* Dual-Pane File Transfer Modal */}
+      {dualPaneModal && (
+        <DualPaneTransferModal
+          onClose={() => setDualPaneModal(false)}
+          remotePayload={remotePayload}
+          initialLocalPath={formValues.inputPath || ''}
+          initialRemotePath={formValues.inputServerDir || formValues.inputPath || '~'}
+          onSetInputLocation={(path) => {
+            if (inputSource === 'Local') {
+              setFormField('inputServerDir', path);
+            } else {
+              setFormField('inputPath', path);
+            }
+          }}
         />
       )}
     </>

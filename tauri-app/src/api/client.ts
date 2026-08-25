@@ -179,9 +179,15 @@ export class BackendClient {
   }
 
   async uploadStage(
-    payload: RemotePayload & {local_path: string; remote_path: string},
-  ): Promise<GenericResponse> {
-    return genericResponseSchema.parse(await this.post('/remote/jobs/upload/stage', {...payload}));
+    payload: RemotePayload & {local_path?: string; local_paths?: string[]; remote_path: string},
+  ): Promise<GenericResponse & {local_path?: string; local_paths?: string[]; remote_path?: string; uploaded_count?: number}> {
+    return genericResponseSchema.passthrough().parse(await this.post('/remote/jobs/upload/stage', {...payload})) as GenericResponse & {local_path?: string; local_paths?: string[]; remote_path?: string; uploaded_count?: number};
+  }
+
+  async remoteMkdir(
+    payload: RemotePayload & {path: string},
+  ): Promise<GenericResponse & {path?: string}> {
+    return genericResponseSchema.passthrough().parse(await this.post('/remote/mkdir', {...payload})) as GenericResponse & {path?: string};
   }
 
   async stopRemoteJob(
@@ -208,7 +214,12 @@ export class BackendClient {
     return remoteBrowseResponseSchema.parse(await this.post('/remote/browse', {...payload}));
   }
 
-  async browseLocalPath(payload: {path: string; max_depth?: number}): Promise<RemoteBrowseResponse> {
+  async browseLocalPath(payload: {
+    path: string;
+    purpose?: string;
+    recursive?: boolean;
+    max_depth?: number;
+  }): Promise<RemoteBrowseResponse> {
     return remoteBrowseResponseSchema.parse(await this.post('/local/browse', {...payload}));
   }
 

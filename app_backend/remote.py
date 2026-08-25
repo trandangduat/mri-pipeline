@@ -64,23 +64,63 @@ class RemoteJobService:
         config = parsed["config"]
         assert isinstance(config, RemoteRunConfig)
         local_path = str(data.get("local_path", "") or "").strip()
-        remote_path = str(data.get("remote_path", "") or "").strip()
-        if not local_path or not remote_path:
-            return {"ok": False, "error": "local_path and remote_path are required"}
-        local_p = Path(local_path).expanduser()
-        if not local_p.exists():
-            return {"ok": False, "error": f"Local path not found: {local_path}"}
+        local_paths_raw = data.get("local_paths")
+        if isinstance(local_paths_raw, list):
+            local_paths = [str(p).strip() for p in local_paths_raw if str(p).strip()]
+        elif local_path:
+            local_paths = [local_path]
+        else:
+            local_paths = []
+        remote_path = str(data.get("remote_path", "") or data.get("remote_dir", "") or "").strip()
+        if not local_paths or not remote_path:
+            return {"ok": False, "error": "local_paths (or local_path) and remote_path are required"}
+        
+        resolved_local_paths: list[Path] = []
+        for lp in local_paths:
+            p = Path(lp).expanduser()
+            if not p.exists():
+                return {"ok": False, "error": f"Local path not found: {lp}"}
+            resolved_local_paths.append(p)
+
         try:
             from remote.ssh_client import RemoteSSHClient
             with RemoteSSHClient(config.ssh, lambda _line: None) as ssh:
                 expanded_remote = ssh.expand_path(remote_path)
                 ssh.mkdir_p(expanded_remote)
-                if local_p.is_dir():
-                    ssh.upload_dir(local_p, expanded_remote)
-                else:
-                    dest = posixpath.join(expanded_remote, local_p.name)
-                    ssh.upload_file(local_p, dest)
-            return {"ok": True, "local_path": local_path, "remote_path": remote_path}
+                for local_p in resolved_local_paths:
+                    if local_p.is_dir():
+                        dest_dir = posixpath.join(expanded_remote, local_p.name)
+                        ssh.upload_dir(local_p, dest_dir)
+                    else:
+                        dest = posixpath.join(expanded_remote, local_p.name)
+                        ssh.upload_file(local_p, dest)
+            return {
+                "ok": True,
+                "local_path": str(resolved_local_paths[0]) if resolved_local_paths else "",
+                "local_paths": [str(p) for p in resolved_local_paths],
+                "remote_path": remote_path,
+                "uploaded_count": len(resolved_local_paths),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": _safe_error_message(exc, config)}
+
+    def remote_mkdir(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        path = str(data.get("path", "") or data.get("remote_path", "") or "").strip()
+        if not path:
+            return {"ok": False, "error": "path is required"}
+        if "\x00" in path:
+            return {"ok": False, "error": "Invalid path"}
+        try:
+            from remote.ssh_client import RemoteSSHClient
+            with RemoteSSHClient(config.ssh, lambda _line: None) as ssh:
+                expanded = ssh.expand_path(path)
+                ssh.mkdir_p(expanded)
+            return {"ok": True, "path": path}
         except Exception as exc:
             return {"ok": False, "error": _safe_error_message(exc, config)}
 
@@ -765,6 +805,8 @@ def _browse_via_sftp(ssh: object, path: str) -> dict[str, JsonValue]:
             "ok": True,
             "path": browse_dir,
             "parent": parent,
+            "dirs": dirs,
+            "files": files,
             "entries": dirs + files,
             "image_count": image_count,
         }
@@ -816,6 +858,8 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                 "ok": True,
                 "path": scan_root,
                 "parent": posixpath.dirname(scan_root),
+                "dirs": [],
+                "files": candidates,
                 "entries": candidates,
                 "image_count": 1,
                 "is_batch_scan": True,
@@ -898,6 +942,8 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
             "ok": True,
             "path": scan_root,
             "parent": posixpath.dirname(scan_root),
+            "dirs": [],
+            "files": candidates,
             "entries": candidates,
             "image_count": len(candidates),
             "is_batch_scan": True,

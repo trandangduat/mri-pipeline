@@ -43,11 +43,13 @@ def _file_stem(name: str) -> str:
 
 
 def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
-    """Scan a local directory for image-file candidates.
+    """Scan or list a local directory for files/directories or batch image candidates.
 
     Request fields:
-      path      – local directory to scan (required)
-      max_depth – int; 0 = direct files only, 1 = one level of subdirs, …
+      path        – local directory to scan (required)
+      purpose     – "browse" | "file_manager" | "batch"
+      recursive   – bool; if True run batch scan, if False run shallow listing
+      max_depth   – int; 0 = direct files only, 1 = one level of subdirs, …
     """
     raw_path = str(data.get("path", "") or "").strip()
     if not raw_path:
@@ -63,6 +65,114 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
 
     is_dir = os.path.isdir(expanded)
     scan_root = expanded if is_dir else os.path.dirname(expanded)
+
+    purpose = str(data.get("purpose", "") or "").strip()
+    recursive_flag = data.get("recursive")
+    if isinstance(recursive_flag, bool):
+        recursive = recursive_flag
+    elif isinstance(recursive_flag, str):
+        recursive = recursive_flag.lower() in ("true", "1", "yes")
+    elif purpose:
+        recursive = purpose == "batch"
+    else:
+        recursive = True if purpose not in ("browse", "file_manager") else False
+
+    parent = os.path.dirname(scan_root)
+    if parent == scan_root:
+        parent = scan_root
+
+    # Shallow directory listing for file manager / dual pane / directory browser
+    if not recursive or purpose in ("browse", "file_manager"):
+        dirs: list[dict[str, JsonValue]] = []
+        files: list[dict[str, JsonValue]] = []
+        image_count = 0
+
+        try:
+            with os.scandir(scan_root) as it:
+                raw_entries = sorted(list(it), key=lambda e: e.name.lower())
+        except OSError as exc:
+            return {"ok": False, "error": f"Cannot list directory: {exc}"}
+
+        for entry in raw_entries:
+            if len(dirs) + len(files) >= _BATCH_CANDIDATE_LIMIT:
+                break
+            name = entry.name
+            if not name or "\x00" in name:
+                continue
+            entry_path = entry.path
+            entry_path_obj = Path(entry_path)
+            try:
+                is_entry_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+
+            if is_entry_dir:
+                is_dcm = False
+                slice_cnt = None
+                total_sz = None
+                if _is_dicom_series_dir(entry_path_obj):
+                    is_dcm = True
+                    dicom_files = _dicom_files_in_series(entry_path_obj)
+                    slice_cnt = len(dicom_files)
+                    total_sz = 0
+                    for f in dicom_files:
+                        try:
+                            total_sz += int(f.stat().st_size)
+                        except OSError:
+                            pass
+                    image_count += 1
+
+                mtime = None
+                try:
+                    mtime = int(entry.stat(follow_symlinks=False).st_mtime)
+                except OSError:
+                    pass
+
+                dirs.append({
+                    "name": name,
+                    "path": entry_path,
+                    "kind": "directory",
+                    "size": total_sz if is_dcm else None,
+                    "modified_at": mtime,
+                    "selectable": True,
+                    "is_dicom_series": is_dcm,
+                    "slice_count": slice_cnt if is_dcm else None,
+                })
+            else:
+                is_img = _is_image_file(name)
+                if is_img:
+                    image_count += 1
+                sz = 0
+                mtime = None
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                    sz = int(st.st_size)
+                    mtime = int(st.st_mtime)
+                except OSError:
+                    pass
+
+                files.append({
+                    "name": name,
+                    "path": entry_path,
+                    "kind": "file",
+                    "size": sz,
+                    "modified_at": mtime,
+                    "selectable": is_img,
+                    "is_dicom_series": False,
+                })
+
+        dirs.sort(key=lambda e: str(e["name"]).lower())
+        files.sort(key=lambda e: str(e["name"]).lower())
+
+        return {
+            "ok": True,
+            "path": scan_root,
+            "parent": parent,
+            "dirs": dirs,
+            "files": files,
+            "entries": dirs + files,
+            "image_count": image_count,
+        }
 
     raw_depth = data.get("max_depth")
     try:
@@ -98,14 +208,16 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
             "relative_path": name,
             "subject_label": name,
             "depth": 0,
-            "parent": os.path.dirname(scan_root),
+            "parent": parent,
             "is_dicom_series": True,
             "slice_count": len(dicom_files),
         })
         return {
             "ok": True,
             "path": scan_root,
-            "parent": os.path.dirname(scan_root),
+            "parent": parent,
+            "dirs": [],
+            "files": candidates,
             "entries": candidates,
             "image_count": 1,
             "is_batch_scan": True,
@@ -199,7 +311,9 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
     return {
         "ok": True,
         "path": scan_root,
-        "parent": os.path.dirname(scan_root),
+        "parent": parent,
+        "dirs": [],
+        "files": candidates,
         "entries": candidates,
         "image_count": len(candidates),
         "is_batch_scan": True,

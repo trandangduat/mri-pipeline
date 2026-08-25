@@ -170,6 +170,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/browse":
             self._write_json(HTTPStatus.OK, self._remote_jobs().browse_path(payload))
             return
+        if self.path == "/remote/mkdir":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().remote_mkdir(payload))
+            return
         if self.path == "/local/browse":
             self._write_json(HTTPStatus.OK, browse_local_path(payload))
             return

@@ -66,7 +66,24 @@ export function useRemoteBrowseMutation() {
 export function useLocalBrowseMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: (payload: {path: string; max_depth?: number}) => client.browseLocalPath(payload),
+    mutationFn: (payload: {path: string; purpose?: string; recursive?: boolean; max_depth?: number}) =>
+      client.browseLocalPath(payload),
   });
 }
+
+export function useUploadStageMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (payload: RemotePayload & {local_path?: string; local_paths?: string[]; remote_path: string}) =>
+      client.uploadStage(payload),
+  });
+}
+
+export function useRemoteMkdirMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (payload: RemotePayload & {path: string}) => client.remoteMkdir(payload),
+  });
+}
+
 

@@ -512,3 +512,87 @@ def test_upload_stage(tmp_path, monkeypatch) -> None:
     assert len(uploaded_files) == 1
     assert uploaded_files[0][1] == "/home/alice/mri-uploads/sub-01_T1w.nii.gz"
 
+
+def test_upload_stage_multiple_paths(tmp_path, monkeypatch) -> None:
+    f1 = tmp_path / "img1.nii.gz"
+    f1.write_bytes(b"data1")
+    d1 = tmp_path / "sub-dir"
+    d1.mkdir()
+
+    uploaded: list[tuple[str, str]] = []
+
+    class FakeSSHUpload:
+        def __init__(self, _config, _on_log=None) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def expand_path(self, path: str) -> str:
+            return path.replace("~", "/home/alice")
+
+        def mkdir_p(self, path: str) -> None:
+            pass
+
+        def upload_file(self, local: str, dest: str) -> None:
+            uploaded.append(("file", dest))
+
+        def upload_dir(self, local: str, dest: str) -> None:
+            uploaded.append(("dir", dest))
+
+    monkeypatch.setattr("remote.ssh_client.RemoteSSHClient", FakeSSHUpload)
+
+    service = RemoteJobService()
+    result = service.upload_stage(
+        {
+            "host": "server",
+            "username": "alice",
+            "password": "secret",
+            "local_paths": [str(f1), str(d1)],
+            "remote_path": "~/mri-uploads",
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["uploaded_count"] == 2
+    assert ("file", "/home/alice/mri-uploads/img1.nii.gz") in uploaded
+    assert ("dir", "/home/alice/mri-uploads/sub-dir") in uploaded
+
+
+def test_remote_mkdir(monkeypatch) -> None:
+    created_dirs: list[str] = []
+
+    class FakeSSHMkdir:
+        def __init__(self, _config, _on_log=None) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def expand_path(self, path: str) -> str:
+            return path.replace("~", "/home/alice")
+
+        def mkdir_p(self, path: str) -> None:
+            created_dirs.append(path)
+
+    monkeypatch.setattr("remote.ssh_client.RemoteSSHClient", FakeSSHMkdir)
+
+    service = RemoteJobService()
+    res = service.remote_mkdir(
+        {
+            "host": "server",
+            "username": "alice",
+            "password": "secret",
+            "path": "~/data/new_folder",
+        }
+    )
+    assert res["ok"] is True
+    assert "/home/alice/data/new_folder" in created_dirs
+
+

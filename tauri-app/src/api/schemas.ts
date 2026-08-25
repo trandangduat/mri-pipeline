@@ -278,6 +278,8 @@ export const remoteBrowseResponseSchema = z.object({
   ok: z.boolean(),
   path: z.string().optional(),
   parent: z.string().optional(),
+  dirs: z.array(remoteBrowseEntrySchema).optional(),
+  files: z.array(remoteBrowseEntrySchema).optional(),
   entries: z.array(remoteBrowseEntrySchema).optional(),
   image_count: z.number().optional(),
   error: z.string().optional(),

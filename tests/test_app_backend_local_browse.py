@@ -115,3 +115,30 @@ def test_browse_local_path_detects_multi_subject_conflict(tmp_path: Path) -> Non
     assert result["ok"] is True
     assert result["image_count"] == 2
     assert result["has_multi_subject_conflict"] is True
+
+
+def test_browse_local_path_shallow_mode(tmp_path: Path) -> None:
+    folder = tmp_path / "shallow_test"
+    folder.mkdir()
+
+    sub_dir = folder / "subdir_a"
+    sub_dir.mkdir()
+
+    img_file = folder / "test.nii.gz"
+    img_file.write_bytes(b"nii_bytes")
+
+    txt_file = folder / "readme.txt"
+    txt_file.write_bytes(b"hello")
+
+    res = browse_local_path({"path": str(folder), "purpose": "browse", "recursive": False})
+    assert res["ok"] is True
+    assert res["path"] == str(folder.resolve())
+    assert len(res["dirs"]) == 1
+    assert res["dirs"][0]["name"] == "subdir_a"
+    assert res["dirs"][0]["kind"] == "directory"
+    assert len(res["files"]) == 2
+    filenames = [f["name"] for f in res["files"]]
+    assert "test.nii.gz" in filenames
+    assert "readme.txt" in filenames
+    assert len(res["entries"]) == 3
+
