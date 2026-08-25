@@ -1,5 +1,5 @@
 import React from 'react';
-import {CheckCircle2, XCircle, Circle, Loader2, Download, FolderOpen} from 'lucide-react';
+import {CheckCircle2, XCircle, Circle, Loader2, Download, FolderOpen, X} from 'lucide-react';
 import {cn} from '@/lib/utils';
 
 export interface DownloadStep {
@@ -61,7 +61,7 @@ export function DownloadOutputsDialog({
     phase === 'select'
       ? 'Download Server Outputs'
       : phase === 'running'
-        ? 'Copying Outputs...'
+        ? 'Downloading Outputs...'
         : phase === 'success'
           ? 'Download Complete'
           : 'Download Failed';
@@ -70,55 +70,69 @@ export function DownloadOutputsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && canClose) onClose();
       }}
     >
-      <div className="relative w-full max-w-[32rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
-        <h3 className="m-0 mb-0.5 text-base font-semibold leading-[1.3] text-cursor-ink">{title}</h3>
-        <p className="m-0 mb-3 text-xs text-cursor-muted">Remote job: <span className="font-mono break-all">{jobId}</span></p>
+      <div className="relative w-full max-w-[34rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 shadow-md">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 mb-5">
+          <div>
+            <h3 className="m-0 text-base font-semibold leading-tight text-cursor-ink">{title}</h3>
+            <p className="m-0 mt-1 text-xs text-cursor-muted">
+              Job: <span className="font-mono text-cursor-body">{jobId}</span>
+            </p>
+          </div>
+          {canClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-cursor-muted hover:text-cursor-ink transition-colors p-1 -mr-1 -mt-1 rounded-md cursor-pointer"
+              title="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
+        {/* Phase: Select destination */}
         {phase === 'select' && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1">Remote output path</label>
-              <div className="rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1.5 font-mono text-xs text-cursor-body break-all">
-                {remotePath || '(will use default remote output path)'}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-cursor-muted uppercase tracking-[0.06em] mb-1">Local destination folder</label>
-              <div className="flex gap-1.5">
+              <label className="block text-xs font-medium text-cursor-ink mb-1.5">
+                Save outputs to
+              </label>
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={localDir}
                   onChange={(e) => onLocalDirChange(e.target.value)}
                   placeholder="Select or type a local folder..."
-                  className="flex-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8 font-mono"
+                  className="flex-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10 font-mono"
+                  autoFocus
                 />
                 <button
                   type="button"
                   onClick={onBrowse}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas-soft transition-colors cursor-pointer flex-none"
                 >
-                  <FolderOpen className="h-3.5 w-3.5" />
+                  <FolderOpen className="h-4 w-4 text-cursor-muted" />
                   Browse
                 </button>
               </div>
               {webBrowseHint && (
-                <p className="m-0 mt-1 text-2xs text-cursor-primary">Type or paste a local folder path in this web preview.</p>
-              )}
-              <p className="m-0 mt-1 text-2xs text-cursor-muted">A job folder will be created inside this destination.</p>
-              {localDir.trim() && jobId && (
-                <p className="m-0 mt-0.5 text-2xs text-cursor-body font-mono">Final folder: {localDir.trim()}/{jobId}</p>
+                <p className="m-0 mt-1.5 text-2xs text-cursor-primary">
+                  Type or paste a local folder path in this environment.
+                </p>
               )}
             </div>
-            <div className="flex justify-end gap-1.5 pt-1.5">
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-cursor-hairline-soft">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-4 py-2 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -127,7 +141,7 @@ export function DownloadOutputsDialog({
                 onClick={onStart}
                 disabled={!localDir.trim()}
                 className={cn(
-                  'inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+                  'inline-flex items-center gap-1.5 rounded-md border px-4 py-2 text-xs font-medium transition-colors cursor-pointer',
                   localDir.trim()
                     ? 'border-cursor-primary bg-cursor-primary text-white hover:bg-cursor-primary-active'
                     : 'border-cursor-hairline bg-cursor-canvas text-cursor-muted cursor-not-allowed',
@@ -140,12 +154,15 @@ export function DownloadOutputsDialog({
           </div>
         )}
 
+        {/* Phase: Running download */}
         {phase === 'running' && (
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {totalFiles != null && totalFiles > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-cursor-body">{copiedFiles ?? 0} of {totalFiles} files</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs text-cursor-body">
+                    {copiedFiles ?? 0} of {totalFiles} files
+                  </span>
                   <span className="text-xs font-semibold text-cursor-primary">{pct}%</span>
                 </div>
                 <div className="w-full h-1.5 rounded-full bg-cursor-canvas border border-cursor-hairline overflow-hidden">
@@ -156,7 +173,7 @@ export function DownloadOutputsDialog({
                 </div>
               </div>
             )}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {steps.map((step) => (
                 <div key={step.id} className="flex items-start gap-2.5">
                   <div className="pt-0.5">
@@ -165,16 +182,16 @@ export function DownloadOutputsDialog({
                   <div className="flex-1 min-w-0">
                     <p
                       className={cn(
-                        'm-0 text-sm leading-[1.3]',
+                        'm-0 text-xs leading-normal',
                         step.status === 'pending' ? 'text-cursor-muted-soft' : 'font-medium text-cursor-ink',
                       )}
                     >
                       {step.label}
                     </p>
-                    {step.detail && (
+                    {step.detail && (step.id !== 'copy' || step.status === 'failed') && (
                       <p
                         className={cn(
-                          'm-0 mt-0.5 text-xs leading-[1.3]',
+                          'm-0 mt-0.5 text-2xs leading-normal break-all',
                           step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
                         )}
                       >
@@ -186,7 +203,7 @@ export function DownloadOutputsDialog({
               ))}
             </div>
             {logs.length > 0 && (
-              <div className="max-h-28 overflow-x-hidden overflow-y-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
+              <div className="max-h-24 overflow-x-hidden overflow-y-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
                 {logs.slice(-10).map((line, i) => (
                   <p key={i} className="m-0 font-mono text-2xs text-cursor-body leading-relaxed break-all whitespace-pre-wrap">{line}</p>
                 ))}
@@ -195,25 +212,27 @@ export function DownloadOutputsDialog({
           </div>
         )}
 
+        {/* Phase: Download Success */}
         {phase === 'success' && (
-          <div className="space-y-2.5">
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-4.5 w-4.5 flex-none text-cursor-semantic-success mt-0.5" />
-              <div>
-                <p className="m-0 text-sm font-medium text-cursor-ink">
-                  Copied {copiedFiles ?? 0} file{(copiedFiles ?? 0) === 1 ? '' : 's'} successfully.
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 flex-none text-cursor-semantic-success mt-0.5" />
+              <div className="space-y-1">
+                <p className="m-0 text-sm font-semibold text-cursor-ink">
+                  Downloaded {copiedFiles ?? 0} file{(copiedFiles ?? 0) === 1 ? '' : 's'} successfully
                 </p>
-                <p className="m-0 mt-1 text-xs text-cursor-muted">Local path:</p>
-                <div className="mt-1 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1.5 font-mono text-xs text-cursor-body break-all">
-                  {finalPath}
-                </div>
+                {finalPath && (
+                  <div className="mt-1.5 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1.5 font-mono text-xs text-cursor-body break-all">
+                    {finalPath}
+                  </div>
+                )}
               </div>
             </div>
-            <div className="flex justify-end pt-1.5">
+            <div className="flex justify-end pt-2 border-t border-cursor-hairline-soft">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-cursor-primary bg-cursor-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-cursor-primary-active transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-primary bg-cursor-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-cursor-primary-active transition-colors cursor-pointer"
               >
                 Close
               </button>
@@ -221,22 +240,23 @@ export function DownloadOutputsDialog({
           </div>
         )}
 
+        {/* Phase: Download Failed */}
         {phase === 'failed' && (
-          <div className="space-y-2.5">
-            <div className="flex items-start gap-2.5">
-              <XCircle className="h-4.5 w-4.5 flex-none text-cursor-semantic-error mt-0.5" />
-              <div>
-                <p className="m-0 text-sm font-medium text-cursor-ink">Download failed.</p>
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <XCircle className="h-5 w-5 flex-none text-cursor-semantic-error mt-0.5" />
+              <div className="space-y-1">
+                <p className="m-0 text-sm font-semibold text-cursor-ink">Download failed</p>
                 {errorMessage && (
                   <p className="m-0 mt-0.5 text-xs text-cursor-semantic-error break-all">{errorMessage}</p>
                 )}
               </div>
             </div>
-            <div className="flex justify-end gap-1.5 pt-1.5">
+            <div className="flex justify-end pt-2 border-t border-cursor-hairline-soft">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
+                className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-3.5 py-1.5 text-xs font-medium text-cursor-ink hover:bg-cursor-canvas transition-colors cursor-pointer"
               >
                 Close
               </button>
@@ -247,3 +267,4 @@ export function DownloadOutputsDialog({
     </div>
   );
 }
+

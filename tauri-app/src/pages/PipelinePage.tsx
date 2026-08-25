@@ -2104,11 +2104,11 @@ export function InputOutputSection() {
                 required
               />
               <PathField
-                id="outputDir"
+                id="serverOutputDir"
                 label="Output location (server)"
-                value={formValues.outputDir}
+                value={formValues.serverOutputDir || ''}
                 placeholder="/home/user/mri-outputs"
-                onChange={(v) => setFormField('outputDir', v)}
+                onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
                 required
@@ -2181,11 +2181,11 @@ export function InputOutputSection() {
                 required
               />
               <PathField
-                id="outputDir"
+                id="serverOutputDir"
                 label="Output location (server path)"
-                value={formValues.outputDir}
+                value={formValues.serverOutputDir || ''}
                 placeholder="/home/user/mri-outputs"
-                onChange={(v) => setFormField('outputDir', v)}
+                onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
                 required
@@ -2261,11 +2261,11 @@ export function InputOutputSection() {
         remoteConnected ? (
           <ServerBrowserModal
             title="Browse server - Output location"
-            initialPath={formValues.outputDir || '~'}
+            initialPath={formValues.serverOutputDir || '~'}
             remotePayload={remotePayload}
             selectMode="path"
             onConfirm={(p) => {
-              setFormField('outputDir', p);
+              setFormField('serverOutputDir', p);
               setServerOutputModal(false);
             }}
             onClose={() => setServerOutputModal(false)}

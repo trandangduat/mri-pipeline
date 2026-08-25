@@ -20,6 +20,7 @@ const baseProps = {
 test('select phase renders destination input and Start button disabled without path', () => {
   render(<DownloadOutputsDialog {...baseProps} />);
   expect(screen.getByText('Download Server Outputs')).toBeTruthy();
+  expect(screen.getByText('Save outputs to')).toBeTruthy();
   expect(screen.getByPlaceholderText('Select or type a local folder...')).toBeTruthy();
   expect(screen.getByText('Start Download')).toBeDisabled();
 });
@@ -27,16 +28,6 @@ test('select phase renders destination input and Start button disabled without p
 test('select phase enables Start button when localDir is set', () => {
   render(<DownloadOutputsDialog {...baseProps} localDir="/tmp/outputs" />);
   expect(screen.getByText('Start Download')).not.toBeDisabled();
-});
-
-test('select phase shows final folder preview when localDir and jobId are set', () => {
-  render(<DownloadOutputsDialog {...baseProps} localDir="/tmp/outputs" />);
-  expect(screen.getByText('Final folder: /tmp/outputs/remote_job_123')).toBeTruthy();
-});
-
-test('select phase does not show N/A for empty remote path', () => {
-  render(<DownloadOutputsDialog {...baseProps} remotePath="" />);
-  expect(screen.getByText('(will use default remote output path)')).toBeTruthy();
 });
 
 test('running phase renders progress counts and disables close/start', () => {
@@ -53,7 +44,7 @@ test('running phase renders progress counts and disables close/start', () => {
       totalFiles={5}
     />,
   );
-  expect(screen.getByText('Copying Outputs...')).toBeTruthy();
+  expect(screen.getByText('Downloading Outputs...')).toBeTruthy();
   expect(screen.getByText('3 of 5 files')).toBeTruthy();
   expect(screen.getByText('60%')).toBeTruthy();
   expect(screen.getByText('Connecting to server')).toBeTruthy();
@@ -70,7 +61,7 @@ test('success phase renders final path and file count', () => {
     />,
   );
   expect(screen.getByText('Download Complete')).toBeTruthy();
-  expect(screen.getByText('Copied 5 files successfully.')).toBeTruthy();
+  expect(screen.getByText('Downloaded 5 files successfully')).toBeTruthy();
   expect(screen.getByText('/tmp/outputs/remote_job_123')).toBeTruthy();
   expect(screen.getByText('Close')).toBeTruthy();
 });
@@ -84,7 +75,7 @@ test('failed phase renders error message', () => {
     />,
   );
   expect(screen.getByText('Download Failed')).toBeTruthy();
-  expect(screen.getByText('Download failed.')).toBeTruthy();
+  expect(screen.getByText('Download failed')).toBeTruthy();
   expect(screen.getByText('SSH connection failed')).toBeTruthy();
   expect(screen.getByText('Close')).toBeTruthy();
 });

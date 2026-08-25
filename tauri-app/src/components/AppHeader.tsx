@@ -176,6 +176,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         batch_image_count: fv.batchImageCount,
         batch_scan_mode: fv.batchScanMode || (fv.nonRecursive ? 'one-level' : 'recursive'),
         output_dir: fv.outputDir,
+        server_output_dir: fv.serverOutputDir || '',
         input_server_dir: fv.inputServerDir || '',
         pipeline_mode: fv.pipelineMode,
         device: fv.gpuMode === 'on' ? 'cuda' : 'cpu',

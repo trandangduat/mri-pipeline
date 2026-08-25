@@ -399,7 +399,6 @@ export function JobsPage() {
   const clearJobLog = useJobsStore((s) => s.clearJobLog);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
-  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
   const [showRawLog, setShowRawLog] = useState<boolean>(false);
   const [subjectViewMode, setSubjectViewMode] = useState<'grid' | 'list'>('grid');
@@ -471,7 +470,6 @@ export function JobsPage() {
           setJobEvents([]);
           setOutputText('Log stream is idle.');
           setActiveModalSubjectFile(null);
-          setDownloadNotice(null);
           setIsLoadingDetails(false);
         }
         return;
@@ -482,7 +480,6 @@ export function JobsPage() {
         setJobEvents([]);
         setOutputText('');
         setActiveModalSubjectFile(null);
-        setDownloadNotice(null);
       }
 
       const isRemote = String(targetJob?.target || 'Local') === 'Server';
@@ -778,7 +775,6 @@ export function JobsPage() {
       const remotePath =
         rawOutputDir && rawOutputDir !== 'N/A' ? rawOutputDir : remoteJobDir ? `${remoteJobDir}/outputs` : '';
       setDownloadDialogOpen(true);
-      setDownloadLocalDir(formValues.outputDir || '');
       setDownloadPhase('select');
       setDownloadSteps([]);
       setDownloadLogs([]);
@@ -788,12 +784,10 @@ export function JobsPage() {
       setDownloadError(undefined);
       setDownloadRunning(false);
       setWebBrowseHint(false);
-      setDownloadNotice(remotePath ? `Remote output path: ${remotePath}` : null);
     } else {
       const effDir = String(displayMeta.output_dir_str);
       const subDir = String(job?.download_subdir || '');
       const fullPath = subDir && subDir !== 'N/A' ? `${effDir}/${subDir}` : effDir;
-      setDownloadNotice(`Local output directory: ${fullPath}`);
       print('Download Outputs', {ok: true, output_path: fullPath, target: 'Local'});
     }
   };
@@ -868,7 +862,6 @@ export function JobsPage() {
             setDownloadFinalPath(data.local_path as string);
             setDownloadCopiedFiles(data.copied_files as number);
             setDownloadTotalFiles(data.total_files as number);
-            setDownloadNotice(`Downloaded to: ${data.local_path}`);
           } else {
             setDownloadPhase('failed');
             setDownloadError((data.error as string) || 'Download failed');
@@ -1310,13 +1303,6 @@ export function JobsPage() {
                 >
                   <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
                 </Button>
-              )}
-
-              {downloadNotice && (
-                <div className="flex items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-canvas px-2.5 py-1.5 text-xs text-cursor-body mt-0.5">
-                  <FileCheck className="h-3.5 w-3.5 text-cursor-semantic-success flex-none" />
-                  <span className="truncate">{downloadNotice}</span>
-                </div>
               )}
             </div>
           </Card>
