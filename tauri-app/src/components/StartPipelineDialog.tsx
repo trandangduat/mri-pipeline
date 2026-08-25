@@ -27,6 +27,16 @@ function StepIcon({status}: {status: PipelineStep['status']}) {
 
 export function StartPipelineDialog({open, onClose, steps, complete, success, errorMessage}: Props) {
   if (!open) return null;
+
+  const isDuplicateError =
+    Boolean(errorMessage) &&
+    steps.some(
+      (step) =>
+        step.status === 'failed' &&
+        Boolean(step.detail) &&
+        step.detail?.trim() === errorMessage?.trim(),
+    );
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
@@ -67,7 +77,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
             </div>
           ))}
         </div>
-        {errorMessage && (
+        {errorMessage && !isDuplicateError && (
           <p className="mt-2.5 text-xs text-cursor-semantic-error">{errorMessage}</p>
         )}
         {complete && (
