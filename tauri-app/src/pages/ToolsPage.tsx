@@ -318,7 +318,7 @@ export function ToolsPage() {
             </div>
           )}
 
-          {pullStream.status !== 'idle' && pullStream.logs.length > 0 && (
+          {pullStream.status !== 'idle' && (pullStream.logs.length > 0 || pullStream.status === 'failed') && (
             <div className="mt-3 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <code className="font-mono text-xs text-cursor-ink">{pullStream.image}</code>
@@ -327,10 +327,13 @@ export function ToolsPage() {
                     ? (pullStream.target === 'Server' ? 'Running in background' : 'Pulling')
                     : pullStream.status === 'success' ? 'Done' : 'Failed'}
                 </StatusPill>
-                {pullStream.status === 'failed' && pullStream.error && (
-                  <span className="text-xs text-cursor-semantic-error">{pullStream.error}</span>
-                )}
               </div>
+              {pullStream.status === 'failed' && pullStream.error && (
+                <div className="mb-1.5 flex items-start gap-1.5 rounded-md border border-cursor-semantic-error/30 bg-cursor-semantic-error/5 px-2.5 py-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 flex-none text-cursor-semantic-error mt-0.5" />
+                  <span className="text-xs leading-relaxed text-cursor-semantic-error">{pullStream.error}</span>
+                </div>
+              )}
               <pre className="max-h-28 overflow-auto rounded border border-cursor-hairline-soft bg-cursor-surface-card p-1.5 font-mono text-2xs leading-relaxed text-cursor-body">
                 {pullStream.logs.slice(-10).join('\n')}
               </pre>

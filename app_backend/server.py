@@ -245,6 +245,19 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._handle_tools_pull_stream(image)
             return
+        if self.path == "/tools/server/pull/status":
+            image = str(payload.get("image", "") or "")
+            if not image:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
+                return
+            remote = payload.get("remote") if isinstance(payload.get("remote"), dict) else None
+            try:
+                log_offset = int(payload.get("log_offset", 0) or 0)
+            except (TypeError, ValueError):
+                log_offset = 0
+            result = self._local_tools().server_pull_status(image, remote, log_offset=log_offset)
+            self._write_json(HTTPStatus.OK, result)
+            return
         if self.path == "/tools/local/remove":
             image = str(payload.get("image", "") or "")
             if not image:
@@ -423,24 +436,10 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
     def _handle_tools_pull_stream(self, image: str) -> None:
         self._write_sse_headers()
         try:
-            self._send_sse_event("step", {"step": "pull", "status": "running", "detail": f"Pulling {image}..."})
-            import subprocess
-            proc = subprocess.Popen(
-                ["docker", "pull", image],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            for line in proc.stdout:
-                line = line.strip()
-                if line:
-                    self._send_sse_event("step", {"step": "pull", "status": "running", "detail": line})
-            proc.wait()
-            if proc.returncode == 0:
-                self._send_sse_event("complete", {"ok": True})
-            else:
-                self._send_sse_event("complete", {"ok": False, "error": f"Pull failed (exit {proc.returncode})"})
+            from app_backend.pull_stream import pull_image_events
+
+            for event in pull_image_events(image):
+                self._send_sse_event(event["event"], event["data"])
         except Exception as exc:
             self._send_sse_event("step", {"step": "pull", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
