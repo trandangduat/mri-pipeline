@@ -151,3 +151,28 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     vi.unstubAllGlobals();
   }
 });
+
+test('shows warning modal when an active job is running on the target machine', async () => {
+  const {useJobsStore} = await import('../src/stores/jobsStore');
+  useJobsStore.getState().setLatestJobs([
+    {
+      job_id: 'job_active_1',
+      target: 'Local',
+      state: 'running',
+    },
+  ]);
+
+  const user = userEvent.setup();
+  renderHeader();
+
+  await user.click(screen.getByText('Start Pipeline'));
+
+  expect(screen.getByText('Job Already Running')).toBeInTheDocument();
+  expect(screen.getByText(/job_active_1/)).toBeInTheDocument();
+  expect(screen.getByText('Run Anyway')).toBeInTheDocument();
+  expect(screen.getByText('Cancel')).toBeInTheDocument();
+
+  // Clicking Cancel dismisses modal
+  await user.click(screen.getByText('Cancel'));
+  expect(screen.queryByText('Job Already Running')).not.toBeInTheDocument();
+});

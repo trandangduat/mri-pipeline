@@ -107,3 +107,19 @@ test('does not render when open is false', () => {
   render(<DownloadOutputsDialog {...baseProps} open={false} />);
   expect(screen.queryByText('Download Server Outputs')).toBeNull();
 });
+
+test('running phase renders logs with break-all and whitespace-pre-wrap classes', () => {
+  const longPath = 'Copying /very/long/nested/directory/structure/that/could/overflow/the/container/if/not/wrapped/output.nii.gz';
+  render(
+    <DownloadOutputsDialog
+      {...baseProps}
+      phase="running"
+      steps={[{id: 'copy', label: 'Copying outputs', status: 'running'}]}
+      logs={[longPath]}
+    />,
+  );
+  const logElement = screen.getByText(longPath);
+  expect(logElement).toBeTruthy();
+  expect(logElement.className).toContain('break-all');
+  expect(logElement.className).toContain('whitespace-pre-wrap');
+});

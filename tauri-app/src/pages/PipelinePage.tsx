@@ -1364,6 +1364,7 @@ function BatchConfigModal({
   cacheKey,
   batchScanCache,
   setBatchScanCache,
+  initialSelectedPaths,
 }: {
   inputSource: string;
   inputPath: string;
@@ -1376,6 +1377,7 @@ function BatchConfigModal({
   cacheKey: string;
   batchScanCache: BatchScanCache | null;
   setBatchScanCache: React.Dispatch<React.SetStateAction<BatchScanCache | null>>;
+  initialSelectedPaths?: string[];
 }) {
   const remoteBrowseMutation = useRemoteBrowseMutation();
   const localBrowseMutation = useLocalBrowseMutation();
@@ -1390,7 +1392,9 @@ function BatchConfigModal({
     cacheMatches ? batchScanCache!.entries : [],
   );
   const [selectedPaths, setSelectedPaths] = React.useState<Set<string>>(
-    cacheMatches ? new Set(batchScanCache!.selectedPaths) : new Set(),
+    cacheMatches
+      ? new Set(batchScanCache!.selectedPaths)
+      : new Set(initialSelectedPaths ?? []),
   );
   const [scanStatus, setScanStatus] = React.useState(cacheMatches ? batchScanCache!.status : '');
   const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'recursive');
@@ -1421,17 +1425,33 @@ function BatchConfigModal({
         setServerEntries(candidates);
         setHasConflict(res.has_multi_subject_conflict ?? false);
 
-        // Auto-select: all candidates whose subject_label is unique (exactly 1 image per folder)
+        // Auto-select: prioritize initialSelectedPaths if provided, otherwise all candidates with unique subject_label
+        const initialSet = new Set(initialSelectedPaths?.map((p) => p.trim()).filter(Boolean) ?? []);
+        const autoSelected = new Set<string>();
+        if (initialSet.size > 0) {
+          for (const e of candidates) {
+            if (
+              initialSet.has(e.path) ||
+              initialSet.has(e.name) ||
+              Array.from(initialSet).some((p) => p.endsWith(e.path) || e.path.endsWith(p))
+            ) {
+              autoSelected.add(e.path);
+            }
+          }
+        }
+
         const labelCounts = new Map<string, number>();
         for (const e of candidates) {
           const lbl = e.subject_label ?? e.name;
           labelCounts.set(lbl, (labelCounts.get(lbl) ?? 0) + 1);
         }
-        const autoSelected = new Set<string>();
-        for (const e of candidates) {
-          const lbl = e.subject_label ?? e.name;
-          if ((labelCounts.get(lbl) ?? 0) === 1) {
-            autoSelected.add(e.path);
+
+        if (autoSelected.size === 0) {
+          for (const e of candidates) {
+            const lbl = e.subject_label ?? e.name;
+            if ((labelCounts.get(lbl) ?? 0) === 1) {
+              autoSelected.add(e.path);
+            }
           }
         }
         setSelectedPaths(autoSelected);
@@ -1784,37 +1804,40 @@ function RadioGroup({
   disabled,
 }: {
   name: string;
-  options: {label: string; value: string; hint?: string}[];
+  options: {label: string; value: string; hint?: string; disabled?: boolean}[];
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      {options.map((opt) => (
-        <label
-          key={opt.value}
-          className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
-            value === opt.value
-              ? 'border-cursor-primary bg-cursor-canvas-soft'
-              : 'border-cursor-hairline bg-cursor-surface-card hover:border-cursor-hairline-strong'
-          } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
-        >
-          <input
-            type="radio"
-            name={name}
-            value={opt.value}
-            checked={value === opt.value}
-            disabled={disabled}
-            onChange={() => !disabled && onChange(opt.value)}
-            className="mt-0.5 h-3.5 w-3.5 flex-none accent-cursor-primary"
-          />
-          <span className="grid gap-0.25">
-            <span className="text-sm font-medium leading-[1.3] text-cursor-ink">{opt.label}</span>
-            {opt.hint && <span className="text-xs leading-[1.3] text-cursor-muted">{opt.hint}</span>}
-          </span>
-        </label>
-      ))}
+      {options.map((opt) => {
+        const itemDisabled = disabled || opt.disabled;
+        return (
+          <label
+            key={opt.value}
+            className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
+              value === opt.value
+                ? 'border-cursor-primary bg-cursor-canvas-soft'
+                : 'border-cursor-hairline bg-cursor-surface-card hover:border-cursor-hairline-strong'
+            } ${itemDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={opt.value}
+              checked={value === opt.value}
+              disabled={itemDisabled}
+              onChange={() => !itemDisabled && onChange(opt.value)}
+              className="mt-0.5 h-3.5 w-3.5 flex-none accent-cursor-primary"
+            />
+            <span className="grid gap-0.25">
+              <span className="text-sm font-medium leading-[1.3] text-cursor-ink">{opt.label}</span>
+              {opt.hint && <span className="text-xs leading-[1.3] text-cursor-muted">{opt.hint}</span>}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }
@@ -1824,6 +1847,7 @@ function RadioGroup({
 // ---------------------------------------------------------------------------
 
 export function InputOutputSection() {
+  const client = useClient();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
@@ -1837,6 +1861,32 @@ export function InputOutputSection() {
   const inputSource = formValues.inputSource as string;
   const isBatch = formValues.inputMode === 'batch_folder';
   const isServerSource = inputSource === 'Server';
+
+  // Manual staging upload state
+  const [uploadingStaging, setUploadingStaging] = React.useState(false);
+  const [uploadStatus, setUploadStatus] = React.useState<{type: 'info' | 'success' | 'error'; message: string} | null>(null);
+
+  const handleManualUploadToServer = async () => {
+    if (!remoteConnected || !formValues.inputPath || !formValues.inputServerDir) return;
+    setUploadingStaging(true);
+    setUploadStatus({type: 'info', message: 'Uploading to server...'});
+    try {
+      const res = await client.uploadStage({
+        ...remotePayload,
+        local_path: formValues.inputPath,
+        remote_path: formValues.inputServerDir,
+      });
+      if (res.ok) {
+        setUploadStatus({type: 'success', message: 'Data uploaded successfully.'});
+      } else {
+        setUploadStatus({type: 'error', message: res.error || 'Upload failed.'});
+      }
+    } catch (err: unknown) {
+      setUploadStatus({type: 'error', message: err instanceof Error ? err.message : 'Upload failed.'});
+    } finally {
+      setUploadingStaging(false);
+    }
+  };
 
   // Modal states
   const [serverInputModal, setServerInputModal] = React.useState(false);
@@ -1857,12 +1907,12 @@ export function InputOutputSection() {
   const localInputRef = React.useRef<HTMLInputElement | null>(null);
   const [localFileListLen, setLocalFileListLen] = React.useState(0);
 
-  // When runtime is Local, force source to Local
+  // When runtime is Local or remote is disconnected, force source to Local
   React.useEffect(() => {
-    if (isLocal && inputSource === 'Server') {
+    if ((isLocal || !remoteConnected) && inputSource === 'Server') {
       setFormField('inputSource', 'Local');
     }
-  }, [isLocal, inputSource, setFormField]);
+  }, [isLocal, remoteConnected, inputSource, setFormField]);
 
   // Input Mode radio options — map to existing backend inputMode values
   const inputModeOptions = [
@@ -1872,8 +1922,22 @@ export function InputOutputSection() {
 
   // Source radio options
   const sourceOptions = [
-    {label: 'Local', value: 'Local', hint: 'Files on this machine.'},
-    {label: 'Server', value: 'Server', hint: 'Files on the remote server.'},
+    {
+      label: 'Local',
+      value: 'Local',
+      hint: 'Files on this machine.',
+      disabled: false,
+    },
+    {
+      label: 'Server',
+      value: 'Server',
+      hint: isLocal
+        ? 'Available when Runtime target is Server.'
+        : !remoteConnected
+          ? 'Connect to server first.'
+          : 'Files on the remote server.',
+      disabled: isLocal || !remoteConnected,
+    },
   ];
 
   const handleLocalBrowseFile = async () => {
@@ -1950,7 +2014,6 @@ export function InputOutputSection() {
                 options={sourceOptions}
                 value={inputSource}
                 onChange={(v) => setFormField('inputSource', v)}
-                disabled={isLocal}
               />
               {isServerSource && remoteConnected && (
                 <p className="text-2xs leading-[1.3] text-cursor-muted">
@@ -2024,6 +2087,30 @@ export function InputOutputSection() {
                 onBrowse={() => setServerStagingModal(true)}
                 required
               />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon={uploadingStaging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  onClick={handleManualUploadToServer}
+                  disabled={!remoteConnected || !formValues.inputPath || !formValues.inputServerDir || uploadingStaging}
+                >
+                  {uploadingStaging ? 'Uploading...' : 'Upload data to server'}
+                </Button>
+                {uploadStatus && (
+                  <span
+                    className={`text-xs ${
+                      uploadStatus.type === 'error'
+                        ? 'text-cursor-semantic-error'
+                        : uploadStatus.type === 'success'
+                          ? 'text-cursor-semantic-success'
+                          : 'text-cursor-muted'
+                    }`}
+                  >
+                    {uploadStatus.message}
+                  </span>
+                )}
+              </div>
               <PathField
                 id="outputDir"
                 label="Output location (server)"
@@ -2216,6 +2303,11 @@ export function InputOutputSection() {
           cacheKey={batchCacheKey}
           batchScanCache={batchScanCache}
           setBatchScanCache={setBatchScanCache}
+          initialSelectedPaths={
+            formValues.additionalInputPaths
+              ? formValues.additionalInputPaths.split(',').map((s) => s.trim()).filter(Boolean)
+              : undefined
+          }
           onConfirm={(n, paths) => {
             // Update cache with final selections before closing
             setBatchScanCache((prev) =>

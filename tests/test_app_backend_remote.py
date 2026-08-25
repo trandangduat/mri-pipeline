@@ -465,3 +465,50 @@ def test_scan_batch_via_sftp_groups_dicom_series_and_computes_metadata(monkeypat
     assert sub2["is_dicom_series"] is True
     assert sub2["slice_count"] == 10
     assert sub2["size"] == 2000
+
+
+def test_upload_stage(tmp_path, monkeypatch) -> None:
+    local_file = tmp_path / "sub-01_T1w.nii.gz"
+    local_file.write_bytes(b"dummy mri data")
+
+    uploaded_files: list[tuple[str, str]] = []
+
+    class FakeSSHUpload:
+        def __init__(self, _config, _on_log=None) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def expand_path(self, path: str) -> str:
+            return path.replace("~", "/home/alice")
+
+        def mkdir_p(self, path: str) -> None:
+            pass
+
+        def upload_file(self, local: str, dest: str) -> None:
+            uploaded_files.append((str(local), dest))
+
+        def upload_dir(self, local: str, dest: str) -> None:
+            uploaded_files.append((str(local), dest))
+
+    monkeypatch.setattr("remote.ssh_client.RemoteSSHClient", FakeSSHUpload)
+
+    service = RemoteJobService()
+    result = service.upload_stage(
+        {
+            "host": "server",
+            "username": "alice",
+            "password": "secret",
+            "local_path": str(local_file),
+            "remote_path": "~/mri-uploads",
+        }
+    )
+
+    assert result["ok"] is True
+    assert len(uploaded_files) == 1
+    assert uploaded_files[0][1] == "/home/alice/mri-uploads/sub-01_T1w.nii.gz"
+

@@ -75,9 +75,9 @@ export function DownloadOutputsDialog({
         if (e.target === e.currentTarget && canClose) onClose();
       }}
     >
-      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+      <div className="relative w-full max-w-[32rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <h3 className="m-0 mb-0.5 text-base font-semibold leading-[1.3] text-cursor-ink">{title}</h3>
-        <p className="m-0 mb-3 text-xs text-cursor-muted">Remote job: <span className="font-mono">{jobId}</span></p>
+        <p className="m-0 mb-3 text-xs text-cursor-muted">Remote job: <span className="font-mono break-all">{jobId}</span></p>
 
         {phase === 'select' && (
           <div className="space-y-3">
@@ -186,9 +186,9 @@ export function DownloadOutputsDialog({
               ))}
             </div>
             {logs.length > 0 && (
-              <div className="max-h-28 overflow-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
+              <div className="max-h-28 overflow-x-hidden overflow-y-auto rounded-md border border-cursor-hairline bg-cursor-canvas-soft p-2">
                 {logs.slice(-10).map((line, i) => (
-                  <p key={i} className="m-0 font-mono text-2xs text-cursor-body leading-relaxed">{line}</p>
+                  <p key={i} className="m-0 font-mono text-2xs text-cursor-body leading-relaxed break-all whitespace-pre-wrap">{line}</p>
                 ))}
               </div>
             )}
@@ -228,7 +228,7 @@ export function DownloadOutputsDialog({
               <div>
                 <p className="m-0 text-sm font-medium text-cursor-ink">Download failed.</p>
                 {errorMessage && (
-                  <p className="m-0 mt-0.5 text-xs text-cursor-semantic-error">{errorMessage}</p>
+                  <p className="m-0 mt-0.5 text-xs text-cursor-semantic-error break-all">{errorMessage}</p>
                 )}
               </div>
             </div>

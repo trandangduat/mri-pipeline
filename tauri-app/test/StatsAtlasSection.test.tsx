@@ -127,9 +127,9 @@ describe('StatsAtlasSection', () => {
 
     renderStatsAtlas();
 
-    expect(screen.getByText('Subcortical Volume')).toBeInTheDocument();
-    expect(screen.getByText('Cortical Volume')).toBeInTheDocument();
-    expect(screen.getByText('Cortical Thickness')).toBeInTheDocument();
+    expect(screen.getByText(/Subcortical Volume/)).toBeInTheDocument();
+    expect(screen.getByText(/Cortical Volume/)).toBeInTheDocument();
+    expect(screen.getByText(/Cortical Thickness/)).toBeInTheDocument();
 
     expect(screen.getByText('FreeSurfer Aseg')).toBeInTheDocument();
     expect(screen.getByText('FreeSurfer Aparc')).toBeInTheDocument();

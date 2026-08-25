@@ -7,6 +7,7 @@ export interface PipelineFormValues {
   inputPath: string;
   additionalInputPaths: string;
   outputDir: string;
+  serverOutputDir?: string;
   inputServerDir: string;
   runtimeTarget: 'Local' | 'Server';
   ramPercent: number;
@@ -121,6 +122,9 @@ export function buildRunConfig(
           : [],
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
     output_dir: formValues.outputDir,
+    server_output_dir: formValues.runtimeTarget === 'Server'
+      ? (formValues.serverOutputDir || formValues.outputDir || '')
+      : '',
     input_server_dir: formValues.inputServerDir || '',
     pipeline_mode: mode,
     selected_tools: selectedTools,

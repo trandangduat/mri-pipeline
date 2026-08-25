@@ -56,6 +56,34 @@ class RemoteJobService:
         orchestrator.cancel()
         return {"ok": True, "cancelled": True}
 
+    def upload_stage(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        import posixpath
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        local_path = str(data.get("local_path", "") or "").strip()
+        remote_path = str(data.get("remote_path", "") or "").strip()
+        if not local_path or not remote_path:
+            return {"ok": False, "error": "local_path and remote_path are required"}
+        local_p = Path(local_path).expanduser()
+        if not local_p.exists():
+            return {"ok": False, "error": f"Local path not found: {local_path}"}
+        try:
+            from remote.ssh_client import RemoteSSHClient
+            with RemoteSSHClient(config.ssh, lambda _line: None) as ssh:
+                expanded_remote = ssh.expand_path(remote_path)
+                ssh.mkdir_p(expanded_remote)
+                if local_p.is_dir():
+                    ssh.upload_dir(local_p, expanded_remote)
+                else:
+                    dest = posixpath.join(expanded_remote, local_p.name)
+                    ssh.upload_file(local_p, dest)
+            return {"ok": True, "local_path": local_path, "remote_path": remote_path}
+        except Exception as exc:
+            return {"ok": False, "error": _safe_error_message(exc, config)}
+
     def request_remote_stop(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:
@@ -348,9 +376,6 @@ class RemoteJobService:
         # Step 7: Upload job config and license
         yield step_event("config", "running", "Uploading job configuration...")
 
-        # Step 8: Start remote worker
-        yield step_event("start", "running", "Starting remote worker...")
-
         if (
             run_request.get("pipeline_mode") == "Custom"
             and run_request.get("neuroflow_enabled")
@@ -404,76 +429,81 @@ class RemoteJobService:
         try:
             runner = self.runner_factory(remote_config)
             remote_job_dir = runner.upload_job()
-
             yield step_event("config", "done", "Job configuration uploaded")
+        except Exception as exc:
+            yield step_event("config", "failed", _safe_error_message(exc, remote_config))
+            yield complete_event(False, error=_safe_error_message(exc, remote_config))
+            return
 
-            yield step_event("license", "running", "Checking FreeSurfer license...")
-            license_ok, license_detail = runner.check_freesurfer_license()
-            if not license_ok:
-                yield step_event("license", "failed", license_detail)
-                yield complete_event(False, error=license_detail)
-                return
-            yield step_event("license", "done", license_detail)
+        yield step_event("license", "running", "Checking FreeSurfer license...")
+        license_ok, license_detail = runner.check_freesurfer_license()
+        if not license_ok:
+            yield step_event("license", "failed", license_detail)
+            yield complete_event(False, error=license_detail)
+            return
+        yield step_event("license", "done", license_detail)
 
-            # Step 8: Start remote worker
-            yield step_event("start", "running", "Starting remote worker...")
+        # Step 8: Start remote worker
+        yield step_event("start", "running", "Starting remote worker...")
+        try:
             runner.start_remote_detached()
             remote_status = runner.remote_status()
             yield step_event("start", "done", f"Worker started at {remote_job_dir}")
-
-            job_id = f"remote_{remote_job_dir.split('/')[-1]}"
-
-            if remote_config.lazy_upload and remote_config.neuroflow_enabled:
-                try:
-                    source_paths = runner.lazy_source_paths()
-                except Exception:
-                    source_paths = {}
-                self._start_lazy_uploads(
-                    job_id,
-                    runner,
-                    source_paths=source_paths,
-                    max_concurrent=int(remote_config.neuroflow_max_concurrent_tasks),
-                )
-
-            if self.register_remote_job is not None:
-                try:
-                    self.register_remote_job(
-                        job_id=job_id,
-                        remote_job_dir=remote_job_dir,
-                        state=str(remote_status.get("state", "running")),
-                        ssh_config={
-                            "host": remote_config.ssh.host,
-                            "port": remote_config.ssh.port,
-                            "username": remote_config.ssh.username,
-                            "password": remote_config.ssh.password,
-                            "key_path": remote_config.ssh.key_path,
-                        },
-                        run_request=run_request,
-                        started_at=float(remote_status.get("started_at", 0) or 0) or None,
-                        pid=remote_status.get("pid"),
-                    )
-                except Exception:
-                    pass
-
-            from app_backend.jobs import _make_run_request_summary
-
-            yield complete_event(True, job={
-                "job_id": job_id,
-                "target": "Server",
-                "state": remote_status.get("state", "running"),
-                "remote_job_dir": remote_job_dir,
-                "job_dir": remote_job_dir,
-                "started_at": remote_status.get("started_at"),
-                "pid": remote_status.get("pid"),
-                "output_dir": run_request.get("output_dir", ""),
-                "effective_output_dir": run_request.get("effective_output_dir", run_request.get("output_dir", "")),
-                "download_subdir": run_request.get("download_subdir", ""),
-                "input_files": run_request.get("input_files") or ([run_request.get("input_file")] if run_request.get("input_file") else []),
-                "run_request_summary": _make_run_request_summary(run_request),
-            })
         except Exception as exc:
-            yield step_event("start", "failed", _safe_error_message(exc))
-            yield complete_event(False, error=_safe_error_message(exc))
+            yield step_event("start", "failed", _safe_error_message(exc, remote_config))
+            yield complete_event(False, error=_safe_error_message(exc, remote_config))
+            return
+
+        job_id = f"remote_{remote_job_dir.split('/')[-1]}"
+
+        if remote_config.lazy_upload and remote_config.neuroflow_enabled:
+            try:
+                source_paths = runner.lazy_source_paths()
+            except Exception:
+                source_paths = {}
+            self._start_lazy_uploads(
+                job_id,
+                runner,
+                source_paths=source_paths,
+                max_concurrent=int(remote_config.neuroflow_max_concurrent_tasks),
+            )
+
+        if self.register_remote_job is not None:
+            try:
+                self.register_remote_job(
+                    job_id=job_id,
+                    remote_job_dir=remote_job_dir,
+                    state=str(remote_status.get("state", "running")),
+                    ssh_config={
+                        "host": remote_config.ssh.host,
+                        "port": remote_config.ssh.port,
+                        "username": remote_config.ssh.username,
+                        "password": remote_config.ssh.password,
+                        "key_path": remote_config.ssh.key_path,
+                    },
+                    run_request=run_request,
+                    started_at=float(remote_status.get("started_at", 0) or 0) or None,
+                    pid=remote_status.get("pid"),
+                )
+            except Exception:
+                pass
+
+        from app_backend.jobs import _make_run_request_summary
+
+        yield complete_event(True, job={
+            "job_id": job_id,
+            "target": "Server",
+            "state": "running",
+            "remote_job_dir": remote_job_dir,
+            "job_dir": remote_job_dir,
+            "started_at": float(remote_status.get("started_at", 0) or 0) or None,
+            "pid": remote_status.get("pid"),
+            "output_dir": remote_config.output_dir,
+            "effective_output_dir": remote_config.output_dir,
+            "download_subdir": remote_config.download_subdir,
+            "input_files": list(run_request.get("input_files") or ([run_request["input_file"]] if run_request.get("input_file") else [])),
+            "run_request_summary": _make_run_request_summary(run_request),
+        })
 
     def stream_download_outputs(self, data: dict[str, object]) -> Iterator[SSEEvent]:
         local_target_dir = str(data.get("local_target_dir", "") or "").strip()
@@ -952,11 +982,13 @@ def _ssh_key_error(key_path: str) -> str:
 def _safe_error_message(exc: Exception, config: RemoteRunConfig | None = None) -> str:
     message = str(exc).strip()
     if not message:
-        return "SSH connection failed"
+        return "An error occurred"
     if config is not None:
         for secret in (config.ssh.password, config.ssh.key_path):
             if secret:
                 message = message.replace(secret, "[redacted]")
+    if isinstance(exc, (FileNotFoundError, PermissionError, ValueError, KeyError)) or "Permission denied" in message:
+        return message
     return f"SSH connection failed: {message}"
 
 

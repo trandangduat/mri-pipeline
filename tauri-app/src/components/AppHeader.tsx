@@ -20,7 +20,7 @@ import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
-import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
+import {normalizeJob, normalizeJobState, normalizeJobTarget, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {AppTab} from '../stores/uiStore';
 
 export interface AppHeaderProps {
@@ -42,6 +42,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
 
   const remoteResult = useRemoteStore();
   const [starting, setStarting] = useState(false);
+  const [runningJobsWarning, setRunningJobsWarning] = useState<Record<string, unknown>[] | null>(null);
   const [workspaceInvalid, setWorkspaceInvalid] = useState(false);
   const workspaceFileInput = useRef<HTMLInputElement>(null);
 
@@ -70,7 +71,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
     appendOutput(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
   };
 
-  const handleStartPipeline = async () => {
+  const executeStartPipeline = async () => {
     setStarting(true);
     try {
       if (needsLicense && !formValues.licensePath) {
@@ -99,6 +100,24 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
     } finally {
       setStarting(false);
     }
+  };
+
+  const handleStartPipeline = async () => {
+    const latestJobs = useJobsStore.getState().latestJobs || [];
+    const currentTarget = formValues.runtimeTarget === 'Server' ? 'Server' : 'Local';
+    const activeJobs = latestJobs.filter((j) => {
+      const target = normalizeJobTarget(j.target);
+      const isTargetMatch = target === currentTarget;
+      const state = normalizeJobState(j.state || j.status);
+      return isTargetMatch && state === 'running';
+    });
+
+    if (activeJobs.length > 0) {
+      setRunningJobsWarning(activeJobs);
+      return;
+    }
+
+    await executeStartPipeline();
   };
 
   const handleDialogClose = () => {
@@ -379,6 +398,41 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
             <div className="mt-3 flex items-center justify-end">
               <Button variant="primary" onClick={() => setWorkspaceInvalid(false)}>
                 OK
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Active Running Job Warning Modal */}
+      {runningJobsWarning && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setRunningJobsWarning(null);
+          }}
+        >
+          <div className="relative w-full max-w-[28rem] rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+            <h3 className="m-0 mb-1.5 text-sm font-semibold leading-[1.3] text-cursor-ink">
+              Job Already Running
+            </h3>
+            <p className="m-0 break-words text-xs leading-relaxed text-cursor-body">
+              There {runningJobsWarning.length > 1 ? 'are active jobs' : 'is an active job'} currently running on target <span className="font-semibold text-cursor-ink">{formValues.runtimeTarget || 'Local'}</span> ({runningJobsWarning.map((j) => String(j.job_id || j.display_name || 'job')).join(', ')}). Starting another job may cause resource contention or conflicts.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setRunningJobsWarning(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setRunningJobsWarning(null);
+                  executeStartPipeline();
+                }}
+              >
+                Run Anyway
               </Button>
             </div>
           </div>

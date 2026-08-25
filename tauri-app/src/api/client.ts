@@ -178,6 +178,12 @@ export class BackendClient {
     return genericResponseSchema.parse(await this.post('/remote/jobs/upload/cancel', {...payload}));
   }
 
+  async uploadStage(
+    payload: RemotePayload & {local_path: string; remote_path: string},
+  ): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/remote/jobs/upload/stage', {...payload}));
+  }
+
   async stopRemoteJob(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string},
   ): Promise<GenericResponse> {

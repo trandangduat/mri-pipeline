@@ -1787,7 +1787,7 @@ export function JobsPage() {
         open={downloadDialogOpen}
         jobId={String(job?.job_id || '')}
         remotePath={(() => {
-          const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
+          const rawOutputDir = String(job?.server_output_dir || job?.remote_output_dir || job?.effective_output_dir || job?.output_dir || '');
           if (rawOutputDir && rawOutputDir !== 'N/A') return rawOutputDir;
           const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
           return remoteJobDir ? `${remoteJobDir}/outputs` : '';

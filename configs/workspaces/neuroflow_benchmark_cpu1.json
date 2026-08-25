@@ -13,13 +13,13 @@
     "/home/catcd1/ADNIDOD_T1/ADNIDOD/0074837/Sag_IR-SPGR/2014-12-11_14_27_07.0/I467585",
     "/home/catcd1/ADNIDOD_T1/ADNIDOD/0078643/Sag_IR-SPGR/2014-01-09_16_06_28.0/I404403",
     "/home/catcd1/ADNIDOD_T1/ADNIDOD/0078643/Sag_IR-SPGR/2015-01-27_11_57_40.0/I470602",
-    "/home/catcd1/ADNIDOD_T1/ADNIDOD/0079847/Sag_IR-SPGR/2014-01-07_12_07_29.0/I404156",
+    "/home/catcd1/ADNIDOD_T1/ADNIDOD/0020006/Sag_IR-SPGR/2014-08-15_09_42_34.0/I439851",
     "/home/catcd1/ADNIDOD_T1/ADNIDOD/0080428/Sag_IR-SPGR/2016-04-14_14_57_06.0/I685203",
     "/home/catcd1/ADNIDOD_T1/ADNIDOD/0084739/Sag_IR-SPGR/2014-01-09_13_26_12.0/I404294"
   ],
   "batch_image_count": 10,
   "batch_scan_mode": "selected",
-  "output_dir": "/home/trandangduat/mri-pipeline/outputs/neuroflow_benchmark_cpu1",
+  "output_dir": "/home/catcd1/neuroflow-benchmark/outputs/neuroflow_benchmark_cpu1",
   "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
   "device": "cpu",
   "threads": 1,
@@ -59,6 +59,6 @@
     "username": "catcd1",
     "python": "python3",
     "workspace": "~/neuroflow-benchmark",
-    "key_path": "/mnt/c/Users/ADMIN/.ssh/duat"
+    "key_path": "/home/trandangduat/.ssh/duat"
   }
 }

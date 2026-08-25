@@ -46,4 +46,26 @@ describe('workspace run config', () => {
       stats_extraction: 'fs8_reduced54_stats',
     });
   });
+
+  it('serializes server_output_dir when runtime target is Server', () => {
+    const configServer = buildRunConfig(
+      {
+        ...DEFAULT_FORM_VALUES,
+        runtimeTarget: 'Server',
+        outputDir: '/home/user/custom-outputs',
+      },
+      null,
+    );
+    expect(configServer.server_output_dir).toBe('/home/user/custom-outputs');
+
+    const configLocal = buildRunConfig(
+      {
+        ...DEFAULT_FORM_VALUES,
+        runtimeTarget: 'Local',
+        outputDir: '/home/user/local-outputs',
+      },
+      null,
+    );
+    expect(configLocal.server_output_dir).toBe('');
+  });
 });
