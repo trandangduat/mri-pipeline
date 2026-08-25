@@ -3,18 +3,21 @@ import {cva, type VariantProps} from 'class-variance-authority';
 import {cn} from '@/lib/utils';
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider transition-colors focus:outline-none font-mono',
+  'inline-flex items-center gap-1 rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] transition-colors focus:outline-none',
   {
     variants: {
       variant: {
-        default: 'border-[#0077b6]/20 bg-[#0077b6]/10 text-[#0077b6]',
-        secondary: 'border-[#e6e5e0] bg-[#f7f7f4] text-[#5a5852]',
-        outline: 'border-[#e6e5e0] bg-white text-[#26251e]',
-        success: 'border-emerald-200 bg-emerald-50/60 text-emerald-700',
-        running: 'border-blue-300 bg-blue-50/70 text-blue-700 animate-pulse',
-        destructive: 'border-rose-200 bg-rose-50/60 text-rose-700',
-        skipped: 'border-[#e6e5e0] bg-[#f7f7f4] text-[#807d72] opacity-70',
-        not_scheduled: 'border-[#e6e5e0] bg-[#f7f7f4] text-[#807d72] opacity-50 font-normal',
+        default: 'bg-cursor-primary/10 text-cursor-primary',
+        primary: 'bg-cursor-primary/10 text-cursor-primary',
+        secondary: 'bg-cursor-surface-strong/70 text-cursor-body',
+        outline: 'border border-cursor-hairline bg-cursor-surface-card text-cursor-ink',
+        success: 'bg-cursor-semantic-success/10 text-cursor-semantic-success',
+        running: 'bg-cursor-primary/10 text-cursor-primary animate-pulse',
+        destructive: 'bg-cursor-semantic-error/10 text-cursor-semantic-error',
+        error: 'bg-cursor-semantic-error/10 text-cursor-semantic-error',
+        warning: 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn',
+        skipped: 'bg-cursor-canvas-soft text-cursor-muted-soft opacity-70',
+        not_scheduled: 'bg-cursor-canvas-soft text-cursor-muted opacity-50 font-normal',
       },
     },
     defaultVariants: {

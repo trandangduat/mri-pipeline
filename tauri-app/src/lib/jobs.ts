@@ -9,7 +9,7 @@ export interface BatchImageItem {
   subject_id: string;
   idx: number;
   total: number;
-  status: 'pending' | 'running' | 'success' | 'failed';
+  status: 'pending' | 'running' | 'success' | 'failed' | 'interrupted';
   duration_sec?: number | undefined;
 }
 
@@ -19,6 +19,7 @@ export interface BatchSummary {
   failed: number;
   running: number;
   pending: number;
+  interrupted?: number;
   completedPercent: number;
 }
 
@@ -238,7 +239,13 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
         img.status = 'success';
       }
     });
-  } else if (normState === 'failed' || normState === 'stopped') {
+  } else if (normState === 'stopped') {
+    imagesMap.forEach((img) => {
+      if (img.status !== 'success') {
+        img.status = 'interrupted';
+      }
+    });
+  } else if (normState === 'failed') {
     imagesMap.forEach((img) => {
       if (img.status === 'running' || img.status === 'pending') {
         img.status = 'failed';
@@ -255,18 +262,20 @@ export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
   let failed = 0;
   let running = 0;
   let pending = 0;
+  let interrupted = 0;
 
   for (const img of images) {
     if (img.status === 'success') success++;
     else if (img.status === 'failed') failed++;
+    else if (img.status === 'interrupted') interrupted++;
     else if (img.status === 'running') running++;
     else pending++;
   }
 
-  const completed = success + failed;
+  const completed = success + failed + interrupted;
   const completedPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  return {total, success, failed, running, pending, completedPercent};
+  return {total, success, failed, running, pending, interrupted, completedPercent};
 }
 
 const STAGE_KEYWORD_MAP: Record<string, string[]> = {
@@ -532,7 +541,9 @@ export function deriveJobDisplayMetadata(job: AnyJob | null, events: PipelineEve
   }
 
   let status_reconciled = normState;
-  if (hasTerminalEvent) {
+  if (normState === 'stopped') {
+    status_reconciled = 'stopped';
+  } else if (hasTerminalEvent) {
     status_reconciled = hasFailedEvent || anyImageFailed ? 'failed' : 'completed';
   } else if (allImagesTerminal) {
     status_reconciled = anyImageFailed ? 'failed' : 'completed';

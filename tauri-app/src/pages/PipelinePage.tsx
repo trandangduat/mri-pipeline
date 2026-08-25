@@ -15,7 +15,7 @@ import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemot
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode} from '../api/runConfig';
+import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
@@ -1068,7 +1068,7 @@ function ServerBrowserModal({
 }: {
   title: string;
   initialPath: string;
-  remotePayload: Record<string, unknown>;
+  remotePayload: RemotePayload;
   selectMode: 'path' | 'files';
   onConfirm: (path: string) => void;
   onClose: () => void;
@@ -1374,11 +1374,11 @@ function BatchConfigModal({
   onClose: () => void;
   localFileListLen: number;
   isConnected: boolean;
-  remotePayload: Record<string, unknown>;
+  remotePayload: Record<string, unknown> | RemotePayload;
   cacheKey: string;
   batchScanCache: BatchScanCache | null;
   setBatchScanCache: React.Dispatch<React.SetStateAction<BatchScanCache | null>>;
-  initialSelectedPaths?: string[];
+  initialSelectedPaths?: string[] | undefined;
 }) {
   const remoteBrowseMutation = useRemoteBrowseMutation();
   const localBrowseMutation = useLocalBrowseMutation();
@@ -1860,7 +1860,7 @@ export function InputOutputSection() {
 
   // Remote connection state
   const remoteConnected = useRemoteStore((s) => s.connected);
-  const remotePayload = buildRemotePayload(formValues) as unknown as Record<string, unknown>;
+  const remotePayload = buildRemotePayload(formValues);
 
   // Derived helpers
   const isLocal = formValues.runtimeTarget === 'Local';

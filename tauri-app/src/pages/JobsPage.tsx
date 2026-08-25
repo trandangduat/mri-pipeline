@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Search,
   Server,
+  SlidersHorizontal,
   Square,
   Trash2,
   X,
@@ -71,6 +72,7 @@ function selectedDialogPath(selected: unknown) {
 export function BatchPieChart({
   success,
   failed,
+  interrupted = 0,
   running,
   pending,
   total,
@@ -78,22 +80,21 @@ export function BatchPieChart({
 }: {
   success: number;
   failed: number;
+  interrupted?: number;
   running: number;
   pending: number;
   total: number;
   size?: number;
 }) {
+  const [hovered, setHovered] = useState<{label: string; color: string} | null>(null);
   const radius = 44;
   const center = 50;
   const chartStyle = {width: `${size}px`, height: `${size}px`, minWidth: `${size}px`, minHeight: `${size}px`};
 
   if (total <= 0) {
     return (
-      <div
-        className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
-        style={chartStyle}
-      >
-        <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
+      <div className="relative flex items-center justify-center flex-none" style={chartStyle}>
+        <svg viewBox="0 0 100 100" className="block flex-none" style={chartStyle}>
           <circle cx={center} cy={center} r={radius} fill="#e6e5e0" />
         </svg>
       </div>
@@ -101,22 +102,39 @@ export function BatchPieChart({
   }
 
   const segments = [
-    {count: success, color: '#1f8a65', key: 'success'}, // Semantic Success
-    {count: failed, color: '#cf2d56', key: 'failed'}, // Semantic Error
-    {count: running, color: '#0077b6', key: 'running'}, // Primary
-    {count: pending, color: '#cfcdc4', key: 'pending'}, // Muted / Pending
+    {count: success, color: '#1f8a65', key: 'success', label: `Finished: ${success}`}, // Semantic Success
+    {count: failed, color: '#cf2d56', key: 'failed', label: `Failed: ${failed}`}, // Semantic Error
+    {count: interrupted, color: '#b45309', key: 'interrupted', label: `Interrupted: ${interrupted}`}, // Semantic Warn
+    {count: running, color: '#0077b6', key: 'running', label: `Running: ${running}`}, // Primary
+    {count: pending, color: '#cfcdc4', key: 'pending', label: `Pending: ${pending}`}, // Muted / Pending
   ].filter((s) => s.count > 0);
 
   // If only 1 category exists, render a full solid circle
   const singleSeg = segments.length === 1 ? segments[0] : undefined;
   if (singleSeg) {
     return (
-      <div
-        className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20"
-        style={chartStyle}
-      >
-        <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
-          <circle cx={center} cy={center} r={radius} fill={singleSeg.color} stroke="#ffffff" strokeWidth="1.5" />
+      <div className="relative flex items-center justify-center flex-none" style={chartStyle}>
+        {hovered && (
+          <div className="pointer-events-none absolute -top-7 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded bg-cursor-ink px-2 py-0.75 text-2xs font-medium text-cursor-canvas shadow-md transition-all">
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full" style={{backgroundColor: hovered.color}} />
+              <span>{hovered.label}</span>
+            </div>
+            <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-cursor-ink" />
+          </div>
+        )}
+        <svg viewBox="0 0 100 100" className="block flex-none" style={chartStyle}>
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill={singleSeg.color}
+            stroke="#ffffff"
+            strokeWidth="1.5"
+            className="cursor-pointer transition-opacity duration-200 hover:opacity-85"
+            onMouseEnter={() => setHovered({label: singleSeg.label, color: singleSeg.color})}
+            onMouseLeave={() => setHovered(null)}
+          />
         </svg>
       </div>
     );
@@ -145,14 +163,25 @@ export function BatchPieChart({
         fill={seg.color}
         stroke="#ffffff"
         strokeWidth="1.5"
-        className="transition-all duration-300"
+        className="cursor-pointer transition-all duration-200 hover:opacity-85"
+        onMouseEnter={() => setHovered({label: seg.label, color: seg.color})}
+        onMouseLeave={() => setHovered(null)}
       />
     );
   });
 
   return (
-    <div className="relative flex items-center justify-center flex-none w-20 h-20 min-w-20 min-h-20" style={chartStyle}>
-      <svg viewBox="0 0 100 100" className="w-20 h-20 min-w-20 min-h-20 block flex-none" style={chartStyle}>
+    <div className="relative flex items-center justify-center flex-none" style={chartStyle}>
+      {hovered && (
+        <div className="pointer-events-none absolute -top-7 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded bg-cursor-ink px-2 py-0.75 text-2xs font-medium text-cursor-canvas shadow-md transition-all">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full" style={{backgroundColor: hovered.color}} />
+            <span>{hovered.label}</span>
+          </div>
+          <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-cursor-ink" />
+        </div>
+      )}
+      <svg viewBox="0 0 100 100" className="block flex-none" style={chartStyle}>
         {paths}
       </svg>
     </div>
@@ -162,7 +191,8 @@ export function BatchPieChart({
 function jobStatusLabel(state: unknown): string {
   const normalized = normalizeJobState(state);
   if (normalized === 'completed') return 'Finished';
-  if (normalized === 'failed' || normalized === 'stopped') return 'Failed';
+  if (normalized === 'stopped') return 'Stopped';
+  if (normalized === 'failed') return 'Failed';
   if (normalized === 'running') return 'Running';
   return 'Unknown';
 }
@@ -170,24 +200,73 @@ function jobStatusLabel(state: unknown): string {
 function jobStatusBadgeClasses(state: unknown): string {
   const normalized = normalizeJobState(state);
   if (normalized === 'completed')
-    return 'text-cursor-semantic-success bg-cursor-semantic-success/10 border-cursor-semantic-success/20';
-  if (normalized === 'failed' || normalized === 'stopped')
-    return 'text-cursor-semantic-error bg-cursor-semantic-error/10 border-cursor-semantic-error/20';
-  if (normalized === 'running') return 'text-cursor-primary bg-cursor-primary/10 border-cursor-primary/20';
-  return 'text-cursor-muted bg-cursor-canvas-soft border-cursor-hairline';
+    return 'bg-cursor-semantic-success/10 text-cursor-semantic-success';
+  if (normalized === 'stopped')
+    return 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn';
+  if (normalized === 'failed')
+    return 'bg-cursor-semantic-error/10 text-cursor-semantic-error';
+  if (normalized === 'running')
+    return 'bg-cursor-primary/10 text-cursor-primary';
+  return 'bg-cursor-surface-strong/70 text-cursor-body';
+}
+
+function formatRelativeTime(timestampSeconds: number): string {
+  if (!timestampSeconds || timestampSeconds <= 0) return 'Not started';
+  const nowSec = Math.floor(Date.now() / 1000);
+  const diffSec = Math.max(0, nowSec - timestampSeconds);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`;
+  const diffYears = Math.floor(diffDays / 365);
+  return `${diffYears} ${diffYears === 1 ? 'year' : 'years'} ago`;
 }
 
 function jobBatchSummary(job: Record<string, unknown>): BatchSummary {
+  const normState = normalizeJobState(job.state);
   const raw = job.batch_summary;
   if (raw && typeof raw === 'object') {
     const summary = raw as Partial<BatchSummary>;
     const values = [summary.total, summary.success, summary.failed, summary.running, summary.pending];
     if (values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
-      const completed = Number(summary.success) + Number(summary.failed);
-      return {...(summary as BatchSummary), completedPercent: summary.total ? Math.round((completed / summary.total) * 100) : 0};
+      let success = Number(summary.success || 0);
+      let failed = Number(summary.failed || 0);
+      let running = Number(summary.running || 0);
+      let pending = Number(summary.pending || 0);
+      let interrupted = Number(summary.interrupted || 0);
+      const total = Number(summary.total || 0);
+
+      if (normState === 'stopped') {
+        interrupted = interrupted + running + pending;
+        running = 0;
+        pending = 0;
+        if (interrupted === 0 && failed > 0) {
+          interrupted = failed;
+          failed = 0;
+        } else if (interrupted === 0 && success === total && total > 0) {
+          interrupted = total;
+          success = 0;
+        }
+      }
+
+      const completed = success + failed + interrupted;
+      return {
+        total,
+        success,
+        failed,
+        running,
+        pending,
+        interrupted,
+        completedPercent: summary.total ? Math.round((completed / summary.total) * 100) : 0,
+      };
     }
   }
-  return {total: 0, success: 0, failed: 0, running: 0, pending: 0, completedPercent: 0};
+  return {total: 0, success: 0, failed: 0, running: 0, pending: 0, interrupted: 0, completedPercent: 0};
 }
 
 function JobCard({
@@ -233,62 +312,64 @@ function JobCard({
           onClick();
         }
       }}
-      className="group grid grid-cols-[5.5rem_minmax(0,1fr)] items-stretch gap-3 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group flex flex-col gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
-      <div className="flex min-h-full items-center justify-center rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-1" title="Batch summary">
-        <BatchPieChart {...batchSummary} size={80} />
-      </div>
-      <div className="flex min-w-0 flex-col justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <strong
-            className="min-w-0 flex-1 break-words text-sm font-semibold text-cursor-ink transition-colors group-hover:text-cursor-primary"
-            title={title}
+      {/* Top Header Row: Full Job Name + Status Badges */}
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <strong
+          className="min-w-0 flex-1 whitespace-nowrap text-sm font-semibold text-cursor-ink transition-colors group-hover:text-cursor-primary"
+          title={title}
+        >
+          {title}
+        </strong>
+        <div className="flex shrink-0 items-center gap-1">
+          {lagging && (
+            <span className="inline-flex items-center rounded bg-cursor-semantic-warn/10 text-cursor-semantic-warn px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em]">
+              Lagging
+            </span>
+          )}
+          <span
+            className={`inline-flex items-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] ${jobStatusBadgeClasses(normState)}`}
           >
-            {title}
-          </strong>
-          <div className="flex shrink-0 flex-wrap justify-end gap-1">
-            {lagging && (
-              <span className="inline-flex rounded-full border border-cursor-semantic-warn/30 bg-cursor-semantic-warn/10 px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] text-cursor-semantic-warn">
-                Lagging
-              </span>
-            )}
-            <span
-              className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.05em] ${jobStatusBadgeClasses(normState)}`}
-            >
-              {jobStatusLabel(normState)}
-            </span>
+            {jobStatusLabel(normState)}
+          </span>
+        </div>
+      </div>
+
+      {/* Body: Left Pie Chart + Right Details (Preset, Started, Actions) */}
+      <div className="relative flex items-center gap-3.5 border-t border-cursor-hairline-soft pt-2">
+        <div className="flex items-center justify-center shrink-0" title="Batch summary">
+          <BatchPieChart {...batchSummary} size={64} />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 pr-8">
+          <div className="flex items-center gap-1.5 text-xs text-cursor-body min-w-0" title={`Preset: ${mode}`}>
+            <SlidersHorizontal className="h-3.5 w-3.5 text-cursor-muted shrink-0" />
+            <span className="text-cursor-muted shrink-0 font-normal">Preset:</span>
+            <span className="font-medium text-cursor-ink truncate">{mode}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs text-cursor-body min-w-0" title={`Started: ${startedStr}`}>
+            <Clock className="h-3.5 w-3.5 text-cursor-muted shrink-0" />
+            <span className="text-cursor-muted shrink-0 font-normal">Started:</span>
+            <span className="font-medium text-cursor-ink truncate">{formatRelativeTime(startedAt)}</span>
           </div>
         </div>
 
-        <div className="flex items-center">
-          <span className="inline-flex max-w-full truncate rounded border border-cursor-hairline bg-cursor-canvas px-2 py-0.25 text-2xs font-medium text-cursor-body">
-            {mode}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-cursor-hairline-soft pt-1.5 text-xs text-cursor-muted">
-          <span className="flex items-center gap-1 font-mono text-2xs">
-            <Clock className="h-3 w-3" />
-            {startedStr}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label={`Delete ${title}`}
-              title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
-              disabled={normState === 'running' || deleting}
-              onClick={(event) => {
-                event.stopPropagation();
-                onDelete();
-              }}
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-cursor-muted transition-colors hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-            </button>
-            <span className="flex items-center gap-0.5 text-xs font-medium text-cursor-primary opacity-0 transition-opacity group-hover:opacity-100">
-              <ChevronRight className="h-3.5 w-3.5" />
-            </span>
-          </div>
+        {/* Bottom Right Actions */}
+        <div className="absolute right-0 bottom-0 flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={`Delete ${title}`}
+            title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
+            disabled={normState === 'running' || deleting}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex h-6.5 w-6.5 items-center justify-center rounded text-cursor-muted transition-colors hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+          >
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
     </div>
@@ -352,7 +433,7 @@ function JobsListView({
             No local jobs found. Run a local pipeline to start.
           </div>
         ) : (
-          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
             {localJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}
@@ -381,7 +462,7 @@ function JobsListView({
             No server jobs found. Connect SSH and start a remote pipeline.
           </div>
         ) : (
-          <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
             {serverJobs.map((j) => (
               <JobCard
                 key={String(j.job_id || j.display_name)}
@@ -429,9 +510,9 @@ export function JobsPage() {
 
   // Subject panel search, filter & modal state
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
-  const [subjectStatusFilter, setSubjectStatusFilter] = useState<'all' | 'success' | 'running' | 'failed' | 'pending'>(
-    'all',
-  );
+  const [subjectStatusFilter, setSubjectStatusFilter] = useState<
+    'all' | 'success' | 'running' | 'interrupted' | 'failed' | 'pending'
+  >('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
 
   // Download dialog state
@@ -1209,6 +1290,7 @@ export function JobsPage() {
                 <BatchPieChart
                   success={batchSummary.success}
                   failed={batchSummary.failed}
+                  interrupted={batchSummary.interrupted || 0}
                   running={batchSummary.running}
                   pending={batchSummary.pending}
                   total={batchSummary.total}
@@ -1221,6 +1303,15 @@ export function JobsPage() {
                     </div>
                     <span className="font-semibold text-cursor-ink font-mono">{batchSummary.success}</span>
                   </div>
+                  {Boolean(batchSummary.interrupted && batchSummary.interrupted > 0) && (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-warn flex-none" />
+                        <span className="text-cursor-ink text-xs font-medium">Stopped</span>
+                      </div>
+                      <span className="font-semibold text-cursor-ink font-mono">{batchSummary.interrupted}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-error flex-none" />
@@ -1386,8 +1477,12 @@ export function JobsPage() {
                 <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
               </label>
               <div className="flex flex-wrap items-center gap-1">
-                {(['all', 'success', 'running', 'failed', 'pending'] as const).map((st) => {
-                  const label = st === 'success' ? 'OK' : st;
+                {(
+                  Boolean(batchSummary.interrupted && batchSummary.interrupted > 0)
+                    ? (['all', 'success', 'running', 'interrupted', 'failed', 'pending'] as const)
+                    : (['all', 'success', 'running', 'failed', 'pending'] as const)
+                ).map((st) => {
+                  const label = st === 'success' ? 'OK' : st === 'interrupted' ? 'Stopped' : st;
                   const count =
                     st === 'all'
                       ? batchImages.length
@@ -1395,9 +1490,11 @@ export function JobsPage() {
                         ? batchSummary.success
                         : st === 'running'
                           ? batchSummary.running
-                          : st === 'failed'
-                            ? batchSummary.failed
-                            : batchSummary.pending;
+                          : st === 'interrupted'
+                            ? batchSummary.interrupted || 0
+                            : st === 'failed'
+                              ? batchSummary.failed
+                              : batchSummary.pending;
 
                   return (
                     <button
@@ -1492,17 +1589,19 @@ export function JobsPage() {
                             </span>
                           </div>
                           <span
-                            className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded-full flex-none ${
+                            className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded flex-none ${
                               img.status === 'success'
-                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10 border border-cursor-semantic-success/20'
+                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
                                 : img.status === 'failed'
-                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10 border border-cursor-semantic-error/20'
-                                  : img.status === 'running'
-                                    ? 'text-cursor-primary bg-cursor-primary/10 border border-cursor-primary/20'
-                                    : 'text-cursor-muted bg-cursor-canvas-soft border border-cursor-hairline'
+                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
+                                  : img.status === 'interrupted'
+                                    ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
+                                    : img.status === 'running'
+                                      ? 'text-cursor-primary bg-cursor-primary/10'
+                                      : 'text-cursor-muted bg-cursor-surface-strong/70'
                             }`}
                           >
-                            {img.status.toUpperCase()}
+                            {img.status === 'success' ? 'OK' : img.status === 'interrupted' ? 'STOPPED' : img.status.toUpperCase()}
                           </span>
                         </div>
 
@@ -1593,17 +1692,19 @@ export function JobsPage() {
                             <span className="text-xs text-cursor-ink">{currentStepText}</span>
                           </div>
                           <span
-                            className={`text-xs font-semibold uppercase tracking-[0.06em] min-w-[4rem] text-right ${
+                            className={`inline-flex items-center justify-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] min-w-[3.5rem] ${
                               img.status === 'success'
-                                ? 'text-cursor-semantic-success'
+                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
                                 : img.status === 'failed'
-                                  ? 'text-cursor-semantic-error'
-                                  : img.status === 'running'
-                                    ? 'text-cursor-primary'
-                                    : 'text-cursor-muted'
+                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
+                                  : img.status === 'interrupted'
+                                    ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
+                                    : img.status === 'running'
+                                      ? 'text-cursor-primary bg-cursor-primary/10'
+                                      : 'text-cursor-muted bg-cursor-surface-strong/70'
                             }`}
                           >
-                            {img.status.toUpperCase()}
+                            {img.status === 'success' ? 'OK' : img.status === 'interrupted' ? 'STOPPED' : img.status.toUpperCase()}
                           </span>
                         </div>
                       </button>
@@ -1837,14 +1938,14 @@ function StageStatusPill({status}: {status: string}) {
   const isSkipped = status === 'not_scheduled' || status === 'skipped';
   const cls =
     status === 'success'
-      ? 'border-cursor-semantic-success/20 bg-cursor-semantic-success/5 text-cursor-semantic-success'
+      ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success'
       : status === 'running'
-        ? 'border-cursor-primary/20 bg-cursor-primary/5 text-cursor-primary'
+        ? 'bg-cursor-primary/10 text-cursor-primary'
         : status === 'failed'
-          ? 'border-cursor-semantic-error/20 bg-cursor-semantic-error/5 text-cursor-semantic-error'
+          ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error'
           : isSkipped
-            ? 'border-cursor-hairline-soft bg-cursor-canvas-soft text-cursor-muted-soft'
-            : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted';
+            ? 'bg-cursor-canvas-soft text-cursor-muted-soft'
+            : 'bg-cursor-surface-strong/70 text-cursor-muted';
   const label =
     status === 'success'
       ? 'OK'
@@ -1857,7 +1958,7 @@ function StageStatusPill({status}: {status: string}) {
             : 'PENDING';
   return (
     <span
-      className={`inline-flex rounded-full border px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em] ${cls}`}
+      className={`inline-flex items-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] flex-none ${cls}`}
     >
       {label}
     </span>
@@ -1869,6 +1970,8 @@ function subjectAccentClasses(status: string) {
     return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
   if (status === 'failed')
     return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
+  if (status === 'interrupted')
+    return 'text-cursor-semantic-warn border-cursor-semantic-warn/25 bg-cursor-semantic-warn/5';
   if (status === 'running') return 'text-cursor-primary border-cursor-primary/25 bg-cursor-primary/5';
   return 'text-cursor-muted border-cursor-hairline bg-cursor-canvas-soft';
 }

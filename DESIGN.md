@@ -254,12 +254,12 @@ components:
     rounded: "{rounded.md}"
     padding: 12px 16px
     height: 44px
-  badge-pill:
-    backgroundColor: "{colors.surface-strong}"
-    textColor: "{colors.ink}"
+  badge-soft:
+    backgroundColor: "10% tint of token (e.g. {colors.primary}/10, {colors.semantic-success}/10)"
+    textColor: "{colors.primary} | {colors.semantic-success} | {colors.semantic-error} | {colors.semantic-warn}"
     typography: "{typography.caption-uppercase}"
-    rounded: "{rounded.pill}"
-    padding: 4px 10px
+    rounded: "{rounded.xs}"
+    padding: 2px 8px
   cta-band:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.ink}"
@@ -477,7 +477,12 @@ The system uses **hairline-only depth**. No drop shadows, no elevation tiers. Ca
 
 **`text-input`** — Background `{colors.surface-card}`, text `{colors.ink}`, rounded `{rounded.md}` (8px), padding 12px × 16px, height 44px.
 
-**`badge-pill`** — Small uppercase pill. Background `{colors.surface-strong}`, text `{colors.ink}`, type `{typography.caption-uppercase}`, rounded `{rounded.pill}`, padding 4px × 10px.
+**`badge-soft`** (Standard System Badge) — Compact soft-tint badge with 4px corner radius (`{rounded.xs}`), 10% background opacity, and full-color text. Typography uses `{typography.caption-uppercase}` (11px / 600 / tracking 0.06em), padding 2px × 8px.
+- **Primary** (`bg-[#0077b6]/10 text-[#0077b6]`): Running state, Scheduler tasks, Server target.
+- **Success** (`bg-[#1f8a65]/10 text-[#1f8a65]`): Finished, Ready, OK.
+- **Error** (`bg-[#cf2d56]/10 text-[#cf2d56]`): Failed, Missing, Error, Fail.
+- **Warning** (`bg-[#b45309]/10 text-[#b45309]`): Lagging, Warning, Stopped.
+- **Neutral** (`bg-[#cfcdc4]/40 text-[#5a5852]`): Pending, Skipped, Not scheduled.
 
 ### CTA / Footer
 

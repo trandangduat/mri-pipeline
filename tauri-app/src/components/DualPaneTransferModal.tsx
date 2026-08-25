@@ -610,7 +610,7 @@ export function DualPaneTransferModal({
               <div className="flex items-center gap-1">
                 {onSetInputLocation && (
                   <Button
-                    variant="secondary"
+                    variant="base"
                     className="h-6 px-2 text-2xs font-semibold text-cursor-primary"
                     onClick={handleSetInputLocation}
                     title="Apply current remote path to pipeline input"

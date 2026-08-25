@@ -47,21 +47,31 @@ export const ALERT = {
   },
 } as const;
 
+export const BADGE = {
+  base: 'inline-flex w-fit items-center gap-1 rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] transition-colors',
+  primary: 'bg-cursor-primary/10 text-cursor-primary',
+  success: 'bg-cursor-semantic-success/10 text-cursor-semantic-success',
+  error: 'bg-cursor-semantic-error/10 text-cursor-semantic-error',
+  warning: 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn',
+  neutral: 'bg-cursor-surface-strong/70 text-cursor-body',
+  muted: 'bg-cursor-hairline text-cursor-muted',
+} as const;
+
 export function statusPillClasses(state: string | null | undefined): string {
   const normalized = String(state || 'unknown').toLowerCase();
-  if (['installed', 'ok', 'completed', 'done', 'success'].includes(normalized)) {
-    return `${pillBase} bg-cursor-semantic-success text-white`;
+  if (['installed', 'ok', 'completed', 'done', 'success', 'ready'].includes(normalized)) {
+    return `${BADGE.base} ${BADGE.success}`;
   }
-  if (['missing', 'failed', 'error'].includes(normalized)) {
-    return `${pillBase} bg-cursor-semantic-error text-white`;
+  if (['missing', 'failed', 'error', 'fail'].includes(normalized)) {
+    return `${BADGE.base} ${BADGE.error}`;
   }
-  if (['running', 'checking'].includes(normalized)) {
-    return `${pillBase} bg-cursor-timeline-read text-cursor-ink`;
+  if (['running', 'checking', 'in_progress'].includes(normalized)) {
+    return `${BADGE.base} ${BADGE.primary}`;
   }
-  if (['downloading', 'editing'].includes(normalized)) {
-    return `${pillBase} bg-cursor-timeline-edit text-cursor-ink`;
+  if (['stopped', 'lagging', 'warn', 'warning'].includes(normalized)) {
+    return `${BADGE.base} ${BADGE.warning}`;
   }
-  return `${pillBase} bg-cursor-hairline text-cursor-body`;
+  return `${BADGE.base} ${BADGE.neutral}`;
 }
 
 export function statusDotClasses(state: string | null | undefined): string {
