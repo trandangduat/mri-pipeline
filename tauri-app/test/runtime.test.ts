@@ -206,18 +206,32 @@ test('runtimeLimitErrors accepts a healthy config', () => {
   expect(errors).toEqual([]);
 });
 
-test('sanitizeBoundedIntText keeps digits and caps at max', () => {
+test('sanitizeBoundedIntText keeps digits and snaps over-max to the 90% mark', () => {
   expect(sanitizeBoundedIntText('12a3', null)).toBe('123');
   expect(sanitizeBoundedIntText('', 100)).toBe('');
-  expect(sanitizeBoundedIntText('150', 100)).toBe('100');
+  expect(sanitizeBoundedIntText('150', 100)).toBe('90');
+  expect(sanitizeBoundedIntText('101', 100)).toBe('90');
+  expect(sanitizeBoundedIntText('100', 100)).toBe('100');
+  expect(sanitizeBoundedIntText('9', 8)).toBe('7');
+  expect(sanitizeBoundedIntText('8', 8)).toBe('8');
   expect(sanitizeBoundedIntText('7', 8)).toBe('7');
   expect(sanitizeBoundedIntText('009', 100)).toBe('9');
 });
 
-test('clampBoundedIntValue falls back and caps', () => {
+test('clampBoundedIntValue falls back and resolves over-max to the 90% mark', () => {
   expect(clampBoundedIntValue('', 80, 100)).toBe(80);
   expect(clampBoundedIntValue(0, 80, 100)).toBe(1);
-  expect(clampBoundedIntValue(250, 80, 100)).toBe(100);
+  expect(clampBoundedIntValue(250, 80, 100)).toBe(90);
   expect(clampBoundedIntValue(55, 80, 100)).toBe(55);
   expect(clampBoundedIntValue('abc', 4, 8)).toBe(4);
+  expect(clampBoundedIntValue(100, 7, 8)).toBe(7);
+});
+
+test('safeLimitMark computes 90% of a limit', async () => {
+  const {safeLimitMark} = await import('../src/lib/runtime');
+  expect(safeLimitMark(100)).toBe(90);
+  expect(safeLimitMark(8)).toBe(7);
+  expect(safeLimitMark(10)).toBe(9);
+  expect(safeLimitMark(1)).toBe(1);
+  expect(safeLimitMark(null)).toBe(null);
 });
