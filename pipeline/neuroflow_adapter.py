@@ -522,6 +522,7 @@ def run_neuroflow_batch(
             tracker=context.tracker,
             stage_idx=STAGE_ORDER.index(local_stage) if local_stage in STAGE_ORDER else None,
             total_stages=len(STAGE_ORDER),
+            should_stop=should_stop,
         )
         context.record_step(step, output_for_next, local_stage)
         runtime_ms = max(1, int(step.duration_sec * 1000))

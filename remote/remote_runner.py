@@ -1139,7 +1139,12 @@ class RemoteRunner:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             self.remote_job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
             stop_file = self._job_child_path(ssh, "stop_requested")
-            ssh.run(f"mkdir -p {shlex.quote(self.remote_job_dir)} && touch {shlex.quote(stop_file)}", stream=False, check=False)
+            ssh.run(
+                f"mkdir -p {shlex.quote(self.remote_job_dir)} && touch {shlex.quote(stop_file)}",
+                stream=False,
+                check=False,
+                timeout=self.config.ssh.timeout,
+            )
             self.on_log(f"Remote pause requested via stop file: {stop_file}")
 
     def download_outputs(self, local_target_dir: str | Path | None = None) -> Path:

@@ -100,9 +100,9 @@ class RemoteSSHClient:
             raise RuntimeError("SFTP client is not connected")
         return self._sftp
 
-    def run(self, command: str, stream: bool = True, check: bool = False) -> int:
+    def run(self, command: str, stream: bool = True, check: bool = False, timeout: float | None = None) -> int:
         self.on_log(f">>> {command}")
-        stdin, stdout, stderr = self.client.exec_command(command, get_pty=stream)
+        stdin, stdout, stderr = self.client.exec_command(command, get_pty=stream, timeout=timeout)
         if stream:
             for line in iter(stdout.readline, ""):
                 if line:

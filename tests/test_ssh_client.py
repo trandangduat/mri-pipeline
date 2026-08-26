@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import stat
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 from remote.ssh_client import RemoteSSHClient, SSHConfig
 
@@ -41,3 +42,18 @@ def test_download_dir_recursive_skips_remote_symlinks(tmp_path) -> None:
         ("/remote/output/aseg.stats", str(tmp_path / "aseg.stats"))
     ]
     assert "Skipping symlink: /remote/output/fsaverage" in logs
+
+
+def test_run_applies_command_timeout() -> None:
+    client = RemoteSSHClient(SSHConfig(host="example"))
+    transport = MagicMock()
+    stdout = MagicMock()
+    stderr = MagicMock()
+    stderr.read.return_value = b""
+    stdout.channel.recv_exit_status.return_value = 0
+    transport.exec_command.return_value = (MagicMock(), stdout, stderr)
+    client._client = transport
+
+    assert client.run("touch /tmp/stop", stream=False, timeout=15) == 0
+
+    transport.exec_command.assert_called_once_with("touch /tmp/stop", get_pty=False, timeout=15)

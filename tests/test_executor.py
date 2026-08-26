@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 from unittest.mock import MagicMock
 from pipeline.executor import LocalDockerExecutor, ExecutionRequest
@@ -74,3 +76,36 @@ def test_executor_command_generation(mocker):
     image_index = cmd_called.index("freesurfer/freesurfer:7.4.1")
     assert cmd_called[image_index + 1] == "recon-all"
     assert cmd_called[image_index + 2:] == ["-sd", "/out", "-s", "sub-01", "-all"]
+
+
+def test_executor_removes_running_container_when_stop_is_requested(mocker):
+    mock_popen = mocker.patch("pipeline.executor.subprocess.Popen")
+    mock_run = mocker.patch("pipeline.executor.subprocess.run")
+    mock_process = MagicMock()
+    mock_process.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd="docker run", timeout=0.5),
+        ("Stopped output", ""),
+    ]
+    mock_process.returncode = 137
+    mock_popen.return_value = mock_process
+    mocker.patch("pipeline.executor.threading.Thread.start")
+    mocker.patch("pipeline.executor.threading.Thread.join")
+
+    req = ExecutionRequest(
+        image="test/image",
+        args=[],
+        mounts=[],
+        container_name="mri-running-stage",
+        should_stop=lambda: True,
+    )
+
+    result = LocalDockerExecutor().execute(req)
+
+    mock_run.assert_called_once_with(
+        ["docker", "rm", "-f", "mri-running-stage"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.success is False
+    assert result.error == "stopped by request"

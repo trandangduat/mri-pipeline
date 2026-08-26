@@ -34,6 +34,7 @@ class ExecutionRequest:
     memory_bytes: int | None = None
     container_name: str | None = None
     timeout: int = 7200
+    should_stop: Callable[[], bool] | None = None
 
 @dataclass
 class ExecutionResult:
@@ -134,16 +135,32 @@ class LocalDockerExecutor(BaseExecutor):
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             monitor = threading.Thread(target=monitor_resources, daemon=True)
             monitor.start()
+            stopped = False
             try:
-                output, _ = proc.communicate(timeout=req.timeout)
-                return_code = proc.returncode
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                if req.container_name:
-                    subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
-                output, _ = proc.communicate()
-                output = f"{output or ''}\nDocker timed out after {req.timeout}s"
-                return_code = -1
+                deadline = t0 + req.timeout
+                while True:
+                    try:
+                        output, _ = proc.communicate(timeout=min(0.5, max(0.01, deadline - time.time())))
+                        return_code = proc.returncode
+                        break
+                    except subprocess.TimeoutExpired:
+                        if req.should_stop and req.should_stop():
+                            stopped = True
+                            if req.container_name:
+                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
+                            else:
+                                proc.kill()
+                            output, _ = proc.communicate(timeout=30)
+                            return_code = proc.returncode if proc.returncode is not None else -1
+                            break
+                        if time.time() >= deadline:
+                            proc.kill()
+                            if req.container_name:
+                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
+                            output, _ = proc.communicate()
+                            output = f"{output or ''}\nDocker timed out after {req.timeout}s"
+                            return_code = -1
+                            break
             finally:
                 stop_monitor.set()
                 monitor.join(timeout=2)
@@ -151,7 +168,7 @@ class LocalDockerExecutor(BaseExecutor):
             metrics = _resource_metrics(ram_samples, cpu_samples)
             return ExecutionResult(
                 success=(return_code == 0),
-                error="" if return_code == 0 else f"exit code {return_code}",
+                error="stopped by request" if stopped else ("" if return_code == 0 else f"exit code {return_code}"),
                 output=output or "",
                 duration_sec=time.time() - t0,
                 metrics=metrics,
