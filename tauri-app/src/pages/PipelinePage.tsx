@@ -17,6 +17,7 @@ import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
+import {buildPresetPayload, defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 
@@ -81,6 +82,21 @@ export function PipelineStepsSection() {
   const print = (label: string, payload: unknown) => {
     const output = useJobsStore.getState().appendOutput;
     output(`${label}\n${JSON.stringify(payload, null, 2)}\n\n`);
+  };
+
+  const handleSavePreset = async () => {
+    const payload = buildPresetPayload(metadata, formValues);
+    const selectedTools = payload.selected_tools as Record<string, string>;
+    if (!selectedTools || Object.keys(selectedTools).length === 0) {
+      print('Save preset', {ok: false, error: 'Select at least one pipeline tool before saving a preset.'});
+      return;
+    }
+    const result = await saveJsonAsDialog(defaultConfigName('neuroflow-preset'), payload);
+    if (result.ok) {
+      print('Saved preset file', {ok: true, path: result.path});
+    } else if (!result.cancelled) {
+      print('Save preset failed', {ok: false, error: result.error});
+    }
   };
 
   const handlePipelineModeChange = (mode: string) => {
@@ -204,7 +220,7 @@ export function PipelineStepsSection() {
           <Button
             variant="ghost"
             icon={<Save className="h-3.5 w-3.5" />}
-            onClick={() => print('Save preset', {ok: false, error: 'Preset save UI is not wired in this slice.'})}
+            onClick={handleSavePreset}
           >
             Save Preset
           </Button>

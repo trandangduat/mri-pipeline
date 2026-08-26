@@ -33,6 +33,21 @@ class ConfigStore:
     def list_presets(self) -> dict[str, JsonValue]:
         return self._list("preset")
 
+    def export_json(self, path: str, data: dict[str, object]) -> dict[str, JsonValue]:
+        raw = str(path or "").strip()
+        if not raw:
+            return {"ok": False, "error": "Export path is required"}
+        target = Path(raw).expanduser()
+        if target.suffix.lower() != ".json":
+            target = target.with_name(target.name + ".json")
+        payload = redact_passwords(_json_dict(data))
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write_json(target, payload)
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not write file: {exc}"}
+        return {"ok": True, "path": str(target)}
+
     def _save(self, subdir: str, config_type: str, name: str, data: dict[str, object]) -> dict[str, JsonValue]:
         config_name = _sanitize_name(name)
         if not config_name:
@@ -40,7 +55,7 @@ class ConfigStore:
         path = self._path(subdir, config_name)
         if path is None:
             return {"ok": False, "error": "Invalid config name"}
-        payload = _redact_passwords(_json_dict(data))
+        payload = redact_passwords(_json_dict(data))
         payload["type"] = config_type
         payload["name"] = config_name
         write_json(path, payload)
@@ -87,16 +102,16 @@ def _sanitize_name(name: str) -> str:
     return safe[:120]
 
 
-def _redact_passwords(value: JsonValue) -> JsonValue:
+def redact_passwords(value: JsonValue) -> JsonValue:
     if isinstance(value, list):
-        return [_redact_passwords(item) for item in value]
+        return [redact_passwords(item)]
     if isinstance(value, dict):
         redacted: dict[str, JsonValue] = {}
         for key, item in value.items():
             normalized = key.lower().replace("-", "_")
             if normalized == "password" or normalized.endswith("password") or normalized.endswith("_password"):
                 continue
-            redacted[key] = _redact_passwords(item)
+            redacted[key] = redact_passwords(item)
         return redacted
     return value
 

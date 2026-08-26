@@ -167,6 +167,14 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
                 return
             self._write_json(HTTPStatus.OK, self._configs().save_preset(name, data))
             return
+        if self.path == "/config/export":
+            export_path = str(payload.get("path", "") or "")
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "data must be an object"})
+                return
+            self._write_json(HTTPStatus.OK, self._configs().export_json(export_path, data))
+            return
         if self.path == "/remote/browse":
             self._write_json(HTTPStatus.OK, self._remote_jobs().browse_path(payload))
             return

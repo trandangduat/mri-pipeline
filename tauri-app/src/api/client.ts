@@ -237,6 +237,10 @@ export class BackendClient {
     return genericResponseSchema.parse(await this.post('/config/workspaces/save', {name, data}));
   }
 
+  async exportConfig(path: string, data: Record<string, unknown>): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/config/export', {path, data}));
+  }
+
   async startPipelineStream(
     path: string,
     payload: Record<string, unknown>,

@@ -246,6 +246,7 @@ export const startJobResponseSchema = z.object({
 export const genericResponseSchema = z.object({
   ok: z.boolean(),
   error: z.string().optional(),
+  path: z.string().optional(),
 });
 
 export const licenseUploadResponseSchema = z.object({

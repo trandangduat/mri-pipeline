@@ -14,9 +14,10 @@ import {Button} from './ui';
 import {ThemeToggle} from './ThemeToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
-import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
+import {useMetadata, useEnvironment} from '../query/useEnvironment';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {currentTargetHardware, runtimeLimitErrors} from '../lib/runtime';
+import {defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -32,7 +33,6 @@ export interface AppHeaderProps {
 
 export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProps) {
   const navigate = useNavigate();
-  const client = useClient();
   const {data: metadata} = useMetadata();
   const {data: environment} = useEnvironment();
 
@@ -160,8 +160,6 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
   };
 
   const handleSaveWorkspace = async () => {
-    const name = window.prompt('Workspace name:');
-    if (!name) return;
     try {
       const sv = usePipelineFormStore.getState().selectedStatsAtlases;
       const fv = usePipelineFormStore.getState().formValues;
@@ -175,7 +173,6 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
       const workspace: Record<string, unknown> = {
         version: 1,
         type: 'mri-pipeline-workspace',
-        name,
         input_source: fv.inputSource,
         input_mode: fv.inputMode === 'batch_folder' ? 'batch_folder' : (fv.inputMode || 'file'),
         input_path: fv.inputPath,
@@ -225,11 +222,11 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
             }
           : {}),
       };
-      const res = await client.saveWorkspace(name, workspace);
-      if (res.ok) {
-        print('Workspace saved', {name});
-      } else {
-        print('Save workspace failed', {error: res.error || 'Unknown error'});
+      const result = await saveJsonAsDialog(defaultConfigName('neuroflow-workspace'), workspace);
+      if (result.ok) {
+        print('Workspace saved', {ok: true, path: result.path});
+      } else if (!result.cancelled) {
+        print('Save workspace failed', {error: result.error || 'Unknown error'});
       }
     } catch (err: unknown) {
       print('Save workspace failed', {error: (err as Error).message});
