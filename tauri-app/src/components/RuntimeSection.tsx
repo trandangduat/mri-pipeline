@@ -9,7 +9,7 @@ import {
 import {open} from '@tauri-apps/plugin-dialog';
 import {Panel, Button, Alert, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
-import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
+import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -136,6 +136,13 @@ export function RuntimeSection() {
   });
   const threadMax = hardware.logicalCores ?? null;
 
+  const handleRuntimeTargetChange = (value: string) => {
+    setFormField('runtimeTarget', value);
+    const nextTarget = (value === 'Server' ? 'Server' : 'Local') as RuntimeTarget;
+    const nextThreadCap = cpuThreadCapForTarget({runtimeTarget: nextTarget, environment, remoteResult});
+    setFormField('cpuThreads', reclampCpuThreadsForTarget({cpuThreads: formValues.cpuThreads, threadCap: nextThreadCap}));
+  };
+
   return (
     <Panel icon={<Cpu className="h-4 w-4 text-cursor-primary" />} title="Runtime" className="min-w-0">
       {/* 1. Core Compute Grid */}
@@ -162,7 +169,7 @@ export function RuntimeSection() {
             id="runtimeTarget"
             name="runtimeTarget"
             value={formValues.runtimeTarget}
-            onChange={(e) => setFormField('runtimeTarget', e.target.value)}
+            onChange={(e) => handleRuntimeTargetChange(e.target.value)}
             className={inputCls}
           >
             <option value="Local">Local</option>

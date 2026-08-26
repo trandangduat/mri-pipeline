@@ -69,6 +69,34 @@ export function safeLimitMark(max: number | null): number | null {
   return Math.max(RAM_PERCENT_MIN, Math.floor(max * SAFE_LIMIT_SHARE));
 }
 
+/** Core cap of a runtime target: server cores when connected, local cores otherwise. */
+export function cpuThreadCapForTarget({
+  runtimeTarget,
+  environment,
+  remoteResult,
+}: {
+  runtimeTarget: RuntimeTarget;
+  environment?: EnvironmentResponse | null | undefined;
+  remoteResult?: RemoteValidateResponse | Partial<RemoteResultState> | null | undefined;
+}): number | null {
+  return currentTargetHardware({runtimeTarget, environment, remoteResult}).logicalCores;
+}
+
+/**
+ * Re-validate stored form values after the runtime target changes so values
+ * valid on the previous machine (e.g. 50 threads / 56-core server) are
+ * resolved against the new machine (e.g. snapped to 7 on an 8-core local).
+ */
+export function reclampCpuThreadsForTarget({
+  cpuThreads,
+  threadCap,
+}: {
+  cpuThreads: number | string;
+  threadCap: number | null;
+}): number {
+  return clampBoundedIntValue(cpuThreads, safeLimitMark(threadCap) ?? DEFAULT_CPU_THREADS, threadCap);
+}
+
 /**
  * Keep only digits while typing; '' is allowed mid-edit.
  * Values beyond max snap back to the safe 90% mark instead of the raw max.

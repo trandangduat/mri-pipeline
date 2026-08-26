@@ -5,6 +5,8 @@ import {
   runtimeLimitErrors,
   sanitizeBoundedIntText,
   clampBoundedIntValue,
+  cpuThreadCapForTarget,
+  reclampCpuThreadsForTarget,
 } from '../src/lib/runtime';
 
 test('currentTargetHardware reads local environment hardware', () => {
@@ -234,4 +236,33 @@ test('safeLimitMark computes 90% of a limit', async () => {
   expect(safeLimitMark(10)).toBe(9);
   expect(safeLimitMark(1)).toBe(1);
   expect(safeLimitMark(null)).toBe(null);
+});
+
+test('reclampCpuThreadsForTarget snaps server-sized values down for a smaller machine', () => {
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 7, threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 4, threadCap: 8})).toBe(4);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: 56})).toBe(50);
+  expect(reclampCpuThreadsForTarget({cpuThreads: '', threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: null})).toBe(50);
+});
+
+const localEnv = {
+  ok: true,
+  python: {ok: true, path: '', version: ''},
+  docker: {ok: true, path: ''},
+  ssh: {ok: true, path: ''},
+  hardware: {hostname: '', logical_cores: 8, physical_cores: 8, total_ram_bytes: 17179869184},
+};
+
+test('cpuThreadCapForTarget follows the selected runtime target', () => {
+  expect(cpuThreadCapForTarget({runtimeTarget: 'Local', environment: localEnv, remoteResult: {}})).toBe(8);
+  expect(
+    cpuThreadCapForTarget({
+      runtimeTarget: 'Server',
+      environment: localEnv,
+      remoteResult: {connected: true, hardware: {hostname: 's', logical_cores: 56, total_ram_bytes: 1}},
+    }),
+  ).toBe(56);
+  expect(cpuThreadCapForTarget({runtimeTarget: 'Server', environment: localEnv, remoteResult: {connected: false}})).toBe(null);
 });
