@@ -1,5 +1,11 @@
 import {expect, test} from 'vitest';
-import {currentTargetHardware, runtimeWarnings} from '../src/lib/runtime';
+import {
+  currentTargetHardware,
+  runtimeWarnings,
+  runtimeLimitErrors,
+  sanitizeBoundedIntText,
+  clampBoundedIntValue,
+} from '../src/lib/runtime';
 
 test('currentTargetHardware reads local environment hardware', () => {
   const hardware = currentTargetHardware({
@@ -150,4 +156,68 @@ test('runtimeWarnings unchanged shape with gpu-aware TargetHardware', () => {
     ramPercent: 40,
   });
   expect(warnings.some((w) => w.includes('SSH'))).toBe(true);
+});
+
+const localHardware = (cores: number | null) => ({
+  label: 'Local' as const,
+  connected: true,
+  logicalCores: cores,
+  totalRamBytes: null,
+  gpus: [],
+});
+
+test('runtimeLimitErrors rejects RAM over 100%', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 4,
+    ramPercent: 150,
+  });
+  expect(errors.some((e) => e.includes('RAM allocation'))).toBe(true);
+});
+
+test('runtimeLimitErrors rejects threads above machine cores', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 100,
+    ramPercent: 50,
+  });
+  expect(errors.some((e) => e.includes('cannot exceed'))).toBe(true);
+});
+
+test('runtimeLimitErrors allows threads above local cores only when cores unknown', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Server',
+    hardware: localHardware(null),
+    cpuThreads: 64,
+    ramPercent: 50,
+  });
+  expect(errors).toEqual([]);
+});
+
+test('runtimeLimitErrors accepts a healthy config', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 8,
+    ramPercent: 100,
+  });
+  expect(errors).toEqual([]);
+});
+
+test('sanitizeBoundedIntText keeps digits and caps at max', () => {
+  expect(sanitizeBoundedIntText('12a3', null)).toBe('123');
+  expect(sanitizeBoundedIntText('', 100)).toBe('');
+  expect(sanitizeBoundedIntText('150', 100)).toBe('100');
+  expect(sanitizeBoundedIntText('7', 8)).toBe('7');
+  expect(sanitizeBoundedIntText('009', 100)).toBe('9');
+});
+
+test('clampBoundedIntValue falls back and caps', () => {
+  expect(clampBoundedIntValue('', 80, 100)).toBe(80);
+  expect(clampBoundedIntValue(0, 80, 100)).toBe(1);
+  expect(clampBoundedIntValue(250, 80, 100)).toBe(100);
+  expect(clampBoundedIntValue(55, 80, 100)).toBe(55);
+  expect(clampBoundedIntValue('abc', 4, 8)).toBe(4);
 });

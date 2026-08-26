@@ -1,4 +1,5 @@
 import type {AppMetadata, PreparedRunRequest} from '../types/backend';
+import {clampBoundedIntValue, RAM_PERCENT_MAX, DEFAULT_RAM_PERCENT, DEFAULT_CPU_THREADS} from '../lib/runtime';
 
 export interface PipelineFormValues {
   pipelineMode: string;
@@ -132,8 +133,8 @@ export function buildRunConfig(
     stats_vector_config: {enabled_stats: {}, atlases: selectedStatsAtlases || {}},
     non_recursive: Boolean(formValues.nonRecursive),
     device: formValues.gpuMode === 'on' ? 'cuda' : 'cpu',
-    threads: formValues.cpuThreads ?? 4,
-    ram_percent: formValues.ramPercent ?? 100,
+    threads: clampBoundedIntValue(formValues.cpuThreads, DEFAULT_CPU_THREADS, null),
+    ram_percent: clampBoundedIntValue(formValues.ramPercent, DEFAULT_RAM_PERCENT, RAM_PERCENT_MAX),
     license_dir: formValues.licensePath || '',
     neuroflow_enabled: Boolean(formValues.neuroflowEnabled),
     neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 2)),

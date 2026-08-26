@@ -14,8 +14,9 @@ import {Button} from './ui';
 import {ThemeToggle} from './ThemeToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
-import {useMetadata, useClient} from '../query/useEnvironment';
+import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
+import {currentTargetHardware, runtimeLimitErrors} from '../lib/runtime';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -33,6 +34,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
   const navigate = useNavigate();
   const client = useClient();
   const {data: metadata} = useMetadata();
+  const {data: environment} = useEnvironment();
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const applyWorkspaceConfig = usePipelineFormStore((s) => s.applyWorkspaceConfig);
@@ -81,6 +83,16 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         return;
       }
       const isRemote = formValues.runtimeTarget === 'Server';
+      const limitErrors = runtimeLimitErrors({
+        runtimeTarget: isRemote ? 'Server' : 'Local',
+        hardware: currentTargetHardware({runtimeTarget: isRemote ? 'Server' : 'Local', environment, remoteResult}),
+        cpuThreads: formValues.cpuThreads,
+        ramPercent: formValues.ramPercent,
+      });
+      if (limitErrors.length > 0) {
+        print('Start pipeline failed', {error: limitErrors.join(' ')});
+        return;
+      }
       const config = buildRunConfig(
         formValues,
         metadata ?? null,

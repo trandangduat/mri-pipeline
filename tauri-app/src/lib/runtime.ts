@@ -56,6 +56,57 @@ export function currentTargetHardware({
   };
 }
 
+export const RAM_PERCENT_MIN = 1;
+export const RAM_PERCENT_MAX = 100;
+export const DEFAULT_RAM_PERCENT = 80;
+export const DEFAULT_CPU_THREADS = 4;
+
+/** Keep only digits and cap at max while typing; '' is allowed mid-edit. */
+export function sanitizeBoundedIntText(raw: string, max: number | null): string {
+  const digits = String(raw).replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  if (!digits) return '';
+  const parsed = parseInt(digits, 10);
+  if (!Number.isFinite(parsed)) return '';
+  if (max != null && parsed > max) return String(max);
+  return digits;
+}
+
+/** Coerce any stored value into a valid int within [1, max]; falls back when empty/invalid. */
+export function clampBoundedIntValue(value: number | string | null | undefined, fallback: number, max: number | null): number {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return clampBoundedIntValue(fallback, fallback, max);
+  }
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return clampBoundedIntValue(fallback, fallback, max);
+  const capped = max != null ? Math.min(parsed, max) : parsed;
+  return Math.max(capped, RAM_PERCENT_MIN);
+}
+
+export interface RuntimeLimitInput {
+  runtimeTarget: RuntimeTarget;
+  hardware: TargetHardware;
+  cpuThreads: number | string;
+  ramPercent: number | string;
+}
+
+/** Hard validation: values outside these bounds must block starting a run. */
+export function runtimeLimitErrors({hardware, cpuThreads, ramPercent}: RuntimeLimitInput): string[] {
+  const errors: string[] = [];
+  const requestedThreads = Math.floor(Number(cpuThreads || 0));
+  const requestedRam = Number(ramPercent || 0);
+  if (!Number.isFinite(requestedRam) || requestedRam < RAM_PERCENT_MIN || requestedRam > RAM_PERCENT_MAX) {
+    errors.push(`RAM allocation must be between ${RAM_PERCENT_MIN} and ${RAM_PERCENT_MAX}%.`);
+  }
+  if (!Number.isFinite(requestedThreads) || requestedThreads < 1) {
+    errors.push('CPU threads must be a whole number of at least 1.');
+  } else if (hardware.logicalCores && requestedThreads > hardware.logicalCores) {
+    errors.push(
+      `CPU threads (${requestedThreads}) cannot exceed the machine's ${hardware.logicalCores} logical cores.`,
+    );
+  }
+  return errors;
+}
+
 export function runtimeWarnings({
   runtimeTarget,
   hardware,

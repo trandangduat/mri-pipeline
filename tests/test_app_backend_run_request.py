@@ -629,3 +629,60 @@ def test_prepare_run_request_rejects_empty_tool_selection(tmp_path: Path) -> Non
     errors = result["errors"]
     assert isinstance(errors, list) and errors
     assert "No pipeline steps selected" in str(errors[0])
+
+
+def test_prepare_run_request_rejects_ram_percent_over_100(tmp_path: Path) -> None:
+    result = prepare_run_request(_base_config(tmp_path, ram_percent=150))
+
+    assert result["ok"] is False
+    errors = result["errors"]
+    assert isinstance(errors, list) and errors
+    assert "RAM %" in str(errors[0])
+
+
+def test_prepare_run_request_rejects_threads_above_local_cores(tmp_path: Path, monkeypatch) -> None:
+    from pipeline import hardware as hardware_module
+
+    monkeypatch.setattr(hardware_module, "_host_info", lambda: {"logical_cores": 8})
+
+    result = prepare_run_request(_base_config(tmp_path, threads=100))
+
+    assert result["ok"] is False
+    errors = result["errors"]
+    assert isinstance(errors, list) and errors
+    assert "logical cores" in str(errors[0])
+
+
+def test_prepare_run_request_allows_threads_above_local_cores_for_server(tmp_path: Path, monkeypatch) -> None:
+    from pipeline import hardware as hardware_module
+
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+    monkeypatch.setattr(hardware_module, "_host_info", lambda: {"logical_cores": 8})
+
+    request = _ok_request(
+        prepare_run_request(
+            _base_config(
+                tmp_path,
+                threads=32,
+                run_target="Server",
+                input_server_dir=str(tmp_path / "server_inputs"),
+            )
+        )
+    )
+
+    assert request["threads"] == 32
+
+
+def test_prepare_run_request_skips_core_check_when_host_info_unavailable(tmp_path: Path, monkeypatch) -> None:
+    from pipeline import hardware as hardware_module
+
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    def _boom() -> dict:
+        raise RuntimeError("psutil unavailable")
+
+    monkeypatch.setattr(hardware_module, "_host_info", _boom)
+
+    _ok_request(prepare_run_request(_base_config(tmp_path)))

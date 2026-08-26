@@ -354,6 +354,18 @@ def _runtime_error(config: RunRequestInput) -> str:
         return "Threads must be at least 1."
     if config.ram_percent < 1 or config.ram_percent > 100:
         return "RAM % must be between 1 and 100."
+    if config.run_target != "Server":
+        try:
+            from pipeline.hardware import _host_info
+
+            logical_cores = int(_host_info().get("logical_cores") or 0)
+        except Exception:
+            logical_cores = 0
+        if logical_cores > 0 and config.threads > logical_cores:
+            return (
+                f"Threads ({config.threads}) cannot exceed this machine's "
+                f"{logical_cores} logical cores."
+            )
     return ""
 
 

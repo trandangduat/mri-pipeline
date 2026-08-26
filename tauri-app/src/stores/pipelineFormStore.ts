@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 import {DEFAULT_FORM_VALUES, neuroflowConfigFilesForMode} from '../api/runConfig';
 import type {PipelineFormValues} from '../api/runConfig';
+import {clampBoundedIntValue, RAM_PERCENT_MAX} from '../lib/runtime';
 
 interface PipelineFormState {
   formValues: PipelineFormValues;
@@ -92,8 +93,8 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
         nextFormValues.batchScanMode = String(workspace.batch_scan_mode);
       }
       nextFormValues.runtimeTarget = workspace.run_target === 'Server' ? 'Server' : 'Local';
-      nextFormValues.ramPercent = (workspace.ram_percent as number) ?? 100;
-      nextFormValues.cpuThreads = (workspace.threads as number) ?? 4;
+      nextFormValues.ramPercent = clampBoundedIntValue(workspace.ram_percent as number | undefined, 100, RAM_PERCENT_MAX);
+      nextFormValues.cpuThreads = clampBoundedIntValue(workspace.threads as number | undefined, 4, null);
       nextFormValues.gpuMode = workspace.device === 'cuda' || workspace.device === 'gpu' ? 'on' : 'off';
       nextFormValues.host = (remote.host as string) || '';
       nextFormValues.port = (remote.port as number) ?? 22;
