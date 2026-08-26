@@ -499,6 +499,14 @@ function JobsListView({
   );
 }
 
+function shortCopyDetail(raw: string): string {
+  if (!raw) return '';
+  const head = (raw.replace(/^Downloading file:\s*/i, '').split('→')[0] ?? raw).trim();
+  const parts = head.split('/').filter(Boolean);
+  const name = parts.length ? parts[parts.length - 1] || head : head;
+  return name || raw;
+}
+
 export function JobsPage() {
   const storeLatestJobs = useJobsStore((s) => s.latestJobs);
   const latestJobs = React.useMemo(() => storeLatestJobs || [], [storeLatestJobs]);
@@ -516,6 +524,7 @@ export function JobsPage() {
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
+  const [detailsNotice, setDetailsNotice] = useState<{type: 'error' | 'info'; message: string} | null>(null);
   const [showRawLog, setShowRawLog] = useState<boolean>(false);
   const [subjectViewMode, setSubjectViewMode] = useState<'grid' | 'list'>('grid');
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -587,6 +596,7 @@ export function JobsPage() {
         if (seq === reqSeqRef.current) {
           setJobEvents([]);
           setOutputText('Log stream is idle.');
+          setDetailsNotice(null);
           setActiveModalSubjectFile(null);
           setIsLoadingDetails(false);
         }
@@ -597,40 +607,58 @@ export function JobsPage() {
         setIsLoadingDetails(true);
         setJobEvents([]);
         setOutputText('');
+        setDetailsNotice(null);
         setActiveModalSubjectFile(null);
       }
 
       const isRemote = String(targetJob?.target || 'Local') === 'Server';
 
+      type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; events_file_found?: boolean};
       let events: PipelineEvent[] = [];
       let logText = '';
+      let notice: {type: 'error' | 'info'; message: string} | null = null;
 
       try {
         if (isRemote) {
           const remotePayload = buildRemotePayload(formValues);
+          const jobWorkspace = String(targetJob?.remote_workspace || '');
+          if (jobWorkspace) remotePayload.workspace = jobWorkspace;
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
           const [eventsResult, logResult] = await Promise.all([
             readRemoteEventsMutation
               .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0, limit: 5000})
-              .catch(() => ({events: []})),
+              .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
             readRemoteLogMutation
               .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0})
               .catch(() => ({text: ''})),
           ]);
-          events = Array.isArray(eventsResult?.events) ? (eventsResult.events as PipelineEvent[]) : [];
+          const evRes = eventsResult as EventsResult;
+          events = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           logText = logResult?.text || '';
+          if (evRes?.ok === false && evRes?.error) {
+            notice = {type: 'error', message: evRes.error};
+          } else if (events.length === 0 && evRes?.events_file_found === false) {
+            notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
+          }
         } else {
           const [eventsResult, logResult] = await Promise.all([
-            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 5000}).catch(() => ({events: []})),
+            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 5000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
             readLogMutation.mutateAsync({jobId, offset: 0, maxBytes: 65536}).catch(() => ({text: ''})),
           ]);
-          events = Array.isArray(eventsResult?.events) ? (eventsResult.events as PipelineEvent[]) : [];
+          const evRes = eventsResult as EventsResult;
+          events = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           logText = logResult?.text || '';
+          if (evRes?.ok === false && evRes?.error) {
+            notice = {type: 'error', message: evRes.error};
+          } else if (events.length === 0 && evRes?.events_file_found === false) {
+            notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found).'};
+          }
         }
       } finally {
         if (seq === reqSeqRef.current) {
           setJobEvents(events);
           setOutputText(logText || '');
+          setDetailsNotice(notice);
           if (resetUi) {
             setIsLoadingDetails(false);
           }
@@ -978,10 +1006,11 @@ export function JobsPage() {
         if (event === 'step') {
           const stepId = data.step as string;
           const status = data.status as DownloadStep['status'];
-          const detail = (data.detail as string) || '';
+          const rawDetail = (data.detail as string) || '';
+          const detail = stepId === 'copy' && status === 'running' ? shortCopyDetail(rawDetail) : rawDetail;
           setDownloadSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail} : s)));
-          if (detail && status === 'running') {
-            setDownloadLogs((prev) => [...prev, detail]);
+          if (rawDetail && status === 'running') {
+            setDownloadLogs((prev) => [...prev, rawDetail]);
           }
           if (data.copied_files != null) setDownloadCopiedFiles(data.copied_files as number);
           if (data.total_files != null) setDownloadTotalFiles(data.total_files as number);
@@ -1515,6 +1544,19 @@ export function JobsPage() {
 
           {/* Interior: Search + Filter + Grid */}
           <div className="flex min-h-0 flex-1 flex-col bg-cursor-surface-card p-3.5 overflow-hidden">
+            {/* Job Data Notice */}
+            {detailsNotice && (
+              <div
+                className={`mb-2.5 flex-none rounded-md border px-3 py-2 text-xs leading-relaxed ${
+                  detailsNotice.type === 'error'
+                    ? 'border-cursor-semantic-error/30 bg-cursor-semantic-error/5 text-cursor-semantic-error'
+                    : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-body'
+                }`}
+              >
+                {detailsNotice.type === 'error' ? 'Could not read job data: ' : ''}
+                {detailsNotice.message}
+              </div>
+            )}
             {/* Search & Filter Toolbar */}
             <div className="mb-3 flex flex-wrap items-center justify-start gap-3 flex-none">
               <label className="relative m-0 block w-[min(18rem,100%)]">
