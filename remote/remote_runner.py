@@ -832,6 +832,9 @@ class RemoteRunner:
             f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
 
     def _upload_neuroflow_configs(self, ssh: RemoteSSHClient) -> None:
+        if not self.config.neuroflow_enabled:
+            return
+
         for field_name, remote_name in (
             ("neuroflow_preset_file", "neuroflow_preset.yaml"),
             ("neuroflow_profile_file", "neuroflow_profile.yaml"),

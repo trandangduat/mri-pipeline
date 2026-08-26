@@ -15,6 +15,7 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "app_backend"), "app_backend"),
         (os.path.join(PROJECT_ROOT, "pipeline"), "pipeline"),
         (os.path.join(PROJECT_ROOT, "remote"), "remote"),
+        (os.path.join(PROJECT_ROOT, "configs", "neuroflow"), "configs/neuroflow"),
         (os.path.join(PROJECT_ROOT, "pipeline_runner.py"), "."),
         (os.path.join(PROJECT_ROOT, "requirements.txt"), "."),
     ],
