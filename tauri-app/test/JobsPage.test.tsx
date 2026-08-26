@@ -146,7 +146,7 @@ describe('JobsPage Redesign', () => {
     expect(screen.getByText('FastSurfer')).toBeDefined();
   });
 
-  it('renders mixed batch summary slices and keeps long job names visible', async () => {
+  it('renders mixed batch summary slices and truncates long job names', async () => {
     const longName = 'job_20260822_191740_with_a_long_workspace_name';
     useJobsStore.setState({
       selectedJobId: null,
@@ -166,7 +166,7 @@ describe('JobsPage Redesign', () => {
 
     await waitFor(() => {
       const title = screen.getByText(longName);
-      expect(title.className).not.toContain('truncate');
+      expect(title.className).toContain('truncate');
       expect(title.closest('[role="button"]')?.querySelector('[title="Batch summary"] svg')?.querySelectorAll('path')).toHaveLength(2);
     });
   });
@@ -218,4 +218,3 @@ describe('JobsPage Redesign', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
-
