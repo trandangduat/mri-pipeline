@@ -18,6 +18,36 @@ class FakeStdout:
         return b""
 
 
+class BufferedPipeStdout:
+    def __init__(self, chunks: list[bytes], release: threading.Event) -> None:
+        self.chunks = list(chunks)
+        self._release = release
+        self.read_calls = 0
+
+    def read(self, _size: int) -> bytes:
+        self.read_calls += 1
+        self._release.wait(timeout=5)
+        return b""
+
+    def read1(self, _size: int) -> bytes:
+        return self.chunks.pop(0) if self.chunks else b""
+
+
+class PausingStdout:
+    def __init__(self, release: threading.Event) -> None:
+        self._release = release
+        self._reads = 0
+
+    def read(self, _size: int) -> bytes:
+        self._reads += 1
+        if self._reads == 1:
+            return b"abc123: Download complete\n"
+        if self._reads == 2:
+            self._release.wait(timeout=5)
+            return b"abc123: Pull complete\n"
+        return b""
+
+
 class FakeProc:
     def __init__(self, chunks: list[bytes], returncode: int = 0, hold: bool = False) -> None:
         self.returncode = returncode
@@ -73,6 +103,47 @@ def test_pull_streams_carriage_return_progress_frames():
     assert "abc123: Pull complete" in details
     assert "Status: Downloaded newer image for hello:latest" in details
     assert events[-1] == {"event": "complete", "data": {"ok": True}}
+
+
+def test_pull_uses_available_short_buffered_pipe_chunks():
+    proc = FakeProc([], returncode=0)
+    stdout = BufferedPipeStdout(
+        [
+            b"abc123: Downloading [==>]  10MB/20MB\r",
+            b"abc123: Pull complete\n",
+            b"Status: Downloaded newer image for hello:latest\n",
+        ],
+        proc._release,
+    )
+    proc.stdout = stdout
+
+    events = list(pull_image_events("hello:latest", stall_timeout_s=1, popen=lambda *a, **k: proc))
+
+    details = [e["data"]["detail"] for e in events[1:-1]]
+    assert "abc123: Downloading [==>]  10MB/20MB" in details
+    assert "abc123: Pull complete" in details
+    assert events[-1] == {"event": "complete", "data": {"ok": True}}
+    assert stdout.read_calls == 0
+    assert proc.killed is False
+
+
+def test_pull_without_stall_timeout_waits_for_more_output():
+    proc = FakeProc([], returncode=0)
+    release = threading.Event()
+    proc.stdout = PausingStdout(release)
+    timer = threading.Timer(0.05, release.set)
+    timer.start()
+
+    try:
+        events = list(pull_image_events("hello:latest", popen=lambda *a, **k: proc))
+    finally:
+        timer.cancel()
+
+    details = [e["data"]["detail"] for e in events[1:-1]]
+    assert "abc123: Download complete" in details
+    assert "abc123: Pull complete" in details
+    assert events[-1] == {"event": "complete", "data": {"ok": True}}
+    assert proc.killed is False
 
 
 def test_pull_stall_kills_process_and_reports_network_error():

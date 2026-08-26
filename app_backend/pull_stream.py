@@ -1,6 +1,6 @@
-"""Streaming docker pull with stall watchdog for the Tools page.
+"""Streaming docker pull events for the Tools page.
 
-Extracted from server.py so the watchdog behavior is unit-testable.
+Extracted from server.py so streaming and optional watchdog behavior are unit-testable.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import time
 from collections.abc import Iterator
 from typing import Any, Callable
 
-DEFAULT_STALL_TIMEOUT_S = 30
+DEFAULT_STALL_TIMEOUT_S: int | None = None
 PROGRESS_EMIT_INTERVAL_S = 0.2
 
 # docker pull sends per-layer progress frames separated by carriage returns;
@@ -56,16 +56,16 @@ def _split_stream_segments(buffer: str) -> tuple[list[str], str]:
 def pull_image_events(
     image: str,
     *,
-    stall_timeout_s: int = DEFAULT_STALL_TIMEOUT_S,
+    stall_timeout_s: int | None = DEFAULT_STALL_TIMEOUT_S,
     popen: Callable[..., Any] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield SSE-style ``{"event": ..., "data": ...}`` dicts for a docker pull.
 
     - Per-layer progress frames (separated by ``\\r``) are streamed with light
       throttling so the UI can show download/extract progress per layer.
-    - If the pull produces no output for ``stall_timeout_s`` seconds (typical
-      when the network connection drops mid-download), the process is killed
-      and a clear failure event is emitted instead of hanging forever.
+    - By default, Docker controls pull retries and failures without an
+      application-level inactivity deadline. If ``stall_timeout_s`` is set,
+      the process is killed after that many seconds without output.
     """
     popen_fn = popen or subprocess.Popen
     try:
@@ -85,9 +85,11 @@ def pull_image_events(
     def reader() -> None:
         assert proc.stdout is not None
         buffer = ""
+        read1 = getattr(proc.stdout, "read1", None)
+        read_chunk = read1 if callable(read1) else proc.stdout.read
         try:
             while True:
-                chunk = proc.stdout.read(4096)
+                chunk = read_chunk(4096)
                 if not chunk:
                     break
                 text = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else chunk
