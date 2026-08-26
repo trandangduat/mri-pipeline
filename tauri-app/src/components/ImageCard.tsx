@@ -57,16 +57,24 @@ export function InstalledImageCard({
             <span className="font-mono text-cursor-ink">{target}</span>
           </div>
         )}
-        {image.repo_size && (
-          <div className="flex items-center gap-1">
+        {image.disk_usage && (
+          <div
+            className="flex items-center gap-1"
+            title="Docker's total local disk usage, including image content and unpacked snapshots"
+          >
             <HardDrive className="h-3 w-3 text-cursor-muted" />
-            <span className="font-mono text-cursor-ink">{image.repo_size}</span>
+            <span className="text-cursor-muted">Disk</span>
+            <span className="font-mono text-cursor-ink">{image.disk_usage}</span>
           </div>
         )}
-        {image.uncompressed_size && (
-          <div className="flex items-center gap-1">
+        {image.content_size && (
+          <div
+            className="flex items-center gap-1"
+            title="Stored image content size, which may be lower than total local disk usage"
+          >
             <Package className="h-3 w-3 text-cursor-muted" />
-            <span className="font-mono text-cursor-ink">{image.uncompressed_size}</span>
+            <span className="text-cursor-muted">Content</span>
+            <span className="font-mono text-cursor-ink">{image.content_size}</span>
           </div>
         )}
       </div>
@@ -163,11 +171,17 @@ export function MissingImageCard({
             <span className="font-mono text-cursor-ink">{target}</span>
           </div>
         )}
-        {image.repo_size && (
-          <div className="flex items-center gap-1">
-            <HardDrive className="h-3 w-3 text-cursor-muted" />
-            <span className="font-mono text-cursor-ink">{image.repo_size}</span>
+        {image.download_size ? (
+          <div
+            className="flex items-center gap-1"
+            title="Estimated compressed registry layer data for linux/amd64. Actual transfer can be lower when layers are already cached."
+          >
+            <Download className="h-3 w-3 text-cursor-muted" />
+            <span className="text-cursor-muted">Download</span>
+            <span className="font-mono text-cursor-ink">~{image.download_size}</span>
           </div>
+        ) : (
+          <span className="text-cursor-muted-soft">Download size unavailable</span>
         )}
       </div>
 

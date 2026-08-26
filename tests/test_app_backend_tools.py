@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from app_backend.tools import CommandResult, ImageInfo, LocalToolService
+import threading
+import time
+
+from app_backend.tools import CommandResult, ImageInfo, LocalToolService, _default_image_info_provider
 from pipeline.registry import tool_display_name
 
 
@@ -16,7 +19,11 @@ class FakeCommandRunner:
 
 
 def _fake_image_info(image: str) -> ImageInfo:
-    return ImageInfo(size_bytes=1024 * 1024 * 100, image_id="sha256:abc123def45")
+    return ImageInfo(
+        content_size_bytes=1024 * 1024 * 100,
+        disk_usage="325.0 MB",
+        image_id="sha256:abc123def45",
+    )
 
 
 def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
@@ -34,8 +41,8 @@ def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
                 "tool_details": [{"key": "fs7_recon_style_segmentation", "name": tool_display_name("fs7_recon_style_segmentation")}],
-                "repo_size": "100.0 MB",
-                "uncompressed_size": "100.0 MB",
+                "disk_usage": "325.0 MB",
+                "content_size": "100.0 MB",
                 "image_id": "sha256:abc123def45",
             }
         ],
@@ -44,9 +51,56 @@ def test_local_tool_service_checks_selected_tool_images_without_shell() -> None:
     assert runner.commands == [["docker", "image", "inspect", "mkdayyyy/mri-fs7-all:latest"]]
 
 
+def test_default_image_info_provider_keeps_disk_usage_distinct(monkeypatch) -> None:
+    from app_backend import tools as tools_module
+
+    commands: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def run(command: list[str], **_kwargs) -> Result:
+        commands.append(command)
+        if command[2] == "ls":
+            return Result("325MB\n")
+        return Result("sha256:abc123def456789\n")
+
+    monkeypatch.setattr(tools_module, "image_size_bytes", lambda _image: 100 * 1024 * 1024)
+    monkeypatch.setattr(tools_module.subprocess, "run", run)
+
+    info = _default_image_info_provider("example/image:latest")
+
+    assert info == ImageInfo(
+        content_size_bytes=100 * 1024 * 1024,
+        disk_usage="325MB",
+        image_id="sha256:abc123def456",
+    )
+    assert commands[0] == [
+        "docker",
+        "image",
+        "ls",
+        "--format",
+        "{{.Size}}",
+        "example/image:latest",
+    ]
+
+
 def test_local_tool_service_reports_missing_and_unknown_tools() -> None:
     runner = FakeCommandRunner(installed=set())
-    service = LocalToolService(command_runner=runner, image_info_provider=_fake_image_info)
+    requested: list[str] = []
+
+    def download_size(image: str) -> int:
+        requested.append(image)
+        return 13 * 1024**3 + 300 * 1024**2
+
+    service = LocalToolService(
+        command_runner=runner,
+        image_info_provider=_fake_image_info,
+        download_size_provider=download_size,
+    )
 
     result = service.local_image_status({"segmentation": "fs7_recon_style_segmentation", "bad": "missing_tool"})
 
@@ -55,6 +109,62 @@ def test_local_tool_service_reports_missing_and_unknown_tools() -> None:
     images = result["images"]
     assert isinstance(images, list)
     assert images[0]["status"] == "Missing"
+    assert images[0]["download_size"] == "13.3 GB"
+    service.local_image_status({"segmentation": "fs7_recon_style_segmentation"})
+    assert requested == ["mkdayyyy/mri-fs7-all:latest"]
+
+
+def test_local_tool_service_bounds_concurrent_download_size_lookups() -> None:
+    lock = threading.Lock()
+    active = 0
+    peak_active = 0
+    requested: list[str] = []
+
+    def download_size(image: str) -> int:
+        nonlocal active, peak_active
+        with lock:
+            requested.append(image)
+            active += 1
+            peak_active = max(peak_active, active)
+        time.sleep(0.02)
+        with lock:
+            active -= 1
+        return 1024
+
+    service = LocalToolService(
+        command_runner=FakeCommandRunner(installed=set()),
+        image_info_provider=_fake_image_info,
+        download_size_provider=download_size,
+    )
+
+    result = service.local_image_status()
+
+    images = result["images"]
+    assert isinstance(images, list)
+    assert len(requested) == len({entry["image"] for entry in images})
+    assert 1 < peak_active <= 4
+
+
+def test_local_tool_service_keeps_download_size_failure_non_fatal() -> None:
+    attempts = 0
+
+    def fail(_image: str) -> int:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("registry unavailable")
+
+    service = LocalToolService(
+        command_runner=FakeCommandRunner(installed=set()),
+        image_info_provider=_fake_image_info,
+        download_size_provider=fail,
+    )
+
+    result = service.local_image_status({"segmentation": "fs7_recon_style_segmentation"})
+
+    assert result["ok"] is True
+    assert result["images"][0]["download_size"] is None
+    service.local_image_status({"segmentation": "fs7_recon_style_segmentation"})
+    assert attempts == 2
 
 
 def test_local_tool_service_returns_safe_error_when_docker_unavailable() -> None:
@@ -121,14 +231,33 @@ def test_tool_service_checks_server_target_images() -> None:
                 "status": "Installed",
                 "tools": ["fs7_recon_style_segmentation"],
                 "tool_details": [{"key": "fs7_recon_style_segmentation", "name": tool_display_name("fs7_recon_style_segmentation")}],
-                "repo_size": None,
-                "uncompressed_size": None,
+                "disk_usage": None,
+                "content_size": None,
                 "image_id": None,
             }
         ],
         "warnings": [],
     }
     assert fake_remote.checked_images == ["mkdayyyy/mri-fs7-all:latest"]
+
+
+def test_tool_service_adds_download_size_to_missing_server_images() -> None:
+    fake_remote = FakeRemoteRunner(installed_images=set())
+    service = LocalToolService(
+        command_runner=FakeCommandRunner(installed=set()),
+        remote_runner_factory=lambda _cfg: fake_remote,
+        image_info_provider=_fake_image_info,
+        download_size_provider=lambda _image: 800 * 1024**2,
+    )
+
+    result = service.image_status(
+        selected_tools={"segmentation": "fs7_recon_style_segmentation"},
+        target="Server",
+        remote={"host": "server", "username": "alice", "key_path": "/path/to/key"},
+    )
+
+    assert result["ok"] is True
+    assert result["images"][0]["download_size"] == "800.0 MB"
 
 
 def test_server_pull_status_reads_state_and_log_tail(monkeypatch) -> None:
