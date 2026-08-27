@@ -171,7 +171,13 @@ class RemoteRunner:
         return path
 
     def _job_child_path(self, ssh: RemoteSSHClient, *parts: str) -> str:
-        job_dir = self._require_workspace_child(ssh, self.remote_job_dir, "remote job directory")
+        job_dir = str(self.remote_job_dir or "").strip()
+        if job_dir.startswith("remote_"):
+            job_dir = job_dir[len("remote_"):]
+        if not job_dir.startswith("/") and not job_dir.startswith("~"):
+            workspace = self._remote_workspace(ssh)
+            job_dir = posixpath.join(workspace, job_dir)
+        job_dir = self._require_workspace_child(ssh, job_dir, "remote job directory")
         self.remote_job_dir = job_dir
         return self._require_workspace_child(ssh, posixpath.join(job_dir, *parts), "remote job file")
 
@@ -1119,7 +1125,7 @@ class RemoteRunner:
 
     def read_remote_events(self, offset: int = 0, limit: int = 0) -> dict[str, object]:
         if not self.remote_job_dir:
-            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "events_file_found": False}
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             try:
                 events_path = self._job_child_path(ssh, "events.jsonl")
@@ -1137,9 +1143,11 @@ class RemoteRunner:
                                 pass
                         if limit > 0 and len(events) >= limit:
                             break
-                    return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset}
-            except Exception:
-                return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+                    return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset, "events_file_found": True}
+            except (FileNotFoundError, OSError):
+                return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "events_file_found": False}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "events": [], "warnings": [], "next_offset": offset}
 
     def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
         if not self.remote_job_dir:

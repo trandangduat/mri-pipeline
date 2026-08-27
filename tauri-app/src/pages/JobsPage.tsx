@@ -656,7 +656,11 @@ export function JobsPage() {
       const isJobChanged = currentJobIdRef.current !== jobId;
       currentJobIdRef.current = jobId;
 
-      const isInitial = options.resetUi ?? (isJobChanged || eventsOffsetRef.current === 0 || jobEvents.length === 0);
+      const isInitial =
+        options.resetUi === true ||
+        isJobChanged ||
+        eventsOffsetRef.current === 0 ||
+        jobEvents.length === 0;
 
       if (isInitial) {
         eventsOffsetRef.current = 0;
@@ -749,9 +753,7 @@ export function JobsPage() {
             }
           }
           setDetailsNotice(notice);
-          if (isInitial) {
-            setIsLoadingDetails(false);
-          }
+          setIsLoadingDetails(false);
         }
       }
     },
@@ -799,9 +801,7 @@ export function JobsPage() {
         const targetId = urlJobId || selectedJobId;
         const currentJob = jobs.find((j) => (j as {job_id?: string}).job_id === targetId);
         if (currentJob) {
-          await loadJobDetails(targetId, currentJob as Record<string, unknown>, {
-            resetUi: false,
-          });
+          await loadJobDetails(targetId, currentJob as Record<string, unknown>);
         }
       }
     } catch (err: unknown) {
