@@ -277,7 +277,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
           : 'Start Pipeline';
 
   return (
-    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card">
+    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card [--font-scale:1]">
       {/* Top Bar: Brand & Action Buttons */}
       <div className="flex h-12 items-center justify-between px-4">
         {/* Brand Logo, Title & Theme Toggle */}

@@ -224,7 +224,7 @@
     --sidebar-width-icon: 3rem;
     --active-sidebar-width: var(--sidebar-width);
     font-family: var(--font-sans);
-    font-size: calc(14px * var(--font-scale, 1));
+    font-size: 14px;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
   }

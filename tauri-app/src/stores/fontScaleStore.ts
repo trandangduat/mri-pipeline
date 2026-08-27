@@ -1,16 +1,17 @@
 import {create} from 'zustand';
 
-export interface FontScaleStop {
+export interface FontScalePreset {
   value: number;
   label: string;
+  desc: string;
 }
 
-export const FONT_SCALE_STOPS: FontScaleStop[] = [
-  {value: 0.8, label: '80%'},
-  {value: 0.9, label: '90%'},
-  {value: 1.0, label: '100%'},
-  {value: 1.1, label: '110%'},
-  {value: 1.2, label: '120%'},
+export const FONT_SCALE_PRESETS: FontScalePreset[] = [
+  {value: 0.8, label: '80%', desc: 'Small'},
+  {value: 0.9, label: '90%', desc: 'Compact'},
+  {value: 1.0, label: '100%', desc: 'Default'},
+  {value: 1.1, label: '110%', desc: 'Medium'},
+  {value: 1.2, label: '120%', desc: 'Large'},
 ];
 
 export const DEFAULT_FONT_SCALE = 1.0;
@@ -47,7 +48,6 @@ export function applyFontScaleToDocument(scale: number): void {
   if (typeof document !== 'undefined') {
     const root = document.documentElement;
     root.style.setProperty('--font-scale', String(scale));
-    root.style.fontSize = `${14 * scale}px`;
   }
 }
 
