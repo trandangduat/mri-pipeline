@@ -256,7 +256,7 @@ class RemoteJobService:
         assert isinstance(config, RemoteRunConfig)
         remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
         offset = _int_val(data.get("offset"), 0)
-        limit = _int_val(data.get("limit"), 500)
+        limit = _int_val(data.get("limit"), 0)
         try:
             runner = self.runner_factory(config)
             if remote_job_dir and hasattr(runner, "remote_job_dir"):

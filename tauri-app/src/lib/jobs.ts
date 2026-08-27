@@ -297,6 +297,26 @@ const STAGE_KEYWORD_MAP: Record<string, string[]> = {
   aggregate_reporting: ['aggregate', 'report'],
 };
 
+export function isEventForImage(event: PipelineEvent, image: BatchImageItem | null): boolean {
+  if (!image) return false;
+  if (event.input_file) return String(event.input_file) === image.input_file;
+  if (event.subject_id) return String(event.subject_id) === image.subject_id;
+  if (event.container_name) {
+    const cName = String(event.container_name);
+    if (image.subject_id && cName.includes(image.subject_id)) return true;
+    const sanitizedSubj = (image.subject_id || '').replace(/[/\\:]/g, '_');
+    if (sanitizedSubj && cName.includes(sanitizedSubj)) return true;
+    const sanitizedFile = (image.input_file || '').replace(/[/\\:]/g, '_');
+    if (sanitizedFile && cName.includes(sanitizedFile)) return true;
+    const parts = (image.input_file || '').split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const folderSubj = parts[parts.length - 2] + '__' + parts[parts.length - 1];
+      if (cName.includes(folderSubj)) return true;
+    }
+  }
+  return false;
+}
+
 export function deriveImageSteps(
   events: PipelineEvent[] = [],
   image: BatchImageItem | null,
@@ -340,7 +360,8 @@ export function deriveImageSteps(
     if (kind === 'image_start') {
       currentActiveFile = String(event.input_file || '');
     } else if (kind === 'progress' || kind === 'step' || kind === 'stage') {
-      const activeMatch = currentActiveFile ? currentActiveFile === image.input_file : true;
+      const isTargeted = Boolean(event.input_file || event.subject_id || event.container_name);
+      const activeMatch = isTargeted ? isEventForImage(event, image) : (currentActiveFile ? currentActiveFile === image.input_file : true);
       if (activeMatch) {
         const rawStageKey = String(event.stage || event.step || event.message || '').toLowerCase();
         let step = stepMap.get(rawStageKey);
@@ -377,8 +398,8 @@ export function deriveImageSteps(
         }
       }
     } else if (kind === 'metrics') {
-      const activeMatch = currentActiveFile ? currentActiveFile === image.input_file : true;
-      if (activeMatch) {
+      const match = isEventForImage(event, image) || (!event.input_file && !event.subject_id && !event.container_name && (currentActiveFile ? currentActiveFile === image.input_file : true));
+      if (match) {
         const rawStageKey = String(event.stage || '').toLowerCase();
         let step = stepMap.get(rawStageKey);
         if (!step && rawStageKey) {
@@ -406,15 +427,16 @@ export function deriveImageSteps(
       }
     } else if (kind === 'image_done') {
       const doneFile = String(event.input_file || '');
-      if (doneFile === image.input_file) {
+      const match = doneFile === image.input_file || (event.subject_id && String(event.subject_id) === image.subject_id);
+      if (match) {
         const logText = String(event.log_text || '');
         if (logText) {
           const lines = logText.split('\n');
           for (const line of lines) {
-            const match = line.match(/^\[(.*?)\]\s*(.*?)\s*-\s*(OK|SUCCESS|FAIL|FAILED|STOPPED)/i);
-            if (match && match[1] && match[3]) {
-              const stg = match[1].toLowerCase();
-              const res = match[3].toUpperCase();
+            const parsed = line.match(/^\[(.*?)\]\s*(.*?)\s*-\s*(OK|SUCCESS|FAIL|FAILED|STOPPED)(?:\s*\(([\d.]+)\s*s\))?/i);
+            if (parsed && parsed[1] && parsed[3]) {
+              const stg = parsed[1].toLowerCase();
+              const res = parsed[3].toUpperCase();
               let step = stepMap.get(stg);
               if (!step) {
                 for (const [stageKey, keywords] of Object.entries(STAGE_KEYWORD_MAP)) {
@@ -425,9 +447,12 @@ export function deriveImageSteps(
                 }
               }
               if (step) {
-                const toolName = (match[2] || '').trim();
+                const toolName = (parsed[2] || '').trim();
                 if (toolName) step.tool = toolName;
                 if (isUnscheduledStep(step) && !toolName) continue;
+                if (parsed[4]) {
+                  step.elapsed_sec = parseFloat(parsed[4]);
+                }
                 if (res === 'OK' || res === 'SUCCESS') {
                   step.status = 'success';
                 } else if (res === 'STOPPED') {
@@ -439,31 +464,14 @@ export function deriveImageSteps(
             }
           }
         }
-        if (event.success === true) {
-          stepMap.forEach((s) => {
-            if (s.status === 'running') {
-              s.status = 'success';
-            }
-          });
-        } else if (event.success === false) {
-          const isStopped = String(event.status || '').toLowerCase() === 'stopped';
-          stepMap.forEach((s) => {
-            if (s.status === 'running') {
-              s.status = isStopped ? 'stopped' : 'failed';
-            }
-          });
-        }
-      }
-      if (currentActiveFile === doneFile) {
-        currentActiveFile = null;
       }
     }
   }
 
-  // If image is completed (success), ensure running active stages are marked success
+  // Final reconcile based on image status
   if (image.status === 'success') {
     stepMap.forEach((s) => {
-      if (s.status === 'running') {
+      if (s.tool && s.status !== 'failed' && s.status !== 'not_scheduled' && s.status !== 'skipped') {
         s.status = 'success';
       }
     });
@@ -490,7 +498,9 @@ export function deriveMetricsSeries(events: PipelineEvent[] = [], image: BatchIm
     if (kind === 'image_start') {
       currentActiveFile = String(event.input_file || '');
     } else if (kind === 'metrics') {
-      const activeMatch = image ? currentActiveFile === image.input_file : true;
+      const activeMatch = image
+        ? isEventForImage(event, image)
+        : true;
       if (activeMatch) {
         const cpu = typeof event.cpu_pct === 'number' ? event.cpu_pct : 0;
         const ram = typeof event.ram_bytes === 'number' ? Math.round(event.ram_bytes / (1024 * 1024)) : 0;

@@ -1117,7 +1117,7 @@ class RemoteRunner:
             })
         return jobs
 
-    def read_remote_events(self, offset: int = 0, limit: int = 500) -> dict[str, object]:
+    def read_remote_events(self, offset: int = 0, limit: int = 0) -> dict[str, object]:
         if not self.remote_job_dir:
             return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
@@ -1135,7 +1135,7 @@ class RemoteRunner:
                                 events.append(json.loads(line_str))
                             except Exception:
                                 pass
-                        if len(events) >= limit:
+                        if limit > 0 and len(events) >= limit:
                             break
                     return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset}
             except Exception:

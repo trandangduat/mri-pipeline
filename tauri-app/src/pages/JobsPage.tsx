@@ -668,7 +668,7 @@ export function JobsPage() {
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
           const [eventsResult, logResult] = await Promise.all([
             readRemoteEventsMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0, limit: 5000})
+              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0, limit: 0})
               .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
             readRemoteLogMutation
               .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0})
@@ -684,7 +684,7 @@ export function JobsPage() {
           }
         } else {
           const [eventsResult, logResult] = await Promise.all([
-            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 5000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
+            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 100000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
             readLogMutation.mutateAsync({jobId, offset: 0, maxBytes: 65536}).catch(() => ({text: ''})),
           ]);
           const evRes = eventsResult as EventsResult;
