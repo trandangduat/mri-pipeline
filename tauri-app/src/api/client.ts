@@ -7,6 +7,7 @@ import type {
   LicenseUploadResponse,
   LocalJobsResponse,
   LogResponse,
+  NeuroflowValidationResponse,
   PreparedRunRequest,
   PullImageResponse,
   RemoteBrowseResponse,
@@ -25,6 +26,7 @@ import {
   licenseUploadResponseSchema,
   localJobsResponseSchema,
   logResponseSchema,
+  neuroflowValidationResponseSchema,
   preparedRunRequestSchema,
   pullImageResponseSchema,
   remoteBrowseResponseSchema,
@@ -239,6 +241,14 @@ export class BackendClient {
 
   async exportConfig(path: string, data: Record<string, unknown>): Promise<GenericResponse> {
     return genericResponseSchema.parse(await this.post('/config/export', {path, data}));
+  }
+
+  async validateNeuroflowConfig(payload: {
+    path?: string;
+    content?: string;
+    kind: 'preset' | 'profile';
+  }): Promise<NeuroflowValidationResponse> {
+    return neuroflowValidationResponseSchema.parse(await this.post('/config/neuroflow/validate', {...payload}));
   }
 
   async startPipelineStream(

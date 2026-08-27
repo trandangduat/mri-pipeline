@@ -14,6 +14,7 @@ from app_backend.jobs import LocalJobService
 from app_backend.licenses import LicenseStore
 from app_backend.local_browse import browse_local_path
 from app_backend.metadata import get_app_metadata
+from app_backend.neuroflow_config_validator import validate_neuroflow_config
 from app_backend.progress import LocalJobProgressService
 from app_backend.remote import RemoteJobService
 from app_backend.run_request import prepare_run_request
@@ -174,6 +175,17 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "data must be an object"})
                 return
             self._write_json(HTTPStatus.OK, self._configs().export_json(export_path, data))
+            return
+        if self.path == "/config/neuroflow/validate":
+            path = payload.get("path")
+            content = payload.get("content")
+            kind = str(payload.get("kind", "") or "")
+            result = validate_neuroflow_config(
+                path=str(path) if path else None,
+                content=str(content) if content is not None else None,
+                kind=kind,
+            )
+            self._write_json(HTTPStatus.OK, result)
             return
         if self.path == "/remote/browse":
             self._write_json(HTTPStatus.OK, self._remote_jobs().browse_path(payload))

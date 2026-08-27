@@ -12,6 +12,7 @@ import type {
   localJobSummarySchema,
   localJobsResponseSchema,
   logResponseSchema,
+  neuroflowValidationResponseSchema,
   pipelineEventSchema,
   preparedRunRequestSchema,
   pullImageResponseSchema,
@@ -29,6 +30,9 @@ import type {
   toolMetadataSchema,
   toolsImageResponseSchema,
 } from '../api/schemas';
+
+export type NeuroflowValidationResponse = z.infer<typeof neuroflowValidationResponseSchema>;
+
 
 export type HealthResponse = z.infer<typeof healthSchema>;
 export type CommandStatus = z.infer<typeof commandStatusSchema>;

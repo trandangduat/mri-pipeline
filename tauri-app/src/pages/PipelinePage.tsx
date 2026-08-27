@@ -745,6 +745,7 @@ export function AdvancedSettingsSection() {
     environment,
     remoteResult,
   });
+  const client = useClient();
   const maxTaskCap = hardware.logicalCores || 32;
   const presetConfigInput = useRef<HTMLInputElement>(null);
   const profileConfigInput = useRef<HTMLInputElement>(null);
@@ -756,6 +757,8 @@ export function AdvancedSettingsSection() {
   const neuroflowEnabled = formValues.neuroflowEnabled !== undefined ? Boolean(formValues.neuroflowEnabled) : true;
   const neuroflowWarmupEnabled = Boolean(formValues.neuroflowWarmupEnabled);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [presetInvalid, setPresetInvalid] = React.useState(false);
+  const [profileInvalid, setProfileInvalid] = React.useState(false);
   const neuroflowPresetId = NEUROFLOW_PIPELINE_CONFIGS[formValues.pipelineMode];
   const canShowAdvanced = isCustomMode || (neuroflowEnabled && neuroflowAvailable);
 
@@ -767,15 +770,45 @@ export function AdvancedSettingsSection() {
       inputRef.current?.click();
       return;
     }
+    const kind = field === 'neuroflowPresetFile' ? 'preset' : 'profile';
     try {
       const selected = await open({
         multiple: false,
         filters: [{name: 'NeuroFLOW configuration', extensions: ['yaml', 'yml', 'json']}],
       });
       const path = selectedDialogPath(selected);
-      if (path) setFormFields({pipelineMode: 'Custom', [field]: path});
+      if (!path) return;
+      const res = await client.validateNeuroflowConfig({path, kind});
+      if (res.ok) {
+        setFormFields({pipelineMode: 'Custom', [field]: path});
+      } else {
+        if (kind === 'preset') setPresetInvalid(true);
+        else setProfileInvalid(true);
+      }
     } catch {
-      return;
+      if (kind === 'preset') setPresetInvalid(true);
+      else setProfileInvalid(true);
+    }
+  };
+
+  const handleConfigFile = async (
+    file: File | null | undefined,
+    field: 'neuroflowPresetFile' | 'neuroflowProfileFile',
+  ) => {
+    if (!file) return;
+    const kind = field === 'neuroflowPresetFile' ? 'preset' : 'profile';
+    try {
+      const content = await file.text();
+      const res = await client.validateNeuroflowConfig({content, kind});
+      if (res.ok) {
+        setFormFields({pipelineMode: 'Custom', [field]: file.name});
+      } else {
+        if (kind === 'preset') setPresetInvalid(true);
+        else setProfileInvalid(true);
+      }
+    } catch {
+      if (kind === 'preset') setPresetInvalid(true);
+      else setProfileInvalid(true);
     }
   };
 
@@ -861,10 +894,10 @@ export function AdvancedSettingsSection() {
                   />
                 </label>
 
-                <div className={labelCls}>
-                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                <div className="flex flex-col gap-1">
+                  <span className="flex items-center gap-1 font-medium text-cursor-ink text-xs">
                     <span>Queue Policy</span>
-                    <InfoTooltip content="Determines the task scheduling and queue prioritization strategy (B0 - B7)." />
+                    <InfoTooltip content="Defines task-dispatch order and concurrent-schedule behavior across pipeline stages." />
                   </span>
                   <QueuePolicySelect
                     value={currentPolicyId}
@@ -895,7 +928,13 @@ export function AdvancedSettingsSection() {
                     >
                       Browse
                     </Button>
-                    <input ref={presetConfigInput} className="hidden" type="file" accept=".yaml,.yml,.json" />
+                    <input
+                      ref={presetConfigInput}
+                      className="hidden"
+                      type="file"
+                      accept=".yaml,.yml,.json"
+                      onChange={(e) => void handleConfigFile(e.target.files?.[0], 'neuroflowPresetFile')}
+                    />
                   </div>
                 </label>
 
@@ -919,7 +958,13 @@ export function AdvancedSettingsSection() {
                     >
                       Browse
                     </Button>
-                    <input ref={profileConfigInput} className="hidden" type="file" accept=".yaml,.yml,.json" />
+                    <input
+                      ref={profileConfigInput}
+                      className="hidden"
+                      type="file"
+                      accept=".yaml,.yml,.json"
+                      onChange={(e) => void handleConfigFile(e.target.files?.[0], 'neuroflowProfileFile')}
+                    />
                   </div>
                 </label>
               </div>
@@ -939,6 +984,40 @@ export function AdvancedSettingsSection() {
           )}
         </div>
       </TooltipProvider>
+
+      {/* Invalid NeuroFLOW Preset File Popup */}
+      {presetInvalid && (
+        <ModalOverlay onClose={() => setPresetInvalid(false)} className="max-w-[24rem]">
+          <h3 className="m-0 mb-1.5 text-sm font-semibold leading-[1.3] text-cursor-semantic-error">
+            Invalid preset file
+          </h3>
+          <p className="m-0 break-words text-xs leading-relaxed text-cursor-body">
+            The selected file is not a valid NeuroFLOW preset configuration.
+          </p>
+          <div className="mt-3 flex items-center justify-end">
+            <Button variant="primary" onClick={() => setPresetInvalid(false)}>
+              OK
+            </Button>
+          </div>
+        </ModalOverlay>
+      )}
+
+      {/* Invalid NeuroFLOW Profile File Popup */}
+      {profileInvalid && (
+        <ModalOverlay onClose={() => setProfileInvalid(false)} className="max-w-[24rem]">
+          <h3 className="m-0 mb-1.5 text-sm font-semibold leading-[1.3] text-cursor-semantic-error">
+            Invalid profile file
+          </h3>
+          <p className="m-0 break-words text-xs leading-relaxed text-cursor-body">
+            The selected file is not a valid NeuroFLOW profile configuration.
+          </p>
+          <div className="mt-3 flex items-center justify-end">
+            <Button variant="primary" onClick={() => setProfileInvalid(false)}>
+              OK
+            </Button>
+          </div>
+        </ModalOverlay>
+      )}
     </Panel>
   );
 }

@@ -765,3 +765,27 @@ def test_download_service_falls_back_to_remote_dir_basename(tmp_path) -> None:
     assert complete_events[0]["data"]["ok"] is True
     local_path = str(complete_events[0]["data"]["local_path"])
     assert "job_fallback_test" in local_path
+
+
+def test_sidecar_neuroflow_validate_endpoint(tmp_path: Path) -> None:
+    server, thread, base_url = _serve_in_thread(LocalJobService(jobs_root=tmp_path / "jobs"))
+    try:
+        preset_file = tmp_path / "preset.yaml"
+        preset_file.write_text("pipeline_id: fs8_test\nstages:\n  - id: s1\n", encoding="utf-8")
+
+        result = _post_json(f"{base_url}/config/neuroflow/validate", {
+            "path": str(preset_file),
+            "kind": "preset",
+        })
+        assert result["ok"] is True
+        assert result["id"] == "fs8_test"
+
+        bad_result = _post_json(f"{base_url}/config/neuroflow/validate", {
+            "path": str(preset_file),
+            "kind": "profile",
+        })
+        assert bad_result["ok"] is False
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+

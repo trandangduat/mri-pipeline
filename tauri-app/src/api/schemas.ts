@@ -301,3 +301,17 @@ export const remoteBrowseResponseSchema = z.object({
   is_batch_scan: z.boolean().optional(),
   has_multi_subject_conflict: z.boolean().optional(),
 });
+
+export const neuroflowValidationResponseSchema = z.object({
+  ok: z.boolean(),
+  kind: z.enum(['preset', 'profile']).optional(),
+  id: z.string().optional(),
+  display_name: z.string().optional(),
+  stage_count: z.number().optional(),
+  profile_count: z.number().optional(),
+  path: z.string().nullable().optional(),
+  error: z.string().optional(),
+});
+
+export type NeuroflowValidationResponse = z.infer<typeof neuroflowValidationResponseSchema>;
+

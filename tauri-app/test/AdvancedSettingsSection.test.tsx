@@ -121,3 +121,59 @@ test('hides settings toggle when NeuroFLOW scheduler is disabled', () => {
   expect(screen.queryByRole('button', {name: /Show Settings/i})).not.toBeInTheDocument();
   expect(screen.queryByText('Max parallel tasks')).not.toBeInTheDocument();
 });
+
+test('opens and dismisses invalid preset popup modal when an invalid file is selected', async () => {
+  resetStore();
+  usePipelineFormStore.getState().setFormFields({
+    pipelineMode: 'Custom',
+    neuroflowPresetFile: '/tmp/preset.yaml',
+    neuroflowProfileFile: '/tmp/profile.yaml',
+  });
+
+  const {container} = renderSection();
+  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
+
+  // Mock invalid preset response
+  const presetInputs = container.querySelectorAll('input[type="file"]');
+  const presetFileInput = presetInputs[0];
+  expect(presetFileInput).toBeInTheDocument();
+
+  const invalidFile = new File(['invalid content: ['], 'invalid.yaml', {type: 'text/yaml'});
+  fireEvent.change(presetFileInput, {target: {files: [invalidFile]}});
+
+  // Modal appears
+  expect(await screen.findByText('Invalid preset file')).toBeInTheDocument();
+  expect(screen.getByText('The selected file is not a valid NeuroFLOW preset configuration.')).toBeInTheDocument();
+
+  // Click OK to dismiss
+  fireEvent.click(screen.getByRole('button', {name: 'OK'}));
+  expect(screen.queryByText('Invalid preset file')).not.toBeInTheDocument();
+});
+
+test('opens and dismisses invalid profile popup modal when an invalid file is selected', async () => {
+  resetStore();
+  usePipelineFormStore.getState().setFormFields({
+    pipelineMode: 'Custom',
+    neuroflowPresetFile: '/tmp/preset.yaml',
+    neuroflowProfileFile: '/tmp/profile.yaml',
+  });
+
+  const {container} = renderSection();
+  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
+
+  const profileInputs = container.querySelectorAll('input[type="file"]');
+  const profileFileInput = profileInputs[1];
+  expect(profileFileInput).toBeInTheDocument();
+
+  const invalidFile = new File(['invalid content: ['], 'invalid_profile.yaml', {type: 'text/yaml'});
+  fireEvent.change(profileFileInput, {target: {files: [invalidFile]}});
+
+  // Modal appears
+  expect(await screen.findByText('Invalid profile file')).toBeInTheDocument();
+  expect(screen.getByText('The selected file is not a valid NeuroFLOW profile configuration.')).toBeInTheDocument();
+
+  // Click OK to dismiss
+  fireEvent.click(screen.getByRole('button', {name: 'OK'}));
+  expect(screen.queryByText('Invalid profile file')).not.toBeInTheDocument();
+});
+
