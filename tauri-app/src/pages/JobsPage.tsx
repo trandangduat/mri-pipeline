@@ -76,8 +76,8 @@ export function canonicalJobId(id: string | null | undefined): string {
 }
 
 export function matchesJobId(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false;
   if (a === b) return true;
+  if (!a || !b) return false;
   return canonicalJobId(a) === canonicalJobId(b);
 }
 
@@ -667,10 +667,11 @@ export function JobsPage() {
       const isJobChanged = !matchesJobId(currentJobIdRef.current, jobId);
       currentJobIdRef.current = canonicalJobId(jobId);
 
+      const currentEvents = useJobsStore.getState().jobEvents || [];
       const isInitial =
         options.resetUi === true ||
         isJobChanged ||
-        (eventsOffsetRef.current === 0 && jobEvents.length === 0);
+        (eventsOffsetRef.current === 0 && currentEvents.length === 0);
 
       if (isInitial) {
         eventsOffsetRef.current = 0;
@@ -683,7 +684,7 @@ export function JobsPage() {
       }
 
       if (!targetJob) {
-        const jobs = Array.isArray(latestJobs) ? latestJobs : [];
+        const jobs = (useJobsStore.getState().latestJobs || []) as Record<string, unknown>[];
         targetJob = (jobs.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, jobId)) as Record<string, unknown> | undefined) || null;
       }
 
@@ -771,8 +772,6 @@ export function JobsPage() {
       appendJobEvents,
       appendOutputText,
       formValues,
-      jobEvents.length,
-      latestJobs,
       readEventsMutation,
       readLogMutation,
       readRemoteEventsMutation,
@@ -922,7 +921,7 @@ export function JobsPage() {
     prevSelectedJobIdRef.current = selectedJobId;
 
     if (selectedJobId) {
-      const jobs = Array.isArray(latestJobs) ? latestJobs : [];
+      const jobs = (useJobsStore.getState().latestJobs || []) as Record<string, unknown>[];
       const jobObj = jobs.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, selectedJobId)) as
         Record<string, unknown> | undefined;
       queueMicrotask(() => {
@@ -936,7 +935,7 @@ export function JobsPage() {
         setIsLoadingDetails(false);
       });
     }
-  }, [selectedJobId, latestJobs, loadJobDetails, setJobEvents, setOutputText]);
+  }, [selectedJobId, loadJobDetails, setJobEvents, setOutputText]);
 
   // Initial mount auto-refresh if empty
   useEffect(() => {
