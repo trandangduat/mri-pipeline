@@ -606,6 +606,10 @@ export function JobsPage() {
   const reqSeqRef = useRef<number>(0);
   const hasInitialRefreshed = useRef<boolean>(false);
   const prevSelectedJobIdRef = useRef<string | null | undefined>(undefined);
+  const eventsOffsetRef = useRef<number>(0);
+  const logOffsetRef = useRef<number>(0);
+  const lastSyncedAtRef = useRef<number>(Date.now());
+  const [liveNow, setLiveNow] = useState<number>(Date.now());
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
@@ -635,6 +639,8 @@ export function JobsPage() {
       const resetUi = options.resetUi ?? true;
       const seq = ++reqSeqRef.current;
       if (!jobId) {
+        eventsOffsetRef.current = 0;
+        logOffsetRef.current = 0;
         if (seq === reqSeqRef.current) {
           setJobEvents([]);
           setOutputText('Log stream is idle.');
@@ -646,6 +652,8 @@ export function JobsPage() {
       }
 
       if (resetUi) {
+        eventsOffsetRef.current = 0;
+        logOffsetRef.current = 0;
         setIsLoadingDetails(true);
         setJobEvents([]);
         setOutputText('');
@@ -654,10 +662,13 @@ export function JobsPage() {
       }
 
       const isRemote = String(targetJob?.target || 'Local') === 'Server';
+      const eventOffset = eventsOffsetRef.current;
+      const logOffset = logOffsetRef.current;
 
-      type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; events_file_found?: boolean};
-      let events: PipelineEvent[] = [];
-      let logText = '';
+      type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; next_offset?: number; events_file_found?: boolean};
+      type LogResult = {ok?: boolean; text?: string; next_offset?: number};
+      let newEvents: PipelineEvent[] = [];
+      let newLogText = '';
       let notice: {type: 'error' | 'info'; message: string} | null = null;
 
       try {
@@ -668,38 +679,60 @@ export function JobsPage() {
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
           const [eventsResult, logResult] = await Promise.all([
             readRemoteEventsMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0, limit: 0})
+              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: eventOffset, limit: 0})
               .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
             readRemoteLogMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: 0})
-              .catch(() => ({text: ''})),
+              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: logOffset})
+              .catch(() => ({text: ''})) as Promise<LogResult>,
           ]);
           const evRes = eventsResult as EventsResult;
-          events = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
-          logText = logResult?.text || '';
+          newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
+          newLogText = logResult?.text || '';
+          if (typeof evRes?.next_offset === 'number' && evRes.next_offset > 0) {
+            eventsOffsetRef.current = evRes.next_offset;
+          }
+          if (typeof logResult?.next_offset === 'number' && logResult.next_offset > 0) {
+            logOffsetRef.current = logResult.next_offset;
+          }
           if (evRes?.ok === false && evRes?.error) {
             notice = {type: 'error', message: evRes.error};
-          } else if (events.length === 0 && evRes?.events_file_found === false) {
+          } else if (resetUi && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
           }
         } else {
           const [eventsResult, logResult] = await Promise.all([
-            readEventsMutation.mutateAsync({jobId, offset: 0, limit: 100000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
-            readLogMutation.mutateAsync({jobId, offset: 0, maxBytes: 65536}).catch(() => ({text: ''})),
+            readEventsMutation.mutateAsync({jobId, offset: eventOffset, limit: 100000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
+            readLogMutation.mutateAsync({jobId, offset: logOffset, maxBytes: 65536}).catch(() => ({text: ''})) as Promise<LogResult>,
           ]);
           const evRes = eventsResult as EventsResult;
-          events = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
-          logText = logResult?.text || '';
+          newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
+          newLogText = logResult?.text || '';
+          if (typeof evRes?.next_offset === 'number' && evRes.next_offset > 0) {
+            eventsOffsetRef.current = evRes.next_offset;
+          }
+          if (typeof logResult?.next_offset === 'number' && logResult.next_offset > 0) {
+            logOffsetRef.current = logResult.next_offset;
+          }
           if (evRes?.ok === false && evRes?.error) {
             notice = {type: 'error', message: evRes.error};
-          } else if (events.length === 0 && evRes?.events_file_found === false) {
+          } else if (resetUi && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found).'};
           }
         }
       } finally {
         if (seq === reqSeqRef.current) {
-          setJobEvents(events);
-          setOutputText(logText || '');
+          lastSyncedAtRef.current = Date.now();
+          if (resetUi) {
+            setJobEvents(newEvents);
+            setOutputText(newLogText || '');
+          } else {
+            if (newEvents.length > 0) {
+              setJobEvents((prev) => [...(Array.isArray(prev) ? prev : []), ...newEvents]);
+            }
+            if (newLogText) {
+              setOutputText((prev) => (prev ? prev + newLogText : newLogText));
+            }
+          }
           setDetailsNotice(notice);
           if (resetUi) {
             setIsLoadingDetails(false);
@@ -911,12 +944,28 @@ export function JobsPage() {
   const batchSummary = deriveBatchSummary(batchImages);
   const displayMeta = deriveJobDisplayMetadata(job, safeEvents);
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
-
-  // Refresh job status and selected details every 30 seconds.
+  const liveSecondsDelta =
+    normState === 'running' ? Math.max(0, Math.floor((liveNow - lastSyncedAtRef.current) / 1000)) : 0;
   useEffect(() => {
-    const interval = setInterval(() => void refreshJobs(), 30_000);
+    if (!selectedJobId || normState !== 'running') return;
+    const timer = setInterval(() => {
+      setLiveNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [selectedJobId, normState]);
+
+  // Adaptive polling:
+  // - If looking at a running job: poll every 5s with lightweight delta fetch
+  // - If looking at a terminal job: do not poll (paused)
+  // - If on jobs list: poll every 20s
+  useEffect(() => {
+    if (selectedJobId && isTerminal) {
+      return;
+    }
+    const pollDelay = selectedJobId && normState === 'running' ? 5_000 : 20_000;
+    const interval = setInterval(() => void refreshJobs(), pollDelay);
     return () => clearInterval(interval);
-  }, [refreshJobs]);
+  }, [refreshJobs, selectedJobId, isTerminal, normState]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = React.useMemo(() => {
@@ -1977,6 +2026,7 @@ export function JobsPage() {
                         step={step}
                         isLast={idx === modalImageSteps.length - 1}
                         toolDisplayNames={toolDisplayNames}
+                        liveSecondsDelta={liveSecondsDelta}
                       />
                     ))}
                   </div>
@@ -2201,12 +2251,19 @@ function VerticalTimelineStepRow({
   step,
   isLast,
   toolDisplayNames,
+  liveSecondsDelta = 0,
 }: {
   step: StageStepDetail;
   isLast: boolean;
   toolDisplayNames: Record<string, string>;
+  liveSecondsDelta?: number;
 }) {
   const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
+  const isRunning = step?.status === 'running';
+  const effectiveElapsed =
+    isRunning && step?.elapsed_sec !== undefined
+      ? step.elapsed_sec + liveSecondsDelta
+      : step?.elapsed_sec;
 
   const rowClass =
     step?.status === 'running'
@@ -2260,7 +2317,7 @@ function VerticalTimelineStepRow({
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
             <div className="flex flex-wrap justify-end overflow-hidden rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 text-2xs">
-              <StageMetric label="Elapsed" value={formatElapsed(step?.elapsed_sec)} />
+              <StageMetric label="Elapsed" value={formatElapsed(effectiveElapsed)} />
               <span className="h-3 w-px bg-cursor-hairline mx-1" />
               <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
               <span className="h-3 w-px bg-cursor-hairline mx-1" />
