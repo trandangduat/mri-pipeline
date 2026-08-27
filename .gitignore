@@ -19,6 +19,7 @@ env/
 .vscode/
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # Logs
 *.log
@@ -64,6 +65,8 @@ configs/licenses/*
 model.txt
 .env
 .env.*
+data/id_rsa
+data/id_rsa.pub
 
 # Frontend / Tauri generated files
 tauri-app/node_modules/
