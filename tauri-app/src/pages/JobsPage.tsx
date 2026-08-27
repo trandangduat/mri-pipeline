@@ -611,7 +611,6 @@ export function JobsPage() {
   const eventsOffsetRef = useRef<number>(0);
   const logOffsetRef = useRef<number>(0);
   const lastSyncedAtRef = useRef<number>(Date.now());
-  const [liveNow, setLiveNow] = useState<number>(Date.now());
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
@@ -937,26 +936,20 @@ export function JobsPage() {
   }, []);
 
   const jobsList = Array.isArray(latestJobs) ? latestJobs : [];
-  const rawJob = jobsList.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) || null;
+  const rawJob = React.useMemo(
+    () => jobsList.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) || null,
+    [jobsList, selectedJobId],
+  );
   const job = rawJob as Record<string, unknown> | null;
   const stateStr = (job?.state as string) || 'unknown';
   const normState = normalizeJobState(stateStr);
   const isServerJob = String(job?.target || 'Local') === 'Server';
 
   const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
-  const batchImages = deriveBatchImages(safeEvents, job || {});
-  const batchSummary = deriveBatchSummary(batchImages);
-  const displayMeta = deriveJobDisplayMetadata(job, safeEvents);
+  const batchImages = React.useMemo(() => deriveBatchImages(safeEvents, job || {}), [safeEvents, job]);
+  const batchSummary = React.useMemo(() => deriveBatchSummary(batchImages), [batchImages]);
+  const displayMeta = React.useMemo(() => deriveJobDisplayMetadata(job, safeEvents), [job, safeEvents]);
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
-  const liveSecondsDelta =
-    normState === 'running' ? Math.max(0, Math.floor((liveNow - lastSyncedAtRef.current) / 1000)) : 0;
-  useEffect(() => {
-    if (!selectedJobId || normState !== 'running') return;
-    const timer = setInterval(() => {
-      setLiveNow(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [selectedJobId, normState]);
 
   // Adaptive polling:
   // - If looking at a running job: poll every 5s with lightweight delta fetch
@@ -1005,21 +998,27 @@ export function JobsPage() {
     'export_conversion',
     'aggregate_reporting',
   ];
-  const stageLabels: Record<string, string> = {};
-  if (metadata?.stages && Array.isArray(metadata.stages)) {
-    metadata.stages.forEach((s) => {
-      if (s?.id && s?.label) {
-        stageLabels[s.id] = s.label;
-      }
-    });
-  }
+  const stageLabels = React.useMemo(() => {
+    const labels: Record<string, string> = {};
+    if (metadata?.stages && Array.isArray(metadata.stages)) {
+      metadata.stages.forEach((s) => {
+        if (s?.id && s?.label) {
+          labels[s.id] = s.label;
+        }
+      });
+    }
+    return labels;
+  }, [metadata?.stages]);
 
   const toolDisplayNames = React.useMemo(() => {
     const tools = (metadata?.tools || {}) as Record<string, {display_name?: string}>;
     return Object.fromEntries(Object.entries(tools).map(([key, tool]) => [key, tool.display_name || key]));
   }, [metadata?.tools]);
 
-  const filteredLog = filterLogLines(outputText, jobLogSearch, showRawLog);
+  const filteredLog = React.useMemo(
+    () => filterLogLines(outputText, jobLogSearch, showRawLog),
+    [outputText, jobLogSearch, showRawLog],
+  );
 
   const handleDownloadClick = () => {
     if (!job || !isTerminal) return;
@@ -1132,51 +1131,81 @@ export function JobsPage() {
   };
 
   // Filter batch images by search query & status filter
-  const filteredBatchImages = batchImages.filter((img) => {
-    const matchesStatus =
-      subjectStatusFilter === 'all'
-        ? true
-        : subjectStatusFilter === 'pending'
-          ? img.status === 'pending'
-          : subjectStatusFilter === 'stopped'
-            ? img.status === 'stopped' || (img.status as string) === 'interrupted'
-            : img.status === subjectStatusFilter;
-
+  const filteredBatchImages = React.useMemo(() => {
     const q = subjectSearchQuery.trim().toLowerCase();
-    if (!q) return matchesStatus;
+    return batchImages.filter((img) => {
+      const matchesStatus =
+        subjectStatusFilter === 'all'
+          ? true
+          : subjectStatusFilter === 'pending'
+            ? img.status === 'pending'
+            : subjectStatusFilter === 'stopped'
+              ? img.status === 'stopped' || (img.status as string) === 'interrupted'
+              : img.status === subjectStatusFilter;
 
-    const matchesText =
-      img.subject_id.toLowerCase().includes(q) ||
-      img.input_file.toLowerCase().includes(q) ||
-      `#${img.idx}`.includes(q) ||
-      String(img.idx) === q;
+      if (!q) return matchesStatus;
 
-    return matchesStatus && matchesText;
-  });
+      const matchesText =
+        img.subject_id.toLowerCase().includes(q) ||
+        img.input_file.toLowerCase().includes(q) ||
+        `#${img.idx}`.includes(q) ||
+        String(img.idx) === q;
+
+      return matchesStatus && matchesText;
+    });
+  }, [batchImages, subjectStatusFilter, subjectSearchQuery]);
 
   // Modal active subject
-  const modalSubject = batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
-  const modalImageSteps = modalSubject
-    ? deriveImageSteps(safeEvents, modalSubject, selectedTools, stageOrder, stageLabels)
-    : [];
-  const modalMetricsSeries = modalSubject
-    ? deriveMetricsSeries(safeEvents, modalSubject)
-    : {cpuSeries: [], ramSeries: [], latestContainer: ''};
+  const modalSubject = React.useMemo(() => {
+    return batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
+  }, [batchImages, activeModalSubjectFile]);
+
+  const modalImageSteps = React.useMemo(() => {
+    return modalSubject
+      ? deriveImageSteps(safeEvents, modalSubject, selectedTools, stageOrder, stageLabels)
+      : [];
+  }, [safeEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
+
+  const modalMetricsSeries = React.useMemo(() => {
+    return modalSubject
+      ? deriveMetricsSeries(safeEvents, modalSubject)
+      : {cpuSeries: [], ramSeries: [], latestContainer: ''};
+  }, [safeEvents, modalSubject]);
 
   const totalModalStages = modalImageSteps.length;
   const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
 
+  const subjectStepLabelsMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const img of batchImages) {
+      if (img.status === 'success') {
+        map.set(img.input_file, 'Completed');
+      } else if (img.status === 'failed') {
+        map.set(img.input_file, 'Failed');
+      } else if (img.status === 'pending') {
+        map.set(img.input_file, 'Waiting in queue');
+      } else {
+        const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
+        const runningStep = steps.find((s) => s.status === 'running');
+        if (runningStep) {
+          map.set(img.input_file, runningStep.label || runningStep.stage);
+        } else {
+          const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
+          if (lastSuccess) {
+            map.set(img.input_file, `After ${lastSuccess.label || lastSuccess.stage}`);
+          } else if (img.status === 'stopped' || (img.status as string) === 'interrupted') {
+            map.set(img.input_file, 'Stopped before start');
+          } else {
+            map.set(img.input_file, 'Processing...');
+          }
+        }
+      }
+    }
+    return map;
+  }, [batchImages, safeEvents, selectedTools, stageOrder, stageLabels]);
+
   const getSubjectCurrentStepLabel = (img: (typeof batchImages)[0]) => {
-    if (img.status === 'success') return 'Completed';
-    if (img.status === 'failed') return 'Failed';
-    if (img.status === 'pending') return 'Waiting in queue';
-    const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
-    const runningStep = steps.find((s) => s.status === 'running');
-    if (runningStep) return runningStep.label || runningStep.stage;
-    const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
-    if (lastSuccess) return `After ${lastSuccess.label || lastSuccess.stage}`;
-    if (img.status === 'stopped' || (img.status as string) === 'interrupted') return 'Stopped before start';
-    return 'Processing...';
+    return subjectStepLabelsMap.get(img.input_file) || 'Processing...';
   };
 
   if (!selectedJobId && !urlJobId) {
@@ -2030,7 +2059,7 @@ export function JobsPage() {
                         step={step}
                         isLast={idx === modalImageSteps.length - 1}
                         toolDisplayNames={toolDisplayNames}
-                        liveSecondsDelta={liveSecondsDelta}
+                        lastSyncedAt={lastSyncedAtRef.current}
                       />
                     ))}
                   </div>
@@ -2251,23 +2280,44 @@ function StageMetric({label, value}: {label: string; value: string}) {
   );
 }
 
+function LiveStepElapsed({
+  elapsed_sec,
+  isRunning,
+  lastSyncedAt,
+}: {
+  elapsed_sec?: number;
+  isRunning: boolean;
+  lastSyncedAt?: number;
+}) {
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (!isRunning || elapsed_sec === undefined) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isRunning, elapsed_sec]);
+
+  const delta =
+    isRunning && elapsed_sec !== undefined && lastSyncedAt
+      ? Math.max(0, Math.floor((now - lastSyncedAt) / 1000))
+      : 0;
+  const effective = elapsed_sec !== undefined ? elapsed_sec + delta : undefined;
+
+  return <StageMetric label="Elapsed" value={formatElapsed(effective)} />;
+}
+
 function VerticalTimelineStepRow({
   step,
   isLast,
   toolDisplayNames,
-  liveSecondsDelta = 0,
+  lastSyncedAt,
 }: {
   step: StageStepDetail;
   isLast: boolean;
   toolDisplayNames: Record<string, string>;
-  liveSecondsDelta?: number;
+  lastSyncedAt?: number;
 }) {
   const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
-  const isRunning = step?.status === 'running';
-  const effectiveElapsed =
-    isRunning && step?.elapsed_sec !== undefined
-      ? step.elapsed_sec + liveSecondsDelta
-      : step?.elapsed_sec;
 
   const rowClass =
     step?.status === 'running'
@@ -2321,7 +2371,11 @@ function VerticalTimelineStepRow({
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
             <div className="flex flex-wrap justify-end overflow-hidden rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 text-2xs">
-              <StageMetric label="Elapsed" value={formatElapsed(effectiveElapsed)} />
+              <LiveStepElapsed
+                elapsed_sec={step?.elapsed_sec}
+                isRunning={step?.status === 'running'}
+                lastSyncedAt={lastSyncedAt}
+              />
               <span className="h-3 w-px bg-cursor-hairline mx-1" />
               <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
               <span className="h-3 w-px bg-cursor-hairline mx-1" />
