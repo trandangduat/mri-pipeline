@@ -70,6 +70,17 @@ function selectedDialogPath(selected: unknown) {
   return (selected as string) || '';
 }
 
+export function canonicalJobId(id: string | null | undefined): string {
+  if (!id) return '';
+  return id.startsWith('remote_') ? id.slice(7) : id;
+}
+
+export function matchesJobId(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return canonicalJobId(a) === canonicalJobId(b);
+}
+
 export function BatchPieChart({
   success = 0,
   failed = 0,
@@ -653,14 +664,13 @@ export function JobsPage() {
         return;
       }
 
-      const isJobChanged = currentJobIdRef.current !== jobId;
-      currentJobIdRef.current = jobId;
+      const isJobChanged = !matchesJobId(currentJobIdRef.current, jobId);
+      currentJobIdRef.current = canonicalJobId(jobId);
 
       const isInitial =
         options.resetUi === true ||
         isJobChanged ||
-        eventsOffsetRef.current === 0 ||
-        jobEvents.length === 0;
+        (eventsOffsetRef.current === 0 && jobEvents.length === 0);
 
       if (isInitial) {
         eventsOffsetRef.current = 0;
@@ -674,7 +684,7 @@ export function JobsPage() {
 
       if (!targetJob) {
         const jobs = Array.isArray(latestJobs) ? latestJobs : [];
-        targetJob = (jobs.find((j) => j && (j as {job_id?: string}).job_id === jobId) as Record<string, unknown> | undefined) || null;
+        targetJob = (jobs.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, jobId)) as Record<string, unknown> | undefined) || null;
       }
 
       const isRemote =
@@ -799,7 +809,7 @@ export function JobsPage() {
 
       if (urlJobId || selectedJobId) {
         const targetId = urlJobId || selectedJobId;
-        const currentJob = jobs.find((j) => (j as {job_id?: string}).job_id === targetId);
+        const currentJob = jobs.find((j) => matchesJobId((j as {job_id?: string}).job_id, targetId));
         if (currentJob) {
           await loadJobDetails(targetId, currentJob as Record<string, unknown>);
         }
@@ -849,7 +859,7 @@ export function JobsPage() {
         return;
       }
       setJobToDelete(null);
-      if (selectedJobId === jobId) {
+      if (matchesJobId(selectedJobId, jobId)) {
         setSelectedJobId(null);
         navigate('/jobs');
       }
@@ -894,7 +904,7 @@ export function JobsPage() {
   // Sync URL jobId with selectedJobId
   useEffect(() => {
     if (urlJobId) {
-      if (urlJobId !== selectedJobId) {
+      if (!matchesJobId(urlJobId, selectedJobId)) {
         setSelectedJobId(urlJobId);
       }
     } else {
@@ -906,14 +916,14 @@ export function JobsPage() {
 
   // Load details ONLY when selectedJobId actually changes
   useEffect(() => {
-    if (prevSelectedJobIdRef.current === selectedJobId) {
+    if (matchesJobId(prevSelectedJobIdRef.current, selectedJobId)) {
       return;
     }
     prevSelectedJobIdRef.current = selectedJobId;
 
     if (selectedJobId) {
       const jobs = Array.isArray(latestJobs) ? latestJobs : [];
-      const jobObj = jobs.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) as
+      const jobObj = jobs.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, selectedJobId)) as
         Record<string, unknown> | undefined;
       queueMicrotask(() => {
         void loadJobDetails(selectedJobId, jobObj, {resetUi: true});
@@ -954,7 +964,7 @@ export function JobsPage() {
 
   const jobsList = Array.isArray(latestJobs) ? latestJobs : [];
   const rawJob = React.useMemo(
-    () => jobsList.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) || null,
+    () => jobsList.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, selectedJobId)) || null,
     [jobsList, selectedJobId],
   );
   const job = rawJob as Record<string, unknown> | null;
