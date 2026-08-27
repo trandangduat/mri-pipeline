@@ -558,10 +558,12 @@ export function JobsPage() {
   const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
   const jobEvents = useJobsStore((s) => s.jobEvents) || [];
   const setJobEvents = useJobsStore((s) => s.setJobEvents);
+  const appendJobEvents = useJobsStore((s) => s.appendJobEvents);
   const jobLogSearch = useJobsStore((s) => s.jobLogSearch) || '';
   const setJobLogSearch = useJobsStore((s) => s.setJobLogSearch);
   const outputText = useJobsStore((s) => s.outputText) || '';
   const setOutputText = useJobsStore((s) => s.setOutputText);
+  const appendOutputText = useJobsStore((s) => s.appendOutputText);
   const clearJobLog = useJobsStore((s) => s.clearJobLog);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
@@ -727,10 +729,10 @@ export function JobsPage() {
             setOutputText(newLogText || '');
           } else {
             if (newEvents.length > 0) {
-              setJobEvents((prev) => [...(Array.isArray(prev) ? prev : []), ...newEvents]);
+              appendJobEvents(newEvents);
             }
             if (newLogText) {
-              setOutputText((prev) => (prev ? prev + newLogText : newLogText));
+              appendOutputText(newLogText);
             }
           }
           setDetailsNotice(notice);
@@ -741,6 +743,8 @@ export function JobsPage() {
       }
     },
     [
+      appendJobEvents,
+      appendOutputText,
       formValues,
       readEventsMutation,
       readLogMutation,
