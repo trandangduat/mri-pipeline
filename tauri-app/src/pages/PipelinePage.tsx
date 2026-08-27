@@ -10,7 +10,7 @@ import {RuntimeSection} from '../components/RuntimeSection';
 import {StartPipelineDialog} from '../components/StartPipelineDialog';
 import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
-import {useMetadata, useClient} from '../query/useEnvironment';
+import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
 import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
@@ -18,6 +18,7 @@ import {useRemoteStore} from '../stores/remoteStore';
 import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
 import {buildPresetPayload, defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
+import {currentTargetHardware} from '../lib/runtime';
 import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 
@@ -737,6 +738,14 @@ export function AdvancedSettingsSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+  const environment = useEnvironment().data;
+  const remoteResult = useRemoteStore();
+  const hardware = currentTargetHardware({
+    runtimeTarget: formValues.runtimeTarget,
+    environment,
+    remoteResult,
+  });
+  const maxTaskCap = hardware.logicalCores || 32;
   const presetConfigInput = useRef<HTMLInputElement>(null);
   const profileConfigInput = useRef<HTMLInputElement>(null);
   const isCustomMode = formValues.pipelineMode === 'Custom';
@@ -815,17 +824,24 @@ export function AdvancedSettingsSection() {
               {/* Row 1: Max parallel tasks & Queue Policy */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                 <label className={labelCls}>
-                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
-                    <span>Max parallel tasks</span>
-                    <InfoTooltip content="Maximum number of parallel pipeline stages running simultaneously across all subjects." />
+                  <span className="flex items-center justify-between">
+                    <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                      <span>Max parallel tasks</span>
+                      <InfoTooltip content="Maximum number of parallel pipeline stages running simultaneously across all subjects." />
+                    </span>
+                    <span className="text-2xs font-normal text-cursor-muted">
+                      {hardware.logicalCores ? `Max: ${hardware.logicalCores} cores` : '—'}
+                    </span>
                   </span>
                   <input
                     type="number"
                     min={1}
+                    max={maxTaskCap}
                     step={1}
                     value={formValues.neuroflowMaxConcurrentTasks ?? 2}
                     onChange={(e) => {
-                      const maxConcurrent = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      const val = parseInt(e.target.value, 10);
+                      const maxConcurrent = isNaN(val) ? 1 : Math.max(1, Math.min(maxTaskCap, val));
                       setFormFields({
                         neuroflowMaxConcurrentTasks: maxConcurrent,
                         neuroflowWarmupInitialConcurrency: Math.min(
@@ -833,6 +849,13 @@ export function AdvancedSettingsSection() {
                           maxConcurrent,
                         ),
                       });
+                    }}
+                    onBlur={() => {
+                      const current = Number(formValues.neuroflowMaxConcurrentTasks) || 2;
+                      const clamped = Math.max(1, Math.min(maxTaskCap, current));
+                      if (clamped !== formValues.neuroflowMaxConcurrentTasks) {
+                        setFormField('neuroflowMaxConcurrentTasks', clamped);
+                      }
                     }}
                     className={inputCls}
                   />

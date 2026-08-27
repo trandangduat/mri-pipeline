@@ -1,5 +1,6 @@
 import {fireEvent, render, screen} from '@testing-library/react';
 import {beforeAll, expect, test, vi} from 'vitest';
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {AdvancedSettingsSection} from '../src/pages/PipelinePage';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
 
@@ -23,6 +24,17 @@ function resetStore() {
   usePipelineFormStore.getState().resetForm();
 }
 
+function renderSection() {
+  const queryClient = new QueryClient({
+    defaultOptions: {queries: {retry: false}},
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AdvancedSettingsSection />
+    </QueryClientProvider>,
+  );
+}
+
 test('requires both configuration files before enabling NeuroFLOW in Custom mode', () => {
   resetStore();
   usePipelineFormStore.getState().setFormFields({
@@ -31,7 +43,7 @@ test('requires both configuration files before enabling NeuroFLOW in Custom mode
     neuroflowProfileFile: '',
   });
 
-  render(<AdvancedSettingsSection />);
+  renderSection();
 
   expect(
     screen.getByText('Select both a NeuroFLOW preset and profile configuration to enable the scheduler for a custom pipeline.'),
@@ -50,7 +62,7 @@ test('allows NeuroFLOW with custom preset and profile files', () => {
     neuroflowProfileFile: '/tmp/custom-profile.yaml',
   });
 
-  render(<AdvancedSettingsSection />);
+  renderSection();
 
   const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
   expect(toggle).toBeEnabled();
@@ -80,7 +92,7 @@ test('shows NeuroFLOW fields for preset mode', () => {
   usePipelineFormStore.getState().setFormField('neuroflowEnabled', true);
   usePipelineFormStore.getState().setFormField('neuroflowMaxConcurrentTasks', 2);
 
-  render(<AdvancedSettingsSection />);
+  renderSection();
 
   const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
   expect(toggle).toBeEnabled();
@@ -102,7 +114,7 @@ test('hides settings toggle when NeuroFLOW scheduler is disabled', () => {
   usePipelineFormStore.getState().setFormField('pipelineMode', 'FreeSurfer 8 + Volume');
   usePipelineFormStore.getState().setFormField('neuroflowEnabled', false);
 
-  render(<AdvancedSettingsSection />);
+  renderSection();
 
   const toggle = screen.getByRole('checkbox', {name: /Use NeuroFLOW scheduler/i});
   expect(toggle).not.toBeChecked();
