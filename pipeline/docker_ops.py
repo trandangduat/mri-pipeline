@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
 import subprocess
 import threading
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -17,6 +20,8 @@ from .registry import TOOL_DEFS, is_tool_enabled, tool_display_name
 log = logging.getLogger(__name__)
 
 LICENSE_CHECK_TIMEOUT_SEC = 30
+MANIFEST_INSPECT_TIMEOUT_SEC = 30
+DOCKER_HUB_TIMEOUT_SEC = 4
 
 
 def license_check_tool(selected_tools: object) -> tuple[str, str] | None:
@@ -107,6 +112,107 @@ def image_size_bytes(image: str) -> int | None:
         return int(proc.stdout.strip())
     except Exception:
         return None
+
+
+def manifest_download_size_bytes(image: str) -> int | None:
+    """Return compressed registry layer bytes from Docker manifest metadata."""
+    try:
+        proc = subprocess.run(
+            ["docker", "manifest", "inspect", "--verbose", image],
+            capture_output=True,
+            text=True,
+            timeout=MANIFEST_INSPECT_TIMEOUT_SEC,
+        )
+        if proc.returncode != 0:
+            return None
+        payload = json.loads(proc.stdout)
+    except Exception:
+        return None
+
+    manifests = payload if isinstance(payload, list) else [payload]
+    runnable: list[dict[str, object]] = []
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            continue
+        descriptor = manifest.get("Descriptor")
+        platform = descriptor.get("platform") if isinstance(descriptor, dict) else None
+        if isinstance(platform, dict) and (
+            platform.get("os") == "unknown" or platform.get("architecture") == "unknown"
+        ):
+            continue
+        image_manifest = manifest.get("OCIManifest") or manifest.get("SchemaV2Manifest")
+        if not isinstance(image_manifest, dict):
+            continue
+        runnable.append(manifest)
+
+    if not runnable:
+        return None
+
+    selected = runnable[0]
+    for manifest in runnable:
+        descriptor = manifest.get("Descriptor")
+        platform = descriptor.get("platform") if isinstance(descriptor, dict) else None
+        if isinstance(platform, dict) and platform.get("os") == "linux" and platform.get("architecture") == "amd64":
+            selected = manifest
+            break
+
+    oci_manifest = selected.get("OCIManifest") or selected.get("SchemaV2Manifest")
+    if not isinstance(oci_manifest, dict):
+        return None
+    layers = oci_manifest.get("layers")
+    if not isinstance(layers, list):
+        return None
+    sizes: list[int] = []
+    for layer in layers:
+        size = layer.get("size") if isinstance(layer, dict) else None
+        if isinstance(size, (int, float)) and not isinstance(size, bool) and math.isfinite(size) and size >= 0:
+            sizes.append(int(size))
+    return sum(sizes) if sizes else None
+
+
+def docker_hub_repository_tag(image: str) -> tuple[str, str, str] | None:
+    """Parse a namespace/repository[:tag] Docker Hub reference."""
+    if "@" in image or image.count("/") != 1:
+        return None
+    namespace, repository_tag = image.split("/", 1)
+    if not namespace or not repository_tag or "." in namespace or ":" in namespace or namespace == "localhost":
+        return None
+    repository, separator, tag = repository_tag.rpartition(":")
+    if not separator:
+        repository, tag = repository_tag, "latest"
+    if not repository or not tag or ":" in repository:
+        return None
+    return namespace, repository, tag
+
+
+def image_download_size_bytes(image: str) -> int | None:
+    """Return the linux/amd64 compressed size from Docker Hub tag metadata."""
+    parsed = docker_hub_repository_tag(image)
+    if parsed is None:
+        return None
+    namespace, repository, tag = parsed
+    url = (
+        "https://hub.docker.com/v2/repositories/"
+        f"{urllib.parse.quote(namespace, safe='')}/{urllib.parse.quote(repository, safe='')}/tags/"
+        f"{urllib.parse.quote(tag, safe='')}"
+    )
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "mri-pipeline"})
+        with urllib.request.urlopen(request, timeout=DOCKER_HUB_TIMEOUT_SEC) as response:
+            payload = json.load(response)
+    except Exception:
+        return None
+
+    images = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(images, list):
+        return None
+    for item in images:
+        if not isinstance(item, dict) or item.get("os") != "linux" or item.get("architecture") != "amd64":
+            continue
+        size = item.get("size")
+        if isinstance(size, (int, float)) and not isinstance(size, bool) and math.isfinite(size) and size >= 0:
+            return int(size)
+    return None
 
 
 def format_image_size(size: int | None) -> str:
@@ -264,4 +370,3 @@ def pull_or_build_image_for_tool(tool_key: str, on_progress: ProgressCallback | 
             else:
                 return False, f"Image {image} not available", total_build
     return True, "", total_build
-

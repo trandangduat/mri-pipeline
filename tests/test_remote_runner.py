@@ -290,6 +290,19 @@ def test_remote_runner_does_not_upload_staged_license_twice(mocker, tmp_path) ->
     assert [path for path, _remote_path in FakeRemoteSSHClient.uploaded_files] == [license_file]
 
 
+def test_remote_runner_skips_neuroflow_config_upload_when_disabled(tmp_path) -> None:
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            neuroflow_enabled=False,
+            neuroflow_preset_file=str(tmp_path / "missing-preset.yaml"),
+            neuroflow_profile_file=str(tmp_path / "missing-profile.yaml"),
+        )
+    )
+
+    runner._upload_neuroflow_configs(FakeRemoteSSHClient(None))
+
+
 def test_remote_runner_missing_staged_license_fails_before_ssh(mocker, tmp_path) -> None:
     FakeRemoteSSHClient.commands = []
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)

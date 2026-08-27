@@ -111,6 +111,7 @@ def _build_execution_request(
     input_for_next_step: str | None,
     license_mount: list[tuple[str, str]],
     memory_limit_bytes: int | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExecutionRequest:
     if input_for_next_step is None:
         input_abs = Path(config.input_file).expanduser().resolve()
@@ -202,6 +203,7 @@ def _build_execution_request(
         memory_bytes=memory_limit_bytes,
         container_name=_safe_container_name(*container_parts),
         timeout=int(tool.get("timeout", 7200)),
+        should_stop=should_stop,
     )
 
 
@@ -226,6 +228,7 @@ def run_pipeline_stage(
     tracker: PipelineTracker | None = None,
     stage_idx: int | None = None,
     total_stages: int | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> tuple[StepResult, str | None]:
     """Run one configured pipeline stage and return its next-stage input."""
 
@@ -314,6 +317,7 @@ def run_pipeline_stage(
         input_for_next_step=input_for_stage,
         license_mount=license_mount,
         memory_limit_bytes=memory_limit_bytes,
+        should_stop=should_stop,
     )
 
     def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):
@@ -588,6 +592,7 @@ def run_pipeline(
             input_for_next_step=input_for_next_step,
             license_mount=license_mount,
             memory_limit_bytes=memory_limit_bytes,
+            should_stop=should_stop,
         )
 
         def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):

@@ -193,11 +193,11 @@ export class BackendClient {
   async stopRemoteJob(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string},
   ): Promise<GenericResponse> {
-    return genericResponseSchema.parse(await this.post('/remote/jobs/stop', {...payload}));
+    return genericResponseSchema.parse(await this.post('/remote/jobs/stop', {...payload}, 20_000));
   }
 
   async stopLocalJob(jobId: string): Promise<GenericResponse> {
-    return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}));
+    return genericResponseSchema.parse(await this.post('/jobs/local/stop', {job_id: jobId}, 10_000));
   }
 
   async deleteLocalJob(jobId: string): Promise<GenericResponse> {
@@ -310,12 +310,19 @@ export class BackendClient {
     return this.request(path, {method: 'GET'});
   }
 
-  async post(path: string, body: Record<string, unknown>): Promise<unknown> {
-    return this.request(path, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body ?? {}),
-    });
+  async post(path: string, body: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
+    const controller = timeoutMs ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      return await this.request(path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body ?? {}),
+        signal: controller?.signal ?? null,
+      });
+    } finally {
+      if (timeout !== null) clearTimeout(timeout);
+    }
   }
 
   async request(path: string, options: RequestInit): Promise<unknown> {

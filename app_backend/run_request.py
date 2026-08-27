@@ -206,12 +206,13 @@ def validate_run_request_input(config: RunRequestInput, *, validate_license: boo
     if neuroflow_error:
         return [neuroflow_error]
 
-    for label, raw_path in (
-        ("preset", config.neuroflow_preset_file),
-        ("profile", config.neuroflow_profile_file),
-    ):
-        if raw_path and not Path(raw_path).expanduser().is_file():
-            return [f"NeuroFLOW {label} configuration file does not exist."]
+    if config.neuroflow_enabled:
+        for label, raw_path in (
+            ("preset", config.neuroflow_preset_file),
+            ("profile", config.neuroflow_profile_file),
+        ):
+            if raw_path and not Path(raw_path).expanduser().is_file():
+                return [f"NeuroFLOW {label} configuration file does not exist."]
 
     # Skip local file existence checks for remote jobs with server-side inputs
     # (files are on the server, not accessible locally). Lazy-upload jobs keep

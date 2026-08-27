@@ -74,6 +74,24 @@ def test_prepare_run_request_preserves_neuroflow_configuration_files(tmp_path: P
     assert request["neuroflow_profile_file"] == str(profile)
 
 
+def test_prepare_run_request_ignores_missing_neuroflow_files_when_disabled(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_text("fake", encoding="utf-8")
+
+    request = _ok_request(
+        prepare_run_request(
+            _base_config(
+                tmp_path,
+                neuroflow_enabled=False,
+                neuroflow_preset_file=str(tmp_path / "missing-preset.yaml"),
+                neuroflow_profile_file=str(tmp_path / "missing-profile.yaml"),
+            )
+        )
+    )
+
+    assert request["neuroflow_enabled"] is False
+
+
 def test_custom_neuroflow_configuration_keeps_custom_pipeline_mode(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
     preset = tmp_path / "custom-preset.yaml"

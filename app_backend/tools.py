@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Callable, TypeAlias
+from typing import Callable, Iterable, TypeAlias
 
-from pipeline.docker_ops import format_image_size, image_size_bytes
+from pipeline.docker_ops import format_image_size, image_download_size_bytes, image_size_bytes
 from pipeline.registry import TOOL_DEFS, tool_display_name
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
@@ -22,12 +25,16 @@ class CommandResult:
 
 @dataclass(frozen=True)
 class ImageInfo:
-    size_bytes: int | None = None
+    content_size_bytes: int | None = None
+    disk_usage: str | None = None
     image_id: str | None = None
 
 
 CommandRunner = Callable[[list[str]], CommandResult]
 ImageInfoProvider = Callable[[str], ImageInfo]
+DownloadSizeProvider = Callable[[str], int | None]
+DOWNLOAD_SIZE_MAX_WORKERS = 4
+DOWNLOAD_SIZE_CACHE_TTL_SEC = 60 * 60
 
 
 class LocalToolService:
@@ -36,10 +43,14 @@ class LocalToolService:
         command_runner: CommandRunner | None = None,
         remote_runner_factory: Callable[[RemoteRunConfig], object] | None = None,
         image_info_provider: ImageInfoProvider | None = None,
+        download_size_provider: DownloadSizeProvider | None = None,
     ) -> None:
         self.command_runner = command_runner or _default_command_runner
         self.remote_runner_factory = remote_runner_factory or _default_remote_runner_factory
         self.image_info_provider = image_info_provider or _default_image_info_provider
+        self.download_size_provider = download_size_provider or image_download_size_bytes
+        self._download_size_cache: dict[str, tuple[float, int]] = {}
+        self._download_size_cache_lock = threading.Lock()
 
     def image_status(
         self,
@@ -70,6 +81,7 @@ class LocalToolService:
                 return {"ok": False, "target": "Server", "error": "Remote Docker image check failed"}
 
             images: list[JsonValue] = []
+            missing_entries: list[tuple[str, dict[str, JsonValue]]] = []
             for image, tools in image_tools.items():
                 state = states.get(image, {"status": "Missing"})
                 status = str(state.get("status", "Missing"))
@@ -78,10 +90,12 @@ class LocalToolService:
                     "status": status,
                     "tools": tools,
                     "tool_details": image_tool_details.get(image, []),
-                    "repo_size": None,
-                    "uncompressed_size": None,
+                    "disk_usage": None,
+                    "content_size": None,
                     "image_id": None,
                 }
+                if status != "Installed":
+                    missing_entries.append((image, entry))
                 pull_status = state.get("pull_status")
                 if pull_status:
                     entry["pull_status"] = pull_status
@@ -90,9 +104,13 @@ class LocalToolService:
                     entry["pull_updated_at"] = state.get("pull_updated_at")
                     entry["pull_error"] = state.get("pull_error")
                 images.append(entry)
+            download_sizes = self._download_sizes(image for image, _entry in missing_entries)
+            for image, entry in missing_entries:
+                entry["download_size"] = download_sizes.get(image)
             return {"ok": True, "target": "Server", "images": images, "warnings": warnings}
 
         images: list[JsonValue] = []
+        missing_entries: list[tuple[str, dict[str, JsonValue]]] = []
         for image, tools in image_tools.items():
             try:
                 result = self.command_runner(["docker", "image", "inspect", image])
@@ -107,15 +125,46 @@ class LocalToolService:
             }
             if installed:
                 info = self.image_info_provider(image)
-                entry["repo_size"] = format_image_size(info.size_bytes)
-                entry["uncompressed_size"] = format_image_size(info.size_bytes)
+                entry["disk_usage"] = info.disk_usage
+                entry["content_size"] = format_image_size(info.content_size_bytes)
                 entry["image_id"] = info.image_id
             else:
-                entry["repo_size"] = None
-                entry["uncompressed_size"] = None
+                entry["disk_usage"] = None
+                entry["content_size"] = None
                 entry["image_id"] = None
+                missing_entries.append((image, entry))
             images.append(entry)
+        download_sizes = self._download_sizes(image for image, _entry in missing_entries)
+        for image, entry in missing_entries:
+            entry["download_size"] = download_sizes.get(image)
         return {"ok": True, "target": "Local", "images": images, "warnings": warnings}
+
+    def _download_sizes(self, images: Iterable[str]) -> dict[str, str | None]:
+        unique_images = list(dict.fromkeys(images))
+        now = time.monotonic()
+        sizes: dict[str, int | None] = {}
+        with self._download_size_cache_lock:
+            for image in unique_images:
+                cached = self._download_size_cache.get(image)
+                if cached and cached[0] > now:
+                    sizes[image] = cached[1]
+
+        pending = [image for image in unique_images if image not in sizes]
+        if pending:
+            with ThreadPoolExecutor(max_workers=min(DOWNLOAD_SIZE_MAX_WORKERS, len(pending))) as executor:
+                looked_up = executor.map(self._download_size, pending)
+                for image, size in zip(pending, looked_up, strict=True):
+                    sizes[image] = size
+                    if size is not None:
+                        with self._download_size_cache_lock:
+                            self._download_size_cache[image] = (time.monotonic() + DOWNLOAD_SIZE_CACHE_TTL_SEC, size)
+        return {image: None if sizes.get(image) is None else format_image_size(sizes.get(image)) for image in unique_images}
+
+    def _download_size(self, image: str) -> int | None:
+        try:
+            return self.download_size_provider(image)
+        except Exception:
+            return None
 
     def local_image_status(self, selected_tools: dict[str, object] | None = None) -> dict[str, JsonValue]:
         return self.image_status(selected_tools=selected_tools, target="Local")
@@ -262,8 +311,20 @@ def _default_remote_runner_factory(config: RemoteRunConfig) -> object:
 
 
 def _default_image_info_provider(image: str) -> ImageInfo:
-    size = image_size_bytes(image)
+    content_size_bytes = image_size_bytes(image)
+    disk_usage = None
     image_id = None
+    try:
+        proc = subprocess.run(
+            ["docker", "image", "ls", "--format", "{{.Size}}", image],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        sizes = proc.stdout.strip().splitlines() if proc.returncode == 0 else []
+        disk_usage = sizes[0].strip() if sizes and sizes[0].strip() else None
+    except Exception:
+        pass
     try:
         proc = subprocess.run(
             ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
@@ -275,7 +336,7 @@ def _default_image_info_provider(image: str) -> ImageInfo:
         image_id = raw_id[:19] if raw_id else None
     except Exception:
         pass
-    return ImageInfo(size_bytes=size, image_id=image_id)
+    return ImageInfo(content_size_bytes=content_size_bytes, disk_usage=disk_usage, image_id=image_id)
 
 
 def _image_tools(selected_tools: dict[str, object] | None) -> tuple[dict[str, list[str]], dict[str, list[dict[str, str]]], list[JsonValue]]:

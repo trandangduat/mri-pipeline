@@ -318,7 +318,7 @@ function JobCard({
       {/* Top Header Row: Full Job Name + Status Badges */}
       <div className="flex items-center justify-between gap-2 min-w-0">
         <strong
-          className="min-w-0 flex-1 whitespace-nowrap text-sm font-semibold text-cursor-ink transition-colors group-hover:text-cursor-primary"
+          className="min-w-0 flex-1 truncate text-sm font-semibold text-cursor-ink transition-colors group-hover:text-cursor-primary"
           title={title}
         >
           {title}
