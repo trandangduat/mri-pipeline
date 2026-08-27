@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import {Button} from './ui';
 import {ThemeToggle} from './ThemeToggle';
+import {FontScaleToggle} from './FontScaleToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useEnvironment} from '../query/useEnvironment';
@@ -31,7 +32,7 @@ export interface AppHeaderProps {
   jobsCount?: number;
 }
 
-export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProps) {
+export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
   const navigate = useNavigate();
   const {data: metadata} = useMetadata();
   const {data: environment} = useEnvironment();
@@ -287,7 +288,8 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
           <strong className="text-base font-semibold leading-tight tracking-tight text-cursor-ink">
             NeuroFlow
           </strong>
-          <div className="ml-1 flex items-center">
+          <div className="ml-1 flex items-center gap-1.5">
+            <FontScaleToggle />
             <ThemeToggle />
           </div>
         </div>

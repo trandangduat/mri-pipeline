@@ -9,20 +9,20 @@
   --font-sans: 'Geist Sans', 'CursorGothic', system-ui, 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --text-2xs: 10px;
-  --text-2xs--line-height: 14px;
-  --text-xs: 11px;
-  --text-xs--line-height: 15px;
-  --text-sm: 13px;
-  --text-sm--line-height: 18px;
-  --text-base: 14px;
-  --text-base--line-height: 20px;
-  --text-lg: 16px;
-  --text-lg--line-height: 22px;
-  --text-xl: 18px;
-  --text-xl--line-height: 24px;
-  --text-2xl: 22px;
-  --text-2xl--line-height: 28px;
+  --text-2xs: calc(10px * var(--font-scale, 1));
+  --text-2xs--line-height: calc(14px * var(--font-scale, 1));
+  --text-xs: calc(11px * var(--font-scale, 1));
+  --text-xs--line-height: calc(15px * var(--font-scale, 1));
+  --text-sm: calc(13px * var(--font-scale, 1));
+  --text-sm--line-height: calc(18px * var(--font-scale, 1));
+  --text-base: calc(14px * var(--font-scale, 1));
+  --text-base--line-height: calc(20px * var(--font-scale, 1));
+  --text-lg: calc(16px * var(--font-scale, 1));
+  --text-lg--line-height: calc(22px * var(--font-scale, 1));
+  --text-xl: calc(18px * var(--font-scale, 1));
+  --text-xl--line-height: calc(24px * var(--font-scale, 1));
+  --text-2xl: calc(22px * var(--font-scale, 1));
+  --text-2xl--line-height: calc(28px * var(--font-scale, 1));
 }
 
 @theme inline {
@@ -219,11 +219,12 @@
 
 @layer base {
   :root {
+    --font-scale: 1;
     --sidebar-width: 22.5rem;
     --sidebar-width-icon: 3rem;
     --active-sidebar-width: var(--sidebar-width);
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: calc(14px * var(--font-scale, 1));
     font-synthesis: none;
     text-rendering: optimizeLegibility;
   }
