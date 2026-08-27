@@ -117,8 +117,17 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         _emit_event(job_dir, "image_start", input_file=input_file, idx=idx, total=total)
 
     def image_done_cb(result: BatchImageResult, idx: int, total: int) -> None:
-        status = "OK" if result.success else "FAILED"
+        is_stopped = should_stop() or (bool(result.error) and "stopped" in result.error.lower())
+        status = "SUCCESS" if result.success else ("STOPPED" if is_stopped else "FAILED")
         _log(job_dir, f"Done image {idx}/{total}: {result.subject_id} | {status}")
+
+        def _step_tag(step):
+            if step.success:
+                return "SUCCESS"
+            if is_stopped or (bool(step.error) and "stopped" in step.error.lower()):
+                return "STOPPED"
+            return "FAIL"
+
         _emit_event(
             job_dir,
             "image_done",
@@ -128,8 +137,9 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
             duration_sec=result.duration_sec,
             idx=idx,
             total=total,
+            status="success" if result.success else ("stopped" if is_stopped else "failed"),
             log_text="\n".join(
-                [f"[{step.stage}] {step.tool} - {'OK' if step.success else 'FAIL'} ({step.duration_sec:.1f}s)" for step in result.steps]
+                [f"[{step.stage}] {step.tool} - {_step_tag(step)} ({step.duration_sec:.1f}s)" for step in result.steps]
             ),
         )
 

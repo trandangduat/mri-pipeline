@@ -9,7 +9,7 @@ export interface BatchImageItem {
   subject_id: string;
   idx: number;
   total: number;
-  status: 'pending' | 'running' | 'success' | 'failed' | 'interrupted';
+  status: 'pending' | 'running' | 'success' | 'failed' | 'stopped';
   duration_sec?: number | undefined;
 }
 
@@ -19,6 +19,7 @@ export interface BatchSummary {
   failed: number;
   running: number;
   pending: number;
+  stopped?: number;
   interrupted?: number;
   completedPercent: number;
 }
@@ -27,7 +28,7 @@ export interface StageStepDetail {
   stage: string;
   label: string;
   tool: string;
-  status: 'pending' | 'running' | 'success' | 'failed' | 'not_scheduled' | 'skipped';
+  status: 'pending' | 'running' | 'success' | 'failed' | 'stopped' | 'not_scheduled' | 'skipped';
   elapsed_sec?: number;
   cpu_pct?: number;
   ram_bytes?: number;
@@ -204,17 +205,23 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       if (success && logText) {
         const req = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
         const tools = ((req.selected_tools || {}) as Record<string, string>) || {};
-        const scheduledCount = Object.values(tools).filter(Boolean).length;
+        const isScheduledTool = (t: unknown) =>
+          Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
+        const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
         if (scheduledCount > 0) {
-          const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*OK/gi) || []).length;
+          const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*(OK|SUCCESS)/gi) || []).length;
           if (okLines < scheduledCount) {
             success = false;
           }
         }
       }
 
+      const eventStatus = String(event.status || '').toLowerCase();
+      const finalStatus: BatchImageItem['status'] =
+        eventStatus === 'stopped' ? 'stopped' : success ? 'success' : 'failed';
+
       if (existing) {
-        existing.status = success ? 'success' : 'failed';
+        existing.status = finalStatus;
         if (computedSubj) existing.subject_id = computedSubj;
         if (duration_sec !== undefined) existing.duration_sec = duration_sec;
       } else if (file) {
@@ -223,7 +230,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
           subject_id: computedSubj,
           idx,
           total,
-          status: success ? 'success' : 'failed',
+          status: finalStatus,
         };
         if (duration_sec !== undefined) item.duration_sec = duration_sec;
         imagesMap.set(file, item);
@@ -242,7 +249,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
   } else if (normState === 'stopped') {
     imagesMap.forEach((img) => {
       if (img.status !== 'success') {
-        img.status = 'interrupted';
+        img.status = 'stopped';
       }
     });
   } else if (normState === 'failed') {
@@ -262,20 +269,20 @@ export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
   let failed = 0;
   let running = 0;
   let pending = 0;
-  let interrupted = 0;
+  let stopped = 0;
 
   for (const img of images) {
     if (img.status === 'success') success++;
     else if (img.status === 'failed') failed++;
-    else if (img.status === 'interrupted') interrupted++;
+    else if (img.status === 'stopped' || (img.status as string) === 'interrupted') stopped++;
     else if (img.status === 'running') running++;
     else pending++;
   }
 
-  const completed = success + failed + interrupted;
+  const completed = success + failed + stopped;
   const completedPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  return {total, success, failed, running, pending, interrupted, completedPercent};
+  return {total, success, failed, running, pending, stopped, interrupted: stopped, completedPercent};
 }
 
 const STAGE_KEYWORD_MAP: Record<string, string[]> = {
@@ -352,11 +359,14 @@ export function deriveImageSteps(
           if (eventTool) step.tool = eventTool;
           if (isUnscheduledStep(step) && !eventTool) continue;
           const rawStatus = String(event.status || event.state || '').toLowerCase();
+          const isStoppedMsg = String(event.msg || event.message || event.error || '').toLowerCase().includes('stopped');
           if (['running', 'start', 'started'].includes(rawStatus)) {
             markPriorActiveStagesSuccess(step.stage);
             step.status = 'running';
           } else if (['ok', 'done', 'completed', 'success'].includes(rawStatus)) {
             step.status = 'success';
+          } else if (['stopped', 'stop', 'interrupted', 'cancelled'].includes(rawStatus) || isStoppedMsg) {
+            step.status = 'stopped';
           } else if (['failed', 'error'].includes(rawStatus)) {
             step.status = 'failed';
           } else if (['skipped', 'skip', 'not_scheduled', 'not scheduled'].includes(rawStatus)) {
@@ -401,11 +411,10 @@ export function deriveImageSteps(
         if (logText) {
           const lines = logText.split('\n');
           for (const line of lines) {
-            const match = line.match(/^\[(.*?)\]\s*(.*?)\s*-\s*(OK|FAIL)/i);
+            const match = line.match(/^\[(.*?)\]\s*(.*?)\s*-\s*(OK|SUCCESS|FAIL|FAILED|STOPPED)/i);
             if (match && match[1] && match[3]) {
               const stg = match[1].toLowerCase();
-              const toolName = match[2] || '';
-              const res = match[3];
+              const res = match[3].toUpperCase();
               let step = stepMap.get(stg);
               if (!step) {
                 for (const [stageKey, keywords] of Object.entries(STAGE_KEYWORD_MAP)) {
@@ -419,7 +428,13 @@ export function deriveImageSteps(
                 const toolName = (match[2] || '').trim();
                 if (toolName) step.tool = toolName;
                 if (isUnscheduledStep(step) && !toolName) continue;
-                step.status = res.toUpperCase() === 'OK' ? 'success' : 'failed';
+                if (res === 'OK' || res === 'SUCCESS') {
+                  step.status = 'success';
+                } else if (res === 'STOPPED') {
+                  step.status = 'stopped';
+                } else {
+                  step.status = 'failed';
+                }
               }
             }
           }
@@ -431,9 +446,10 @@ export function deriveImageSteps(
             }
           });
         } else if (event.success === false) {
+          const isStopped = String(event.status || '').toLowerCase() === 'stopped';
           stepMap.forEach((s) => {
             if (s.status === 'running') {
-              s.status = 'failed';
+              s.status = isStopped ? 'stopped' : 'failed';
             }
           });
         }
@@ -449,6 +465,12 @@ export function deriveImageSteps(
     stepMap.forEach((s) => {
       if (s.status === 'running') {
         s.status = 'success';
+      }
+    });
+  } else if (image.status === 'stopped') {
+    stepMap.forEach((s) => {
+      if (s.tool && s.status !== 'success' && s.status !== 'not_scheduled' && s.status !== 'skipped') {
+        s.status = 'stopped';
       }
     });
   }

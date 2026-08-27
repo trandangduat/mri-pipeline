@@ -71,28 +71,40 @@ function selectedDialogPath(selected: unknown) {
 }
 
 export function BatchPieChart({
-  success,
-  failed,
-  interrupted = 0,
-  running,
-  pending,
-  total,
+  success = 0,
+  failed = 0,
+  interrupted,
+  stopped,
+  running = 0,
+  pending = 0,
+  total = 0,
   size = 80,
 }: {
-  success: number;
-  failed: number;
+  success?: number;
+  failed?: number;
   interrupted?: number;
-  running: number;
-  pending: number;
-  total: number;
+  stopped?: number;
+  running?: number;
+  pending?: number;
+  total?: number;
   size?: number;
 }) {
   const [hovered, setHovered] = useState<{label: string; color: string} | null>(null);
   const radius = 44;
   const center = 50;
   const chartStyle = {width: `${size}px`, height: `${size}px`, minWidth: `${size}px`, minHeight: `${size}px`};
+  const stoppedCount = (typeof stopped === 'number' ? stopped : interrupted) || 0;
+  const safeTotal = total > 0 ? total : ((success || 0) + (failed || 0) + stoppedCount + (running || 0) + (pending || 0));
 
-  if (total <= 0) {
+  const segments = [
+    {count: success || 0, color: '#1f8a65', key: 'success', label: `Finished: ${success || 0}`}, // Semantic Success
+    {count: failed || 0, color: '#cf2d56', key: 'failed', label: `Failed: ${failed || 0}`}, // Semantic Error
+    {count: stoppedCount, color: '#f59e0b', key: 'interrupted', label: `Stopped: ${stoppedCount}`}, // Semantic Warn
+    {count: running || 0, color: '#0077b6', key: 'running', label: `Running: ${running || 0}`}, // Primary
+    {count: pending || 0, color: '#cfcdc4', key: 'pending', label: `Pending: ${pending || 0}`}, // Muted / Pending
+  ].filter((s) => s.count > 0);
+
+  if (safeTotal <= 0 || segments.length === 0) {
     return (
       <div className="relative flex items-center justify-center flex-none" style={chartStyle}>
         <svg viewBox="0 0 100 100" className="block flex-none" style={chartStyle}>
@@ -101,14 +113,6 @@ export function BatchPieChart({
       </div>
     );
   }
-
-  const segments = [
-    {count: success, color: '#1f8a65', key: 'success', label: `Finished: ${success}`}, // Semantic Success
-    {count: failed, color: '#cf2d56', key: 'failed', label: `Failed: ${failed}`}, // Semantic Error
-    {count: interrupted, color: '#f59e0b', key: 'interrupted', label: `Stopped: ${interrupted}`}, // Semantic Warn
-    {count: running, color: '#0077b6', key: 'running', label: `Running: ${running}`}, // Primary
-    {count: pending, color: '#cfcdc4', key: 'pending', label: `Pending: ${pending}`}, // Muted / Pending
-  ].filter((s) => s.count > 0);
 
   // If only 1 category exists, render a full solid circle
   const singleSeg = segments.length === 1 ? segments[0] : undefined;
@@ -144,7 +148,7 @@ export function BatchPieChart({
   // Multiple segments: generate SVG pie slice paths
   let currentAngle = -Math.PI / 2; // Start from top (12 o'clock)
   const paths = segments.map((seg) => {
-    const sliceAngle = (seg.count / total) * 2 * Math.PI;
+    const sliceAngle = (seg.count / safeTotal) * 2 * Math.PI;
     const startAngle = currentAngle;
     const endAngle = currentAngle + sliceAngle;
     currentAngle = endAngle;
@@ -231,43 +235,81 @@ function formatRelativeTime(timestampSeconds: number): string {
 function jobBatchSummary(job: Record<string, unknown>): BatchSummary {
   const normState = normalizeJobState(job.state);
   const raw = job.batch_summary;
+  let total = 0;
+  let success = 0;
+  let failed = 0;
+  let running = 0;
+  let pending = 0;
+  let stopped = 0;
+
   if (raw && typeof raw === 'object') {
     const summary = raw as Partial<BatchSummary>;
-    const values = [summary.total, summary.success, summary.failed, summary.running, summary.pending];
-    if (values.every((value) => typeof value === 'number' && Number.isFinite(value))) {
-      let success = Number(summary.success || 0);
-      let failed = Number(summary.failed || 0);
-      let running = Number(summary.running || 0);
-      let pending = Number(summary.pending || 0);
-      let interrupted = Number(summary.interrupted || 0);
-      const total = Number(summary.total || 0);
+    total = Number(summary.total || 0);
+    success = Number(summary.success || 0);
+    failed = Number(summary.failed || 0);
+    running = Number(summary.running || 0);
+    pending = Number(summary.pending || 0);
+    stopped = Number(summary.stopped || summary.interrupted || 0);
+  }
 
-      if (normState === 'stopped') {
-        interrupted = interrupted + running + pending;
-        running = 0;
-        pending = 0;
-        if (interrupted === 0 && failed > 0) {
-          interrupted = failed;
-          failed = 0;
-        } else if (interrupted === 0 && success === total && total > 0) {
-          interrupted = total;
-          success = 0;
-        }
-      }
-
-      const completed = success + failed + interrupted;
-      return {
-        total,
-        success,
-        failed,
-        running,
-        pending,
-        interrupted,
-        completedPercent: summary.total ? Math.round((completed / summary.total) * 100) : 0,
-      };
+  // Fallback total if total <= 0
+  if (total <= 0) {
+    if (Array.isArray(job.input_files) && job.input_files.length > 0) {
+      total = job.input_files.length;
+    } else if (job.input_file) {
+      total = 1;
+    } else if (normState !== 'unknown') {
+      total = 1;
     }
   }
-  return {total: 0, success: 0, failed: 0, running: 0, pending: 0, interrupted: 0, completedPercent: 0};
+
+  // Terminal state reconciliation
+  if (normState === 'completed') {
+    if (success === 0 && failed === 0 && stopped === 0) {
+      success = total;
+      running = 0;
+      pending = 0;
+    }
+  } else if (normState === 'stopped') {
+    if (stopped === 0 && success === 0 && failed === 0) {
+      stopped = total;
+      running = 0;
+      pending = 0;
+    } else {
+      stopped = stopped + running + pending;
+      running = 0;
+      pending = 0;
+    }
+    if (stopped === 0 && failed > 0) {
+      stopped = failed;
+      failed = 0;
+    } else if (stopped === 0 && success === total && total > 0) {
+      stopped = total;
+      success = 0;
+    }
+  } else if (normState === 'failed') {
+    if (failed === 0 && success === 0 && stopped === 0) {
+      failed = total;
+      running = 0;
+      pending = 0;
+    }
+  } else if (normState === 'running') {
+    if (running === 0 && pending === 0 && success === 0) {
+      running = total;
+    }
+  }
+
+  const completed = success + failed + stopped;
+  return {
+    total,
+    success,
+    failed,
+    running,
+    pending,
+    stopped,
+    interrupted: stopped,
+    completedPercent: total > 0 ? Math.round((completed / total) * 100) : 0,
+  };
 }
 
 function JobCard({
@@ -539,7 +581,7 @@ export function JobsPage() {
   // Subject panel search, filter & modal state
   const [subjectSearchQuery, setSubjectSearchQuery] = useState<string>('');
   const [subjectStatusFilter, setSubjectStatusFilter] = useState<
-    'all' | 'success' | 'running' | 'interrupted' | 'failed' | 'pending'
+    'all' | 'success' | 'running' | 'stopped' | 'interrupted' | 'failed' | 'pending'
   >('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
 
@@ -1043,7 +1085,9 @@ export function JobsPage() {
         ? true
         : subjectStatusFilter === 'pending'
           ? img.status === 'pending'
-          : img.status === subjectStatusFilter;
+          : subjectStatusFilter === 'stopped'
+            ? img.status === 'stopped' || (img.status as string) === 'interrupted'
+            : img.status === subjectStatusFilter;
 
     const q = subjectSearchQuery.trim().toLowerCase();
     if (!q) return matchesStatus;
@@ -1078,6 +1122,7 @@ export function JobsPage() {
     if (runningStep) return runningStep.label || runningStep.stage;
     const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
     if (lastSuccess) return `After ${lastSuccess.label || lastSuccess.stage}`;
+    if (img.status === 'stopped' || (img.status as string) === 'interrupted') return 'Stopped before start';
     return 'Processing...';
   };
 
@@ -1371,7 +1416,7 @@ export function JobsPage() {
                 <BatchPieChart
                   success={batchSummary.success}
                   failed={batchSummary.failed}
-                  interrupted={batchSummary.interrupted || 0}
+                  interrupted={batchSummary.stopped || batchSummary.interrupted || 0}
                   running={batchSummary.running}
                   pending={batchSummary.pending}
                   total={batchSummary.total}
@@ -1384,13 +1429,13 @@ export function JobsPage() {
                     </div>
                     <span className="font-semibold text-cursor-ink font-mono">{batchSummary.success}</span>
                   </div>
-                  {Boolean(batchSummary.interrupted && batchSummary.interrupted > 0) && (
+                  {Boolean((batchSummary.stopped || batchSummary.interrupted) && (batchSummary.stopped || batchSummary.interrupted)! > 0) && (
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-warn flex-none" />
                         <span className="text-cursor-ink text-xs font-medium">Stopped</span>
                       </div>
-                      <span className="font-semibold text-cursor-ink font-mono">{batchSummary.interrupted}</span>
+                      <span className="font-semibold text-cursor-ink font-mono">{batchSummary.stopped ?? batchSummary.interrupted}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-2">
@@ -1572,11 +1617,11 @@ export function JobsPage() {
               <div className="hidden sm:block h-4 w-px bg-cursor-hairline-strong flex-none" />
               <div className="flex flex-wrap items-center gap-1.5">
                 {(
-                  Boolean(batchSummary.interrupted && batchSummary.interrupted > 0)
-                    ? (['all', 'success', 'running', 'interrupted', 'failed', 'pending'] as const)
+                  Boolean((batchSummary.stopped || batchSummary.interrupted) && (batchSummary.stopped || batchSummary.interrupted)! > 0)
+                    ? (['all', 'success', 'running', 'stopped', 'failed', 'pending'] as const)
                     : (['all', 'success', 'running', 'failed', 'pending'] as const)
                 ).map((st) => {
-                  const label = st === 'success' ? 'OK' : st === 'interrupted' ? 'Stopped' : st;
+                  const label = st === 'success' ? 'SUCCESS' : st === 'stopped' ? 'Stopped' : st;
                   const count =
                     st === 'all'
                       ? batchImages.length
@@ -1584,8 +1629,8 @@ export function JobsPage() {
                         ? batchSummary.success
                         : st === 'running'
                           ? batchSummary.running
-                          : st === 'interrupted'
-                            ? batchSummary.interrupted || 0
+                          : st === 'stopped'
+                            ? batchSummary.stopped ?? batchSummary.interrupted ?? 0
                             : st === 'failed'
                               ? batchSummary.failed
                               : batchSummary.pending;
@@ -1685,17 +1730,17 @@ export function JobsPage() {
                           <span
                             className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded flex-none ${
                               img.status === 'success'
-                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
-                                : img.status === 'failed'
-                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
-                                  : img.status === 'interrupted'
-                                    ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
-                                    : img.status === 'running'
-                                      ? 'text-cursor-primary bg-cursor-primary/10'
-                                      : 'text-cursor-muted bg-cursor-surface-strong/70'
+                                 ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
+                                 : img.status === 'failed'
+                                   ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
+                                   : img.status === 'stopped' || (img.status as string) === 'interrupted'
+                                     ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
+                                     : img.status === 'running'
+                                       ? 'text-cursor-primary bg-cursor-primary/10'
+                                       : 'text-cursor-muted bg-cursor-surface-strong/70'
                             }`}
                           >
-                            {img.status === 'success' ? 'OK' : img.status === 'interrupted' ? 'STOPPED' : img.status.toUpperCase()}
+                            {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
                           </span>
                         </div>
 
@@ -1719,7 +1764,7 @@ export function JobsPage() {
                                   ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20 font-medium'
                                   : img.status === 'failed'
                                     ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20 font-medium'
-                                    : img.status === 'interrupted'
+                                    : img.status === 'stopped' || (img.status as string) === 'interrupted'
                                       ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn border-cursor-semantic-warn/20 font-medium'
                                       : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft font-medium'
                             }`}
@@ -1807,7 +1852,9 @@ export function JobsPage() {
                                     ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20'
                                     : img.status === 'failed'
                                       ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20'
-                                      : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft'
+                                      : img.status === 'stopped' || (img.status as string) === 'interrupted'
+                                        ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn border-cursor-semantic-warn/20'
+                                        : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft'
                               }`}
                             >
                               {img.status === 'running' && (
@@ -1822,14 +1869,14 @@ export function JobsPage() {
                                 ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
                                 : img.status === 'failed'
                                   ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
-                                  : img.status === 'interrupted'
+                                  : img.status === 'stopped' || (img.status as string) === 'interrupted'
                                     ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
                                     : img.status === 'running'
                                       ? 'text-cursor-primary bg-cursor-primary/10'
                                       : 'text-cursor-muted bg-cursor-surface-strong/70'
                             }`}
                           >
-                            {img.status === 'success' ? 'OK' : img.status === 'interrupted' ? 'STOPPED' : img.status.toUpperCase()}
+                            {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
                           </span>
                         </div>
                       </button>
@@ -1892,7 +1939,13 @@ export function JobsPage() {
                 <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
                   {completedModalStages}/{totalModalStages} stages
                 </span>
-                <StatusPill state={modalSubject.status}>{modalSubject.status.toUpperCase()}</StatusPill>
+                <StatusPill state={modalSubject.status}>
+                  {modalSubject.status === 'success'
+                    ? 'SUCCESS'
+                    : modalSubject.status === 'stopped' || (modalSubject.status as string) === 'interrupted'
+                      ? 'STOPPED'
+                      : modalSubject.status.toUpperCase()}
+                </StatusPill>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -2098,19 +2151,23 @@ function StageStatusPill({status}: {status: string}) {
         ? 'bg-cursor-primary/10 text-cursor-primary'
         : status === 'failed'
           ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error'
-          : isSkipped
-            ? 'bg-cursor-canvas-soft text-cursor-muted-soft'
-            : 'bg-cursor-surface-strong/70 text-cursor-muted';
+          : status === 'stopped' || status === 'interrupted'
+            ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn'
+            : isSkipped
+              ? 'bg-cursor-canvas-soft text-cursor-muted-soft'
+              : 'bg-cursor-surface-strong/70 text-cursor-muted';
   const label =
     status === 'success'
-      ? 'OK'
+      ? 'SUCCESS'
       : status === 'running'
         ? 'RUNNING'
         : status === 'failed'
           ? 'FAIL'
-          : isSkipped
-            ? 'SKIPPED'
-            : 'PENDING';
+          : status === 'stopped' || status === 'interrupted'
+            ? 'STOPPED'
+            : isSkipped
+              ? 'SKIPPED'
+              : 'PENDING';
   return (
     <span
       className={`inline-flex items-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] flex-none ${cls}`}
@@ -2125,7 +2182,7 @@ function subjectAccentClasses(status: string) {
     return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
   if (status === 'failed')
     return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
-  if (status === 'interrupted')
+  if (status === 'stopped' || status === 'interrupted')
     return 'text-cursor-semantic-warn border-cursor-semantic-warn/25 bg-cursor-semantic-warn/5';
   if (status === 'running') return 'text-cursor-primary border-cursor-primary/25 bg-cursor-primary/5';
   return 'text-cursor-muted border-cursor-hairline bg-cursor-canvas-soft';
@@ -2156,9 +2213,11 @@ function VerticalTimelineStepRow({
       ? 'border-cursor-primary/40 bg-cursor-canvas-soft'
       : step?.status === 'failed'
         ? 'border-cursor-semantic-error/20 bg-cursor-canvas-soft'
-        : isSkipped
-          ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 opacity-60'
-          : 'border-cursor-hairline bg-cursor-surface-card';
+        : step?.status === 'stopped' || step?.status === 'interrupted'
+          ? 'border-cursor-semantic-warn/30 bg-cursor-canvas-soft'
+          : isSkipped
+            ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 opacity-60'
+            : 'border-cursor-hairline bg-cursor-surface-card';
 
   const dotClass =
     step?.status === 'success'
@@ -2167,9 +2226,11 @@ function VerticalTimelineStepRow({
         ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/15'
         : step?.status === 'failed'
           ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/15'
-          : isSkipped
-            ? 'bg-cursor-hairline-strong'
-            : 'bg-cursor-surface-card border-2 border-cursor-muted-soft';
+          : step?.status === 'stopped' || step?.status === 'interrupted'
+            ? 'bg-cursor-semantic-warn ring-2 ring-cursor-semantic-warn/15'
+            : isSkipped
+              ? 'bg-cursor-hairline-strong'
+              : 'bg-cursor-surface-card border-2 border-cursor-muted-soft';
 
   const displayTool = step?.tool ? toolDisplayNames[step.tool] || step.tool : '';
   const toolLabel = isSkipped ? 'Not available' : displayTool || 'Not available';

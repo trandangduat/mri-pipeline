@@ -259,7 +259,7 @@ test('deriveImageSteps keeps unexecuted stages as pending when subject only part
   expect(steps[2].status).toBe('pending');
 });
 
-test('deriveBatchImages reconciles running/pending images to interrupted when job is stopped', () => {
+test('deriveBatchImages reconciles running/pending images to stopped when job is stopped', () => {
   const job = {state: 'stopped'};
   const events = [
     {kind: 'image_start', input_file: 'a.nii', idx: 1, total: 2},
@@ -267,8 +267,8 @@ test('deriveBatchImages reconciles running/pending images to interrupted when jo
   ];
   const images = deriveBatchImages(events, job);
   expect(images.length).toBe(2);
-  expect(images[0].status).toBe('interrupted');
-  expect(images[1].status).toBe('interrupted');
+  expect(images[0].status).toBe('stopped');
+  expect(images[1].status).toBe('stopped');
 });
 
 test('deriveBatchImages marks subject as failed if image_done event has success=true but log_text only ran partial stages', () => {
@@ -294,6 +294,46 @@ test('deriveBatchImages marks subject as failed if image_done event has success=
   const images = deriveBatchImages(events, job);
   expect(images.length).toBe(1);
   expect(images[0].status).toBe('failed');
+});
+
+test('deriveImageSteps sets running and pending scheduled stages to stopped when image status is stopped', () => {
+  const stageOrder = ['reorientation', 'brain_extraction', 'segmentation', 'stat_calculation'];
+  const selectedTools = {
+    reorientation: 'fs_reorient',
+    segmentation: 'synthseg',
+    stat_calculation: 'fs_stats',
+  };
+  const image = {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'stopped' as const};
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {kind: 'progress', stage: 'reorientation', status: 'ok', elapsed_sec: 10},
+    {kind: 'progress', stage: 'segmentation', status: 'stopped', elapsed_sec: 45},
+  ];
+  const steps = deriveImageSteps(events, image, selectedTools, stageOrder, {});
+  expect(steps[0].status).toBe('success');
+  expect(steps[1].status).toBe('not_scheduled');
+  expect(steps[2].status).toBe('stopped');
+  expect(steps[3].status).toBe('stopped');
+});
+
+test('deriveImageSteps parses SUCCESS and STOPPED in image_done log text', () => {
+  const stageOrder = ['stage1', 'stage2', 'stage3'];
+  const selectedTools = {stage1: 'tool1', stage2: 'tool2', stage3: 'tool3'};
+  const image = {input_file: 'a.nii', subject_id: 'a', idx: 1, total: 1, status: 'stopped' as const};
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii'},
+    {
+      kind: 'image_done',
+      input_file: 'a.nii',
+      success: false,
+      status: 'stopped',
+      log_text: '[stage1] tool1 - SUCCESS (10.0s)\n[stage2] tool2 - STOPPED (5.0s)',
+    },
+  ];
+  const steps = deriveImageSteps(events, image, selectedTools, stageOrder, {});
+  expect(steps[0].status).toBe('success');
+  expect(steps[1].status).toBe('stopped');
+  expect(steps[2].status).toBe('stopped');
 });
 
 

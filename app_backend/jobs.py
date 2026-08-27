@@ -377,9 +377,13 @@ def _read_batch_summary(job_dir: Path, input_files: list[JsonValue]) -> dict[str
                 input_file = str(event.get("input_file", ""))
                 if not input_file:
                     continue
-                states[input_file] = "running" if kind == "image_start" else (
-                    "success" if bool(event.get("success")) else "failed"
-                )
+                ev_status = str(event.get("status", "")).lower()
+                if ev_status == "stopped":
+                    states[input_file] = "stopped"
+                else:
+                    states[input_file] = "running" if kind == "image_start" else (
+                        "success" if bool(event.get("success")) else "failed"
+                    )
     except OSError:
         pass
 
@@ -387,13 +391,18 @@ def _read_batch_summary(job_dir: Path, input_files: list[JsonValue]) -> dict[str
     success = sum(state == "success" for state in states.values())
     failed = sum(state == "failed" for state in states.values())
     running = sum(state == "running" for state in states.values())
-    return {
+    stopped = sum(state == "stopped" for state in states.values())
+    summary = {
         "total": total,
         "success": success,
         "failed": failed,
         "running": running,
-        "pending": max(0, total - success - failed - running),
+        "pending": max(0, total - success - failed - running - stopped),
     }
+    if stopped > 0:
+        summary["stopped"] = stopped
+        summary["interrupted"] = stopped
+    return summary
 
 
 def _exit_code(job_dir: Path, status: dict) -> int | None:

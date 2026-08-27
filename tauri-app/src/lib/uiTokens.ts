@@ -77,7 +77,8 @@ export function statusPillClasses(state: string | null | undefined): string {
 export function statusDotClasses(state: string | null | undefined): string {
   const normalized = String(state || 'unknown').toLowerCase();
   if (normalized === 'running') return 'h-2 w-2 flex-none rounded-full bg-cursor-timeline-read animate-pulse';
-  if (normalized === 'completed') return 'h-2 w-2 flex-none rounded-full bg-cursor-semantic-success';
-  if (normalized === 'failed') return 'h-2 w-2 flex-none rounded-full bg-cursor-semantic-error';
+  if (['completed', 'success', 'ok', 'done'].includes(normalized)) return 'h-2 w-2 flex-none rounded-full bg-cursor-semantic-success';
+  if (['failed', 'error'].includes(normalized)) return 'h-2 w-2 flex-none rounded-full bg-cursor-semantic-error';
+  if (['stopped', 'warn', 'warning', 'interrupted'].includes(normalized)) return 'h-2 w-2 flex-none rounded-full bg-cursor-semantic-warn';
   return 'h-2 w-2 flex-none rounded-full bg-cursor-muted';
 }

@@ -416,6 +416,8 @@ def run_pipeline_stage(
     if success:
         msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
         progress(stage, "success", (index + 1) / total if total else 1.0, msg)
+    elif error == "stopped by request" or (should_stop and should_stop()):
+        progress(stage, "stopped", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} STOPPED: {error}")
     else:
         progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {error}")
     return result, output_for_next
@@ -682,7 +684,10 @@ def run_pipeline(
                 progress("pipeline", "paused", (stage_idx + 1) / total_stages, f"Paused after {STAGE_LABELS[stage]}. Resume will verify outputs and continue from the next incomplete stage.")
                 break
         else:
-            progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {error}")
+            if error == "stopped by request" or (should_stop and should_stop()):
+                progress(stage, "stopped", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} STOPPED: {error}")
+            else:
+                progress(stage, "failed", (stage_idx + 1) / total_stages, f"{STAGE_LABELS[stage]} FAILED: {error}")
             break
 
     if paused:
@@ -784,7 +789,10 @@ def run_batch_pipeline(
             config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, ram_percent=ram_percent, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
             steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics, should_stop=should_stop)
             success = bool(steps) and all(step.success for step in steps)
-            error = "" if success else "one or more pipeline steps failed"
+            if should_stop and should_stop() and not success:
+                error = "Job stopped before all pipeline stages completed"
+            else:
+                error = "" if success else "one or more pipeline steps failed"
         except Exception as exc:
             failed_duration = time.time() - started_at
             success = False
