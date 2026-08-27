@@ -156,8 +156,7 @@ class LazyUploadOrchestrator:
                 if handle.cancelled.is_set():
                     raise RuntimeError("cancelled")
                 self._publish(ssh, part, staging)
-                with ssh.sftp.open(staging + ".ready", "w") as marker:
-                    marker.write(local)
+                ssh.write_text_file(staging + ".ready", local)
             with self._lock:
                 self._state[staging] = {**self._state[staging], "pct": 100.0, "state": "ready"}
             self.on_log(f"Uploaded: {local} -> {staging}")

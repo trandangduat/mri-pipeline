@@ -687,8 +687,7 @@ class RemoteRunner:
             raise RuntimeError("No remote job is attached")
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             config_path = self._job_child_path(ssh, "job_config.json")
-            with ssh.sftp.open(config_path, "w") as f:
-                f.write(json.dumps(config, indent=2))
+            ssh.write_text_file(config_path, json.dumps(config, indent=2))
 
     def _write_job_metadata(self, ssh: RemoteSSHClient) -> None:
         remote_path = self._job_child_path(ssh, "job_metadata.json")
@@ -703,8 +702,7 @@ class RemoteRunner:
             "output_dir": self.config.output_dir,
             "download_subdir": self.config.download_subdir,
         }
-        with ssh.sftp.open(remote_path, "w") as f:
-            f.write(json.dumps(metadata, indent=2))
+        ssh.write_text_file(remote_path, json.dumps(metadata, indent=2))
 
     def _lazy_staging_path(self, local_path: str, subject_id: str) -> str:
         """Job-scoped staging path: <input_server_dir>/<job_id>/<subject>/<filename>."""
@@ -818,18 +816,15 @@ class RemoteRunner:
             "neuroflow_preset_file": self._job_child_path(ssh, "neuroflow_preset.yaml") if self.config.neuroflow_preset_file else "",
             "neuroflow_profile_file": self._job_child_path(ssh, "neuroflow_profile.yaml") if self.config.neuroflow_profile_file else "",
         }
-        with ssh.sftp.open(remote_path, "w") as f:
-            f.write(json.dumps(remote_request, indent=2))
+        ssh.write_text_file(remote_path, json.dumps(remote_request, indent=2))
 
     def _upload_export_config(self, ssh: RemoteSSHClient) -> None:
         remote_path = self._job_child_path(ssh, "export_config.json")
-        with ssh.sftp.open(remote_path, "w") as f:
-            f.write(json.dumps(self.config.export_config or {}, indent=2))
+        ssh.write_text_file(remote_path, json.dumps(self.config.export_config or {}, indent=2))
 
     def _upload_stats_vector_config(self, ssh: RemoteSSHClient) -> None:
         remote_path = self._job_child_path(ssh, "stats_vector_config.json")
-        with ssh.sftp.open(remote_path, "w") as f:
-            f.write(json.dumps(self.config.stats_vector_config or {}, indent=2))
+        ssh.write_text_file(remote_path, json.dumps(self.config.stats_vector_config or {}, indent=2))
 
     def _upload_neuroflow_configs(self, ssh: RemoteSSHClient) -> None:
         if not self.config.neuroflow_enabled:
@@ -851,8 +846,7 @@ class RemoteRunner:
     def _upload_subject_id_map(self, ssh: RemoteSSHClient) -> None:
         mapping = self._remote_input_request().get("subject_id_map", {})
         remote_path = self._job_child_path(ssh, "subject_ids.json")
-        with ssh.sftp.open(remote_path, "w") as f:
-            f.write(json.dumps(mapping, indent=2))
+        ssh.write_text_file(remote_path, json.dumps(mapping, indent=2))
 
     def start_remote_detached(self) -> str:
         if not self.remote_job_dir:
@@ -1237,8 +1231,7 @@ class RemoteRunner:
 
         self.on_log(f"Uploading shared pipeline code once: {remote_code}")
         self._upload_code(ssh, remote_code)
-        with ssh.sftp.open(manifest_path, "w") as f:
-            f.write(json.dumps({"signature": signature, "updated_at": time.time()}, indent=2))
+        ssh.write_text_file(manifest_path, json.dumps({"signature": signature, "updated_at": time.time()}, indent=2))
         return remote_code
 
     def _upload_code(self, ssh: RemoteSSHClient, remote_code: str) -> None:

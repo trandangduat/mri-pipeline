@@ -62,11 +62,25 @@ def test_export_json_writes_file_at_requested_path(tmp_path: Path) -> None:
     store = ConfigStore(config_root=tmp_path / "configs")
     target = tmp_path / "exports" / "my-preset"
 
-    result = store.export_json(str(target), {"pipeline_mode": "FastSurfer", "ssh_password": "secret"})
+    result = store.export_json(
+        str(target),
+        {
+            "pipeline_mode": "FastSurfer",
+            "selected_files": ["scan1.nii.gz", "scan2.nii.gz"],
+            "empty_list": [],
+            "stats_vectors": [{"atlas": "aparc", "password": "secret"}],
+            "ssh_password": "secret",
+        },
+    )
 
     assert result == {"ok": True, "path": str(tmp_path / "exports" / "my-preset.json")}
     raw = json.loads((tmp_path / "exports" / "my-preset.json").read_text(encoding="utf-8"))
-    assert raw == {"pipeline_mode": "FastSurfer"}
+    assert raw == {
+        "pipeline_mode": "FastSurfer",
+        "selected_files": ["scan1.nii.gz", "scan2.nii.gz"],
+        "empty_list": [],
+        "stats_vectors": [{"atlas": "aparc"}],
+    }
     assert "secret" not in json.dumps(raw)
 
 

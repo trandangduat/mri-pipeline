@@ -134,7 +134,15 @@ class RemoteSSHClient:
             try:
                 self.sftp.stat(path)
             except OSError:
-                self.sftp.mkdir(path)
+                try:
+                    self.sftp.mkdir(path)
+                except OSError as exc:
+                    user_info = f" as user '{self.config.username}'" if self.config.username else ""
+                    if "Permission denied" in str(exc) or getattr(exc, "errno", None) == 13:
+                        raise PermissionError(
+                            f"Permission denied creating remote directory '{path}'{user_info}. Please check write permissions on the server."
+                        ) from exc
+                    raise OSError(f"Failed creating remote directory '{path}': {exc}") from exc
 
     def expand_path(self, remote_path: str) -> str:
         if remote_path.startswith("~/") or remote_path == "~":
@@ -143,12 +151,34 @@ class RemoteSSHClient:
                 return remote_path.replace("~", home.strip(), 1)
         return remote_path
 
+    def write_text_file(self, remote_path: str, content: str) -> None:
+        remote_path = self.expand_path(remote_path)
+        self.mkdir_p(posixpath.dirname(remote_path))
+        try:
+            with self.sftp.open(remote_path, "w") as f:
+                f.write(content)
+        except OSError as exc:
+            user_info = f" as user '{self.config.username}'" if self.config.username else ""
+            if "Permission denied" in str(exc) or getattr(exc, "errno", None) == 13:
+                raise PermissionError(
+                    f"Permission denied writing to remote file '{remote_path}'{user_info}. Please check write permissions on the server."
+                ) from exc
+            raise OSError(f"Failed writing to remote file '{remote_path}': {exc}") from exc
+
     def upload_file(self, local_path: str | Path, remote_path: str) -> None:
         local = Path(local_path)
         remote_path = self.expand_path(remote_path)
         self.mkdir_p(posixpath.dirname(remote_path))
         self.on_log(f"Uploading file: {local} -> {remote_path}")
-        self.sftp.put(str(local), remote_path)
+        try:
+            self.sftp.put(str(local), remote_path)
+        except OSError as exc:
+            user_info = f" as user '{self.config.username}'" if self.config.username else ""
+            if "Permission denied" in str(exc) or getattr(exc, "errno", None) == 13:
+                raise PermissionError(
+                    f"Permission denied uploading '{local.name}' to '{remote_path}'{user_info}. Please check write permissions on the server."
+                ) from exc
+            raise OSError(f"Failed uploading '{local}' to '{remote_path}': {exc}") from exc
 
     def upload_file_with_progress(
         self,
@@ -161,7 +191,15 @@ class RemoteSSHClient:
         remote_path = self.expand_path(remote_path)
         self.mkdir_p(posixpath.dirname(remote_path))
         kwargs = {"callback": callback} if callback else {}
-        self.sftp.put(str(local), remote_path, **kwargs)
+        try:
+            self.sftp.put(str(local), remote_path, **kwargs)
+        except OSError as exc:
+            user_info = f" as user '{self.config.username}'" if self.config.username else ""
+            if "Permission denied" in str(exc) or getattr(exc, "errno", None) == 13:
+                raise PermissionError(
+                    f"Permission denied uploading '{local.name}' to '{remote_path}'{user_info}. Please check write permissions on the server."
+                ) from exc
+            raise OSError(f"Failed uploading '{local}' to '{remote_path}': {exc}") from exc
 
     def upload_dir(self, local_dir: str | Path, remote_dir: str, skip_dirs: set[str] | None = None, allowed_extensions: set[str] | None = None) -> None:
         local_root = Path(local_dir)
@@ -185,7 +223,15 @@ class RemoteSSHClient:
                 local_file = Path(root) / name
                 remote_file = posixpath.join(remote_subdir, name)
                 self.on_log(f"Uploading file: {local_file} -> {remote_file}")
-                self.sftp.put(str(local_file), remote_file)
+                try:
+                    self.sftp.put(str(local_file), remote_file)
+                except OSError as exc:
+                    user_info = f" as user '{self.config.username}'" if self.config.username else ""
+                    if "Permission denied" in str(exc) or getattr(exc, "errno", None) == 13:
+                        raise PermissionError(
+                            f"Permission denied uploading '{local_file.name}' to '{remote_file}'{user_info}. Please check write permissions on the server."
+                        ) from exc
+                    raise OSError(f"Failed uploading '{local_file}' to '{remote_file}': {exc}") from exc
 
     def download_dir(self, remote_dir: str, local_dir: str | Path) -> None:
         remote_dir = self.expand_path(remote_dir)

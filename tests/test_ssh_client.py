@@ -95,3 +95,45 @@ def test_run_applies_command_timeout() -> None:
     assert client.run("touch /tmp/stop", stream=False, timeout=15) == 0
 
     transport.exec_command.assert_called_once_with("touch /tmp/stop", get_pty=False, timeout=15)
+
+
+def test_mkdir_p_raises_descriptive_permission_error() -> None:
+    import pytest
+
+    client = RemoteSSHClient(SSHConfig(host="example", username="catcd1"))
+    fake_sftp = MagicMock()
+
+    def fake_stat(p: str):
+        if p == "/home":
+            return MagicMock()
+        raise OSError("No such file")
+
+    fake_sftp.stat.side_effect = fake_stat
+    fake_sftp.mkdir.side_effect = PermissionError(13, "Permission denied")
+    client._sftp = fake_sftp
+
+    with pytest.raises(PermissionError) as exc_info:
+        client.mkdir_p("/home/trandangduat/outputs")
+
+    msg = str(exc_info.value)
+    assert "Permission denied creating remote directory" in msg
+    assert "/home/trandangduat" in msg
+    assert "user 'catcd1'" in msg
+
+
+def test_write_text_file_raises_descriptive_permission_error() -> None:
+    import pytest
+
+    client = RemoteSSHClient(SSHConfig(host="example", username="catcd1"))
+    fake_sftp = MagicMock()
+    fake_sftp.stat.return_value = MagicMock()
+    fake_sftp.open.side_effect = PermissionError(13, "Permission denied")
+    client._sftp = fake_sftp
+
+    with pytest.raises(PermissionError) as exc_info:
+        client.write_text_file("/home/trandangduat/config.json", "{}")
+
+    msg = str(exc_info.value)
+    assert "Permission denied writing to remote file" in msg
+    assert "/home/trandangduat/config.json" in msg
+    assert "user 'catcd1'" in msg

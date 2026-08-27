@@ -145,14 +145,10 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     const data = (save?.body?.data || {}) as Record<string, unknown>;
     expect(data.neuroflow_enabled).toBe(true);
     expect(data.neuroflow_max_concurrent_tasks).toBe(1);
-    expect(data.neuroflow_max_retries).toBe(2);
     expect(data.neuroflow_warmup_enabled).toBe(true);
-    expect(data.neuroflow_warmup_initial_concurrency).toBe(1);
-    expect(data.neuroflow_warmup_safe_successes).toBe(5);
-    expect(data.neuroflow_preserve_oom_bounds).toBe(false);
-    expect(data.neuroflow_estimation_mode).toBe('conservative');
-    expect(data.neuroflow_max_io_heavy_tasks).toBe(3);
-    expect(data.neuroflow_machine_profile_id).toBe('application_default');
+    expect(data.neuroflow_max_retries).toBeUndefined();
+    expect(data.neuroflow_preserve_oom_bounds).toBeUndefined();
+    expect(data.neuroflow_estimation_mode).toBeUndefined();
   } finally {
     globalThis.fetch = originalFetch;
     delete (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__;

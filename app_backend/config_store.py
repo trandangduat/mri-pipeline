@@ -104,7 +104,7 @@ def _sanitize_name(name: str) -> str:
 
 def redact_passwords(value: JsonValue) -> JsonValue:
     if isinstance(value, list):
-        return [redact_passwords(item)]
+        return [redact_passwords(item) for item in value]
     if isinstance(value, dict):
         redacted: dict[str, JsonValue] = {}
         for key, item in value.items():

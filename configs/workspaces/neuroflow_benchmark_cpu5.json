@@ -1,7 +1,6 @@
 {
   "version": 1,
   "type": "mri-pipeline-workspace",
-  "name": "neuroflow_benchmark_cpu5",
   "input_source": "Server",
   "input_mode": "batch_folder",
   "input_path": "/home/catcd1/ADNIDOD_T1/ADNIDOD/",
@@ -20,27 +19,35 @@
   "batch_image_count": 10,
   "batch_scan_mode": "selected",
   "output_dir": "/home/trandangduat/mri-pipeline/outputs/neuroflow_benchmark_cpu5",
+  "server_output_dir": "",
+  "input_server_dir": "",
   "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
   "device": "cpu",
   "threads": 5,
   "ram_percent": 90,
   "non_recursive": false,
   "run_target": "Server",
-  "license_dir": "/home/trandangduat/mri-pipeline/license/license.txt",
+  "license_dir": "C:\\Users\\ADMIN\\Desktop\\MRI\\license.txt",
   "neuroflow_enabled": true,
   "neuroflow_max_concurrent_tasks": 5,
-  "neuroflow_max_retries": 0,
+  "neuroflow_policy": "B6",
   "neuroflow_warmup_enabled": false,
-  "neuroflow_warmup_initial_concurrency": 1,
-  "neuroflow_warmup_safe_successes": 3,
-  "neuroflow_preserve_oom_bounds": true,
-  "neuroflow_estimation_mode": "balanced",
-  "neuroflow_max_io_heavy_tasks": 2,
-  "neuroflow_machine_profile_id": "application_default",
+  "neuroflow_preset_file": "configs/neuroflow/presets/freesurfer8_all.yaml",
+  "neuroflow_profile_file": "configs/neuroflow/profiles/freesurfer8_all_default.yaml",
   "stats_vectors": {
-    "cortical_thickness": ["aparc", "schaefer2018_400parcels_17networks"],
-    "cortical_volume": ["freesurfer_aseg", "harvard_oxford_cortical", "brainnetome246"],
-    "subcortical_volume": ["freesurfer_aseg", "harvard_oxford_subcortical"]
+    "cortical_thickness": [
+      "aparc",
+      "schaefer2018_400parcels_17networks"
+    ],
+    "cortical_volume": [
+      "freesurfer_aseg",
+      "harvard_oxford_cortical",
+      "brainnetome246"
+    ],
+    "subcortical_volume": [
+      "freesurfer_aseg",
+      "harvard_oxford_subcortical"
+    ]
   },
   "tools": {
     "reorientation": "fs8_reduced54_reorientation",
@@ -59,6 +66,6 @@
     "username": "catcd1",
     "python": "python3",
     "workspace": "~/neuroflow-benchmark",
-    "key_path": "/mnt/c/Users/ADMIN/.ssh/duat"
+    "key_path": "C:\\Users\\ADMIN\\.ssh\\duat"
   }
 }
