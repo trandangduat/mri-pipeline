@@ -187,6 +187,7 @@ export function AppHeader({activeTab, onSelectTab, jobsCount = 0}: AppHeaderProp
         license_dir: fv.licensePath || '',
         neuroflow_enabled: Boolean(fv.neuroflowEnabled),
         neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 2)),
+        neuroflow_policy: String(fv.neuroflowPolicy || 'B6'),
         neuroflow_max_retries: Math.max(0, Number(fv.neuroflowMaxRetries ?? 3)),
         neuroflow_warmup_enabled: Boolean(fv.neuroflowWarmupEnabled),
         neuroflow_warmup_initial_concurrency: Math.max(1, Number(fv.neuroflowWarmupInitialConcurrency || 2)),

@@ -105,6 +105,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.licensePath = (workspace.license_dir as string) || '';
       nextFormValues.neuroflowEnabled = workspace.neuroflow_enabled !== undefined ? Boolean(workspace.neuroflow_enabled) : true;
       nextFormValues.neuroflowMaxConcurrentTasks = Math.max(1, (workspace.neuroflow_max_concurrent_tasks as number) ?? 2);
+      nextFormValues.neuroflowPolicy = String(workspace.neuroflow_policy || 'B6');
       nextFormValues.neuroflowMaxRetries = Math.max(0, (workspace.neuroflow_max_retries as number) ?? 3);
       nextFormValues.neuroflowWarmupEnabled = workspace.neuroflow_warmup_enabled !== undefined ? Boolean(workspace.neuroflow_warmup_enabled) : true;
       nextFormValues.neuroflowWarmupInitialConcurrency = Math.min(

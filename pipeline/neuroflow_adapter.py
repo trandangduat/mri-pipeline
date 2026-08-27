@@ -251,11 +251,14 @@ def _scheduler_config(req: dict) -> object:
     }
     if gpus:
         limits["gpus"] = gpus
+    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
+    policy_name = "neuroflow" if policy_choice in ("B6", "neuroflow", "Full NeuroFLOW") else policy_choice
+
     return load_scheduler_dict(
         {
             "schema_version": 1,
             "scheduler_id": "mri_pipeline_neuroflow",
-            "policy": {"name": "neuroflow", "algorithm_version": "1"},
+            "policy": {"name": policy_name, "algorithm_version": "1"},
             "limits": limits,
             "warmup": {
                 "enabled": warmup_enabled,

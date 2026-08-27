@@ -1,5 +1,5 @@
 import React, {useRef} from 'react';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info} from 'lucide-react';
+import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info, ListOrdered, ChevronDown} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, Alert, inputCls, labelCls} from '../components/ui';
@@ -688,6 +688,103 @@ function InfoTooltip({content}: {content: React.ReactNode}) {
   );
 }
 
+export const NEUROFLOW_POLICIES = [
+  { id: 'B0', label: 'Sequential FIFO', desc: 'Single-task sequential execution in strict arrival order (for resource-constrained machines).' },
+  { id: 'B1', label: 'Parallel FIFO First-Fit', desc: 'Parallel execution using simple arrival-order queue; launches whichever task fits available resources.' },
+  { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Prioritizes stages with shortest estimated runtime to minimize average waiting time.' },
+  { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Prioritizes tasks along the longest critical path based on static baseline estimates.' },
+  { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Critical-path priority with protected backfilling; allows non-critical tasks to backfill idle resources safely.' },
+  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'FIFO arrival-order queue combined with dynamic adaptive RAM and CPU resource scaling.' },
+  { id: 'B6', label: 'Full NeuroFLOW', desc: 'Full adaptive scheduling: dynamic critical-path, starvation aging, intelligent backfill, and live resource learning (Recommended).' },
+  { id: 'B7', label: 'HEFT Family', desc: 'Heterogeneous Earliest Finish Time (HEFT); optimizes stage assignment across mixed CPU and GPU devices.' },
+] as const;
+
+export function QueuePolicySelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (policyId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [hoveredId, setHoveredId] = React.useState<string | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedPolicy = NEUROFLOW_POLICIES.find((p) => p.id === value) || NEUROFLOW_POLICIES[6];
+  const activeHoveredPolicy = NEUROFLOW_POLICIES.find((p) => p.id === hoveredId);
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setHoveredId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`${inputCls} flex items-center justify-between text-left cursor-pointer transition-colors ${
+          isOpen ? 'rounded-b-none border-b-transparent' : ''
+        }`}
+      >
+        <span className="truncate text-sm font-normal text-cursor-ink">{selectedPolicy.label}</span>
+        <ChevronDown className={`h-4 w-4 text-cursor-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full -mt-px w-full z-50">
+          <div className="relative">
+            {/* Options list seamlessly attached directly to the select button with bounded scrollable height */}
+            <div className="w-full max-h-52 overflow-y-auto rounded-b-lg border border-cursor-hairline border-t-0 bg-cursor-surface-card p-1 shadow-xl backdrop-blur-md">
+              {NEUROFLOW_POLICIES.map((p) => {
+                const isSelected = p.id === value;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(p.id);
+                      setIsOpen(false);
+                      setHoveredId(null);
+                    }}
+                    onMouseEnter={() => setHoveredId(p.id)}
+                    className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-left transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-cursor-primary/10 font-medium text-cursor-primary'
+                        : 'text-cursor-ink hover:bg-cursor-canvas-soft'
+                    }`}
+                  >
+                    <span>{p.label}</span>
+                    {isSelected && <Check className="h-4 w-4 text-cursor-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Instant Hover Preview Popover (positioned to the left to avoid split-pane clipping) */}
+            {activeHoveredPolicy && (
+              <div className="absolute right-[calc(100%+8px)] top-0 z-50 w-72 animate-in fade-in-50 zoom-in-95 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 shadow-xl">
+                <div className="text-sm font-semibold text-cursor-primary mb-1">
+                  {activeHoveredPolicy.label}
+                </div>
+                <p className="text-xs leading-relaxed text-cursor-muted">
+                  {activeHoveredPolicy.desc}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdvancedSettingsSection() {
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
@@ -724,6 +821,8 @@ export function AdvancedSettingsSection() {
       return;
     }
   };
+
+  const currentPolicyId = String(formValues.neuroflowPolicy || 'B6');
 
   return (
     <Panel
@@ -765,11 +864,11 @@ export function AdvancedSettingsSection() {
 
           {showAdvanced && canShowAdvanced && (
             <div className="grid gap-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Row 1: Max parallel tasks & Queue Policy */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                 <label className={labelCls}>
-                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                    <Zap className="h-3.5 w-3.5 text-cursor-primary" />
-                    Max parallel tasks
+                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                    <span>Max parallel tasks</span>
                     <InfoTooltip content="Maximum number of parallel pipeline stages running simultaneously across all subjects." />
                   </span>
                   <input
@@ -796,127 +895,33 @@ export function AdvancedSettingsSection() {
                   )}
                 </label>
 
-                <label className="flex min-h-8 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={neuroflowWarmupEnabled}
-                    onChange={(e) => setFormField('neuroflowWarmupEnabled', e.target.checked)}
-                    className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
-                  />
-                  <span className="text-xs font-medium text-cursor-ink">Start safely, then scale up</span>
-                  <InfoTooltip content="Starts execution conservatively with fewer parallel tasks, then automatically scales up concurrency after initial stages complete without memory pressure." />
-                </label>
-
-                <label className={labelCls}>
-                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                    <RefreshCw className="h-3.5 w-3.5 text-cursor-primary" />
-                    Max Retries Per Task
-                    <InfoTooltip content="Maximum retry attempts with exponential backoff if a stage encounters a temporary failure (0 = disabled)." />
+                <div className={labelCls}>
+                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                    <span>Queue Policy</span>
+                    <InfoTooltip content="Determines the task scheduling and queue prioritization strategy (B0 - B7)." />
                   </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={5}
-                    step={1}
-                    value={formValues.neuroflowMaxRetries ?? 3}
-                    onChange={(e) => setFormField('neuroflowMaxRetries', Math.max(0, parseInt(e.target.value, 10) || 0))}
-                    className={inputCls}
+                  <QueuePolicySelect
+                    value={currentPolicyId}
+                    onChange={(policyId) => setFormField('neuroflowPolicy', policyId)}
                   />
-                </label>
-
-                <label className={labelCls}>
-                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                    <Gauge className="h-3.5 w-3.5 text-cursor-primary" />
-                    Scheduling risk
-                    <InfoTooltip content="Controls runtime and RAM prediction margins. Conservative uses higher safety margins; Aggressive packs tasks more densely." />
-                  </span>
-                  <select
-                    value={formValues.neuroflowEstimationMode ?? 'balanced'}
-                    onChange={(e) => setFormField('neuroflowEstimationMode', e.target.value as 'balanced' | 'conservative' | 'aggressive')}
-                    className={inputCls}
-                  >
-                    <option value="balanced">Balanced (runtime 90th / RAM 95th)</option>
-                    <option value="conservative">Conservative (runtime 95th / RAM 98th)</option>
-                    <option value="aggressive">Aggressive (runtime 75th / RAM 85th)</option>
-                  </select>
-                </label>
-
-                <label className={labelCls}>
-                  <span className="flex items-center gap-1.5 font-medium text-cursor-ink">
-                    <HardDrive className="h-3.5 w-3.5 text-cursor-primary" />
-                    Max I/O-Heavy Tasks
-                    <InfoTooltip content="Limits concurrent disk-intensive operations (such as volume reconstruction or file decompression) to prevent disk I/O bottlenecks." />
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={formValues.neuroflowMaxIoHeavyTasks ?? 2}
-                    onChange={(e) => setFormField('neuroflowMaxIoHeavyTasks', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                    className={inputCls}
-                  />
-                </label>
-
-                {neuroflowWarmupEnabled && (
-                  <>
-                    <label className={labelCls}>
-                      <span className="flex items-center gap-1 text-xs text-cursor-ink">
-                        Initial Concurrency
-                        <InfoTooltip content="Starting concurrency slot count during the warm-up phase." />
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={formValues.neuroflowWarmupInitialConcurrency ?? 2}
-                        onChange={(e) => setFormField(
-                          'neuroflowWarmupInitialConcurrency',
-                          Math.min(
-                            Math.max(1, parseInt(e.target.value, 10) || 1),
-                            Number(formValues.neuroflowMaxConcurrentTasks ?? 2),
-                          ),
-                        )}
-                        className={inputCls}
-                      />
-                    </label>
-
-                    <label className={labelCls}>
-                      <span className="flex items-center gap-1 text-xs text-cursor-ink">
-                        Successful tasks before scaling
-                        <InfoTooltip content="Number of consecutive stable stage completions required before increasing concurrency." />
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={formValues.neuroflowWarmupSafeSuccesses ?? 3}
-                        onChange={(e) => setFormField('neuroflowWarmupSafeSuccesses', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        className={inputCls}
-                      />
-                    </label>
-                  </>
-                )}
+                </div>
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-cursor-muted">
-                <Cpu className="h-3.5 w-3.5 text-cursor-primary" />
-                Machine profile: <span className="font-medium text-cursor-ink">application_default</span>
-                <InfoTooltip content="The machine profile is fixed to application_default, matching the selected NeuroFLOW profile configuration." />
-              </div>
-
+              {/* Row 2: Preset configuration & Profile configuration */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className={labelCls}>
-                  <span className="font-medium text-cursor-ink">
-                    {neuroflowPresetId ? 'Preset configuration (automatic)' : 'Preset configuration (custom)'}
+                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                    <span>Preset configuration</span>
+                    <InfoTooltip content="Path to the YAML file defining the pipeline directed acyclic graph (DAG) and stage dependencies." />
                   </span>
-                  <input
-                    type="text"
-                    value={formValues.neuroflowPresetFile ?? ''}
-                    onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowPresetFile: e.target.value})}
-                    placeholder="Path to preset YAML/JSON"
-                    className={inputCls}
-                  />
-                  <div className="mt-1.5 flex gap-1.5">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formValues.neuroflowPresetFile ?? ''}
+                      onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowPresetFile: e.target.value})}
+                      placeholder="Path to preset YAML/JSON"
+                      className={`${inputCls} flex-1 min-w-0`}
+                    />
                     <Button
                       variant="ghost"
                       icon={<FolderOpen className="h-3.5 w-3.5" />}
@@ -927,18 +932,20 @@ export function AdvancedSettingsSection() {
                     <input ref={presetConfigInput} className="hidden" type="file" accept=".yaml,.yml,.json" />
                   </div>
                 </label>
+
                 <label className={labelCls}>
-                  <span className="font-medium text-cursor-ink">
-                    {neuroflowPresetId ? 'Profile configuration (automatic)' : 'Profile configuration (custom)'}
+                  <span className="flex items-center gap-1 font-medium text-cursor-ink">
+                    <span>Profile configuration</span>
+                    <InfoTooltip content="Path to the YAML file containing cold-start resource priors (RAM, CPU, and runtime benchmarks)." />
                   </span>
-                  <input
-                    type="text"
-                    value={formValues.neuroflowProfileFile ?? ''}
-                    onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowProfileFile: e.target.value})}
-                    placeholder="Path to profile YAML/JSON"
-                    className={inputCls}
-                  />
-                  <div className="mt-1.5 flex gap-1.5">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formValues.neuroflowProfileFile ?? ''}
+                      onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowProfileFile: e.target.value})}
+                      placeholder="Path to profile YAML/JSON"
+                      className={`${inputCls} flex-1 min-w-0`}
+                    />
                     <Button
                       variant="ghost"
                       icon={<FolderOpen className="h-3.5 w-3.5" />}
@@ -951,15 +958,16 @@ export function AdvancedSettingsSection() {
                 </label>
               </div>
 
+              {/* Row 3: Warm-up checkbox */}
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={formValues.neuroflowPreserveOomBounds !== undefined ? Boolean(formValues.neuroflowPreserveOomBounds) : true}
-                  onChange={(e) => setFormField('neuroflowPreserveOomBounds', e.target.checked)}
+                  checked={neuroflowWarmupEnabled}
+                  onChange={(e) => setFormField('neuroflowWarmupEnabled', e.target.checked)}
                   className="h-3.5 w-3.5 accent-cursor-primary cursor-pointer"
                 />
-                <span className="text-xs font-medium text-cursor-ink">Preserve OOM limits on manual retry</span>
-                <InfoTooltip content="Preserves the scheduler's OOM resource bounds when a task is manually retried." />
+                <span className="text-xs font-medium text-cursor-ink">Start safely, then scale up</span>
+                <InfoTooltip content="Warm-up mode: starts execution conservatively with 1 slot, then automatically scales up concurrency after initial stages complete stably." />
               </label>
             </div>
           )}

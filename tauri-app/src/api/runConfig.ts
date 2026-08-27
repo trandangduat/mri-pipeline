@@ -26,6 +26,7 @@ export interface PipelineFormValues {
   nonRecursive?: boolean;
   neuroflowEnabled?: boolean;
   neuroflowMaxConcurrentTasks?: number;
+  neuroflowPolicy?: string;
   neuroflowMaxRetries?: number;
   neuroflowWarmupEnabled?: boolean;
   neuroflowWarmupInitialConcurrency?: number;
@@ -82,6 +83,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   licensePath: '',
   neuroflowEnabled: true,
   neuroflowMaxConcurrentTasks: 2,
+  neuroflowPolicy: 'B6',
   neuroflowMaxRetries: 3,
   neuroflowWarmupEnabled: true,
   neuroflowWarmupInitialConcurrency: 2,
@@ -137,6 +139,7 @@ export function buildRunConfig(
     license_dir: formValues.licensePath || '',
     neuroflow_enabled: Boolean(formValues.neuroflowEnabled),
     neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 2)),
+    neuroflow_policy: String(formValues.neuroflowPolicy || 'B6'),
     neuroflow_max_retries: Math.max(0, Number(formValues.neuroflowMaxRetries ?? 3)),
     neuroflow_warmup_enabled: Boolean(formValues.neuroflowWarmupEnabled),
     neuroflow_warmup_initial_concurrency: Math.max(1, Number(formValues.neuroflowWarmupInitialConcurrency || 2)),

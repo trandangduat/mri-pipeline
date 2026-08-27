@@ -63,6 +63,7 @@ test('uses the expected NeuroFLOW scheduler defaults', () => {
 
   expect(formValues.neuroflowEnabled).toBe(true);
   expect(formValues.neuroflowMaxConcurrentTasks).toBe(2);
+  expect(formValues.neuroflowPolicy).toBe('B6');
   expect(formValues.neuroflowMaxRetries).toBe(3);
   expect(formValues.neuroflowWarmupEnabled).toBe(true);
   expect(formValues.neuroflowWarmupInitialConcurrency).toBe(2);
@@ -90,12 +91,10 @@ test('shows NeuroFLOW fields for preset mode', () => {
   fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
 
   expect(screen.getByText('Max parallel tasks')).toBeInTheDocument();
+  expect(screen.getByText('Queue Policy')).toBeInTheDocument();
+  expect(screen.getByText(/Preset configuration/)).toBeInTheDocument();
+  expect(screen.getByText(/Profile configuration/)).toBeInTheDocument();
   expect(screen.getByText('Start safely, then scale up')).toBeInTheDocument();
-  expect(screen.getByText('Max Retries Per Task')).toBeInTheDocument();
-  expect(screen.getByText('Scheduling risk')).toBeInTheDocument();
-  expect(screen.getByText('Max I/O-Heavy Tasks')).toBeInTheDocument();
-  expect(screen.getByText(/Machine profile:/)).toBeInTheDocument();
-  expect(screen.getByText('Preserve OOM limits on manual retry')).toBeInTheDocument();
 });
 
 test('shows workspace-loaded helper text when max parallel tasks is 1', () => {

@@ -39,6 +39,7 @@ class RunRequestInput:
     stats_vector_config: dict[str, JsonValue] = field(default_factory=lambda: StatsVectorConfig().to_dict())
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
+    neuroflow_policy: str = "B6"
     neuroflow_max_retries: int = 3
     neuroflow_warmup_enabled: bool = True
     neuroflow_warmup_initial_concurrency: int = 2
@@ -75,6 +76,7 @@ class RunRequestInput:
             stats_vector_config=_json_dict(data.get("stats_vector_config", StatsVectorConfig().to_dict())),
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
             neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 2)),
+            neuroflow_policy=str(data.get("neuroflow_policy", "B6") or "B6").strip(),
             neuroflow_max_retries=max(0, _int_from_data(data.get("neuroflow_max_retries"), 3)),
             neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), True),
             neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 2)),
@@ -279,6 +281,7 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
             }
         ),
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
+        "neuroflow_policy": config.neuroflow_policy,
         "neuroflow_max_retries": config.neuroflow_max_retries,
         "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,
         "neuroflow_warmup_initial_concurrency": config.neuroflow_warmup_initial_concurrency,
