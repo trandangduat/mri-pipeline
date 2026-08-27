@@ -75,9 +75,10 @@ export const pipelineEventSchema = z.record(z.string(), z.unknown());
 export const eventsResponseSchema = z.object({
   ok: z.boolean(),
   events: z.array(pipelineEventSchema),
-  warnings: z.array(z.string()),
+  warnings: z.array(z.string()).optional(),
   next_offset: z.number(),
   error: z.string().optional(),
+  events_file_found: z.boolean().optional(),
 });
 
 export const logResponseSchema = z.object({
@@ -246,6 +247,7 @@ export const startJobResponseSchema = z.object({
 export const genericResponseSchema = z.object({
   ok: z.boolean(),
   error: z.string().optional(),
+  path: z.string().optional(),
 });
 
 export const licenseUploadResponseSchema = z.object({

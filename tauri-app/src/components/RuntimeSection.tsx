@@ -9,7 +9,7 @@ import {
 import {open} from '@tauri-apps/plugin-dialog';
 import {Panel, Button, Alert, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
-import {runtimeWarnings, currentTargetHardware} from '../lib/runtime';
+import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -122,12 +122,26 @@ export function RuntimeSection() {
 
   const target = (formValues.runtimeTarget === 'Server' ? 'Server' : 'Local') as RuntimeTarget;
   const hardware = currentTargetHardware({runtimeTarget: target, environment, remoteResult});
+  const limitErrors = runtimeLimitErrors({
+    runtimeTarget: target,
+    hardware,
+    cpuThreads: formValues.cpuThreads,
+    ramPercent: formValues.ramPercent,
+  });
   const warnings = runtimeWarnings({
     runtimeTarget: target,
     hardware,
     cpuThreads: formValues.cpuThreads,
     ramPercent: formValues.ramPercent,
   });
+  const threadMax = hardware.logicalCores ?? null;
+
+  const handleRuntimeTargetChange = (value: string) => {
+    setFormField('runtimeTarget', value);
+    const nextTarget = (value === 'Server' ? 'Server' : 'Local') as RuntimeTarget;
+    const nextThreadCap = cpuThreadCapForTarget({runtimeTarget: nextTarget, environment, remoteResult});
+    setFormField('cpuThreads', reclampCpuThreadsForTarget({cpuThreads: formValues.cpuThreads, threadCap: nextThreadCap}));
+  };
 
   return (
     <Panel icon={<Cpu className="h-4 w-4 text-cursor-primary" />} title="Runtime" className="min-w-0">
@@ -155,7 +169,7 @@ export function RuntimeSection() {
             id="runtimeTarget"
             name="runtimeTarget"
             value={formValues.runtimeTarget}
-            onChange={(e) => setFormField('runtimeTarget', e.target.value)}
+            onChange={(e) => handleRuntimeTargetChange(e.target.value)}
             className={inputCls}
           >
             <option value="Local">Local</option>
@@ -175,7 +189,8 @@ export function RuntimeSection() {
             min="1"
             max="100"
             value={formValues.ramPercent}
-            onChange={(e) => setFormField('ramPercent', e.target.value)}
+            onChange={(e) => setFormField('ramPercent', sanitizeBoundedIntText(e.target.value, RAM_PERCENT_MAX))}
+            onBlur={() => setFormField('ramPercent', clampBoundedIntValue(formValues.ramPercent, safeLimitMark(RAM_PERCENT_MAX) ?? RAM_PERCENT_MIN, RAM_PERCENT_MAX))}
             className={inputCls}
           />
         </label>
@@ -192,7 +207,8 @@ export function RuntimeSection() {
             min="1"
             max={hardware.logicalCores || undefined}
             value={formValues.cpuThreads}
-            onChange={(e) => setFormField('cpuThreads', e.target.value)}
+            onChange={(e) => setFormField('cpuThreads', sanitizeBoundedIntText(e.target.value, threadMax))}
+            onBlur={() => setFormField('cpuThreads', clampBoundedIntValue(formValues.cpuThreads, safeLimitMark(threadMax) ?? DEFAULT_CPU_THREADS, threadMax))}
             className={inputCls}
           />
         </label>
@@ -224,6 +240,23 @@ export function RuntimeSection() {
           </label>
         )}
       </div>
+
+      {/* Hard limit errors */}
+      {limitErrors.length > 0 && (
+        <div className="mt-2.5">
+          <Alert severity="error" size="sm">
+            {limitErrors.length > 1 ? (
+              <ul className="m-0 list-disc space-y-1 pl-4 text-sm">
+                {limitErrors.map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm">{limitErrors[0]}</div>
+            )}
+          </Alert>
+        </div>
+      )}
 
       {/* Warnings */}
       {warnings.length > 0 && (

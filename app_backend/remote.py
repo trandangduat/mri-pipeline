@@ -206,7 +206,7 @@ class RemoteJobService:
             jobs = self.runner_factory(config).list_background_jobs()
         except Exception:
             return {"ok": False, "error": "Remote job listing failed"}
-        return {"ok": True, "jobs": [_job_summary(job) for job in jobs]}
+        return {"ok": True, "jobs": [dict(_job_summary(job), remote_workspace=str(config.remote_workspace or "")) for job in jobs]}
 
     def delete_job(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
@@ -265,8 +265,13 @@ class RemoteJobService:
                 res = runner.read_remote_events(offset=offset, limit=limit)
                 return _json_dict(res)
             return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
-        except Exception:
-            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": _safe_error_message(exc, config),
+                "events": [],
+                "next_offset": offset,
+            }
 
     def read_job_log(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
@@ -284,8 +289,14 @@ class RemoteJobService:
                 text, next_offset = runner.read_remote_log_since(offset=offset)
                 return {"ok": True, "text": text, "next_offset": next_offset, "truncated": False}
             return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
-        except Exception:
-            return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": _safe_error_message(exc, config),
+                "text": "",
+                "next_offset": offset,
+                "truncated": False,
+            }
 
     def browse_path(self, data: dict[str, object]) -> dict[str, JsonValue]:
         """Read-only SFTP directory/file listing for a remote path.
@@ -532,6 +543,7 @@ class RemoteJobService:
                         "username": remote_config.ssh.username,
                         "password": remote_config.ssh.password,
                         "key_path": remote_config.ssh.key_path,
+                        "workspace": remote_config.remote_workspace,
                     },
                     run_request=run_request,
                     started_at=float(remote_status.get("started_at", 0) or 0) or None,
@@ -548,6 +560,7 @@ class RemoteJobService:
             "state": remote_status.get("state", "running"),
             "remote_job_dir": remote_job_dir,
             "job_dir": remote_job_dir,
+            "remote_workspace": remote_config.remote_workspace,
             "started_at": float(remote_status.get("started_at", 0) or 0) or None,
             "pid": remote_status.get("pid"),
             "output_dir": remote_config.output_dir or str(run_request.get("output_dir", "")),
@@ -637,7 +650,7 @@ class RemoteJobService:
 
         def on_log(line: str) -> None:
             nonlocal copied_files
-            if line.startswith("Downloading file:"):
+            if line.startswith("Downloading file:") or line.startswith("Skipping existing file:"):
                 copied_files += 1
                 pct = round(copied_files / total_files * 100) if total_files > 0 else 0
                 progress_queue.put({

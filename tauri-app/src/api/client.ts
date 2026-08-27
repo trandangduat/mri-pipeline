@@ -38,6 +38,8 @@ import type {RemotePayload} from './runConfig';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8765';
 
+const REQUEST_TIMEOUT_MS = 30000;
+
 export type FetchLike = (url: string, options?: RequestInit) => Promise<Response>;
 
 export interface WaitForHealthOptions {
@@ -235,6 +237,10 @@ export class BackendClient {
     return genericResponseSchema.parse(await this.post('/config/workspaces/save', {name, data}));
   }
 
+  async exportConfig(path: string, data: Record<string, unknown>): Promise<GenericResponse> {
+    return genericResponseSchema.parse(await this.post('/config/export', {path, data}));
+  }
+
   async startPipelineStream(
     path: string,
     payload: Record<string, unknown>,
@@ -330,12 +336,28 @@ export class BackendClient {
       throw new Error('Fetch is not available in this environment.');
     }
     const url = `${this.baseUrl}${path}`;
+    const signal = options.signal ?? null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (!signal) {
+      const controller = new AbortController();
+      options = {...options, signal: controller.signal};
+      timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    }
+    try {
+      return await this.performRequest(url, options);
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+  }
+
+  private async performRequest(url: string, options: RequestInit): Promise<unknown> {
     let response: Response;
     try {
       response = await this.fetchImpl(url, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Cannot reach NeuroFlow backend at ${url}: ${message}`);
+      const timedOut = error instanceof DOMException && error.name === 'AbortError';
+      throw new Error(`Cannot reach NeuroFlow backend at ${url}: ${message}${timedOut ? ' (request timed out)' : ''}`);
     }
     const payload: unknown = await response.json();
     if (!response.ok) {

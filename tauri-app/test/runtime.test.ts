@@ -1,5 +1,13 @@
 import {expect, test} from 'vitest';
-import {currentTargetHardware, runtimeWarnings} from '../src/lib/runtime';
+import {
+  currentTargetHardware,
+  runtimeWarnings,
+  runtimeLimitErrors,
+  sanitizeBoundedIntText,
+  clampBoundedIntValue,
+  cpuThreadCapForTarget,
+  reclampCpuThreadsForTarget,
+} from '../src/lib/runtime';
 
 test('currentTargetHardware reads local environment hardware', () => {
   const hardware = currentTargetHardware({
@@ -150,4 +158,111 @@ test('runtimeWarnings unchanged shape with gpu-aware TargetHardware', () => {
     ramPercent: 40,
   });
   expect(warnings.some((w) => w.includes('SSH'))).toBe(true);
+});
+
+const localHardware = (cores: number | null) => ({
+  label: 'Local' as const,
+  connected: true,
+  logicalCores: cores,
+  totalRamBytes: null,
+  gpus: [],
+});
+
+test('runtimeLimitErrors rejects RAM over 100%', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 4,
+    ramPercent: 150,
+  });
+  expect(errors.some((e) => e.includes('RAM allocation'))).toBe(true);
+});
+
+test('runtimeLimitErrors rejects threads above machine cores', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 100,
+    ramPercent: 50,
+  });
+  expect(errors.some((e) => e.includes('cannot exceed'))).toBe(true);
+});
+
+test('runtimeLimitErrors allows threads above local cores only when cores unknown', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Server',
+    hardware: localHardware(null),
+    cpuThreads: 64,
+    ramPercent: 50,
+  });
+  expect(errors).toEqual([]);
+});
+
+test('runtimeLimitErrors accepts a healthy config', () => {
+  const errors = runtimeLimitErrors({
+    runtimeTarget: 'Local',
+    hardware: localHardware(8),
+    cpuThreads: 8,
+    ramPercent: 100,
+  });
+  expect(errors).toEqual([]);
+});
+
+test('sanitizeBoundedIntText keeps digits and snaps over-max to the 90% mark', () => {
+  expect(sanitizeBoundedIntText('12a3', null)).toBe('123');
+  expect(sanitizeBoundedIntText('', 100)).toBe('');
+  expect(sanitizeBoundedIntText('150', 100)).toBe('90');
+  expect(sanitizeBoundedIntText('101', 100)).toBe('90');
+  expect(sanitizeBoundedIntText('100', 100)).toBe('100');
+  expect(sanitizeBoundedIntText('9', 8)).toBe('7');
+  expect(sanitizeBoundedIntText('8', 8)).toBe('8');
+  expect(sanitizeBoundedIntText('7', 8)).toBe('7');
+  expect(sanitizeBoundedIntText('009', 100)).toBe('9');
+});
+
+test('clampBoundedIntValue falls back and resolves over-max to the 90% mark', () => {
+  expect(clampBoundedIntValue('', 80, 100)).toBe(80);
+  expect(clampBoundedIntValue(0, 80, 100)).toBe(1);
+  expect(clampBoundedIntValue(250, 80, 100)).toBe(90);
+  expect(clampBoundedIntValue(55, 80, 100)).toBe(55);
+  expect(clampBoundedIntValue('abc', 4, 8)).toBe(4);
+  expect(clampBoundedIntValue(100, 7, 8)).toBe(7);
+});
+
+test('safeLimitMark computes 90% of a limit', async () => {
+  const {safeLimitMark} = await import('../src/lib/runtime');
+  expect(safeLimitMark(100)).toBe(90);
+  expect(safeLimitMark(8)).toBe(7);
+  expect(safeLimitMark(10)).toBe(9);
+  expect(safeLimitMark(1)).toBe(1);
+  expect(safeLimitMark(null)).toBe(null);
+});
+
+test('reclampCpuThreadsForTarget snaps server-sized values down for a smaller machine', () => {
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 7, threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 4, threadCap: 8})).toBe(4);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: 56})).toBe(50);
+  expect(reclampCpuThreadsForTarget({cpuThreads: '', threadCap: 8})).toBe(7);
+  expect(reclampCpuThreadsForTarget({cpuThreads: 50, threadCap: null})).toBe(50);
+});
+
+const localEnv = {
+  ok: true,
+  python: {ok: true, path: '', version: ''},
+  docker: {ok: true, path: ''},
+  ssh: {ok: true, path: ''},
+  hardware: {hostname: '', logical_cores: 8, physical_cores: 8, total_ram_bytes: 17179869184},
+};
+
+test('cpuThreadCapForTarget follows the selected runtime target', () => {
+  expect(cpuThreadCapForTarget({runtimeTarget: 'Local', environment: localEnv, remoteResult: {}})).toBe(8);
+  expect(
+    cpuThreadCapForTarget({
+      runtimeTarget: 'Server',
+      environment: localEnv,
+      remoteResult: {connected: true, hardware: {hostname: 's', logical_cores: 56, total_ram_bytes: 1}},
+    }),
+  ).toBe(56);
+  expect(cpuThreadCapForTarget({runtimeTarget: 'Server', environment: localEnv, remoteResult: {connected: false}})).toBe(null);
 });

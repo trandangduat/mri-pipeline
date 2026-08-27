@@ -6,6 +6,12 @@ import {MemoryRouter} from 'react-router';
 import {AppHeader} from '../src/components/AppHeader';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
 
+const saveDialogMock = vi.fn();
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: vi.fn(),
+  save: (...args: unknown[]) => saveDialogMock(...args),
+}));
+
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -77,7 +83,6 @@ test('renders workspace and pipeline action buttons', () => {
 
 test('save workspace persists all NeuroFLOW settings', async () => {
   const originalFetch = globalThis.fetch;
-  const originalPrompt = globalThis.prompt;
   const saveCalls: Array<{url: string; body: Record<string, unknown>}> = [];
   const metadataPayload = {
     version: 1,
@@ -103,12 +108,13 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     if (u.includes('/metadata')) {
       return {ok: true, json: async () => metadataPayload} as Response;
     }
-    if (u.includes('/config/workspaces/save')) {
-      return {ok: true, json: async () => ({ok: true})} as Response;
+    if (u.includes('/config/export')) {
+      return {ok: true, json: async () => ({ok: true, path: 'saved'})} as Response;
     }
     return {ok: true, json: async () => ({})} as Response;
   });
-  vi.stubGlobal('prompt', vi.fn(() => 'NeuroFLOW workspace'));
+  (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__ = {};
+  saveDialogMock.mockResolvedValue('C:\\Users\\tester\\neuroflow-workspace.json');
   const user = userEvent.setup();
 
   usePipelineFormStore.setState({
@@ -132,8 +138,10 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     renderHeader();
     await user.click(screen.getByText('Save Workspace'));
 
-    const save = saveCalls.find((call) => call.url.includes('/config/workspaces/save'));
+    expect(saveDialogMock).toHaveBeenCalledTimes(1);
+    const save = saveCalls.find((call) => call.url.includes('/config/export'));
     expect(save).toBeDefined();
+    expect(save?.body?.path).toBe('C:\\Users\\tester\\neuroflow-workspace.json');
     const data = (save?.body?.data || {}) as Record<string, unknown>;
     expect(data.neuroflow_enabled).toBe(true);
     expect(data.neuroflow_max_concurrent_tasks).toBe(1);
@@ -147,8 +155,8 @@ test('save workspace persists all NeuroFLOW settings', async () => {
     expect(data.neuroflow_machine_profile_id).toBe('application_default');
   } finally {
     globalThis.fetch = originalFetch;
-    globalThis.prompt = originalPrompt;
-    vi.unstubAllGlobals();
+    delete (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__;
+    saveDialogMock.mockReset();
   }
 });
 

@@ -215,5 +215,8 @@ class RemoteSSHClient:
             elif stat.S_ISDIR(item.st_mode):
                 self._download_dir_recursive(remote_path, local_path)
             else:
-                self.on_log(f"Downloading file: {remote_path} -> {local_path}")
-                self.sftp.get(remote_path, str(local_path))
+                if local_path.exists() and local_path.stat().st_size == item.st_size:
+                    self.on_log(f"Skipping existing file: {local_path}")
+                else:
+                    self.on_log(f"Downloading file: {remote_path} -> {local_path}")
+                    self.sftp.get(remote_path, str(local_path))
