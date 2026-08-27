@@ -2,7 +2,7 @@ import React, {useRef} from 'react';
 import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info, ListOrdered, ChevronDown} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
-import {Panel, Button, Alert, inputCls, labelCls} from '../components/ui';
+import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from '../components/ui';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
@@ -189,24 +189,21 @@ export function PipelineStepsSection() {
       title="Pipeline Steps"
       className="min-w-0"
     >
-      <div className="mb-2.5 flex flex-wrap items-end gap-2">
-        <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
+      <div className="mb-2.5 flex flex-col sm:flex-row sm:items-end gap-2">
+        <label className={`${labelCls} flex-1 min-w-0`}>
           Pipeline preset
-          <select
+          <CustomSelect
             id="pipelineMode"
             name="pipelineMode"
             value={formValues.pipelineMode}
-            onChange={(e) => handlePipelineModeChange(e.target.value)}
-            className={inputCls}
-          >
-            {(metadata?.pipeline_modes || []).map((mode) => (
-              <option key={mode.id} value={mode.id}>
-                {mode.id}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => handlePipelineModeChange(val)}
+            options={(metadata?.pipeline_modes || []).map((mode) => ({
+              value: mode.id,
+              label: mode.id,
+            }))}
+          />
         </label>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 pb-0.5">
           <Button
             variant="ghost"
             icon={showTools ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -260,7 +257,7 @@ export function PipelineStepsSection() {
         });
 
         return (
-          <div className="grid border border-cursor-hairline rounded-md overflow-hidden">
+          <div className="grid border border-cursor-hairline rounded-md">
             {displayedStages.length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-cursor-muted">No pipeline stages found.</div>
             )}
@@ -284,22 +281,21 @@ export function PipelineStepsSection() {
                   <div className="flex min-h-8 items-center">
                     <strong className={`font-medium text-xs leading-none ${isInvalid ? 'text-cursor-semantic-error' : isUnavailable ? 'text-cursor-muted' : 'text-cursor-ink'}`}>{stageLabel}</strong>
                   </div>
-                  <select
+                  <CustomSelect
                     name={`stage_${stage.id}`}
                     value={selectedToolKey}
-                    onChange={(e) => handleStageToolChange(stage.id, e.target.value)}
-                    className={`${inputCls} ${isUnavailable ? 'opacity-70' : ''}`}
-                  >
-                    <option value="">Not available</option>
-                    {tools.map((toolKey) => {
-                      const tool = metadata?.tools?.[toolKey];
-                      return (
-                        <option key={toolKey} value={toolKey}>
-                          {tool?.display_name || toolKey}
-                        </option>
-                      );
-                    })}
-                  </select>
+                    onChange={(val) => handleStageToolChange(stage.id, val)}
+                    options={[
+                      {value: '', label: 'Not available'},
+                      ...tools.map((toolKey) => {
+                        const tool = metadata?.tools?.[toolKey];
+                        return {
+                          value: toolKey,
+                          label: tool?.display_name || toolKey,
+                        };
+                      }),
+                    ]}
+                  />
                 </div>
               );
             })}
@@ -722,82 +718,18 @@ export function QueuePolicySelect({
   value: string;
   onChange: (policyId: string) => void;
 }) {
-  const [isOpen, setIsOpen] = React.useState(false);
-  const [hoveredId, setHoveredId] = React.useState<string | null>(null);
-  const containerRef = React.useRef<HTMLDivElement>(null);
-
-  const selectedPolicy = NEUROFLOW_POLICIES.find((p) => p.id === value) || NEUROFLOW_POLICIES[0];
-  const activeHoveredPolicy = NEUROFLOW_POLICIES.find((p) => p.id === hoveredId);
-
-  React.useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        setHoveredId(null);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   return (
-    <div ref={containerRef} className="relative min-w-0">
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`${inputCls} flex items-center justify-between text-left cursor-pointer transition-colors ${
-          isOpen ? 'rounded-b-none border-b-transparent' : ''
-        }`}
-      >
-        <span className="truncate text-sm font-normal text-cursor-ink">{selectedPolicy.label}</span>
-        <ChevronDown className={`h-4 w-4 text-cursor-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 top-full -mt-px w-full z-50">
-          <div className="relative">
-            {/* Options list seamlessly attached directly to the select button with bounded scrollable height */}
-            <div className="w-full max-h-52 overflow-y-auto rounded-b-lg border border-cursor-hairline border-t-0 bg-cursor-surface-card p-1 shadow-xl backdrop-blur-md">
-              {NEUROFLOW_POLICIES.map((p) => {
-                const isSelected = p.id === value;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      onChange(p.id);
-                      setIsOpen(false);
-                      setHoveredId(null);
-                    }}
-                    onMouseEnter={() => setHoveredId(p.id)}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-left transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-cursor-primary/10 font-medium text-cursor-primary'
-                        : 'text-cursor-ink hover:bg-cursor-canvas-soft'
-                    }`}
-                  >
-                    <span>{p.label}</span>
-                    {isSelected && <Check className="h-4 w-4 text-cursor-primary" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Instant Hover Preview Popover (positioned to the left to avoid split-pane clipping) */}
-            {activeHoveredPolicy && (
-              <div className="absolute right-[calc(100%+8px)] top-0 z-50 w-72 animate-in fade-in-50 zoom-in-95 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 shadow-xl">
-                <div className="text-sm font-semibold text-cursor-primary mb-1">
-                  {activeHoveredPolicy.label}
-                </div>
-                <p className="text-xs leading-relaxed text-cursor-muted">
-                  {activeHoveredPolicy.desc}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <CustomSelect
+      value={value}
+      onChange={onChange}
+      showHoverPreview={true}
+      previewPosition="left"
+      options={NEUROFLOW_POLICIES.map((p) => ({
+        value: p.id,
+        label: p.label,
+        description: p.desc,
+      }))}
+    />
   );
 }
 

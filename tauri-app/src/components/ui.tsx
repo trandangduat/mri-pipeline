@@ -5,6 +5,190 @@ import {ALERT, BUTTON, BADGE, inputCls, labelCls, statusPillClasses, statusDotCl
 export {ALERT, BUTTON, BADGE, inputCls, labelCls, statusPillClasses, statusDotClasses};
 export type {AlertSeverity};
 
+export interface SelectOption {
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+}
+
+export interface CustomSelectProps {
+  id?: string;
+  name?: string;
+  value: string;
+  options: (SelectOption | string)[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+  /** Optional hover preview tooltip on the side */
+  showHoverPreview?: boolean;
+  previewPosition?: 'left' | 'right';
+  'aria-label'?: string;
+}
+
+export function CustomSelect({
+  id,
+  name,
+  value,
+  options,
+  onChange,
+  placeholder,
+  className = '',
+  disabled = false,
+  showHoverPreview = false,
+  previewPosition = 'right',
+  'aria-label': ariaLabel,
+}: CustomSelectProps) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [hoveredValue, setHoveredValue] = React.useState<string | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const normalizedOptions: SelectOption[] = options.map((opt) => {
+    if (typeof opt === 'string') {
+      return {value: opt, label: opt};
+    }
+    return opt;
+  });
+
+  const selectedOption = normalizedOptions.find((o) => o.value === value);
+  const activeHoveredOption = showHoverPreview
+    ? normalizedOptions.find((o) => o.value === hoveredValue)
+    : null;
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setHoveredValue(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={containerRef} className={`relative min-w-0 ${className} ${isOpen ? 'z-50' : ''}`}>
+      {/* Hidden native select for standard accessibility, test runner queries, and form bindings */}
+      <select
+        id={id}
+        name={name}
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        onChange={(e) => onChange(e.target.value)}
+        tabIndex={-1}
+        className="sr-only absolute pointer-events-none opacity-0 h-0 w-0"
+      >
+        {normalizedOptions.map((opt) => (
+          <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+
+      <button
+        type="button"
+        role="button"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setIsOpen((prev) => !prev);
+        }}
+        className={`${inputCls} flex items-center justify-between text-left transition-colors ${
+          disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+        } ${isOpen ? 'rounded-b-none border-b-transparent' : ''}`}
+      >
+        <span className="truncate text-sm font-normal text-cursor-ink">
+          {selectedOption ? selectedOption.label : placeholder || value}
+        </span>
+        <svg
+          className={`h-4 w-4 shrink-0 text-cursor-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full -mt-px w-full z-50">
+          <div className="relative">
+            {/* Options list seamlessly attached directly to the select button with expanded scrollable height */}
+            <div className="w-full max-h-80 overflow-y-auto rounded-b-lg border border-cursor-hairline border-t-0 bg-cursor-surface-card p-1 shadow-xl backdrop-blur-md">
+              {normalizedOptions.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    disabled={opt.disabled}
+                    onClick={() => {
+                      if (!opt.disabled) {
+                        onChange(opt.value);
+                        setIsOpen(false);
+                        setHoveredValue(null);
+                      }
+                    }}
+                    onMouseEnter={() => {
+                      if (showHoverPreview) setHoveredValue(opt.value);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-left transition-colors ${
+                      opt.disabled
+                        ? 'cursor-not-allowed opacity-50 text-cursor-muted'
+                        : isSelected
+                          ? 'bg-cursor-primary/10 font-medium text-cursor-primary cursor-pointer'
+                          : 'text-cursor-ink hover:bg-cursor-canvas-soft cursor-pointer'
+                    }`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {isSelected && (
+                      <svg
+                        className="h-4 w-4 shrink-0 text-cursor-primary"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Instant Hover Preview Popover */}
+            {showHoverPreview && activeHoveredOption && activeHoveredOption.description && (
+              <div
+                className={`absolute ${
+                  previewPosition === 'left' ? 'right-[calc(100%+8px)]' : 'left-[calc(100%+8px)]'
+                } top-0 z-50 w-72 animate-in fade-in-50 zoom-in-95 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 shadow-xl`}
+              >
+                <div className="text-sm font-semibold text-cursor-primary mb-1">
+                  {activeHoveredOption.label}
+                </div>
+                <p className="text-xs leading-relaxed text-cursor-muted">
+                  {activeHoveredOption.description}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface AlertProps {
   severity: AlertSeverity;
   size?: 'sm' | 'md';

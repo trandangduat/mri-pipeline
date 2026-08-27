@@ -7,7 +7,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
-import {Panel, Button, Alert, inputCls, labelCls} from './ui';
+import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
@@ -165,16 +165,16 @@ export function RuntimeSection() {
               </span>
             )}
           </span>
-          <select
+          <CustomSelect
             id="runtimeTarget"
             name="runtimeTarget"
             value={formValues.runtimeTarget}
-            onChange={(e) => handleRuntimeTargetChange(e.target.value)}
-            className={inputCls}
-          >
-            <option value="Local">Local</option>
-            <option value="Server">Server (SSH)</option>
-          </select>
+            onChange={(val) => handleRuntimeTargetChange(val)}
+            options={[
+              {value: 'Local', label: 'Local'},
+              {value: 'Server', label: 'Server (SSH)'},
+            ]}
+          />
         </label>
         <label className={labelCls}>
           <span className="flex items-center justify-between">
@@ -227,16 +227,16 @@ export function RuntimeSection() {
                 ))}
               </span>
             </span>
-            <select
+            <CustomSelect
               id="gpuMode"
               name="gpuMode"
               value={formValues.gpuMode}
-              onChange={(e) => setFormField('gpuMode', e.target.value as 'on' | 'off')}
-              className={inputCls}
-            >
-              <option value="off">Off</option>
-              <option value="on">On</option>
-            </select>
+              onChange={(val) => setFormField('gpuMode', val as 'on' | 'off')}
+              options={[
+                {value: 'off', label: 'Off'},
+                {value: 'on', label: 'On'},
+              ]}
+            />
           </label>
         )}
       </div>
