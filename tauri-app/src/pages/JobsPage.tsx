@@ -611,6 +611,7 @@ export function JobsPage() {
   const eventsOffsetRef = useRef<number>(0);
   const logOffsetRef = useRef<number>(0);
   const lastSyncedAtRef = useRef<number>(Date.now());
+  const currentJobIdRef = useRef<string | null>(null);
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
@@ -637,9 +638,9 @@ export function JobsPage() {
 
   const loadJobDetails = useCallback(
     async (jobId: string | null, targetJob?: Record<string, unknown> | null, options: {resetUi?: boolean} = {}) => {
-      const resetUi = options.resetUi ?? true;
       const seq = ++reqSeqRef.current;
       if (!jobId) {
+        currentJobIdRef.current = null;
         eventsOffsetRef.current = 0;
         logOffsetRef.current = 0;
         if (seq === reqSeqRef.current) {
@@ -652,7 +653,12 @@ export function JobsPage() {
         return;
       }
 
-      if (resetUi) {
+      const isJobChanged = currentJobIdRef.current !== jobId;
+      currentJobIdRef.current = jobId;
+
+      const isInitial = options.resetUi ?? (isJobChanged || eventsOffsetRef.current === 0 || jobEvents.length === 0);
+
+      if (isInitial) {
         eventsOffsetRef.current = 0;
         logOffsetRef.current = 0;
         setIsLoadingDetails(true);
@@ -662,9 +668,17 @@ export function JobsPage() {
         setActiveModalSubjectFile(null);
       }
 
-      const isRemote = String(targetJob?.target || 'Local') === 'Server';
-      const eventOffset = eventsOffsetRef.current;
-      const logOffset = logOffsetRef.current;
+      if (!targetJob) {
+        const jobs = Array.isArray(latestJobs) ? latestJobs : [];
+        targetJob = (jobs.find((j) => j && (j as {job_id?: string}).job_id === jobId) as Record<string, unknown> | undefined) || null;
+      }
+
+      const isRemote =
+        String(targetJob?.target || '').toLowerCase() === 'server' ||
+        (!targetJob && (remoteResult.connected || formValues.runtimeTarget === 'Server'));
+
+      const eventOffset = isInitial ? 0 : eventsOffsetRef.current;
+      const logOffset = isInitial ? 0 : logOffsetRef.current;
 
       type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; next_offset?: number; events_file_found?: boolean};
       type LogResult = {ok?: boolean; text?: string; next_offset?: number};
@@ -697,7 +711,7 @@ export function JobsPage() {
           }
           if (evRes?.ok === false && evRes?.error) {
             notice = {type: 'error', message: evRes.error};
-          } else if (resetUi && newEvents.length === 0 && evRes?.events_file_found === false) {
+          } else if (isInitial && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
           }
         } else {
@@ -716,14 +730,14 @@ export function JobsPage() {
           }
           if (evRes?.ok === false && evRes?.error) {
             notice = {type: 'error', message: evRes.error};
-          } else if (resetUi && newEvents.length === 0 && evRes?.events_file_found === false) {
+          } else if (isInitial && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found).'};
           }
         }
       } finally {
         if (seq === reqSeqRef.current) {
           lastSyncedAtRef.current = Date.now();
-          if (resetUi) {
+          if (isInitial) {
             setJobEvents(newEvents);
             setOutputText(newLogText || '');
           } else {
@@ -735,7 +749,7 @@ export function JobsPage() {
             }
           }
           setDetailsNotice(notice);
-          if (resetUi) {
+          if (isInitial) {
             setIsLoadingDetails(false);
           }
         }
@@ -745,10 +759,13 @@ export function JobsPage() {
       appendJobEvents,
       appendOutputText,
       formValues,
+      jobEvents.length,
+      latestJobs,
       readEventsMutation,
       readLogMutation,
       readRemoteEventsMutation,
       readRemoteLogMutation,
+      remoteResult.connected,
       setJobEvents,
       setOutputText,
     ],
@@ -899,7 +916,7 @@ export function JobsPage() {
       const jobObj = jobs.find((j) => j && (j as {job_id?: string}).job_id === selectedJobId) as
         Record<string, unknown> | undefined;
       queueMicrotask(() => {
-        void loadJobDetails(selectedJobId, jobObj);
+        void loadJobDetails(selectedJobId, jobObj, {resetUi: true});
       });
     } else {
       queueMicrotask(() => {
