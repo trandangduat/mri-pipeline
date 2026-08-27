@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run backend:cleanup && (cd .. && ./.venv/bin/python -m app_backend.server --host 127.0.0.1 --port 8765 &) && vite --host 127.0.0.1 --port 1420",
+    "dev": "node scripts/dev-server.js",
     "vite": "vite --host 127.0.0.1 --port 1420",
     "build": "npm run typecheck && vite build",
     "tauri": "tauri",
