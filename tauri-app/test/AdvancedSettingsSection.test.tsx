@@ -97,21 +97,6 @@ test('shows NeuroFLOW fields for preset mode', () => {
   expect(screen.getByText('Start safely, then scale up')).toBeInTheDocument();
 });
 
-test('shows workspace-loaded helper text when max parallel tasks is 1', () => {
-  resetStore();
-  usePipelineFormStore.getState().setFormField('pipelineMode', 'FreeSurfer 8 + Volume');
-  usePipelineFormStore.getState().setFormField('neuroflowEnabled', true);
-  usePipelineFormStore.getState().setFormField('neuroflowMaxConcurrentTasks', 1);
-
-  render(<AdvancedSettingsSection />);
-
-  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
-
-  expect(
-    screen.getByText('Loaded from workspace. Use 2 or more for parallel scheduling.'),
-  ).toBeInTheDocument();
-});
-
 test('hides settings toggle when NeuroFLOW scheduler is disabled', () => {
   resetStore();
   usePipelineFormStore.getState().setFormField('pipelineMode', 'FreeSurfer 8 + Volume');

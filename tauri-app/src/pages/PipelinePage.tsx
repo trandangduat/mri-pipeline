@@ -705,14 +705,14 @@ function InfoTooltip({content}: {content: React.ReactNode}) {
 }
 
 export const NEUROFLOW_POLICIES = [
-  { id: 'B0', label: 'Sequential FIFO', desc: 'Single-task sequential execution in strict arrival order (for resource-constrained machines).' },
-  { id: 'B1', label: 'Parallel FIFO First-Fit', desc: 'Parallel execution using simple arrival-order queue; launches whichever task fits available resources.' },
-  { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Prioritizes stages with shortest estimated runtime to minimize average waiting time.' },
-  { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Prioritizes tasks along the longest critical path based on static baseline estimates.' },
-  { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Critical-path priority with protected backfilling; allows non-critical tasks to backfill idle resources safely.' },
-  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'FIFO arrival-order queue combined with dynamic adaptive RAM and CPU resource scaling.' },
-  { id: 'B6', label: 'Full NeuroFLOW', desc: 'Full adaptive scheduling: dynamic critical-path, starvation aging, intelligent backfill, and live resource learning (Recommended).' },
-  { id: 'B7', label: 'HEFT Family', desc: 'Heterogeneous Earliest Finish Time (HEFT); optimizes stage assignment across mixed CPU and GPU devices.' },
+  { id: 'B6', label: 'Full NeuroFLOW (default)', desc: 'Complete adaptive optimizer: online runtime/RAM estimation, dynamic critical-path ranking, waiting-time aging, protected backfilling, and failure-adaptive retries.' },
+  { id: 'B0', label: 'Sequential FIFO', desc: 'Single-task execution in strict ready-arrival order with fixed default configurations, no resource adaptation, and no backfilling.' },
+  { id: 'B1', label: 'Parallel FIFO First-Fit', desc: 'Parallel execution in ready-arrival order with first-fit resource admission, fixed default configurations, and no DAG ranking.' },
+  { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Orders ready tasks by ascending estimated runtime with first-fit admission to maximize throughput.' },
+  { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Orders ready tasks by static upward critical-path rank computed from initial estimates, without profile adaptation or backfilling.' },
+  { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Static critical-path ranking with protected backfilling; admits non-critical tasks only if they do not delay resource-blocked critical tasks.' },
+  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'FIFO arrival-order queue combined with NeuroFLOW adaptive runtime/memory profiles, adaptive concurrency, and adaptive failure handling.' },
+  { id: 'B7', label: 'HEFT Family', desc: 'Heterogeneous Earliest Finish Time; orders tasks by upward rank and assigns them to the CPU or GPU configuration yielding the earliest predicted finish.' },
 ] as const;
 
 export function QueuePolicySelect({
@@ -726,7 +726,7 @@ export function QueuePolicySelect({
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  const selectedPolicy = NEUROFLOW_POLICIES.find((p) => p.id === value) || NEUROFLOW_POLICIES[6];
+  const selectedPolicy = NEUROFLOW_POLICIES.find((p) => p.id === value) || NEUROFLOW_POLICIES[0];
   const activeHoveredPolicy = NEUROFLOW_POLICIES.find((p) => p.id === hoveredId);
 
   React.useEffect(() => {
@@ -904,11 +904,6 @@ export function AdvancedSettingsSection() {
                     }}
                     className={inputCls}
                   />
-                  {Number(formValues.neuroflowMaxConcurrentTasks) === 1 && (
-                    <span className="text-xs text-cursor-muted">
-                      Loaded from workspace. Use 2 or more for parallel scheduling.
-                    </span>
-                  )}
                 </label>
 
                 <div className={labelCls}>
