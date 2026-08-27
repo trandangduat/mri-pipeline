@@ -351,7 +351,6 @@ export function RuntimeSection() {
                 <Button
                   variant="ghost"
                   icon={<FolderOpen className="h-3.5 w-3.5" />}
-                  className="h-8 flex-none px-2.5 text-xs"
                   onClick={browseSshKeyPath}
                   aria-label="Browse SSH key path"
                 >

@@ -13,9 +13,9 @@ export interface SplitPaneFormProps {
 export function SplitPaneForm({
   left,
   right,
-  initialWidth = 56,
-  min = 34,
-  max = 68,
+  initialWidth = 54,
+  min = 32,
+  max = 64,
   className = '',
 }: SplitPaneFormProps) {
   const [leftWidth, setLeftWidth] = useState(initialWidth);
@@ -47,7 +47,7 @@ export function SplitPaneForm({
   return (
     <div
       ref={containerRef}
-      className={`grid min-h-0 h-full w-full gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_16px_minmax(20rem,1fr)] ${className}`}
+      className={`grid min-h-0 h-full w-full gap-0 grid-cols-[minmax(22rem,var(--pipeline-left-width))_16px_minmax(22rem,1fr)] ${className}`}
       style={{'--pipeline-left-width': `${leftWidth}%`} as React.CSSProperties}
     >
       {left}

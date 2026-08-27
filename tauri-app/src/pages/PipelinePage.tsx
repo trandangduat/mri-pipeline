@@ -1747,25 +1747,25 @@ function PathField({
           onChange={(e) => onChange(e.target.value)}
           className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''}`}
         />
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          icon={<FolderOpen className="h-3.5 w-3.5" />}
           onClick={onBrowse}
           title={disabled ? 'Connect to server first' : browseLabel}
           disabled={disabled}
-          className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {browseLabel}
-        </button>
+        </Button>
         {secondaryBrowse && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            icon={<FolderOpen className="h-3.5 w-3.5" />}
             onClick={secondaryBrowse.onClick}
             title={disabled ? 'Connect to server first' : (secondaryBrowse.title ?? secondaryBrowse.label)}
             disabled={disabled}
-            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
           >
             {secondaryBrowse.label}
-          </button>
+          </Button>
         )}
       </div>
     </label>
@@ -1776,49 +1776,54 @@ function PathField({
 // Radio group helper
 // ---------------------------------------------------------------------------
 
-function RadioGroup({
+function RadioCard({
   name,
-  options,
+  label,
   value,
+  selectedValue,
+  hint,
+  disabled = false,
   onChange,
-  disabled,
 }: {
   name: string;
-  options: {label: string; value: string; hint?: string; disabled?: boolean}[];
+  label: string;
   value: string;
+  selectedValue: string;
+  hint?: string | undefined;
+  disabled?: boolean | undefined;
   onChange: (v: string) => void;
-  disabled?: boolean;
 }) {
+  const isSelected = selectedValue === value;
   return (
-    <div className="flex flex-col gap-1.5">
-      {options.map((opt) => {
-        const itemDisabled = disabled || opt.disabled;
-        return (
-          <label
-            key={opt.value}
-            className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
-              value === opt.value
-                ? 'border-cursor-primary bg-cursor-canvas-soft'
-                : 'border-cursor-hairline bg-cursor-surface-card hover:border-cursor-hairline-strong'
-            } ${itemDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-          >
-            <input
-              type="radio"
-              name={name}
-              value={opt.value}
-              checked={value === opt.value}
-              disabled={itemDisabled}
-              onChange={() => !itemDisabled && onChange(opt.value)}
-              className="mt-0.5 h-3.5 w-3.5 flex-none accent-cursor-primary"
-            />
-            <span className="grid gap-0.25">
-              <span className="text-sm font-medium leading-[1.3] text-cursor-ink">{opt.label}</span>
-              {opt.hint && <span className="text-xs leading-[1.3] text-cursor-muted">{opt.hint}</span>}
-            </span>
-          </label>
-        );
-      })}
-    </div>
+    <label
+      className={`flex h-full min-h-[3.75rem] items-start gap-2.5 rounded-lg border px-3 py-2 transition-colors select-none ${
+        disabled
+          ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 text-cursor-muted opacity-50 cursor-not-allowed'
+          : isSelected
+            ? 'border-cursor-primary/30 bg-cursor-primary/10 text-cursor-primary cursor-pointer'
+            : 'border-cursor-hairline-soft bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline hover:bg-cursor-canvas-soft cursor-pointer'
+      }`}
+    >
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={isSelected}
+        disabled={disabled}
+        onChange={() => !disabled && onChange(value)}
+        className="mt-0.5 h-3.5 w-3.5 flex-none accent-cursor-primary cursor-pointer"
+      />
+      <span className="grid gap-0.5 min-w-0">
+        <span className={`text-sm font-semibold leading-tight ${isSelected ? 'text-cursor-primary' : 'text-cursor-ink'}`}>
+          {label}
+        </span>
+        {hint && (
+          <span className={`text-xs font-normal leading-relaxed ${isSelected ? 'text-cursor-primary/80' : 'text-cursor-muted'}`}>
+            {hint}
+          </span>
+        )}
+      </span>
+    </label>
   );
 }
 
@@ -1838,37 +1843,10 @@ export function InputOutputSection() {
 
   // Derived helpers
   const isLocal = formValues.runtimeTarget === 'Local';
-  const inputSource = formValues.inputSource as string;
-  const isBatch = formValues.inputMode === 'batch_folder';
-  const isServerSource = inputSource === 'Server';
+  const isBatch = formValues.pipelineMode === 'Batch' || formValues.inputMode === 'batch_folder';
+  const inputSource = formValues.inputSource || 'Local';
 
-  // Manual staging upload state
-  const [uploadingStaging, setUploadingStaging] = React.useState(false);
-  const [uploadStatus, setUploadStatus] = React.useState<{type: 'info' | 'success' | 'error'; message: string} | null>(null);
-
-  const handleManualUploadToServer = async () => {
-    if (!remoteConnected || !formValues.inputPath || !formValues.inputServerDir) return;
-    setUploadingStaging(true);
-    setUploadStatus({type: 'info', message: 'Uploading to server...'});
-    try {
-      const res = await client.uploadStage({
-        ...remotePayload,
-        local_path: formValues.inputPath,
-        remote_path: formValues.inputServerDir,
-      });
-      if (res.ok) {
-        setUploadStatus({type: 'success', message: 'Data uploaded successfully.'});
-      } else {
-        setUploadStatus({type: 'error', message: res.error || 'Upload failed.'});
-      }
-    } catch (err: unknown) {
-      setUploadStatus({type: 'error', message: err instanceof Error ? err.message : 'Upload failed.'});
-    } finally {
-      setUploadingStaging(false);
-    }
-  };
-
-  // Modal states
+  // Local modals
   const [dualPaneModal, setDualPaneModal] = React.useState(false);
   const [serverInputModal, setServerInputModal] = React.useState(false);
   const [serverStagingModal, setServerStagingModal] = React.useState(false);
@@ -1883,10 +1861,6 @@ export function InputOutputSection() {
   React.useEffect(() => {
     setBatchScanCache((prev) => (prev && prev.cacheKey !== batchCacheKey ? null : prev));
   }, [batchCacheKey]);
-
-  // Ref for hidden local file input (browser fallback for directory browse)
-  const localInputRef = React.useRef<HTMLInputElement | null>(null);
-  const [localFileListLen, setLocalFileListLen] = React.useState(0);
 
   // When runtime is Local or remote is disconnected, force source to Local
   React.useEffect(() => {
@@ -1923,13 +1897,13 @@ export function InputOutputSection() {
 
   const handleLocalBrowseFile = async () => {
     if (!hasTauriInternals()) {
-      localInputRef.current?.click();
+      localFileInput.current?.click();
       return;
     }
     try {
       const selected = await open({
         multiple: false,
-        filters: [{name: 'MRI Images', extensions: ['nii.gz', 'nii', 'mgz', 'mgh', 'dcm', 'dicom', 'ima', '*']}],
+        filters: [{name: 'MRI Images', extensions: ['nii', 'nii.gz', 'dcm', 'ima']}],
       });
       const path = selectedDialogPath(selected);
       if (path) {
@@ -1942,7 +1916,7 @@ export function InputOutputSection() {
 
   const handleLocalBrowseFolder = async () => {
     if (!hasTauriInternals()) {
-      alert('Folder picker is not available in browser mode. Please type the folder path manually.');
+      localFolderInput.current?.click();
       return;
     }
     try {
@@ -1958,7 +1932,7 @@ export function InputOutputSection() {
 
   const handleLocalBrowseOutputDir = async () => {
     if (!hasTauriInternals()) {
-      alert('Directory picker is not available in browser mode. Please type the path manually.');
+      localOutputDirInput.current?.click();
       return;
     }
     try {
@@ -1971,6 +1945,11 @@ export function InputOutputSection() {
       // dialog cancelled or unavailable
     }
   };
+
+  const localFileInput = React.useRef<HTMLInputElement>(null);
+  const localFolderInput = React.useRef<HTMLInputElement>(null);
+  const localOutputDirInput = React.useRef<HTMLInputElement>(null);
+  const [localFileListLen, setLocalFileListLen] = React.useState(0);
 
   const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1985,50 +1964,74 @@ export function InputOutputSection() {
     <>
       <Panel icon={<FolderInput className="h-4 w-4 text-cursor-primary" />} title="Input & Output" className="min-w-0">
         <div className="grid gap-4">
-          {/* Row 1: Source + Input Mode */}
-          <div className="grid gap-4 grid-cols-2 items-start">
-            {/* Source */}
-            <div className="grid gap-2">
-              <span className="text-sm font-medium leading-[1.3] text-cursor-body">Source Input</span>
-              <RadioGroup
-                name="inputSource"
-                options={sourceOptions}
-                value={inputSource}
-                onChange={(v) => setFormField('inputSource', v)}
-              />
+          {/* Row 1: Source + Input Mode — Synchronized CSS Grid */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 items-stretch">
+            {/* Headers */}
+            <span className="text-sm font-medium leading-[1.3] text-cursor-body">Source Input</span>
+            <span className="text-sm font-medium leading-[1.3] text-cursor-body">Input Mode</span>
+
+            {/* Row 1 cards: Local & Single input */}
+            <RadioCard
+              name="inputSource"
+              label={sourceOptions[0]?.label ?? ''}
+              value={sourceOptions[0]?.value ?? ''}
+              selectedValue={inputSource}
+              hint={sourceOptions[0]?.hint}
+              disabled={sourceOptions[0]?.disabled}
+              onChange={(v) => setFormField('inputSource', v)}
+            />
+            <RadioCard
+              name="inputMode"
+              label={inputModeOptions[0]?.label ?? ''}
+              value={inputModeOptions[0]?.value ?? ''}
+              selectedValue={isBatch ? 'batch_folder' : 'file'}
+              hint={inputModeOptions[0]?.hint}
+              onChange={(v) => setFormField('inputMode', v)}
+            />
+
+            {/* Row 2 cards: Server & Batch input */}
+            <RadioCard
+              name="inputSource"
+              label={sourceOptions[1]?.label ?? ''}
+              value={sourceOptions[1]?.value ?? ''}
+              selectedValue={inputSource}
+              hint={sourceOptions[1]?.hint}
+              disabled={sourceOptions[1]?.disabled}
+              onChange={(v) => setFormField('inputSource', v)}
+            />
+            <RadioCard
+              name="inputMode"
+              label={inputModeOptions[1]?.label ?? ''}
+              value={inputModeOptions[1]?.value ?? ''}
+              selectedValue={isBatch ? 'batch_folder' : 'file'}
+              hint={inputModeOptions[1]?.hint}
+              onChange={(v) => setFormField('inputMode', v)}
+            />
+
+            {/* Row 3: Actions row (Aligned) */}
+            <div className="min-h-8 flex items-center gap-2">
               {!isLocal && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    icon={<Upload className="h-3.5 w-3.5" />}
-                    onClick={() => setDualPaneModal(true)}
-                    disabled={!remoteConnected}
-                  >
-                    Upload data to server
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  icon={<Upload className="h-3.5 w-3.5" />}
+                  onClick={() => setDualPaneModal(true)}
+                  disabled={!remoteConnected}
+                >
+                  Upload data to server
+                </Button>
               )}
             </div>
-
-            {/* Input Mode */}
-            <div className="grid gap-2">
-              <span className="text-sm font-medium leading-[1.3] text-cursor-body">Input Mode</span>
-              <RadioGroup
-                name="inputMode"
-                options={inputModeOptions}
-                value={isBatch ? 'batch_folder' : 'file'}
-                onChange={(v) => setFormField('inputMode', v)}
-              />
+            <div className="min-h-8 flex items-center gap-2">
               {isBatch && (
-                <div className="flex items-center gap-2">
+                <>
                   <Button variant="ghost" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setBatchModal(true)}>
                     Configure batch
                   </Button>
                   {formValues.batchImageCount !== undefined && (
                     <span className="text-xs text-cursor-muted">{formValues.batchImageCount} selected</span>
                   )}
-                </div>
+                </>
               )}
             </div>
           </div>
@@ -2123,7 +2126,7 @@ export function InputOutputSection() {
               )}
               {/* Hidden file input — browser-safe fallback */}
               <input
-                ref={localInputRef}
+                ref={localFileInput}
                 className="hidden"
                 type="file"
                 multiple
