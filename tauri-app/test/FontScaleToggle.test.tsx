@@ -4,7 +4,7 @@ import {describe, it, expect, beforeEach} from 'vitest';
 import {FontScaleToggle} from '../src/components/FontScaleToggle';
 import {useFontScaleStore, DEFAULT_FONT_SCALE} from '../src/stores/fontScaleStore';
 
-describe('FontScaleToggle and fontScaleStore', () => {
+describe('FontScaleToggle and fontScaleStore (Slider)', () => {
   beforeEach(() => {
     useFontScaleStore.getState().resetScale();
     localStorage.clear();
@@ -18,7 +18,7 @@ describe('FontScaleToggle and fontScaleStore', () => {
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('toggles dropdown menu on button click', async () => {
+  it('toggles slider popover on button click', async () => {
     const user = userEvent.setup();
     render(<FontScaleToggle />);
 
@@ -26,17 +26,21 @@ describe('FontScaleToggle and fontScaleStore', () => {
     await user.click(button);
 
     expect(screen.getByText('UI Font Size')).toBeInTheDocument();
-    expect(screen.getAllByText('100%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('slider', {name: /Font scale slider/i})).toBeInTheDocument();
+    expect(screen.getByText('80%')).toBeInTheDocument();
     expect(screen.getByText('90%')).toBeInTheDocument();
+    expect(screen.getByText('110%')).toBeInTheDocument();
     expect(screen.getByText('120%')).toBeInTheDocument();
   });
 
-  it('updates scale when selecting a preset', async () => {
+  it('updates scale when moving the slider', async () => {
     const user = userEvent.setup();
     render(<FontScaleToggle />);
 
     await user.click(screen.getByRole('button', {name: /Adjust UI font size/i}));
-    await user.click(screen.getByRole('menuitem', {name: /120%/i}));
+    const slider = screen.getByRole('slider', {name: /Font scale slider/i});
+
+    fireEvent.change(slider, {target: {value: '1.2'}});
 
     expect(useFontScaleStore.getState().scale).toBe(1.2);
     expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1.2');
@@ -44,24 +48,26 @@ describe('FontScaleToggle and fontScaleStore', () => {
     expect(localStorage.getItem('neuroflow-font-scale')).toBe('1.2');
   });
 
-  it('adjusts scale using stepper buttons', async () => {
+  it('updates scale when clicking tick mark stops', async () => {
     const user = userEvent.setup();
     render(<FontScaleToggle />);
 
     await user.click(screen.getByRole('button', {name: /Adjust UI font size/i}));
     
-    // Increase
-    await user.click(screen.getByTitle('Increase font size'));
-    expect(useFontScaleStore.getState().scale).toBe(1.1);
+    // Click 80%
+    await user.click(screen.getByText('80%'));
+    expect(useFontScaleStore.getState().scale).toBe(0.8);
+    expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('0.8');
 
-    // Decrease
-    await user.click(screen.getByTitle('Decrease font size'));
-    expect(useFontScaleStore.getState().scale).toBe(1.0);
+    // Click 110%
+    await user.click(screen.getByText('110%'));
+    expect(useFontScaleStore.getState().scale).toBe(1.1);
+    expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1.1');
   });
 
   it('resets scale to default 100%', async () => {
     const user = userEvent.setup();
-    useFontScaleStore.getState().setScale(1.3);
+    useFontScaleStore.getState().setScale(1.2);
 
     render(<FontScaleToggle />);
     await user.click(screen.getByRole('button', {name: /Adjust UI font size/i}));
@@ -74,7 +80,7 @@ describe('FontScaleToggle and fontScaleStore', () => {
     expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1');
   });
 
-  it('closes dropdown when Escape is pressed', async () => {
+  it('closes popover when Escape is pressed', async () => {
     const user = userEvent.setup();
     render(<FontScaleToggle />);
 

@@ -1,6 +1,6 @@
 import React, {useState, useRef, useEffect} from 'react';
-import {Type, Check, RotateCcw, Plus, Minus} from 'lucide-react';
-import {useFontScaleStore, FONT_SCALE_PRESETS, DEFAULT_FONT_SCALE} from '../stores/fontScaleStore';
+import {Type, RotateCcw} from 'lucide-react';
+import {useFontScaleStore, FONT_SCALE_STOPS, DEFAULT_FONT_SCALE} from '../stores/fontScaleStore';
 
 export function FontScaleToggle({className = ''}: {className?: string}) {
   const [isOpen, setIsOpen] = useState(false);
@@ -8,8 +8,6 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
 
   const scale = useFontScaleStore((s) => s.scale);
   const setScale = useFontScaleStore((s) => s.setScale);
-  const increaseScale = useFontScaleStore((s) => s.increaseScale);
-  const decreaseScale = useFontScaleStore((s) => s.decreaseScale);
   const resetScale = useFontScaleStore((s) => s.resetScale);
 
   const percentage = Math.round(scale * 100);
@@ -55,13 +53,18 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
 
       {isOpen && (
         <div
-          className="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2 shadow-xl backdrop-blur-md animate-in fade-in-50 zoom-in-95"
-          role="menu"
-          aria-orientation="vertical"
+          className="absolute left-0 top-full mt-1.5 z-50 w-64 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 animate-in fade-in-50 zoom-in-95"
+          role="dialog"
+          aria-label="UI Font Size Adjustment"
         >
-          {/* Header & Quick Stepper */}
-          <div className="mb-2 flex items-center justify-between border-b border-cursor-hairline pb-2 px-1">
-            <span className="text-xs font-semibold text-cursor-ink">UI Font Size</span>
+          {/* Header */}
+          <div className="mb-3 flex items-center justify-between border-b border-cursor-hairline pb-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-cursor-ink">UI Font Size</span>
+              <span className="rounded bg-cursor-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-cursor-primary">
+                {percentage}%
+              </span>
+            </div>
             {scale !== DEFAULT_FONT_SCALE && (
               <button
                 type="button"
@@ -75,55 +78,52 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
             )}
           </div>
 
-          {/* Stepper Controls */}
-          <div className="mb-2 flex items-center justify-between rounded-md bg-cursor-canvas-soft p-1 border border-cursor-hairline">
-            <button
-              type="button"
-              onClick={decreaseScale}
-              disabled={scale <= 0.8}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-cursor-body hover:bg-cursor-surface-card hover:text-cursor-ink disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Decrease font size"
-              aria-label="Decrease font size"
+          {/* Slider with Small Text (left) and Large Text (right) icons */}
+          <div className="mb-2 flex items-center gap-3">
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center text-xs font-semibold text-cursor-muted select-none"
+              title="Small text (80%)"
+              aria-hidden="true"
             >
-              <Minus className="h-3.5 w-3.5" />
-            </button>
-            <span className="text-xs font-semibold text-cursor-ink">{percentage}%</span>
-            <button
-              type="button"
-              onClick={increaseScale}
-              disabled={scale >= 1.5}
-              className="inline-flex h-7 w-7 items-center justify-center rounded text-cursor-body hover:bg-cursor-surface-card hover:text-cursor-ink disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              title="Increase font size"
-              aria-label="Increase font size"
+              A
+            </span>
+
+            <input
+              type="range"
+              min="0.8"
+              max="1.2"
+              step="0.1"
+              value={scale}
+              onChange={(e) => setScale(parseFloat(e.target.value))}
+              aria-label="Font scale slider"
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-cursor-hairline accent-cursor-primary outline-hidden transition-colors hover:bg-cursor-hairline-strong focus-visible:ring-1 focus-visible:ring-cursor-primary"
+            />
+
+            <span
+              className="flex h-5 w-5 shrink-0 items-center justify-center text-base font-bold text-cursor-ink select-none"
+              title="Large text (120%)"
+              aria-hidden="true"
             >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+              A
+            </span>
           </div>
 
-          {/* Presets List */}
-          <div className="space-y-0.5">
-            {FONT_SCALE_PRESETS.map((preset) => {
-              const isSelected = Math.abs(preset.value - scale) < 0.01;
+          {/* Tick Marks & Scale Stops */}
+          <div className="flex items-center justify-between px-3.5">
+            {FONT_SCALE_STOPS.map((stop) => {
+              const isCurrent = Math.abs(stop.value - scale) < 0.01;
               return (
                 <button
-                  key={preset.value}
+                  key={stop.value}
                   type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setScale(preset.value);
-                    setIsOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-left transition-colors cursor-pointer ${
-                    isSelected
-                      ? 'bg-cursor-primary/10 font-medium text-cursor-primary'
-                      : 'text-cursor-body hover:bg-cursor-canvas-soft hover:text-cursor-ink'
+                  onClick={() => setScale(stop.value)}
+                  className={`text-[10px] transition-colors cursor-pointer ${
+                    isCurrent
+                      ? 'font-bold text-cursor-primary'
+                      : 'text-cursor-muted hover:text-cursor-ink font-normal'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{preset.label}</span>
-                    <span className="text-[11px] text-cursor-muted">({preset.desc})</span>
-                  </div>
-                  {isSelected && <Check className="h-3.5 w-3.5 text-cursor-primary" />}
+                  {stop.label}
                 </button>
               );
             })}

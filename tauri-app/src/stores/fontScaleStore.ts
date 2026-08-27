@@ -1,22 +1,21 @@
 import {create} from 'zustand';
 
-export interface FontScalePreset {
+export interface FontScaleStop {
   value: number;
   label: string;
-  desc: string;
 }
 
-export const FONT_SCALE_PRESETS: FontScalePreset[] = [
-  {value: 0.9, label: '90%', desc: 'Small'},
-  {value: 1.0, label: '100%', desc: 'Default'},
-  {value: 1.1, label: '110%', desc: 'Medium'},
-  {value: 1.2, label: '120%', desc: 'Large'},
-  {value: 1.3, label: '130%', desc: 'Extra Large'},
+export const FONT_SCALE_STOPS: FontScaleStop[] = [
+  {value: 0.8, label: '80%'},
+  {value: 0.9, label: '90%'},
+  {value: 1.0, label: '100%'},
+  {value: 1.1, label: '110%'},
+  {value: 1.2, label: '120%'},
 ];
 
 export const DEFAULT_FONT_SCALE = 1.0;
 export const MIN_FONT_SCALE = 0.8;
-export const MAX_FONT_SCALE = 1.5;
+export const MAX_FONT_SCALE = 1.2;
 
 interface FontScaleState {
   scale: number;
@@ -59,7 +58,7 @@ export const useFontScaleStore = create<FontScaleState>((set, get) => {
   return {
     scale: initialScale,
     setScale: (newScale: number) => {
-      const clamped = Math.round(Math.min(Math.max(newScale, MIN_FONT_SCALE), MAX_FONT_SCALE) * 100) / 100;
+      const clamped = Math.round(Math.min(Math.max(newScale, MIN_FONT_SCALE), MAX_FONT_SCALE) * 10) / 10;
       try {
         localStorage.setItem(STORAGE_KEY, String(clamped));
       } catch {
