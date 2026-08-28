@@ -366,7 +366,7 @@ function JobCard({
           onClick();
         }
       }}
-      className="group flex flex-col gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
+      className="group flex flex-col gap-2 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 text-left hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs cursor-pointer"
     >
       {/* Top Header Row: Full Job Name + Status Badges */}
       <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1209,7 +1209,7 @@ export function JobsPage() {
       } else if (img.status === 'failed') {
         map.set(img.input_file, 'Failed');
       } else if (img.status === 'pending') {
-        map.set(img.input_file, 'Waiting in queue');
+        map.set(img.input_file, 'Queued');
       } else {
         const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
         const runningStep = steps.find((s) => s.status === 'running');
@@ -1270,56 +1270,74 @@ export function JobsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6">
-      {/* 1. Top Grid: Job Detail (Left) + Batch Summary (Right) */}
-      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
-        {/* Left: Job Detail Card */}
-        <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
-          {/* Header: Back Button + Status Badge + Job Title */}
-          {(() => {
-            const isServerJob =
-              String(job?.target || '').toLowerCase() === 'server' ||
-              String(job?.job_id || '').startsWith('remote_job_') ||
-              String(job?.display_name || '').startsWith('remote_job_');
-            const baseJobTitle = (job?.display_name as string) || (job?.job_id as string) || 'No Job Selected';
-            const jobTitle =
-              isServerJob && !baseJobTitle.startsWith('[Server]') && !baseJobTitle.startsWith('[server]')
-                ? `[Server] ${baseJobTitle}`
-                : baseJobTitle;
+      {/* 0. Top Bar: Back Button + Status Badge + Job Title */}
+      {(() => {
+        const isServerJob =
+          String(job?.target || '').toLowerCase() === 'server' ||
+          String(job?.job_id || '').startsWith('remote_job_') ||
+          String(job?.display_name || '').startsWith('remote_job_');
+        const baseJobTitle = (job?.display_name as string) || (job?.job_id as string) || 'No Job Selected';
+        const jobTitle =
+          isServerJob && !baseJobTitle.startsWith('[Server]') && !baseJobTitle.startsWith('[server]')
+            ? `[Server] ${baseJobTitle}`
+            : baseJobTitle;
 
-            return (
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-cursor-hairline-soft">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedJobId(null);
-                      navigate('/jobs');
-                    }}
-                    className="h-7.5 px-2.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
-                    aria-label="Back to Jobs"
-                  >
-                    <ArrowLeft className="h-3.5 w-3.5 mr-1 text-cursor-body" />
-                    Back to Jobs
-                  </Button>
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.06em] flex-none ${jobStatusBadgeClasses(displayMeta.status_reconciled)}`}
-                  >
-                    <StatusDotLarge state={displayMeta.status_reconciled} className="h-2 w-2" />
-                    {displayJobState(displayMeta.status_reconciled)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h2
-                      className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate"
-                      title={jobTitle}
-                    >
-                      {jobTitle}
-                    </h2>
-                  </div>
-                </div>
+        return (
+          <div className="flex flex-wrap items-center justify-between gap-2.5 flex-none">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedJobId(null);
+                  navigate('/jobs');
+                }}
+                className="h-7.5 px-2.5 text-xs font-semibold text-cursor-ink border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
+                aria-label="Back to Jobs"
+              >
+                <ArrowLeft className="h-3.5 w-3.5 mr-1 text-cursor-body" />
+                Back to Jobs
+              </Button>
+              <Badge
+                variant={
+                  displayMeta.status_reconciled === 'completed'
+                    ? 'success'
+                    : displayMeta.status_reconciled === 'running'
+                      ? 'primary'
+                      : displayMeta.status_reconciled === 'failed'
+                        ? 'error'
+                        : displayMeta.status_reconciled === 'stopped'
+                          ? 'warning'
+                          : 'secondary'
+                }
+                className="flex-none gap-1.5 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.06em]"
+              >
+                <StatusDotLarge state={displayMeta.status_reconciled} className="h-2 w-2" />
+                {displayJobState(displayMeta.status_reconciled)}
+              </Badge>
+              <div className="min-w-0 flex-1">
+                <h2
+                  className="m-0 text-base font-semibold tracking-tight text-cursor-ink truncate"
+                  title={jobTitle}
+                >
+                  {jobTitle}
+                </h2>
               </div>
-            );
-          })()}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 1. Top Grid: Jobs Metadata (Left) + Batch Summary (Right) */}
+      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
+        {/* Left: Jobs Metadata Card */}
+        <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
+          <div className="flex items-center justify-between pb-2 border-b border-cursor-hairline-soft mb-2.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <BrainCircuit className="h-4 w-4 text-cursor-primary flex-none" />
+              <CardTitle className="font-semibold text-base text-cursor-ink">Jobs Metadata</CardTitle>
+            </div>
+          </div>
 
           {/* Lazy upload progress (Server target + Local inputs) */}
           {String(job?.target) === 'Server' && (
@@ -1387,7 +1405,7 @@ export function JobsPage() {
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Process PID
                       </td>
-                      <td className="py-1.5 px-2.5 text-cursor-body font-mono">{String(job?.pid || 'None')}</td>
+                      <td className="py-1.5 px-2.5 text-cursor-body">{String(job?.pid || 'None')}</td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Scheduler
                       </td>
@@ -1395,13 +1413,14 @@ export function JobsPage() {
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                           <span className="font-semibold text-cursor-ink truncate">{schedulerDisplay}</span>
                           {neuroflowEnabled && !isCustomMode && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded bg-cursor-primary/10 px-1.5 py-0.25 text-2xs font-semibold text-cursor-primary flex-none"
+                            <Badge
+                              variant="primary"
+                              className="gap-1 px-1.5 py-0.25 text-2xs font-semibold flex-none"
                               title={schedulerDetails}
                             >
                               <Zap className="h-3 w-3" />
                               {maxConcurrent} tasks
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       </td>
@@ -1440,7 +1459,7 @@ export function JobsPage() {
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
                         <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                           <span
-                            className="font-mono text-2xs text-cursor-body truncate break-all flex-1"
+                            className="text-2xs text-cursor-body truncate break-all flex-1"
                             title={displayMeta.output_dir_str}
                           >
                             {displayMeta.output_dir_str}
@@ -1475,7 +1494,7 @@ export function JobsPage() {
                       <td colSpan={3} className="py-1.5 px-2.5 text-cursor-body min-w-0">
                         <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                           <span
-                            className="font-mono text-2xs text-cursor-body truncate break-all flex-1"
+                            className="text-2xs text-cursor-body truncate break-all flex-1"
                             title={displayMeta.input_path_str}
                           >
                             {displayMeta.input_path_str}
@@ -1535,7 +1554,7 @@ export function JobsPage() {
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-success flex-none" />
                       <span className="text-cursor-ink text-xs font-medium">Success</span>
                     </div>
-                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.success}</span>
+                    <span className="font-semibold text-cursor-ink">{batchSummary.success}</span>
                   </div>
                   {Boolean((batchSummary.stopped || batchSummary.interrupted) && (batchSummary.stopped || batchSummary.interrupted)! > 0) && (
                     <div className="flex items-center justify-between gap-2">
@@ -1543,7 +1562,7 @@ export function JobsPage() {
                         <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-warn flex-none" />
                         <span className="text-cursor-ink text-xs font-medium">Stopped</span>
                       </div>
-                      <span className="font-semibold text-cursor-ink font-mono">{batchSummary.stopped ?? batchSummary.interrupted}</span>
+                      <span className="font-semibold text-cursor-ink">{batchSummary.stopped ?? batchSummary.interrupted}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-2">
@@ -1551,21 +1570,21 @@ export function JobsPage() {
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-error flex-none" />
                       <span className="text-cursor-ink text-xs font-medium">Failed</span>
                     </div>
-                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.failed}</span>
+                    <span className="font-semibold text-cursor-ink">{batchSummary.failed}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-primary flex-none" />
                       <span className="text-cursor-ink text-xs font-medium">Running</span>
                     </div>
-                    <span className="font-semibold text-cursor-ink font-mono">{batchSummary.running}</span>
+                    <span className="font-semibold text-cursor-ink">{batchSummary.running}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-hairline-strong flex-none" />
                       <span className="text-cursor-muted text-xs font-medium">Pending</span>
                     </div>
-                    <span className="font-semibold text-cursor-muted font-mono">{batchSummary.pending}</span>
+                    <span className="font-semibold text-cursor-muted">{batchSummary.pending}</span>
                   </div>
                 </div>
               </div>
@@ -1718,18 +1737,26 @@ export function JobsPage() {
                   placeholder="Search subject ID or #..."
                   value={subjectSearchQuery}
                   onChange={(e) => setSubjectSearchQuery(e.target.value)}
-                  className="w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1 pr-8 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-8"
+                  className="w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 pr-8 text-xs text-cursor-ink placeholder:text-cursor-muted-soft outline-none focus:border-cursor-hairline-strong focus:ring-1 focus:ring-cursor-primary/30 h-8"
                 />
                 <Search className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cursor-muted" />
               </label>
-              <div className="hidden sm:block h-4 w-px bg-cursor-hairline-strong flex-none" />
+              <div className="hidden sm:block h-4 w-px bg-cursor-hairline flex-none" />
               <div className="flex flex-wrap items-center gap-1.5">
-                {(
-                  Boolean((batchSummary.stopped || batchSummary.interrupted) && (batchSummary.stopped || batchSummary.interrupted)! > 0)
-                    ? (['all', 'success', 'running', 'stopped', 'failed', 'pending'] as const)
-                    : (['all', 'success', 'running', 'failed', 'pending'] as const)
-                ).map((st) => {
-                  const label = st === 'success' ? 'SUCCESS' : st === 'stopped' ? 'Stopped' : st;
+                {(['all', 'success', 'running', 'stopped', 'failed', 'pending'] as const).map((st) => {
+                  const label =
+                    st === 'all'
+                      ? 'ALL'
+                      : st === 'success'
+                        ? 'SUCCESS'
+                        : st === 'running'
+                          ? 'RUNNING'
+                          : st === 'stopped'
+                            ? 'STOPPED'
+                            : st === 'failed'
+                              ? 'FAILED'
+                              : 'PENDING';
+
                   const count =
                     st === 'all'
                       ? batchImages.length
@@ -1743,24 +1770,45 @@ export function JobsPage() {
                               ? batchSummary.failed
                               : batchSummary.pending;
 
+                  const isSelected = subjectStatusFilter === st;
+
+                  // Compute semantic badge styling for each filter
+                  let filterStyle = 'border border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:bg-cursor-canvas-soft';
+                  if (st === 'all') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-hairline-strong bg-cursor-canvas text-cursor-ink font-semibold ring-1 ring-cursor-ink/20'
+                      : 'border-cursor-hairline bg-cursor-surface-card text-cursor-body hover:text-cursor-ink hover:bg-cursor-canvas-soft';
+                  } else if (st === 'success') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-semantic-success/30 bg-cursor-semantic-success/15 text-cursor-semantic-success font-semibold ring-1 ring-cursor-semantic-success/30'
+                      : 'border-cursor-semantic-success/20 bg-cursor-semantic-success/5 text-cursor-semantic-success hover:bg-cursor-semantic-success/10';
+                  } else if (st === 'running') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-primary/30 bg-cursor-primary/15 text-cursor-primary font-semibold ring-1 ring-cursor-primary/30'
+                      : 'border-cursor-primary/20 bg-cursor-primary/5 text-cursor-primary hover:bg-cursor-primary/10';
+                  } else if (st === 'stopped') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-semantic-warn/30 bg-cursor-semantic-warn/15 text-cursor-semantic-warn font-semibold ring-1 ring-cursor-semantic-warn/30'
+                      : 'border-cursor-semantic-warn/20 bg-cursor-semantic-warn/5 text-cursor-semantic-warn hover:bg-cursor-semantic-warn/10';
+                  } else if (st === 'failed') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-semantic-error/30 bg-cursor-semantic-error/15 text-cursor-semantic-error font-semibold ring-1 ring-cursor-semantic-error/30'
+                      : 'border-cursor-semantic-error/20 bg-cursor-semantic-error/5 text-cursor-semantic-error hover:bg-cursor-semantic-error/10';
+                  } else if (st === 'pending') {
+                    filterStyle = isSelected
+                      ? 'border-cursor-hairline-strong bg-cursor-surface-strong/80 text-cursor-ink font-semibold ring-1 ring-cursor-ink/20'
+                      : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-muted hover:text-cursor-ink hover:bg-cursor-surface-strong/50';
+                  }
+
                   return (
                     <button
                       key={st}
                       type="button"
                       onClick={() => setSubjectStatusFilter(st)}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.75 text-xs font-medium transition-colors cursor-pointer capitalize border ${
-                        subjectStatusFilter === st
-                          ? 'border-cursor-hairline-strong bg-cursor-canvas text-cursor-ink font-semibold shadow-2xs'
-                          : 'border-transparent text-cursor-body hover:text-cursor-ink hover:bg-cursor-canvas-soft'
-                      }`}
+                      className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium cursor-pointer ${filterStyle}`}
                     >
-                      <span>{label}</span>
-                      <span
-                        className={`text-2xs font-mono px-1.5 py-0.2 rounded-full ${
-                          subjectStatusFilter === st ? 'bg-cursor-surface-strong text-cursor-ink font-bold' : 'text-cursor-muted'
-                        }`}
-                      >
-                        {count}
+                      <span>
+                        {label} ({count})
                       </span>
                     </button>
                   );
@@ -1775,29 +1823,10 @@ export function JobsPage() {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
-                        <>
-                          {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div
-                              key={i}
-                              className="rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 min-h-[96px]"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5">
-                                  <Skeleton className="h-5 w-5 rounded flex-none" />
-                                  <Skeleton className="h-2.5 w-10" />
-                                </div>
-                                <Skeleton className="h-4 w-14 rounded-full" />
-                              </div>
-                              <div className="my-2">
-                                <Skeleton className="h-3.5 w-3/4" />
-                              </div>
-                              <div className="pt-2 border-t border-cursor-hairline-soft flex items-center justify-between">
-                                <Skeleton className="h-3 w-24" />
-                                <Skeleton className="h-3 w-12" />
-                              </div>
-                            </div>
-                          ))}
-                        </>
+                        <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 text-center">
+                          <Loader2 className="h-7 w-7 animate-spin text-cursor-primary mb-2" />
+                          <p className="m-0 text-xs text-cursor-muted">Loading batch subjects...</p>
+                        </div>
                       );
                     }
                     return (
@@ -1816,76 +1845,66 @@ export function JobsPage() {
                   }
                   return filteredBatchImages.map((img) => {
                     const currentStepText = getSubjectCurrentStepLabel(img);
+                    const statusVariant =
+                      img.status === 'success'
+                        ? 'success'
+                        : img.status === 'failed'
+                          ? 'error'
+                          : img.status === 'stopped' || (img.status as string) === 'interrupted'
+                            ? 'warning'
+                            : img.status === 'running'
+                              ? 'primary'
+                              : 'secondary';
+
                     return (
                       <button
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 text-left transition-all hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs focus:outline-none focus:ring-1 focus:ring-cursor-primary/30 min-h-[96px]"
+                        className="group flex cursor-pointer flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3.5 text-left hover:border-cursor-primary hover:bg-cursor-canvas-soft hover:shadow-xs focus:outline-none focus:ring-1 focus:ring-cursor-primary/30 min-h-[100px]"
                       >
-                        {/* Card Header: Index & Status Badge */}
+                        {/* Card Header: Index Text & Status Badge */}
                         <div className="flex items-center justify-between gap-2 min-w-0">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <div
-                              className={`flex h-5 w-5 items-center justify-center rounded border flex-none ${subjectAccentClasses(img.status)}`}
-                            >
-                              <BrainCircuit className="h-3 w-3" />
-                            </div>
-                            <span className="font-mono text-2xs font-semibold uppercase tracking-[0.06em] text-cursor-muted bg-cursor-canvas-soft px-1.5 py-0.5 rounded border border-cursor-hairline-soft">
-                              #{String(img.idx).padStart(3, '0')}
-                            </span>
-                          </div>
-                          <span
-                            className={`font-semibold text-2xs uppercase tracking-[0.06em] px-2 py-0.5 rounded flex-none ${
-                              img.status === 'success'
-                                 ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
-                                 : img.status === 'failed'
-                                   ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
-                                   : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                     ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
-                                     : img.status === 'running'
-                                       ? 'text-cursor-primary bg-cursor-primary/10'
-                                       : 'text-cursor-muted bg-cursor-surface-strong/70'
-                            }`}
-                          >
-                            {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
+                          <span className="text-xs font-semibold text-cursor-muted tracking-tight">
+                            #{String(img.idx).padStart(3, '0')}
                           </span>
+                          <Badge variant={statusVariant} className="flex-none">
+                            {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
+                          </Badge>
                         </div>
 
-                        {/* Card Body: Subject ID with prominent mono font */}
+                        {/* Card Body: Subject ID with max 2 lines */}
                         <div className="my-2 min-w-0">
                           <h4
-                            className="text-xs font-bold leading-snug text-cursor-ink font-mono group-hover:text-cursor-primary transition-colors line-clamp-1 break-all"
+                            className="text-xs font-bold leading-snug text-cursor-ink group-hover:text-cursor-primary line-clamp-2 break-all"
                             title={img.subject_id}
                           >
                             {img.subject_id}
                           </h4>
                         </div>
 
-                        {/* Card Footer: Full-Width Current Step Badge */}
-                        <div className="pt-2 border-t border-cursor-hairline-soft w-full min-w-0">
-                          <span
-                            className={`flex items-center justify-between gap-1.5 w-full text-2xs font-semibold px-2.5 py-1 rounded-md border transition-colors ${
+                        {/* Card Footer: Text-Only Current Step with Status Color */}
+                        <div className="pt-2 border-t border-cursor-hairline-soft w-full min-w-0 flex items-center justify-between text-xs">
+                          <div
+                            className={`flex items-center gap-1.5 min-w-0 truncate flex-1 ${
                               img.status === 'running'
-                                ? 'bg-cursor-primary/10 text-cursor-primary border-cursor-primary/20'
+                                ? 'text-cursor-primary font-semibold'
                                 : img.status === 'success'
-                                  ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20 font-medium'
+                                  ? 'text-cursor-semantic-success font-medium'
                                   : img.status === 'failed'
-                                    ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20 font-medium'
+                                    ? 'text-cursor-semantic-error font-medium'
                                     : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                      ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn border-cursor-semantic-warn/20 font-medium'
-                                      : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft font-medium'
+                                      ? 'text-cursor-semantic-warn font-medium'
+                                      : 'text-cursor-muted'
                             }`}
                             title={currentStepText}
                           >
-                            <span className="flex items-center gap-1.5 min-w-0 truncate flex-1">
-                              {img.status === 'running' && (
-                                <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse flex-none" />
-                              )}
-                              <span className="truncate">{currentStepText}</span>
-                            </span>
-                            <ChevronRight className="h-3.5 w-3.5 text-cursor-muted group-hover:text-cursor-primary group-hover:translate-x-0.5 transition-all flex-none" />
-                          </span>
+                            {img.status === 'running' && (
+                              <Loader2 className="h-3 w-3 animate-spin text-cursor-primary flex-none" />
+                            )}
+                            <span className="truncate">{currentStepText}</span>
+                          </div>
+                          <ChevronRight className="h-3.5 w-3.5 text-cursor-muted group-hover:text-cursor-primary flex-none ml-1" />
                         </div>
                       </button>
                     );
@@ -1898,21 +1917,10 @@ export function JobsPage() {
                   if (filteredBatchImages.length === 0) {
                     if (isLoadingDetails && batchImages.length === 0) {
                       return (
-                        <>
-                          {[0, 1, 2, 3, 4, 5].map((i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-3 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2"
-                            >
-                              <Skeleton className="h-7 w-7 rounded-md flex-none" />
-                              <div className="flex-1 space-y-1">
-                                <Skeleton className="h-2.5 w-14" />
-                                <Skeleton className="h-3.5 w-2/3" />
-                              </div>
-                              <Skeleton className="h-3.5 w-16 flex-none" />
-                            </div>
-                          ))}
-                        </>
+                        <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 text-center">
+                          <Loader2 className="h-7 w-7 animate-spin text-cursor-primary mb-2" />
+                          <p className="m-0 text-xs text-cursor-muted">Loading batch subjects...</p>
+                        </div>
                       );
                     }
                     return (
@@ -1931,61 +1939,57 @@ export function JobsPage() {
                   }
                   return filteredBatchImages.map((img) => {
                     const currentStepText = getSubjectCurrentStepLabel(img);
+                    const statusVariant =
+                      img.status === 'success'
+                        ? 'success'
+                        : img.status === 'failed'
+                          ? 'error'
+                          : img.status === 'stopped' || (img.status as string) === 'interrupted'
+                            ? 'warning'
+                            : img.status === 'running'
+                              ? 'primary'
+                              : 'secondary';
+
                     return (
                       <button
                         key={img.input_file}
                         type="button"
                         onClick={() => setActiveModalSubjectFile(img.input_file)}
-                        className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-left transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
+                        className="group flex items-center gap-3 cursor-pointer rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-left hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary/30"
                       >
-                        <div
-                          className={`flex h-7 w-7 items-center justify-center rounded-md border flex-none ${subjectAccentClasses(img.status)}`}
-                        >
-                          <BrainCircuit className="h-3 w-3" />
-                        </div>
+                        <span className="text-xs font-semibold text-cursor-muted flex-none w-10">
+                          #{String(img.idx).padStart(3, '0')}
+                        </span>
                         <div className="flex flex-col min-w-0 flex-1">
-                          <span className="text-2xs text-cursor-muted">#{String(img.idx).padStart(3, '0')}</span>
-                          <span className="truncate text-sm font-bold font-mono text-cursor-ink group-hover:text-cursor-primary transition-colors">
+                          <span className="truncate text-sm font-bold text-cursor-ink group-hover:text-cursor-primary">
                             {img.subject_id}
                           </span>
                         </div>
                         <div className="flex items-center gap-4 flex-none">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Stage:</span>
                             <span
-                              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-0.75 rounded-md font-semibold border ${
+                              className={`inline-flex items-center gap-1.5 text-xs ${
                                 img.status === 'running'
-                                  ? 'bg-cursor-primary/10 text-cursor-primary border-cursor-primary/20'
+                                  ? 'text-cursor-primary font-semibold'
                                   : img.status === 'success'
-                                    ? 'bg-cursor-semantic-success/10 text-cursor-semantic-success border-cursor-semantic-success/20'
+                                    ? 'text-cursor-semantic-success font-medium'
                                     : img.status === 'failed'
-                                      ? 'bg-cursor-semantic-error/10 text-cursor-semantic-error border-cursor-semantic-error/20'
+                                      ? 'text-cursor-semantic-error font-medium'
                                       : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                        ? 'bg-cursor-semantic-warn/10 text-cursor-semantic-warn border-cursor-semantic-warn/20'
-                                        : 'bg-cursor-canvas-soft text-cursor-body border-cursor-hairline-soft'
+                                        ? 'text-cursor-semantic-warn font-medium'
+                                        : 'text-cursor-muted'
                               }`}
                             >
                               {img.status === 'running' && (
-                                <span className="h-1.5 w-1.5 rounded-full bg-cursor-primary animate-pulse flex-none" />
+                                <Loader2 className="h-3 w-3 animate-spin text-cursor-primary flex-none" />
                               )}
                               {currentStepText}
                             </span>
                           </div>
-                          <span
-                            className={`inline-flex items-center justify-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] min-w-[3.5rem] ${
-                              img.status === 'success'
-                                ? 'text-cursor-semantic-success bg-cursor-semantic-success/10'
-                                : img.status === 'failed'
-                                  ? 'text-cursor-semantic-error bg-cursor-semantic-error/10'
-                                  : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                    ? 'text-cursor-semantic-warn bg-cursor-semantic-warn/10'
-                                    : img.status === 'running'
-                                      ? 'text-cursor-primary bg-cursor-primary/10'
-                                      : 'text-cursor-muted bg-cursor-surface-strong/70'
-                            }`}
-                          >
+                          <Badge variant={statusVariant} className="min-w-[3.5rem] justify-center">
                             {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
-                          </span>
+                          </Badge>
                         </div>
                       </button>
                     );
@@ -2028,15 +2032,15 @@ export function JobsPage() {
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-cursor-hairline px-4 py-3 bg-cursor-canvas flex-none">
               <div className="flex items-center gap-3 min-w-0">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                <Badge variant="outline" className="text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted bg-cursor-surface-card px-2 py-0.5">
                   #{modalSubject.idx}
-                </span>
+                </Badge>
                 <div className="flex flex-col min-w-0 gap-0.5">
                   <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
                   <span
-                    className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 font-mono text-2xs text-cursor-body"
+                    className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 text-2xs text-cursor-body"
                     title={modalSubject.input_file}
                   >
                     {modalSubject.input_file}
@@ -2044,21 +2048,33 @@ export function JobsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em] px-2 py-0.5">
                   {completedModalStages}/{totalModalStages} stages
-                </span>
-                <StatusPill state={modalSubject.status}>
+                </Badge>
+                <Badge
+                  variant={
+                    modalSubject.status === 'success'
+                      ? 'success'
+                      : modalSubject.status === 'failed'
+                        ? 'error'
+                        : modalSubject.status === 'stopped' || (modalSubject.status as string) === 'interrupted'
+                          ? 'warning'
+                          : modalSubject.status === 'running'
+                            ? 'primary'
+                            : 'secondary'
+                  }
+                >
                   {modalSubject.status === 'success'
                     ? 'SUCCESS'
                     : modalSubject.status === 'stopped' || (modalSubject.status as string) === 'interrupted'
                       ? 'STOPPED'
                       : modalSubject.status.toUpperCase()}
-                </StatusPill>
+                </Badge>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setActiveModalSubjectFile(null)}
-                  className="h-7 w-7 p-0 rounded-full text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
+                  className="h-7 w-7 p-0 rounded text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
@@ -2073,9 +2089,9 @@ export function JobsPage() {
                   <div className="flex flex-col min-w-0">
                     <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">Stage Timeline</h3>
                   </div>
-                  <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted flex-none mt-0.5">
+                  <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em] flex-none mt-0.5">
                     {completedModalStages}/{totalModalStages} complete
-                  </span>
+                  </Badge>
                 </div>
                 <div className="p-0 flex-1 overflow-auto min-h-0">
                   <div className="space-y-1.5">
@@ -2107,9 +2123,9 @@ export function JobsPage() {
                     </div>
                     <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
                       <span>GPU Usage: Not reported (CPU Mode)</span>
-                      <span className="inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.25 text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted">
+                      <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em]">
                         CPU Mode
-                      </span>
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -2159,7 +2175,7 @@ export function JobsPage() {
                   </div>
                   <div className="p-0 flex-1 min-h-0 overflow-hidden">
                     <pre
-                      className="h-full min-h-[14rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 font-mono text-xs leading-relaxed text-cursor-ink"
+                      className="h-full min-h-[14rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 text-xs leading-relaxed text-cursor-ink"
                       aria-live="polite"
                     >
                       {filteredLog || 'Log stream is empty.'}
@@ -2430,10 +2446,10 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
       <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
         <div className="flex items-center justify-between text-xs">
           <span className="font-medium text-cursor-ink">{label}</span>
-          <span className="text-xs text-cursor-muted">No samples yet</span>
+          <span className="text-xs text-cursor-muted">Connecting...</span>
         </div>
-        <div className="flex items-center justify-center h-16 text-xs text-cursor-muted italic">
-          Waiting for data...
+        <div className="flex items-center justify-center h-16 text-xs text-cursor-muted gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-cursor-primary" />
         </div>
       </div>
     );
@@ -2476,7 +2492,7 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
     <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-cursor-ink">{label}</span>
-        <span className="font-mono text-cursor-primary font-semibold text-xs">
+        <span className="text-cursor-primary font-semibold text-xs">
           {formatValue(currentVal)}{' '}
           <span className="text-2xs text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
         </span>
