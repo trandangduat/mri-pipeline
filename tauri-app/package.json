@@ -21,7 +21,7 @@
     "vite:cleanup": "fuser -k 1420/tcp 2>/dev/null; true",
     "backend": "cd .. && ./.venv/bin/python -m app_backend.server --host 127.0.0.1 --port 8765",
     "backend:cleanup": "cd .. && ./.venv/bin/python -m app_backend.dev_cleanup --host 127.0.0.1 --port 8765 --backend-root .",
-    "tauri:dev": "export WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1; npm run vite:cleanup && npm run backend:cleanup && tauri dev"
+    "tauri:dev": "tauri dev"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
