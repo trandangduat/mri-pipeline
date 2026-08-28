@@ -702,14 +702,13 @@ function InfoTooltip({content}: {content: React.ReactNode}) {
 }
 
 export const NEUROFLOW_POLICIES = [
-  { id: 'B6', label: 'Full NeuroFLOW (default)', desc: 'Complete adaptive optimizer: online runtime/RAM estimation, dynamic critical-path ranking, waiting-time aging, protected backfilling, and failure-adaptive retries.' },
-  { id: 'B0', label: 'Sequential FIFO', desc: 'Single-task execution in strict ready-arrival order with fixed default configurations, no resource adaptation, and no backfilling.' },
-  { id: 'B1', label: 'Parallel FIFO First-Fit', desc: 'Parallel execution in ready-arrival order with first-fit resource admission, fixed default configurations, and no DAG ranking.' },
-  { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Orders ready tasks by ascending estimated runtime with first-fit admission to maximize throughput.' },
-  { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Orders ready tasks by static upward critical-path rank computed from initial estimates, without profile adaptation or backfilling.' },
-  { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Static critical-path ranking with protected backfilling; admits non-critical tasks only if they do not delay resource-blocked critical tasks.' },
-  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'FIFO arrival-order queue combined with NeuroFLOW adaptive runtime/memory profiles, adaptive concurrency, and adaptive failure handling.' },
-  { id: 'B7', label: 'HEFT Family', desc: 'Heterogeneous Earliest Finish Time; orders tasks by upward rank and assigns them to the CPU or GPU configuration yielding the earliest predicted finish.' },
+  { id: 'B6', label: 'Full NeuroFLOW (default)', desc: 'Uses the complete optimizer described in the NeuroFLOW optimizer design document.' },
+  { id: 'B0', label: 'Sequential FIFO', desc: 'One task at a time; first-ready, first-added; static profiles; no adaptation; no backfilling.' },
+  { id: 'B1', label: 'Parallel FIFO First-Fit', desc: 'Insertion-order ready queue; first feasible configuration; static profiles; no critical-path ranking; no protected backfilling.' },
+  { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Tasks are ordered by ascending estimated runtime; uses static profiles and no protected backfilling.' },
+  { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Upward critical-path rank; static profiles; no adaptation; no aging; no protected backfilling.' },
+  { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Upward critical-path rank; static profiles; protected backfilling; CPU/GPU configuration selection; no adaptive estimates.' },
+  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'NeuroFLOW adaptive estimators; FIFO priority; adaptive concurrency; no critical-path ranking.' },
 ] as const;
 
 export function QueuePolicySelect({
