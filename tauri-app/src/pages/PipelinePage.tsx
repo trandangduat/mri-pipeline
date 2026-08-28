@@ -2126,7 +2126,7 @@ export function InputOutputSection() {
               {isBatch ? (
                 <PathField
                   id="inputPath"
-                  label="Input location (local)"
+                  label="Input location (local path)"
                   value={formValues.inputPath}
                   placeholder="/data/batch_subjects_folder"
                   onChange={(v) => setFormField('inputPath', v)}
@@ -2137,7 +2137,7 @@ export function InputOutputSection() {
               ) : (
                 <PathField
                   id="inputPath"
-                  label="Input location (local)"
+                  label="Input location (local path)"
                   value={formValues.inputPath}
                   placeholder="/data/sub-001_T1w.nii.gz or /data/dicom_series_folder"
                   onChange={(v) => setFormField('inputPath', v)}
@@ -2153,7 +2153,7 @@ export function InputOutputSection() {
               )}
               <PathField
                 id="inputServerDir"
-                label="Input location (server)"
+                label="Input location (server path)"
                 value={formValues.inputServerDir || ''}
                 placeholder="~/mri-uploads"
                 onChange={(v) => setFormField('inputServerDir', v)}
@@ -2163,7 +2163,7 @@ export function InputOutputSection() {
               />
               <PathField
                 id="serverOutputDir"
-                label="Output location (server)"
+                label="Output location (server path)"
                 value={formValues.serverOutputDir || ''}
                 placeholder="/home/user/mri-outputs"
                 onChange={(v) => setFormField('serverOutputDir', v)}
