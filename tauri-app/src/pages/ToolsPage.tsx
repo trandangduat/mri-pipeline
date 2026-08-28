@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Container, Download, HardDrive, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu, AlertCircle} from 'lucide-react';
+import {Container, Download, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu, AlertCircle} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
-import {Skeleton} from '@/components/ui/skeleton';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
@@ -16,30 +15,6 @@ import {buildRemotePayload} from '../api/runConfig';
 
 const POLL_INTERVAL_MS = 5000;
 const GRID_CLASSES = 'grid gap-4.5 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]';
-
-function ImageStatusSkeletonGrid() {
-  return (
-    <div className={GRID_CLASSES}>
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="rounded-xl border border-cursor-hairline bg-cursor-surface-card p-4.5 min-h-[220px]">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-9 w-9 rounded-lg" />
-            <div className="flex-1">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="mt-1.5 h-3 w-1/3" />
-            </div>
-          </div>
-          <Skeleton className="mt-4 h-3 w-1/2" />
-          <div className="mt-3 flex gap-1.5">
-            <Skeleton className="h-6 w-20 rounded-md" />
-            <Skeleton className="h-6 w-24 rounded-md" />
-          </div>
-          <Skeleton className="mt-8 h-9 w-full rounded-lg" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function ToolsPage() {
   const {data: environment, refetch: refetchEnvironment} = useEnvironment();
@@ -187,13 +162,6 @@ export function ToolsPage() {
     });
   };
 
-  const emptyMessage = () => {
-    const target = selectedRuntimeTarget();
-    if (busy.refreshTools) return 'Checking Docker image status...';
-    if (target === 'Server' && !remoteResult.connected) return 'Connect SSH in Runtime to check server Docker images.';
-    return 'Docker image status will load automatically.';
-  };
-
   const target = selectedRuntimeTarget();
 
   return (
@@ -282,16 +250,12 @@ export function ToolsPage() {
                 />
               ))}
             </div>
-          ) : busy.refreshTools && images.length === 0 ? (
-            <ImageStatusSkeletonGrid />
-          ) : (
-            <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-5 text-center">
-              <HardDrive className="mx-auto mb-1.5 h-6 w-6 text-cursor-muted" />
-              <p className="text-xs text-cursor-body">
-                {images.length === 0 ? emptyMessage() : 'No installed images found.'}
-              </p>
+          ) : isRefreshing && images.length === 0 ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-cursor-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
+              <span>Loading...</span>
             </div>
-          )}
+          ) : null}
         </section>
 
         {/* Section 3: Not Available Images */}
@@ -316,16 +280,12 @@ export function ToolsPage() {
                 />
               ))}
             </div>
-          ) : busy.refreshTools && images.length === 0 ? (
-            <ImageStatusSkeletonGrid />
-          ) : (
-            <div className="rounded-lg border border-dashed border-cursor-hairline-strong bg-cursor-canvas-soft p-5 text-center">
-              <CheckCircle2 className="mx-auto mb-1.5 h-6 w-6 text-cursor-semantic-success" />
-              <p className="text-xs text-cursor-body">
-                {images.length === 0 ? emptyMessage() : 'All required images are installed.'}
-              </p>
+          ) : isRefreshing && images.length === 0 ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-cursor-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
+              <span>Loading...</span>
             </div>
-          )}
+          ) : null}
 
           {pullStream.status !== 'idle' && (pullStream.logs.length > 0 || pullStream.status === 'failed') && (
             <div className="mt-3 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5">

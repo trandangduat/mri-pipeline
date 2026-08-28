@@ -691,3 +691,117 @@ export function deriveJobDisplayMetadata(job: AnyJob | null, events: PipelineEve
     status_reconciled,
   };
 }
+
+export interface SubjectStageInfo {
+  label: string;
+  status: 'running' | 'success' | 'failed' | 'stopped' | 'pending';
+  isBeforeStart?: boolean;
+}
+
+export function deriveSubjectStageInfo(
+  img: BatchImageItem,
+  steps: StageStepDetail[],
+): SubjectStageInfo {
+  const scheduledSteps = steps.filter((s) => s.status !== 'not_scheduled' && s.status !== 'skipped');
+  const activeSteps = scheduledSteps.length > 0 ? scheduledSteps : steps;
+  const lastScheduledStep = activeSteps[activeSteps.length - 1];
+  const firstScheduledStep = activeSteps[0];
+
+  // 1. If subject completed successfully: show the last successful/scheduled stage
+  if (img.status === 'success') {
+    const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+    const targetStep = lastSuccess || lastScheduledStep;
+    return {
+      label: targetStep ? targetStep.label || targetStep.stage : 'Success',
+      status: 'success',
+    };
+  }
+
+  // 2. If subject is running: find the currently running stage
+  const runningStep = activeSteps.find((s) => s.status === 'running');
+  if (runningStep) {
+    return {
+      label: runningStep.label || runningStep.stage,
+      status: 'running',
+    };
+  }
+
+  // 3. If subject failed: show the failed stage
+  if (img.status === 'failed') {
+    const failedStep = activeSteps.find((s) => s.status === 'failed');
+    const targetStep =
+      failedStep ||
+      [...activeSteps].reverse().find((s) => s.status === 'success') ||
+      firstScheduledStep;
+    return {
+      label: targetStep ? targetStep.label || targetStep.stage : 'Failed',
+      status: 'failed',
+    };
+  }
+
+  // 4. If subject is stopped / interrupted
+  if (img.status === 'stopped' || (img.status as string) === 'interrupted') {
+    const stoppedStep = activeSteps.find((s) => s.status === 'stopped' || s.status === 'running');
+    const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+    if (stoppedStep) {
+      return {
+        label: stoppedStep.label || stoppedStep.stage,
+        status: 'stopped',
+      };
+    } else if (lastSuccess) {
+      return {
+        label: lastSuccess.label || lastSuccess.stage,
+        status: 'stopped',
+      };
+    } else {
+      return {
+        label: 'Stopped before start',
+        status: 'stopped',
+        isBeforeStart: true,
+      };
+    }
+  }
+
+  // 5. If subject is pending / queued
+  if (img.status === 'pending') {
+    return {
+      label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Queued',
+      status: 'pending',
+    };
+  }
+
+  // 6. Running without explicit running step yet (e.g. between stages in batched execution)
+  if (img.status === 'running') {
+    const nextPending = activeSteps.find((s) => s.status === 'pending');
+    const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+    if (nextPending) {
+      return {
+        label: nextPending.label || nextPending.stage,
+        status: 'pending',
+      };
+    } else if (lastSuccess) {
+      return {
+        label: lastSuccess.label || lastSuccess.stage,
+        status: 'success',
+      };
+    } else {
+      return {
+        label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
+        status: 'running',
+      };
+    }
+  }
+
+  const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+  if (lastSuccess) {
+    return {
+      label: lastSuccess.label || lastSuccess.stage,
+      status: 'success',
+    };
+  }
+  return {
+    label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
+    status: 'pending',
+  };
+}
+

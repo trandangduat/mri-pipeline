@@ -217,4 +217,51 @@ describe('JobsPage Redesign', () => {
     fireEvent.click(cancelBtn);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('renders Loading... on initial load when no jobs have been loaded yet', () => {
+    useJobsStore.setState({
+      latestJobs: [],
+      hasLoadedInitialJobs: false,
+      selectedJobId: null,
+    });
+
+    renderJobsPage('/jobs');
+
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText(/No local jobs found/)).toBeNull();
+    expect(screen.queryByText(/No server jobs found/)).toBeNull();
+  });
+
+  it('renders empty headers with no placeholder text when loaded and jobs list is empty', async () => {
+    useJobsStore.setState({
+      latestJobs: [],
+      hasLoadedInitialJobs: true,
+      selectedJobId: null,
+    });
+
+    renderJobsPage('/jobs');
+
+    await waitFor(() => {
+      expect(screen.getByText(/Local Jobs \(0\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Server Jobs \(0\)/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/No local jobs found/)).toBeNull();
+    expect(screen.queryByText(/No server jobs found/)).toBeNull();
+  });
+
+  it('renders Refresh button with text-sm font-medium typography matching Tools Configuration', async () => {
+    useJobsStore.setState({
+      latestJobs: [],
+      hasLoadedInitialJobs: true,
+      selectedJobId: null,
+    });
+
+    renderJobsPage('/jobs');
+
+    await waitFor(() => {
+      const refreshBtn = screen.getByRole('button', {name: /refresh/i});
+      expect(refreshBtn.className).toContain('text-sm');
+      expect(refreshBtn.className).toContain('font-medium');
+    });
+  });
 });

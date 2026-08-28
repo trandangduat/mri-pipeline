@@ -39,6 +39,7 @@ import {
   deriveImageSteps,
   deriveJobDisplayMetadata,
   deriveMetricsSeries,
+  deriveSubjectStageInfo,
   displayJobState,
   filterLogLines,
   type BatchSummary,
@@ -438,6 +439,7 @@ function JobsListView({
   onSelectJob,
   onRefresh,
   isRefreshing,
+  isInitialLoading,
   onDeleteJob,
   deletingJobId,
   remoteLagging,
@@ -447,10 +449,22 @@ function JobsListView({
   onSelectJob: (jobId: string) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  isInitialLoading?: boolean;
   onDeleteJob: (job: Record<string, unknown>) => void;
   deletingJobId: string | null;
   remoteLagging: boolean;
 }) {
+  if (isInitialLoading || (isRefreshing && jobs.length === 0)) {
+    return (
+      <div className="h-full w-full overflow-y-auto p-4 flex flex-col gap-4 text-cursor-ink">
+        <div className="flex items-center gap-2 text-sm text-cursor-muted">
+          <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
+          <span>Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
   const sortedJobs = sortJobsByStartedAtDesc(jobs);
   const localJobs = sortedJobs.filter((job) => String(job.target || 'Local') !== 'Server');
   const serverJobs = sortedJobs.filter((job) => String(job.target || 'Local') === 'Server');
@@ -462,7 +476,7 @@ function JobsListView({
       size="sm"
       onClick={onRefresh}
       disabled={isRefreshing}
-      className="h-8 px-3 text-xs font-medium border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
+      className="h-8 px-3 text-sm font-medium border-cursor-hairline bg-cursor-surface-card hover:bg-cursor-canvas-soft flex-none cursor-pointer"
     >
       {isRefreshing ? (
         <>
@@ -486,11 +500,7 @@ function JobsListView({
         {!isServerFirst && refreshButton}
       </div>
 
-      {localJobs.length === 0 ? (
-        <p className="text-xs italic text-cursor-muted mt-1">
-          No local jobs found. Run a local pipeline to start.
-        </p>
-      ) : (
+      {localJobs.length > 0 && (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
           {localJobs.map((j) => (
             <JobCard
@@ -516,11 +526,7 @@ function JobsListView({
         {isServerFirst && refreshButton}
       </div>
 
-      {serverJobs.length === 0 ? (
-        <p className="text-xs italic text-cursor-muted mt-1">
-          No server jobs found. Connect SSH and start a remote pipeline.
-        </p>
-      ) : (
+      {serverJobs.length > 0 && (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
           {serverJobs.map((j) => (
             <JobCard
@@ -565,6 +571,8 @@ function shortCopyDetail(raw: string): string {
 export function JobsPage() {
   const storeLatestJobs = useJobsStore((s) => s.latestJobs);
   const latestJobs = React.useMemo(() => storeLatestJobs || [], [storeLatestJobs]);
+  const hasLoadedInitialJobs = useJobsStore((s) => s.hasLoadedInitialJobs);
+  const setHasLoadedInitialJobs = useJobsStore((s) => s.setHasLoadedInitialJobs);
 
   const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
   const selectedJobId = useJobsStore((s) => s.selectedJobId);
@@ -818,6 +826,7 @@ export function JobsPage() {
     } catch (err: unknown) {
       print('Refresh jobs failed', {error: (err as Error).message});
     } finally {
+      setHasLoadedInitialJobs(true);
       setBusyKey('refreshJobs', false);
     }
   }, [
@@ -828,6 +837,7 @@ export function JobsPage() {
     remoteResult.connected,
     selectedJobId,
     setBusyKey,
+    setHasLoadedInitialJobs,
     setLatestJobs,
     urlJobId,
     print,
@@ -945,9 +955,7 @@ export function JobsPage() {
     hasInitialRefreshed.current = true;
     const jobs = Array.isArray(latestJobs) ? latestJobs : [];
     if (jobs.length === 0) {
-      queueMicrotask(() => {
-        void refreshJobs();
-      });
+      void refreshJobs();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1205,100 +1213,7 @@ export function JobsPage() {
 
     for (const img of batchImages) {
       const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
-      const scheduledSteps = steps.filter((s) => s.status !== 'not_scheduled' && s.status !== 'skipped');
-      const activeSteps = scheduledSteps.length > 0 ? scheduledSteps : steps;
-      const lastScheduledStep = activeSteps[activeSteps.length - 1];
-      const firstScheduledStep = activeSteps[0];
-
-      // 1. If subject completed successfully: show the last successful/scheduled stage
-      if (img.status === 'success') {
-        const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
-        const targetStep = lastSuccess || lastScheduledStep;
-        map.set(img.input_file, {
-          label: targetStep ? targetStep.label || targetStep.stage : 'Success',
-          status: 'success',
-        });
-        continue;
-      }
-
-      // 2. If subject is running: find the currently running stage
-      const runningStep = activeSteps.find((s) => s.status === 'running');
-      if (runningStep) {
-        map.set(img.input_file, {
-          label: runningStep.label || runningStep.stage,
-          status: 'running',
-        });
-        continue;
-      }
-
-      // 3. If subject failed: show the failed stage
-      if (img.status === 'failed') {
-        const failedStep = activeSteps.find((s) => s.status === 'failed');
-        const targetStep =
-          failedStep ||
-          [...activeSteps].reverse().find((s) => s.status === 'success') ||
-          firstScheduledStep;
-        map.set(img.input_file, {
-          label: targetStep ? targetStep.label || targetStep.stage : 'Failed',
-          status: 'failed',
-        });
-        continue;
-      }
-
-      // 4. If subject is stopped / interrupted
-      if (img.status === 'stopped' || (img.status as string) === 'interrupted') {
-        const stoppedStep = activeSteps.find((s) => s.status === 'stopped' || s.status === 'running');
-        const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
-        if (stoppedStep) {
-          map.set(img.input_file, {
-            label: stoppedStep.label || stoppedStep.stage,
-            status: 'stopped',
-          });
-        } else if (lastSuccess) {
-          map.set(img.input_file, {
-            label: lastSuccess.label || lastSuccess.stage,
-            status: 'stopped',
-          });
-        } else {
-          map.set(img.input_file, {
-            label: 'Stopped before start',
-            status: 'stopped',
-            isBeforeStart: true,
-          });
-        }
-        continue;
-      }
-
-      // 5. If subject is pending / queued
-      if (img.status === 'pending') {
-        map.set(img.input_file, {
-          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Queued',
-          status: 'pending',
-        });
-        continue;
-      }
-
-      // 6. Running without explicit step yet
-      if (img.status === 'running') {
-        map.set(img.input_file, {
-          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
-          status: 'running',
-        });
-        continue;
-      }
-
-      const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
-      if (lastSuccess) {
-        map.set(img.input_file, {
-          label: lastSuccess.label || lastSuccess.stage,
-          status: 'success',
-        });
-      } else {
-        map.set(img.input_file, {
-          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
-          status: 'pending',
-        });
-      }
+      map.set(img.input_file, deriveSubjectStageInfo(img, steps));
     }
     return map;
   }, [batchImages, safeEvents, selectedTools, stageOrder, stageLabels]);
@@ -1324,6 +1239,7 @@ export function JobsPage() {
           }}
           onRefresh={refreshJobs}
           isRefreshing={busy.refreshJobs}
+          isInitialLoading={(!hasLoadedInitialJobs || busy.refreshJobs) && jobsList.length === 0}
           onDeleteJob={handleDeleteJob}
           deletingJobId={deletingJobId}
           remoteLagging={remoteLagging}
@@ -1987,10 +1903,12 @@ export function JobsPage() {
                         {/* Card Footer: Text-Only Current Step with Status Color + Circular Dot */}
                         <div className="pt-2 border-t border-cursor-hairline-soft w-full min-w-0 flex items-center justify-between text-xs">
                           <div
-                            className={`flex items-center gap-1.5 min-w-0 truncate flex-1 ${textClass}`}
+                            className={`flex items-center gap-1.5 min-w-0 flex-1 ${textClass}`}
                             title={stageInfo.label}
                           >
-                            <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
+                            <span className="flex h-3.5 w-3.5 items-center justify-center flex-none">
+                              <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
+                            </span>
                             <span className="truncate">{stageInfo.label}</span>
                           </div>
                           <ChevronRight className="h-3.5 w-3.5 text-cursor-muted group-hover:text-cursor-primary flex-none ml-1" />
@@ -2079,8 +1997,10 @@ export function JobsPage() {
                               className={`inline-flex items-center gap-1.5 text-xs ${textClass}`}
                               title={stageInfo.label}
                             >
-                              <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
-                              {stageInfo.label}
+                              <span className="flex h-3.5 w-3.5 items-center justify-center flex-none">
+                                <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
+                              </span>
+                              <span>{stageInfo.label}</span>
                             </span>
                           </div>
                           <Badge variant={statusVariant} className="min-w-[3.5rem] justify-center">

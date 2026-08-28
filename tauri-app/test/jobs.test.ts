@@ -16,6 +16,7 @@ import {
   deriveSubjectLabel,
   sanitizeTerminalLog,
   deriveJobDisplayMetadata,
+  deriveSubjectStageInfo,
 } from '../src/lib/jobs';
 
 test('deriveSubjectLabel extracts parent folder for generic filenames like 001.mgz', () => {
@@ -414,6 +415,54 @@ test('deriveMetricsSeries extracts CPU and RAM points for long subject IDs with 
   expect(series.ramSeries).toEqual([100, 200]);
   expect(series.latestContainer).toBe('mri-ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120-2ba288d9');
 });
+
+test('deriveSubjectStageInfo shows currently running step when a step is active', () => {
+  const image = {input_file: 'a.nii', subject_id: 'sub-01', idx: 1, total: 2, status: 'running' as const};
+  const steps = [
+    {stage: 'reorient', label: 'Reorientation', tool: 'fs_reorient', status: 'success' as const},
+    {stage: 'segmentation', label: 'Segmentation', tool: 'synthseg', status: 'running' as const},
+    {stage: 'stats', label: 'Stats', tool: 'fs_stats', status: 'pending' as const},
+  ];
+  const info = deriveSubjectStageInfo(image, steps);
+  expect(info.label).toBe('Segmentation');
+  expect(info.status).toBe('running');
+});
+
+test('deriveSubjectStageInfo shows next pending step when subject is running between stages', () => {
+  const image = {input_file: 'a.nii', subject_id: 'sub-02', idx: 2, total: 3, status: 'running' as const};
+  const steps = [
+    {stage: 'reorientation', label: 'Reorientation, resize', tool: 'fs8_reorient', status: 'success' as const},
+    {stage: 'brain_extraction', label: 'Brain Extraction', tool: '', status: 'not_scheduled' as const},
+    {stage: 'segmentation', label: 'Subcortical Segmentation', tool: 'synthseg', status: 'pending' as const},
+    {stage: 'stats_extraction', label: 'Statistics & Atlas Mapping', tool: 'fs8_stats', status: 'pending' as const},
+  ];
+  const info = deriveSubjectStageInfo(image, steps);
+  expect(info.label).toBe('Subcortical Segmentation');
+  expect(info.status).toBe('pending');
+});
+
+test('deriveSubjectStageInfo shows success step when subject status is success', () => {
+  const image = {input_file: 'a.nii', subject_id: 'sub-01', idx: 1, total: 1, status: 'success' as const};
+  const steps = [
+    {stage: 'reorient', label: 'Reorientation', tool: 'fs_reorient', status: 'success' as const},
+    {stage: 'stats', label: 'Stats', tool: 'fs_stats', status: 'success' as const},
+  ];
+  const info = deriveSubjectStageInfo(image, steps);
+  expect(info.label).toBe('Stats');
+  expect(info.status).toBe('success');
+});
+
+test('deriveSubjectStageInfo shows first step as queued when subject status is pending', () => {
+  const image = {input_file: 'a.nii', subject_id: 'sub-03', idx: 3, total: 3, status: 'pending' as const};
+  const steps = [
+    {stage: 'reorientation', label: 'Reorientation, resize', tool: 'fs8_reorient', status: 'pending' as const},
+    {stage: 'segmentation', label: 'Subcortical Segmentation', tool: 'synthseg', status: 'pending' as const},
+  ];
+  const info = deriveSubjectStageInfo(image, steps);
+  expect(info.label).toBe('Reorientation, resize');
+  expect(info.status).toBe('pending');
+});
+
 
 
 
