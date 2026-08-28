@@ -43,6 +43,8 @@ import {
   filterLogLines,
   type BatchSummary,
   StageStepDetail,
+  DEFAULT_STAGE_ORDER,
+  DEFAULT_STAGE_LABELS,
 } from '../lib/jobs';
 import {useListLocalJobsMutation, useReadLocalEventsMutation, useReadLocalLogMutation} from '../query/useJobs';
 import {useListRemoteJobsMutation, useReadRemoteEventsMutation, useReadRemoteLogMutation} from '../query/useRemote';
@@ -1013,19 +1015,9 @@ export function JobsPage() {
     reqSummary.pipeline_mode,
     reqSummary.selected_tools,
   ]);
-  const stageOrder = metadata?.stage_order || [
-    'format_conversion',
-    'brain_extraction',
-    'tissue_segmentation',
-    'cortical_reconstruction',
-    'subcortical_segmentation',
-    'parcellation',
-    'stat_calculation',
-    'export_conversion',
-    'aggregate_reporting',
-  ];
+  const stageOrder = metadata?.stage_order || DEFAULT_STAGE_ORDER;
   const stageLabels = React.useMemo(() => {
-    const labels: Record<string, string> = {};
+    const labels: Record<string, string> = {...DEFAULT_STAGE_LABELS};
     if (metadata?.stages && Array.isArray(metadata.stages)) {
       metadata.stages.forEach((s) => {
         if (s?.id && s?.label) {
@@ -1201,37 +1193,123 @@ export function JobsPage() {
   const totalModalStages = modalImageSteps.length;
   const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
 
-  const subjectStepLabelsMap = React.useMemo(() => {
-    const map = new Map<string, string>();
+  const subjectStageInfoMap = React.useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        label: string;
+        status: 'running' | 'success' | 'failed' | 'stopped' | 'pending';
+        isBeforeStart?: boolean;
+      }
+    >();
+
     for (const img of batchImages) {
+      const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
+      const scheduledSteps = steps.filter((s) => s.status !== 'not_scheduled' && s.status !== 'skipped');
+      const activeSteps = scheduledSteps.length > 0 ? scheduledSteps : steps;
+      const lastScheduledStep = activeSteps[activeSteps.length - 1];
+      const firstScheduledStep = activeSteps[0];
+
+      // 1. If subject completed successfully: show the last successful/scheduled stage
       if (img.status === 'success') {
-        map.set(img.input_file, 'Completed');
-      } else if (img.status === 'failed') {
-        map.set(img.input_file, 'Failed');
-      } else if (img.status === 'pending') {
-        map.set(img.input_file, 'Queued');
-      } else {
-        const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
-        const runningStep = steps.find((s) => s.status === 'running');
-        if (runningStep) {
-          map.set(img.input_file, runningStep.label || runningStep.stage);
+        const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+        const targetStep = lastSuccess || lastScheduledStep;
+        map.set(img.input_file, {
+          label: targetStep ? targetStep.label || targetStep.stage : 'Success',
+          status: 'success',
+        });
+        continue;
+      }
+
+      // 2. If subject is running: find the currently running stage
+      const runningStep = activeSteps.find((s) => s.status === 'running');
+      if (runningStep) {
+        map.set(img.input_file, {
+          label: runningStep.label || runningStep.stage,
+          status: 'running',
+        });
+        continue;
+      }
+
+      // 3. If subject failed: show the failed stage
+      if (img.status === 'failed') {
+        const failedStep = activeSteps.find((s) => s.status === 'failed');
+        const targetStep =
+          failedStep ||
+          [...activeSteps].reverse().find((s) => s.status === 'success') ||
+          firstScheduledStep;
+        map.set(img.input_file, {
+          label: targetStep ? targetStep.label || targetStep.stage : 'Failed',
+          status: 'failed',
+        });
+        continue;
+      }
+
+      // 4. If subject is stopped / interrupted
+      if (img.status === 'stopped' || (img.status as string) === 'interrupted') {
+        const stoppedStep = activeSteps.find((s) => s.status === 'stopped' || s.status === 'running');
+        const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+        if (stoppedStep) {
+          map.set(img.input_file, {
+            label: stoppedStep.label || stoppedStep.stage,
+            status: 'stopped',
+          });
+        } else if (lastSuccess) {
+          map.set(img.input_file, {
+            label: lastSuccess.label || lastSuccess.stage,
+            status: 'stopped',
+          });
         } else {
-          const lastSuccess = [...steps].reverse().find((s) => s.status === 'success');
-          if (lastSuccess) {
-            map.set(img.input_file, `After ${lastSuccess.label || lastSuccess.stage}`);
-          } else if (img.status === 'stopped' || (img.status as string) === 'interrupted') {
-            map.set(img.input_file, 'Stopped before start');
-          } else {
-            map.set(img.input_file, 'Processing...');
-          }
+          map.set(img.input_file, {
+            label: 'Stopped before start',
+            status: 'stopped',
+            isBeforeStart: true,
+          });
         }
+        continue;
+      }
+
+      // 5. If subject is pending / queued
+      if (img.status === 'pending') {
+        map.set(img.input_file, {
+          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Queued',
+          status: 'pending',
+        });
+        continue;
+      }
+
+      // 6. Running without explicit step yet
+      if (img.status === 'running') {
+        map.set(img.input_file, {
+          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
+          status: 'running',
+        });
+        continue;
+      }
+
+      const lastSuccess = [...activeSteps].reverse().find((s) => s.status === 'success');
+      if (lastSuccess) {
+        map.set(img.input_file, {
+          label: lastSuccess.label || lastSuccess.stage,
+          status: 'success',
+        });
+      } else {
+        map.set(img.input_file, {
+          label: firstScheduledStep ? firstScheduledStep.label || firstScheduledStep.stage : 'Processing...',
+          status: 'pending',
+        });
       }
     }
     return map;
   }, [batchImages, safeEvents, selectedTools, stageOrder, stageLabels]);
 
-  const getSubjectCurrentStepLabel = (img: (typeof batchImages)[0]) => {
-    return subjectStepLabelsMap.get(img.input_file) || 'Processing...';
+  const getSubjectStageInfo = (img: (typeof batchImages)[0]) => {
+    return (
+      subjectStageInfoMap.get(img.input_file) || {
+        label: 'Processing...',
+        status: 'pending' as const,
+      }
+    );
   };
 
   if (!selectedJobId && !urlJobId) {
@@ -1817,18 +1895,15 @@ export function JobsPage() {
             </div>
 
             {/* Subject Grid or List */}
-            {subjectViewMode === 'grid' ? (
+            {isLoadingDetails && safeEvents.length === 0 ? (
+              <div className="flex min-h-[14rem] flex-1 flex-col items-center justify-center rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 text-center">
+                <Loader2 className="h-7 w-7 animate-spin text-cursor-primary mb-2" />
+                <p className="m-0 text-xs text-cursor-muted">Loading batch subjects...</p>
+              </div>
+            ) : subjectViewMode === 'grid' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] content-start gap-3 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
-                    if (isLoadingDetails && batchImages.length === 0) {
-                      return (
-                        <div className="col-span-full flex min-h-[12rem] flex-col items-center justify-center rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 text-center">
-                          <Loader2 className="h-7 w-7 animate-spin text-cursor-primary mb-2" />
-                          <p className="m-0 text-xs text-cursor-muted">Loading batch subjects...</p>
-                        </div>
-                      );
-                    }
                     return (
                       <div className="col-span-full flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-cursor-surface-card p-5 text-center">
                         <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
@@ -1844,7 +1919,7 @@ export function JobsPage() {
                     );
                   }
                   return filteredBatchImages.map((img) => {
-                    const currentStepText = getSubjectCurrentStepLabel(img);
+                    const stageInfo = getSubjectStageInfo(img);
                     const statusVariant =
                       img.status === 'success'
                         ? 'success'
@@ -1855,6 +1930,32 @@ export function JobsPage() {
                             : img.status === 'running'
                               ? 'primary'
                               : 'secondary';
+
+                    const dotClass =
+                      stageInfo.status === 'success'
+                        ? 'bg-cursor-semantic-success ring-2 ring-cursor-semantic-success/20'
+                        : stageInfo.status === 'running'
+                          ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/20'
+                          : stageInfo.status === 'failed'
+                            ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/20'
+                            : stageInfo.status === 'stopped'
+                              ? stageInfo.isBeforeStart
+                                ? 'bg-cursor-muted/40'
+                                : 'bg-cursor-semantic-warn ring-2 ring-cursor-semantic-warn/20'
+                              : 'bg-cursor-surface-card border border-cursor-muted-soft';
+
+                    const textClass =
+                      stageInfo.status === 'running'
+                        ? 'text-cursor-primary font-semibold'
+                        : stageInfo.status === 'success'
+                          ? 'text-cursor-semantic-success font-medium'
+                          : stageInfo.status === 'failed'
+                            ? 'text-cursor-semantic-error font-medium'
+                            : stageInfo.status === 'stopped'
+                              ? stageInfo.isBeforeStart
+                                ? 'text-cursor-muted italic'
+                                : 'text-cursor-semantic-warn font-medium'
+                              : 'text-cursor-muted font-medium';
 
                     return (
                       <button
@@ -1883,26 +1984,14 @@ export function JobsPage() {
                           </h4>
                         </div>
 
-                        {/* Card Footer: Text-Only Current Step with Status Color */}
+                        {/* Card Footer: Text-Only Current Step with Status Color + Circular Dot */}
                         <div className="pt-2 border-t border-cursor-hairline-soft w-full min-w-0 flex items-center justify-between text-xs">
                           <div
-                            className={`flex items-center gap-1.5 min-w-0 truncate flex-1 ${
-                              img.status === 'running'
-                                ? 'text-cursor-primary font-semibold'
-                                : img.status === 'success'
-                                  ? 'text-cursor-semantic-success font-medium'
-                                  : img.status === 'failed'
-                                    ? 'text-cursor-semantic-error font-medium'
-                                    : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                      ? 'text-cursor-semantic-warn font-medium'
-                                      : 'text-cursor-muted'
-                            }`}
-                            title={currentStepText}
+                            className={`flex items-center gap-1.5 min-w-0 truncate flex-1 ${textClass}`}
+                            title={stageInfo.label}
                           >
-                            {img.status === 'running' && (
-                              <Loader2 className="h-3 w-3 animate-spin text-cursor-primary flex-none" />
-                            )}
-                            <span className="truncate">{currentStepText}</span>
+                            <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
+                            <span className="truncate">{stageInfo.label}</span>
                           </div>
                           <ChevronRight className="h-3.5 w-3.5 text-cursor-muted group-hover:text-cursor-primary flex-none ml-1" />
                         </div>
@@ -1915,14 +2004,6 @@ export function JobsPage() {
               <div className="flex flex-col gap-1.5 overflow-y-auto flex-1 min-h-0 p-0.5">
                 {(() => {
                   if (filteredBatchImages.length === 0) {
-                    if (isLoadingDetails && batchImages.length === 0) {
-                      return (
-                        <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-cursor-hairline bg-cursor-surface-card p-6 text-center">
-                          <Loader2 className="h-7 w-7 animate-spin text-cursor-primary mb-2" />
-                          <p className="m-0 text-xs text-cursor-muted">Loading batch subjects...</p>
-                        </div>
-                      );
-                    }
                     return (
                       <div className="flex min-h-[10rem] flex-col items-center justify-center rounded-lg border border-dashed border-cursor-hairline bg-cursor-surface-card p-5 text-center">
                         <ImageIcon className="h-6 w-6 text-cursor-muted-soft mb-2" />
@@ -1938,7 +2019,7 @@ export function JobsPage() {
                     );
                   }
                   return filteredBatchImages.map((img) => {
-                    const currentStepText = getSubjectCurrentStepLabel(img);
+                    const stageInfo = getSubjectStageInfo(img);
                     const statusVariant =
                       img.status === 'success'
                         ? 'success'
@@ -1949,6 +2030,32 @@ export function JobsPage() {
                             : img.status === 'running'
                               ? 'primary'
                               : 'secondary';
+
+                    const dotClass =
+                      stageInfo.status === 'success'
+                        ? 'bg-cursor-semantic-success ring-2 ring-cursor-semantic-success/20'
+                        : stageInfo.status === 'running'
+                          ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/20'
+                          : stageInfo.status === 'failed'
+                            ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/20'
+                            : stageInfo.status === 'stopped'
+                              ? stageInfo.isBeforeStart
+                                ? 'bg-cursor-muted/40'
+                                : 'bg-cursor-semantic-warn ring-2 ring-cursor-semantic-warn/20'
+                              : 'bg-cursor-surface-card border border-cursor-muted-soft';
+
+                    const textClass =
+                      stageInfo.status === 'running'
+                        ? 'text-cursor-primary font-semibold'
+                        : stageInfo.status === 'success'
+                          ? 'text-cursor-semantic-success font-medium'
+                          : stageInfo.status === 'failed'
+                            ? 'text-cursor-semantic-error font-medium'
+                            : stageInfo.status === 'stopped'
+                              ? stageInfo.isBeforeStart
+                                ? 'text-cursor-muted italic'
+                                : 'text-cursor-semantic-warn font-medium'
+                              : 'text-cursor-muted font-medium';
 
                     return (
                       <button
@@ -1969,22 +2076,11 @@ export function JobsPage() {
                           <div className="flex items-center gap-1.5">
                             <span className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Stage:</span>
                             <span
-                              className={`inline-flex items-center gap-1.5 text-xs ${
-                                img.status === 'running'
-                                  ? 'text-cursor-primary font-semibold'
-                                  : img.status === 'success'
-                                    ? 'text-cursor-semantic-success font-medium'
-                                    : img.status === 'failed'
-                                      ? 'text-cursor-semantic-error font-medium'
-                                      : img.status === 'stopped' || (img.status as string) === 'interrupted'
-                                        ? 'text-cursor-semantic-warn font-medium'
-                                        : 'text-cursor-muted'
-                              }`}
+                              className={`inline-flex items-center gap-1.5 text-xs ${textClass}`}
+                              title={stageInfo.label}
                             >
-                              {img.status === 'running' && (
-                                <Loader2 className="h-3 w-3 animate-spin text-cursor-primary flex-none" />
-                              )}
-                              {currentStepText}
+                              <span className={`h-2 w-2 rounded-full flex-none ${dotClass}`} />
+                              {stageInfo.label}
                             </span>
                           </div>
                           <Badge variant={statusVariant} className="min-w-[3.5rem] justify-center">

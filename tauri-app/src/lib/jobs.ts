@@ -43,21 +43,38 @@ export interface MetricsSeries {
   latestContainer: string;
 }
 
-export function deriveSubjectLabel(filePath: string, idx = 1): {subject_id: string; filename: string} {
+export function deriveSubjectLabel(
+  filePath: string,
+  idx = 1,
+  datasetRoot = '',
+): {subject_id: string; filename: string} {
   if (!filePath) {
     return {subject_id: `subj_${idx}`, filename: 'file.mgz'};
   }
-  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
-  const filename = parts.pop() || filePath;
-  const baseName = filename.replace(/\.(nii|nii\.gz|mgz)$/i, '');
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const parts = normalizedPath.split('/').filter(Boolean);
+  const filename = parts[parts.length - 1] || filePath;
+  const baseName = filename.replace(/\.(nii|nii\.gz|mgz|dcm|dicom|ima)$/i, '');
 
-  const genericNames = ['001', 'orig', 'raw', 't1', 't2', 'flair', 'image', 'file', 'input'];
-  const isGeneric = genericNames.includes(baseName.toLowerCase()) || /^\d+$/.test(baseName);
+  if (datasetRoot) {
+    const normalizedRoot = datasetRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (normalizedPath.startsWith(normalizedRoot)) {
+      const rel = normalizedPath.slice(normalizedRoot.length).replace(/^\/+/, '');
+      const relParts = rel.split('/').filter(Boolean);
+      if (relParts.length > 1) {
+        relParts[relParts.length - 1] = relParts[relParts.length - 1].replace(/\.(nii|nii\.gz|mgz|dcm|dicom|ima)$/i, '');
+        return {subject_id: relParts.join('__'), filename};
+      }
+    }
+  }
 
-  if (isGeneric && parts.length > 0) {
-    const parentFolder = parts[parts.length - 1] || '';
-    if (parentFolder && ['nifti', 'raw_data', 'mri', 'anat', 'scans', 'inputs'].includes(parentFolder.toLowerCase()) && parts.length > 1) {
-      return {subject_id: parts[parts.length - 2] || `subj_${idx}`, filename};
+  const genericNames = ['001', '002', '003', 'orig', 'raw', 't1', 't1w', 't2', 'flair', 'image', 'file', 'input', 'data', 'brain', 'scan'];
+  const isGeneric = genericNames.includes(baseName.toLowerCase()) || /^\d{1,6}$/.test(baseName);
+
+  if (isGeneric && parts.length > 1) {
+    const parentFolder = parts[parts.length - 2] || '';
+    if (parentFolder && ['nifti', 'raw_data', 'mri', 'anat', 'scans', 'inputs'].includes(parentFolder.toLowerCase()) && parts.length > 2) {
+      return {subject_id: parts[parts.length - 3] || `subj_${idx}`, filename};
     }
     return {subject_id: parentFolder || `subj_${idx}`, filename};
   }
@@ -130,12 +147,24 @@ export function sidebarDotClass(job: AnyJob): string {
 
 export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}): BatchImageItem[] {
   const reqSummary = (job.run_request_summary as Record<string, unknown>) || {};
+  const req = (job.run_request as Record<string, unknown>) || {};
+  const datasetRoot = String(
+    job.dataset_root ||
+      job.input_dir ||
+      job.input_path ||
+      job.effective_input_dir ||
+      reqSummary.input_dir ||
+      req.input_dir ||
+      '',
+  );
   let initialFiles: string[] = [];
 
   if (Array.isArray(job.input_files) && job.input_files.length > 0) {
     initialFiles = job.input_files.map(String);
   } else if (Array.isArray(reqSummary.input_files) && reqSummary.input_files.length > 0) {
     initialFiles = (reqSummary.input_files as unknown[]).map(String);
+  } else if (Array.isArray(req.input_files) && req.input_files.length > 0) {
+    initialFiles = (req.input_files as unknown[]).map(String);
   } else if (reqSummary.input_file) {
     initialFiles = [String(reqSummary.input_file)];
   } else if (job.input_file) {
@@ -145,7 +174,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
   const imagesMap = new Map<string, BatchImageItem>();
 
   initialFiles.forEach((file, idx) => {
-    const {subject_id} = deriveSubjectLabel(file, idx + 1);
+    const {subject_id} = deriveSubjectLabel(file, idx + 1, datasetRoot);
     imagesMap.set(file, {
       input_file: file,
       subject_id,
@@ -157,7 +186,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
 
   function findMatchingImage(file: string, idx: number, subjectHint?: string): BatchImageItem | undefined {
     if (file && imagesMap.has(file)) return imagesMap.get(file);
-    const {subject_id} = deriveSubjectLabel(file, idx);
+    const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
     const targetSubject = subjectHint || subject_id;
     for (const item of imagesMap.values()) {
       if (item.subject_id === targetSubject || item.idx === idx) {
@@ -182,7 +211,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
           existing.subject_id = String(event.subject_id);
         }
       } else if (file) {
-        const {subject_id} = deriveSubjectLabel(file, idx);
+        const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
         imagesMap.set(file, {
           input_file: file,
           subject_id: event.subject_id ? String(event.subject_id) : subject_id,
@@ -199,7 +228,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       const duration_sec = typeof event.duration_sec === 'number' ? event.duration_sec : undefined;
       const subject_id = String(event.subject_id || '');
       const existing = findMatchingImage(file, idx, subject_id || undefined);
-      const computedSubj = subject_id || deriveSubjectLabel(file, idx).subject_id;
+      const computedSubj = subject_id || deriveSubjectLabel(file, idx, datasetRoot).subject_id;
       const logText = String(event.log_text || '');
 
       if (success && logText) {
@@ -285,16 +314,40 @@ export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
   return {total, success, failed, running, pending, stopped, interrupted: stopped, completedPercent};
 }
 
+export const DEFAULT_STAGE_ORDER = [
+  'reorientation',
+  'brain_extraction',
+  'segmentation',
+  'template_registration',
+  'bias_correction',
+  'white_matter_segmentation',
+  'surface_reconstruction',
+  'surface_registration',
+  'stats_extraction',
+];
+
+export const DEFAULT_STAGE_LABELS: Record<string, string> = {
+  reorientation: 'Reorientation, resize',
+  brain_extraction: 'Brain Extraction',
+  segmentation: 'Subcortical Segmentation',
+  template_registration: 'Template Registration',
+  bias_correction: 'Image standardization',
+  white_matter_segmentation: 'WM Segmentation',
+  surface_reconstruction: 'Surface Reconstruction',
+  surface_registration: 'Surface Registration',
+  stats_extraction: 'Statistics & Atlas Mapping',
+};
+
 const STAGE_KEYWORD_MAP: Record<string, string[]> = {
-  format_conversion: ['format', 'reorientation', 'resize', 'convert', 'nifti'],
-  brain_extraction: ['brain', 'skull', 'extraction', 'bet'],
-  tissue_segmentation: ['tissue', 'seg', 'segmentation', 'fast'],
-  cortical_reconstruction: ['cortical', 'surface', 'recon'],
-  subcortical_segmentation: ['subcortical', 'aseg'],
-  parcellation: ['parcellation', 'aparc', 'atlas'],
-  stat_calculation: ['stat', 'volume', 'thickness'],
-  export_conversion: ['export'],
-  aggregate_reporting: ['aggregate', 'report'],
+  reorientation: ['reorientation', 'resize', 'format', 'convert', 'conformed', 'nifti'],
+  brain_extraction: ['brain', 'skull', 'extraction', 'bet', 'synthstrip'],
+  segmentation: ['subcortical', 'aseg', 'segmentation', 'synthseg', 'fastsurfer'],
+  template_registration: ['template', 'registration', 'affine'],
+  bias_correction: ['bias', 'standardization', 'nu', 'n3', 'n4', 'conform'],
+  white_matter_segmentation: ['wm', 'white_matter', 'white matter', 'fast'],
+  surface_reconstruction: ['surface_reconstruction', 'surface reconstruction', 'recon-all', 'cortical', 'surface', 'recon'],
+  surface_registration: ['surface_registration', 'surface registration', 'sphere', 'spherical'],
+  stats_extraction: ['stat', 'stats', 'atlas', 'parcellation', 'aparc', 'volume', 'thickness', 'report', 'aggregate', 'export'],
 };
 
 export function isEventForImage(event: PipelineEvent, image: BatchImageItem | null): boolean {
