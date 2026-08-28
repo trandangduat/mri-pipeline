@@ -1198,9 +1198,6 @@ export function JobsPage() {
       : {cpuSeries: [], ramSeries: [], latestContainer: ''};
   }, [safeEvents, modalSubject]);
 
-  const totalModalStages = modalImageSteps.length;
-  const completedModalStages = modalImageSteps.filter((step) => step.status === 'success').length;
-
   const subjectStageInfoMap = React.useMemo(() => {
     const map = new Map<
       string,
@@ -1329,7 +1326,7 @@ export function JobsPage() {
           <div className="flex items-center justify-between pb-2 border-b border-cursor-hairline-soft mb-2.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <BrainCircuit className="h-4 w-4 text-cursor-primary flex-none" />
-              <CardTitle className="font-semibold text-base text-cursor-ink">Jobs Metadata</CardTitle>
+              <CardTitle className="font-semibold text-base text-cursor-ink">Job Metadata</CardTitle>
             </div>
           </div>
 
@@ -1420,7 +1417,7 @@ export function JobsPage() {
                       </td>
                     </tr>
 
-                    {/* Row 3: Mode / Device & Threads / RAM */}
+                    {/* Row 3: Mode / Device & Threads */}
                     <tr className="divide-x divide-cursor-hairline-soft">
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Mode / Device
@@ -1429,14 +1426,14 @@ export function JobsPage() {
                         {String(reqSummary.mode || 'N/A')} / {String(reqSummary.device || 'cpu')}
                       </td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
-                        Threads / RAM
+                        Threads
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
-                        {String(reqSummary.threads || 4)} threads · {String(reqSummary.ram_percent || 100)}% RAM
+                        {String(reqSummary.threads || 4)} threads
                       </td>
                     </tr>
 
-                    {/* Row 4: Container & Output Path */}
+                    {/* Row 4: Container & RAM */}
                     <tr className="divide-x divide-cursor-hairline-soft">
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Container
@@ -1448,23 +1445,33 @@ export function JobsPage() {
                         {modalMetricsSeries.latestContainer || 'None (Native)'}
                       </td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
-                        Output Path
+                        RAM
+                      </td>
+                      <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
+                        {String(reqSummary.ram_percent || 100)}% RAM
+                      </td>
+                    </tr>
+
+                    {/* Row 5: Input Path & Output Path */}
+                    <tr className="divide-x divide-cursor-hairline-soft">
+                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                        Input Path
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
                         <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                           <span
-                            className="text-2xs text-cursor-body truncate break-all flex-1"
-                            title={displayMeta.output_dir_str}
+                            className="text-xs text-cursor-body truncate flex-1"
+                            title={displayMeta.input_path_str}
                           >
-                            {displayMeta.output_dir_str}
+                            {displayMeta.input_path_str}
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleCopy('output', displayMeta.output_dir_str)}
+                            onClick={() => handleCopy('input', displayMeta.input_path_str)}
                             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas flex-none border border-cursor-hairline transition-colors cursor-pointer"
-                            title="Copy Output Path"
+                            title="Copy Input Path"
                           >
-                            {copiedField === 'output' ? (
+                            {copiedField === 'input' ? (
                               <>
                                 <Check className="h-3 w-3 text-cursor-semantic-success" />
                                 <span className="text-cursor-semantic-success font-medium">Copied</span>
@@ -1478,28 +1485,24 @@ export function JobsPage() {
                           </button>
                         </div>
                       </td>
-                    </tr>
-
-                    {/* Row 5: Input Path spanning across bottom */}
-                    <tr className="divide-x divide-cursor-hairline-soft">
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
-                        Input Path
+                        Output Path
                       </td>
-                      <td colSpan={3} className="py-1.5 px-2.5 text-cursor-body min-w-0">
-                        <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+                      <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
+                        <div className="flex items-center justify-between gap-1.5 min-w-0 w-full">
                           <span
-                            className="text-2xs text-cursor-body truncate break-all flex-1"
-                            title={displayMeta.input_path_str}
+                            className="text-xs text-cursor-body truncate flex-1"
+                            title={displayMeta.output_dir_str}
                           >
-                            {displayMeta.input_path_str}
+                            {displayMeta.output_dir_str}
                           </span>
                           <button
                             type="button"
-                            onClick={() => handleCopy('input', displayMeta.input_path_str)}
+                            onClick={() => handleCopy('output', displayMeta.output_dir_str)}
                             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas flex-none border border-cursor-hairline transition-colors cursor-pointer"
-                            title="Copy Input Path"
+                            title="Copy Output Path"
                           >
-                            {copiedField === 'input' ? (
+                            {copiedField === 'output' ? (
                               <>
                                 <Check className="h-3 w-3 text-cursor-semantic-success" />
                                 <span className="text-cursor-semantic-success font-medium">Copied</span>
@@ -1550,21 +1553,19 @@ export function JobsPage() {
                     </div>
                     <span className="font-semibold text-cursor-ink">{batchSummary.success}</span>
                   </div>
-                  {Boolean((batchSummary.stopped || batchSummary.interrupted) && (batchSummary.stopped || batchSummary.interrupted)! > 0) && (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-warn flex-none" />
-                        <span className="text-cursor-ink text-xs font-medium">Stopped</span>
-                      </div>
-                      <span className="font-semibold text-cursor-ink">{batchSummary.stopped ?? batchSummary.interrupted}</span>
-                    </div>
-                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-error flex-none" />
                       <span className="text-cursor-ink text-xs font-medium">Failed</span>
                     </div>
                     <span className="font-semibold text-cursor-ink">{batchSummary.failed}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2.5 w-2.5 rounded-full bg-cursor-semantic-warn flex-none" />
+                      <span className="text-cursor-ink text-xs font-medium">Stopped</span>
+                    </div>
+                    <span className="font-semibold text-cursor-ink">{batchSummary.stopped ?? batchSummary.interrupted ?? 0}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
@@ -1609,7 +1610,7 @@ export function JobsPage() {
                     </>
                   ) : (
                     <>
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Job
                     </>
                   )}
                 </Button>
@@ -1644,7 +1645,7 @@ export function JobsPage() {
                     </>
                   ) : (
                     <>
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Jobs
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Job
                     </>
                   )}
                 </Button>
@@ -2047,26 +2048,23 @@ export function JobsPage() {
           >
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-cursor-hairline px-4 py-3 bg-cursor-canvas flex-none">
-              <div className="flex items-center gap-3 min-w-0">
-                <Badge variant="outline" className="text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted bg-cursor-surface-card px-2 py-0.5">
+              <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+                <Badge variant="outline" className="text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted bg-cursor-surface-card px-2 py-0.5 flex-none">
                   #{modalSubject.idx}
                 </Badge>
-                <div className="flex flex-col min-w-0 gap-0.5">
+                <div className="flex flex-col min-w-0 gap-0.5 flex-1">
                   <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
                     {modalSubject.subject_id}
                   </h3>
                   <span
-                    className="inline-block max-w-md truncate rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.25 text-2xs text-cursor-body"
+                    className="inline-block break-all rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.5 text-2xs text-cursor-body font-mono"
                     title={modalSubject.input_file}
                   >
                     {modalSubject.input_file}
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em] px-2 py-0.5">
-                  {completedModalStages}/{totalModalStages} stages
-                </Badge>
+              <div className="flex items-center gap-2 flex-none">
                 <Badge
                   variant={
                     modalSubject.status === 'success'
@@ -2105,9 +2103,6 @@ export function JobsPage() {
                   <div className="flex flex-col min-w-0">
                     <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">Stage Timeline</h3>
                   </div>
-                  <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em] flex-none mt-0.5">
-                    {completedModalStages}/{totalModalStages} complete
-                  </Badge>
                 </div>
                 <div className="p-0 flex-1 overflow-auto min-h-0">
                   <div className="space-y-1.5">
@@ -2133,16 +2128,18 @@ export function JobsPage() {
                     <span className="text-xs text-cursor-muted">events.jsonl metrics</span>
                   </div>
                   <div className="p-0">
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 gap-2.5">
                       <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
                       <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
                     </div>
-                    <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
-                      <span>GPU Usage: Not reported (CPU Mode)</span>
-                      <Badge variant="secondary" className="text-2xs font-semibold uppercase tracking-[0.08em]">
-                        CPU Mode
-                      </Badge>
-                    </div>
+                    {String(reqSummary.device || job?.device || '').toLowerCase().includes('gpu') && (
+                      <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
+                        <span>GPU Usage: Active</span>
+                        <Badge variant="primary" className="text-2xs font-semibold uppercase tracking-[0.08em]">
+                          GPU Mode
+                        </Badge>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2456,7 +2453,7 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
   };
 
   const width = 320;
-  const height = 80;
+  const height = 110;
 
   if (safePoints.length === 0) {
     return (
@@ -2465,7 +2462,7 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
           <span className="font-medium text-cursor-ink">{label}</span>
           <span className="text-xs text-cursor-muted">Connecting...</span>
         </div>
-        <div className="flex items-center justify-center h-16 text-xs text-cursor-muted gap-2">
+        <div className="flex items-center justify-center h-28 text-xs text-cursor-muted gap-2">
           <Loader2 className="h-4 w-4 animate-spin text-cursor-primary" />
         </div>
       </div>
@@ -2515,7 +2512,7 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
         </span>
       </div>
       <div className="relative">
-        <svg className="h-20 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <svg className="h-28 w-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
           {gridLines.map((g) => (
             <line
               key={g.y}
