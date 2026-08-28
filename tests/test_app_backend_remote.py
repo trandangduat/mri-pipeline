@@ -29,6 +29,14 @@ class FakeRunner:
     def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
         return {image: True for image in image_names}
 
+    def sync_code(self) -> str:
+        self.calls.append("sync_code")
+        return "/workspace/code"
+
+    def sync_venv(self) -> str:
+        self.calls.append("sync_venv")
+        return "python3"
+
     def upload_job(self) -> str:
         self.calls.append("upload_job")
         return "/workspace/job_1"
@@ -330,7 +338,7 @@ def test_stream_start_job_reports_missing_license_as_license_failure() -> None:
     assert len(license_failed) == 1
     assert license_failed[0]["data"]["detail"] == "License not found locally: /tmp/license.txt"
     assert "SSH connection failed" not in license_failed[0]["data"]["detail"]
-    assert fake.calls == ["stage_freesurfer_license"]
+    assert fake.calls == ["sync_code", "sync_venv", "stage_freesurfer_license"]
     assert events[-1]["data"]["ok"] is False
 
 
@@ -373,7 +381,7 @@ def test_stream_start_job_stops_after_invalid_license_check(tmp_path) -> None:
         ("license", "running"),
         ("license", "failed"),
     ]
-    assert fake.calls == ["stage_freesurfer_license", "check_freesurfer_license"]
+    assert fake.calls == ["sync_code", "sync_venv", "stage_freesurfer_license", "check_freesurfer_license"]
     assert events[-1]["data"]["ok"] is False
 
 
@@ -407,6 +415,8 @@ def test_stream_start_job_orders_license_config_and_worker(tmp_path) -> None:
     )
 
     assert fake.calls == [
+        "sync_code",
+        "sync_venv",
         "stage_freesurfer_license",
         "check_freesurfer_license",
         "upload_job",

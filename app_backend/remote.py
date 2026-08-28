@@ -419,14 +419,6 @@ class RemoteJobService:
                 yield complete_event(False, error=_safe_error_message(exc))
                 return
 
-        # Step 5: Code upload
-        yield step_event("code", "running", "Checking code changes...")
-        yield step_event("code", "done", "Code is up to date")
-
-        # Step 6: Python environment
-        yield step_event("venv", "running", "Checking Python environment...")
-        yield step_event("venv", "done", "Python environment ready")
-
         if (
             run_request.get("pipeline_mode") == "Custom"
             and run_request.get("neuroflow_enabled")
@@ -476,12 +468,36 @@ class RemoteJobService:
             input_source=str(run_request.get("input_source", "Server")),
             input_server_dir=str(run_request.get("input_server_dir", "")),
         )
+        runner = self.runner_factory(remote_config)
+
+        # Step 5: Code check and synchronization
+        yield step_event("code", "running", "Checking and synchronizing pipeline code...")
+        try:
+            if hasattr(runner, "sync_code"):
+                runner.sync_code()
+            yield step_event("code", "done", "Pipeline code is up to date")
+        except Exception as exc:
+            detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("code", "failed", detail)
+            yield complete_event(False, error=detail)
+            return
+
+        # Step 6: Python environment
+        yield step_event("venv", "running", "Checking remote Python environment...")
+        try:
+            if hasattr(runner, "sync_venv"):
+                runner.sync_venv()
+            yield step_event("venv", "done", "Python environment ready")
+        except Exception as exc:
+            detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("venv", "failed", detail)
+            yield complete_event(False, error=detail)
+            return
 
         # License staging and validation must happen before upload_job(),
         # because upload_job() writes the remote job configuration.
         yield step_event("license", "running", "Checking FreeSurfer license...")
         try:
-            runner = self.runner_factory(remote_config)
             runner.stage_freesurfer_license()
             license_ok, license_detail = runner.check_freesurfer_license()
         except Exception as exc:

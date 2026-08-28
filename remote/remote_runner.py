@@ -1255,6 +1255,17 @@ class RemoteRunner:
             if code != 0:
                 raise RuntimeError(f"Could not delete remote job folder: {self.remote_job_dir}")
 
+    def sync_code(self) -> str:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            return self._ensure_shared_code(ssh)
+
+    def sync_venv(self) -> str:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = self._remote_code_dir(ssh)
+            venv_python = self.ensure_remote_venv(ssh)
+            self._ensure_neuroflow_dependencies(ssh, venv_python, remote_code)
+            return venv_python
+
     def _ensure_shared_code(self, ssh: RemoteSSHClient) -> str:
         remote_code = self._require_workspace_child(ssh, self._remote_code_dir(ssh), "remote code directory")
         signature = self._local_code_signature()
