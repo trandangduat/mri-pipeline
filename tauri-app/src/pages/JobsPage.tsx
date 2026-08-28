@@ -988,14 +988,14 @@ export function JobsPage() {
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
   // Adaptive polling:
-  // - If looking at a running job: poll every 5s with lightweight delta fetch
+  // - If looking at a running job: poll every 30s with lightweight delta fetch
   // - If looking at a terminal job: do not poll (paused)
   // - If on jobs list: poll every 20s
   useEffect(() => {
     if (selectedJobId && isTerminal) {
       return;
     }
-    const pollDelay = selectedJobId && normState === 'running' ? 5_000 : 20_000;
+    const pollDelay = selectedJobId && normState === 'running' ? 30_000 : 20_000;
     const interval = setInterval(() => void refreshJobs(), pollDelay);
     return () => clearInterval(interval);
   }, [refreshJobs, selectedJobId, isTerminal, normState]);
@@ -2279,8 +2279,9 @@ function formatMemory(bytes: number | undefined) {
 
 function formatElapsed(seconds: number | undefined) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return 'Waiting';
-  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-  return `${seconds.toFixed(1)}s`;
+  const rounded = Math.round(seconds);
+  if (rounded >= 60) return `${Math.floor(rounded / 60)}m ${rounded % 60}s`;
+  return `${rounded}s`;
 }
 
 function StageStatusPill({status}: {status: string}) {
@@ -2331,8 +2332,8 @@ function subjectAccentClasses(status: string) {
 
 function StageMetric({label, value}: {label: string; value: string}) {
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-cursor-muted">{label}:</span>
+    <div className="flex items-center gap-1.5">
+      <span className="text-cursor-muted font-normal">{label}:</span>
       <span className="font-semibold text-cursor-ink">{value}</span>
     </div>
   );
@@ -2428,15 +2429,15 @@ function VerticalTimelineStepRow({
             </p>
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
-            <div className="flex flex-wrap justify-end overflow-hidden rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-1.5 py-0.5 text-2xs">
+            <div className="flex flex-wrap items-center justify-end overflow-hidden rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1 text-xs gap-1.5 shadow-2xs">
               <LiveStepElapsed
                 elapsed_sec={step?.elapsed_sec}
                 isRunning={step?.status === 'running'}
                 lastSyncedAt={lastSyncedAt}
               />
-              <span className="h-3 w-px bg-cursor-hairline mx-1" />
+              <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
-              <span className="h-3 w-px bg-cursor-hairline mx-1" />
+              <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric label="RAM" value={formatMemory(step?.ram_bytes)} />
             </div>
           )}
