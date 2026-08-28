@@ -70,6 +70,7 @@ tauri-app/node_modules/
 tauri-app/dist/
 tauri-app/.vite/
 tauri-app/src-tauri/target/
+tauri-app/src-tauri/gen/
 
 # Nested git checkouts / runtime output
 FastSurfer/
