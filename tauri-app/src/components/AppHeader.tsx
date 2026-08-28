@@ -10,6 +10,7 @@ import {
   Play,
   Loader2,
 } from 'lucide-react';
+import {toast} from 'sonner';
 import {Button} from './ui';
 import {ThemeToggle} from './ThemeToggle';
 import {FontScaleToggle} from './FontScaleToggle';
@@ -219,6 +220,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
       const result = await saveJsonAsDialog(defaultConfigName('neuroflow-workspace'), workspace);
       if (result.ok) {
         print('Workspace saved', {ok: true, path: result.path});
+        toast.success('Workspace saved successfully');
       } else if (!result.cancelled) {
         print('Save workspace failed', {error: result.error || 'Unknown error'});
       }
@@ -242,6 +244,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
       }
       applyWorkspaceConfig(workspace, metadata ?? undefined);
       print('Loaded workspace file', {name: file.name, type: workspace.type || 'unknown'});
+      toast.success('Workspace loaded successfully');
     } catch {
       setWorkspaceInvalid(true);
     }

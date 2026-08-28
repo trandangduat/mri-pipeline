@@ -1,4 +1,5 @@
 import React, {useRef} from 'react';
+import {toast} from 'sonner';
 import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info, ListOrdered, ChevronDown} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
@@ -95,6 +96,7 @@ export function PipelineStepsSection() {
     const result = await saveJsonAsDialog(defaultConfigName('neuroflow-preset'), payload);
     if (result.ok) {
       print('Saved preset file', {ok: true, path: result.path});
+      toast.success('Preset saved successfully');
     } else if (!result.cancelled) {
       print('Save preset failed', {ok: false, error: result.error});
     }
@@ -162,6 +164,7 @@ export function PipelineStepsSection() {
       setFormFields(formFields);
       setShowTools(true);
       print('Loaded preset file', {name: file.name, selected_tools: preset.selected_tools});
+      toast.success('Preset loaded successfully');
     } catch {
       setPresetInvalid(true);
     }
