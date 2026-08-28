@@ -31,7 +31,7 @@ def test_check_freesurfer_license_runs_lightweight_command(tmp_path, mocker) -> 
     command = run.call_args.args[0]
     assert command[:5] == ["docker", "run", "--rm", "--entrypoint", "/bin/bash"]
     assert "mkdayyyy/mri-fs7-all:latest" in command
-    assert "recon-all -version" in command[-1]
+    assert "mri_convert" in command[-1]
     assert f"{license_file}:/license/license.txt:ro" in command
 
 

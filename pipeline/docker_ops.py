@@ -43,7 +43,13 @@ def license_check_script() -> str:
         "if [ -f \"${FREESURFER_HOME:-}/SetUpFreeSurfer.sh\" ]; then "
         "set +u; . \"$FREESURFER_HOME/SetUpFreeSurfer.sh\" >/dev/null; set -u; "
         "fi; "
-        "recon-all -version >/dev/null"
+        "SAMPLE_MGZ=\"${FREESURFER_HOME:-}/subjects/fsaverage/mri/orig.mgz\"; "
+        "if [ -f \"$SAMPLE_MGZ\" ]; then "
+        "mri_convert \"$SAMPLE_MGZ\" /tmp/_fs_license_check.mgz >/dev/null; "
+        "rm -f /tmp/_fs_license_check.mgz; "
+        "else "
+        "recon-all -version >/dev/null; "
+        "fi"
     )
 
 

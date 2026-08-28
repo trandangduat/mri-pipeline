@@ -336,7 +336,7 @@ def test_remote_runner_checks_uploaded_license_before_start(mocker) -> None:
     assert ok is True
     assert detail == "FreeSurfer license check passed."
     assert "docker run --rm --entrypoint /bin/bash" in FakeRemoteSSHClient.commands[0]
-    assert "recon-all -version" in FakeRemoteSSHClient.commands[0]
+    assert "mri_convert" in FakeRemoteSSHClient.commands[0]
 
 
 def test_remote_runner_downloads_job_level_neuroflow_artifacts(mocker, tmp_path) -> None:
