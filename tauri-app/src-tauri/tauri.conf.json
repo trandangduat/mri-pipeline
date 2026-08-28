@@ -30,7 +30,6 @@
       "icons/icon.png"
     ],
     "resources": [
-      "backend",
       "../../app_backend",
       "../../pipeline",
       "../../remote",
