@@ -322,7 +322,10 @@ def run_pipeline_stage(
 
     def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):
         if on_metrics:
-            on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
+            try:
+                on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name, subject_id=config.subject_id, input_file=config.input_file)
+            except TypeError:
+                on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
 
     executor_adapter = executor or LocalDockerExecutor()
     exec_result = executor_adapter.execute(req, on_metrics=_metrics_relay if on_metrics else None)
@@ -599,7 +602,10 @@ def run_pipeline(
 
         def _metrics_relay(cpu_pct, ram_bytes, elapsed, container_name=req.container_name or ""):
             if on_metrics:
-                on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
+                try:
+                    on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name, subject_id=config.subject_id, input_file=config.input_file)
+                except TypeError:
+                    on_metrics(stage, tool_key, cpu_pct, ram_bytes, elapsed, container_name)
 
         exec_result = executor_adapter.execute(req, on_metrics=_metrics_relay if on_metrics else None)
         

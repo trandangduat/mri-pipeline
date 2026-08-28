@@ -128,3 +128,49 @@ def test_job_worker_main_sets_stopped_state_on_stop_requested(mocker, tmp_path) 
     assert status["state"] == "stopped"
     assert (tmp_path / "exit_code.txt").read_text().strip() == "0"
 
+
+def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path) -> None:
+    import json
+    job_worker = importlib.import_module("pipeline.job_worker")
+
+    def fake_run_pipeline(_config, **kwargs):
+        on_metrics = kwargs.get("on_metrics")
+        if on_metrics:
+            on_metrics(
+                "reorientation",
+                "fs8_reduced54_reorientation",
+                100.5,
+                52428800,
+                2.5,
+                "mri-sub-01-fs8-12345678",
+                subject_id="sub-01",
+                input_file="/data/sub-01/001.mgz",
+            )
+        return [StepResult("reorientation", "fs8_reduced54_reorientation", True, 2.5, "")]
+
+    mocker.patch.object(job_worker, "run_pipeline", side_effect=fake_run_pipeline)
+    mocker.patch.object(job_worker, "write_batch_reports")
+
+    req = {
+        "mode": "file",
+        "input_file": "/data/sub-01/001.mgz",
+        "subject_id": "sub-01",
+        "output_dir": str(tmp_path / "outputs"),
+        "pipeline_mode": "FreeSurfer 8 + Volume",
+        "selected_tools": {"reorientation": "fs8_reduced54_reorientation"},
+    }
+
+    code = job_worker._run_job(tmp_path, req)
+    assert code == 0
+
+    events_file = tmp_path / "events.jsonl"
+    assert events_file.exists()
+    lines = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    metrics_events = [ev for ev in lines if ev.get("kind") == "metrics"]
+    assert len(metrics_events) == 1
+    assert metrics_events[0]["subject_id"] == "sub-01"
+    assert metrics_events[0]["input_file"] == "/data/sub-01/001.mgz"
+    assert metrics_events[0]["cpu_pct"] == 100.5
+    assert metrics_events[0]["ram_bytes"] == 52428800
+
+

@@ -11,6 +11,8 @@ import {
   deriveBatchImages,
   deriveBatchSummary,
   deriveImageSteps,
+  deriveMetricsSeries,
+  isEventForImage,
   deriveSubjectLabel,
   sanitizeTerminalLog,
   deriveJobDisplayMetadata,
@@ -335,5 +337,83 @@ test('deriveImageSteps parses SUCCESS and STOPPED in image_done log text', () =>
   expect(steps[1].status).toBe('stopped');
   expect(steps[2].status).toBe('stopped');
 });
+
+test('isEventForImage matches truncated container names for long subject IDs', () => {
+  const image = {
+    input_file: '/home/catcd1/neuroflow-benchmark/test-lazy-upload/ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120039197_S11911_I118687__001/001.mgz',
+    subject_id: 'ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120039197_S11911_I118687__001',
+    idx: 1,
+    total: 3,
+    status: 'running' as const,
+  };
+
+  const truncatedEvent = {
+    kind: 'metrics',
+    container_name: 'mri-ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120-2ba288d9',
+    cpu_pct: 100.5,
+    ram_bytes: 50000000,
+  };
+
+  expect(isEventForImage(truncatedEvent, image)).toBe(true);
+
+  const nonMatchingEvent = {
+    kind: 'metrics',
+    container_name: 'mri-ADNI_011_S_0241_MR_MPR__GradWarp__B1_Correction__N3__Scaled_Br_200905111120-1d8cf01b',
+    cpu_pct: 100.5,
+    ram_bytes: 50000000,
+  };
+
+  expect(isEventForImage(nonMatchingEvent, image)).toBe(false);
+});
+
+test('isEventForImage matches explicit subject_id and input_file in event', () => {
+  const image = {
+    input_file: '/data/sub-01/001.mgz',
+    subject_id: 'sub-01',
+    idx: 1,
+    total: 1,
+    status: 'running' as const,
+  };
+
+  expect(isEventForImage({kind: 'metrics', subject_id: 'sub-01'}, image)).toBe(true);
+  expect(isEventForImage({kind: 'metrics', input_file: '/data/sub-01/001.mgz'}, image)).toBe(true);
+  expect(isEventForImage({kind: 'metrics', subject_id: 'sub-02'}, image)).toBe(false);
+});
+
+test('deriveMetricsSeries extracts CPU and RAM points for long subject IDs with truncated container names', () => {
+  const image = {
+    input_file: '/data/ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120039197_S11911_I118687__001/001.mgz',
+    subject_id: 'ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120039197_S11911_I118687__001',
+    idx: 1,
+    total: 1,
+    status: 'running' as const,
+  };
+
+  const events = [
+    {kind: 'image_start', input_file: image.input_file},
+    {
+      kind: 'metrics',
+      stage: 'reorientation',
+      tool: 'fs8_reorient',
+      container_name: 'mri-ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120-2ba288d9',
+      cpu_pct: 100.27,
+      ram_bytes: 104857600, // 100 MB
+    },
+    {
+      kind: 'metrics',
+      stage: 'reorientation',
+      tool: 'fs8_reorient',
+      container_name: 'mri-ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120-2ba288d9',
+      cpu_pct: 101.4,
+      ram_bytes: 209715200, // 200 MB
+    },
+  ];
+
+  const series = deriveMetricsSeries(events, image);
+  expect(series.cpuSeries).toEqual([100.27, 101.4]);
+  expect(series.ramSeries).toEqual([100, 200]);
+  expect(series.latestContainer).toBe('mri-ADNI_007_S_0249_MR_MPR__GradWarp__B1_Correction__N3__Scaled_2_Br_20081001120-2ba288d9');
+});
+
 
 

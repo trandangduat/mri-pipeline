@@ -144,8 +144,21 @@ def main(argv: list[str] | None = None) -> int:
             _cli_progress(stage, status, pct, msg)
             _emit_json_event("progress", stage=stage, status=status, pct=pct, msg=msg)
 
-        def metrics_cb(stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str) -> None:
-            _emit_json_event("metrics", stage=stage, tool=tool, cpu_pct=cpu_pct, ram_bytes=ram_bytes, elapsed=elapsed, container_name=container_name, gpu_pct=0.0)
+        def metrics_cb(stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str, subject_id: str | None = None, input_file: str | None = None) -> None:
+            payload = {
+                "stage": stage,
+                "tool": tool,
+                "cpu_pct": cpu_pct,
+                "ram_bytes": ram_bytes,
+                "elapsed": elapsed,
+                "container_name": container_name,
+                "gpu_pct": 0.0,
+            }
+            if subject_id:
+                payload["subject_id"] = subject_id
+            if input_file:
+                payload["input_file"] = input_file
+            _emit_json_event("metrics", **payload)
 
         def image_start_cb(input_file: str, idx: int, total: int) -> None:
             _emit_json_event("image_start", input_file=input_file, idx=idx, total=total)

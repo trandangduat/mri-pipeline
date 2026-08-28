@@ -99,17 +99,24 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     def build_log_cb(msg: str) -> None:
         _log(job_dir, f"DOCKER: {msg}")
 
-    def metrics_cb(stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str) -> None:
+    def metrics_cb(stage: str, tool: str, cpu_pct: float | None, ram_bytes: int | None, elapsed: float, container_name: str, subject_id: str | None = None, input_file: str | None = None) -> None:
+        payload = {
+            "stage": stage,
+            "tool": tool,
+            "cpu_pct": cpu_pct,
+            "ram_bytes": ram_bytes,
+            "elapsed": elapsed,
+            "container_name": container_name,
+            "gpu_pct": 0.0,
+        }
+        if subject_id:
+            payload["subject_id"] = subject_id
+        if input_file:
+            payload["input_file"] = input_file
         _emit_event(
             job_dir,
             "metrics",
-            stage=stage,
-            tool=tool,
-            cpu_pct=cpu_pct,
-            ram_bytes=ram_bytes,
-            elapsed=elapsed,
-            container_name=container_name,
-            gpu_pct=0.0,
+            **payload,
         )
 
     def image_start_cb(input_file: str, idx: int, total: int) -> None:
