@@ -97,6 +97,14 @@ export function reclampCpuThreadsForTarget({
   return clampBoundedIntValue(cpuThreads, safeLimitMark(threadCap) ?? DEFAULT_CPU_THREADS, threadCap);
 }
 
+export function reclampRamPercentForTarget({
+  ramPercent,
+}: {
+  ramPercent: number | string;
+}): number {
+  return clampBoundedIntValue(ramPercent, safeLimitMark(RAM_PERCENT_MAX) ?? DEFAULT_RAM_PERCENT, RAM_PERCENT_MAX);
+}
+
 /**
  * Keep only digits while typing; '' is allowed mid-edit.
  * Values beyond max snap back to the safe 90% mark instead of the raw max.

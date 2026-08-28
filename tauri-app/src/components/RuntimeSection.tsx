@@ -7,9 +7,10 @@ import {
   Loader2,
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
+import {toast} from 'sonner';
 import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from './ui';
 import {formatBytes} from '../lib/format';
-import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
+import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, reclampRamPercentForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -141,6 +142,7 @@ export function RuntimeSection() {
     const nextTarget = (value === 'Server' ? 'Server' : 'Local') as RuntimeTarget;
     const nextThreadCap = cpuThreadCapForTarget({runtimeTarget: nextTarget, environment, remoteResult});
     setFormField('cpuThreads', reclampCpuThreadsForTarget({cpuThreads: formValues.cpuThreads, threadCap: nextThreadCap}));
+    setFormField('ramPercent', reclampRamPercentForTarget({ramPercent: formValues.ramPercent}));
   };
 
   return (
@@ -190,7 +192,13 @@ export function RuntimeSection() {
             max="100"
             value={formValues.ramPercent}
             onChange={(e) => setFormField('ramPercent', sanitizeBoundedIntText(e.target.value, RAM_PERCENT_MAX))}
-            onBlur={() => setFormField('ramPercent', clampBoundedIntValue(formValues.ramPercent, safeLimitMark(RAM_PERCENT_MAX) ?? RAM_PERCENT_MIN, RAM_PERCENT_MAX))}
+            onBlur={() => {
+              const clamped = clampBoundedIntValue(formValues.ramPercent, safeLimitMark(RAM_PERCENT_MAX) ?? RAM_PERCENT_MIN, RAM_PERCENT_MAX);
+              if (Number(formValues.ramPercent) !== clamped) {
+                toast.warning(`RAM reset to ${clamped}% (valid range: ${RAM_PERCENT_MIN}–${RAM_PERCENT_MAX}%)`);
+              }
+              setFormField('ramPercent', clamped);
+            }}
             className={inputCls}
           />
         </label>
@@ -208,7 +216,13 @@ export function RuntimeSection() {
             max={hardware.logicalCores || undefined}
             value={formValues.cpuThreads}
             onChange={(e) => setFormField('cpuThreads', sanitizeBoundedIntText(e.target.value, threadMax))}
-            onBlur={() => setFormField('cpuThreads', clampBoundedIntValue(formValues.cpuThreads, safeLimitMark(threadMax) ?? DEFAULT_CPU_THREADS, threadMax))}
+            onBlur={() => {
+              const clamped = clampBoundedIntValue(formValues.cpuThreads, safeLimitMark(threadMax) ?? DEFAULT_CPU_THREADS, threadMax);
+              if (Number(formValues.cpuThreads) !== clamped) {
+                toast.warning(`CPU threads reset to ${clamped} (valid range: 1–${threadMax ?? '∞'})`);
+              }
+              setFormField('cpuThreads', clamped);
+            }}
             className={inputCls}
           />
         </label>
