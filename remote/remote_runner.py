@@ -187,8 +187,6 @@ class RemoteRunner:
         for folder, extensions in (
             (PROJECT_ROOT / "pipeline", {".py"}),
             (PROJECT_ROOT / "info", {".txt"}),
-            (PROJECT_ROOT / "assets" / "atlases" / "mni", {".nii.gz", ".txt", ".csv", ".md"}),
-            (PROJECT_ROOT / "assets" / "atlases" / "surface", {".gcs", ".annot"}),
         ):
             if folder.exists():
                 for root, dirs, files in os.walk(folder):
@@ -1270,17 +1268,20 @@ class RemoteRunner:
         remote_code = self._require_workspace_child(ssh, self._remote_code_dir(ssh), "remote code directory")
         signature = self._local_code_signature()
         manifest_path = posixpath.join(remote_code, "code_manifest.json")
-        manifest_probe = 'import json,sys; print(json.load(open(sys.argv[1])).get("signature", ""))'
         ready_cmd = (
             f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline_runner.py'))} && "
             f"test -f {shlex.quote(posixpath.join(remote_code, 'pipeline', 'job_worker.py'))} && "
-            f"test -f {shlex.quote(manifest_path)} && "
-            f"{self._python_shell_command(self.config.remote_python, '-c', manifest_probe, manifest_path)}"
+            f"cat {shlex.quote(manifest_path)} 2>/dev/null"
         )
         ready_code, ready_text = ssh.read_text(ready_cmd)
-        if ready_code == 0 and ready_text.strip().splitlines()[-1:] == [signature]:
-            self.on_log(f"Using shared remote pipeline code: {remote_code}")
-            return remote_code
+        if ready_code == 0 and ready_text.strip():
+            try:
+                manifest_data = json.loads(ready_text)
+                if manifest_data.get("signature") == signature:
+                    self.on_log(f"Using shared remote pipeline code: {remote_code}")
+                    return remote_code
+            except (json.JSONDecodeError, ValueError):
+                pass
 
         self.on_log(f"Uploading shared pipeline code once: {remote_code}")
         self._upload_code(ssh, remote_code)
@@ -1310,6 +1311,7 @@ class RemoteRunner:
                 posixpath.join(remote_code, "assets", "atlases", "mni"),
                 skip_dirs={"__pycache__"},
                 allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
+                skip_existing_matching_size=True,
             )
         surface_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "surface"
         if surface_atlas_dir.exists():
@@ -1318,6 +1320,7 @@ class RemoteRunner:
                 posixpath.join(remote_code, "assets", "atlases", "surface"),
                 skip_dirs={"__pycache__"},
                 allowed_extensions={".gcs", ".annot"},
+                skip_existing_matching_size=True,
             )
         neuroflow = _neuroflow_source_dir()
         if neuroflow and neuroflow.exists():

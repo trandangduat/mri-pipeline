@@ -201,7 +201,14 @@ class RemoteSSHClient:
                 ) from exc
             raise OSError(f"Failed uploading '{local}' to '{remote_path}': {exc}") from exc
 
-    def upload_dir(self, local_dir: str | Path, remote_dir: str, skip_dirs: set[str] | None = None, allowed_extensions: set[str] | None = None) -> None:
+    def upload_dir(
+        self,
+        local_dir: str | Path,
+        remote_dir: str,
+        skip_dirs: set[str] | None = None,
+        allowed_extensions: set[str] | None = None,
+        skip_existing_matching_size: bool = False,
+    ) -> None:
         local_root = Path(local_dir)
         remote_root = self.expand_path(remote_dir)
         skip_dirs = skip_dirs or set()
@@ -222,6 +229,13 @@ class RemoteSSHClient:
             for name in files_to_upload:
                 local_file = Path(root) / name
                 remote_file = posixpath.join(remote_subdir, name)
+                if skip_existing_matching_size:
+                    try:
+                        remote_stat = self.sftp.stat(remote_file)
+                        if remote_stat.st_size == local_file.stat().st_size:
+                            continue
+                    except (OSError, IOError):
+                        pass
                 self.on_log(f"Uploading file: {local_file} -> {remote_file}")
                 try:
                     self.sftp.put(str(local_file), remote_file)

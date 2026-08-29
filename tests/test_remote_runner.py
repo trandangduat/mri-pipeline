@@ -74,6 +74,7 @@ class FakeRemoteSSHClient:
         remote_dir: str,
         skip_dirs: set[str] | None = None,
         allowed_extensions: set[str] | None = None,
+        skip_existing_matching_size: bool = False,
     ) -> None:
         self.uploaded_dirs.append((Path(local_dir), remote_dir))
 
