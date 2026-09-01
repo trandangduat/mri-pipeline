@@ -781,10 +781,20 @@ def _browse_via_sftp(ssh: object, path: str) -> dict[str, JsonValue]:
     from remote.ssh_client import RemoteSSHClient, SSHConfig
     assert isinstance(ssh, SSHConfig)
     with RemoteSSHClient(ssh) as client:
-        try:
-            expanded = client.sftp.normalize(path)
-        except OSError:
-            expanded = path
+        # Expand ~ via remote shell since sftp.normalize may not handle it
+        expanded = path
+        if path.startswith("~"):
+            try:
+                code, home = client.read_text(f"echo {path}")
+                if code == 0 and home.strip():
+                    expanded = home.strip()
+            except Exception:
+                pass
+        if expanded == path and not path.startswith("~"):
+            try:
+                expanded = client.sftp.normalize(path)
+            except OSError:
+                expanded = path
         try:
             attr = client.sftp.stat(expanded)
         except OSError as exc:
@@ -865,10 +875,20 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
     from remote.ssh_client import RemoteSSHClient, SSHConfig
     assert isinstance(ssh, SSHConfig)
     with RemoteSSHClient(ssh) as client:
-        try:
-            expanded = client.sftp.normalize(root)
-        except OSError:
-            expanded = root
+        # Expand ~ via remote shell since sftp.normalize may not handle it
+        expanded = root
+        if root.startswith("~"):
+            try:
+                code, home = client.read_text(f"echo {root}")
+                if code == 0 and home.strip():
+                    expanded = home.strip()
+            except Exception:
+                pass
+        if expanded == root and not root.startswith("~"):
+            try:
+                expanded = client.sftp.normalize(root)
+            except OSError:
+                expanded = root
         try:
             attr = client.sftp.stat(expanded)
         except OSError as exc:

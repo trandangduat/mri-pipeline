@@ -1798,6 +1798,7 @@ function PathField({
   secondaryBrowse,
   required,
   disabled = false,
+  readOnly = false,
 }: {
   id: string;
   label: string;
@@ -1813,6 +1814,7 @@ function PathField({
   };
   required?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <label className={`${labelCls} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
@@ -1825,8 +1827,9 @@ function PathField({
           placeholder={disabled ? 'Connect to server first' : placeholder}
           required={required && !disabled}
           disabled={disabled}
+          readOnly={readOnly}
           onChange={(e) => onChange(e.target.value)}
-          className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''}`}
+          className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''} ${readOnly ? 'bg-cursor-canvas-soft text-cursor-muted' : ''}`}
         />
         <Button
           variant="ghost"
@@ -2005,6 +2008,7 @@ export function InputOutputSection() {
       const path = selectedDialogPath(selected);
       if (path) {
         setFormField('inputPath', path);
+        if (isBatch) setBatchModal(true);
       }
     } catch {
       // dialog cancelled or unavailable
@@ -2104,15 +2108,8 @@ export function InputOutputSection() {
               )}
             </div>
             <div className="min-h-8 flex items-center gap-2">
-              {isBatch && (
-                <>
-                  <Button variant="ghost" icon={<SlidersHorizontal className="h-3.5 w-3.5" />} onClick={() => setBatchModal(true)}>
-                    Configure batch
-                  </Button>
-                  {formValues.batchImageCount !== undefined && (
-                    <span className="text-xs text-cursor-muted">{formValues.batchImageCount} selected</span>
-                  )}
-                </>
+              {isBatch && formValues.batchImageCount !== undefined && (
+                <span className="text-xs text-cursor-muted">{formValues.batchImageCount} selected</span>
               )}
             </div>
           </div>
@@ -2132,6 +2129,7 @@ export function InputOutputSection() {
                   onChange={(v) => setFormField('inputPath', v)}
                   onBrowse={handleLocalBrowseFolder}
                   browseLabel="Browse Folder"
+                  readOnly={isBatch}
                   required
                 />
               ) : (
@@ -2159,6 +2157,7 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('inputServerDir', v)}
                 onBrowse={() => setServerStagingModal(true)}
                 disabled={!remoteConnected}
+                readOnly={isBatch}
                 required
               />
               <PathField
@@ -2169,6 +2168,7 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
+                readOnly={isBatch}
                 required
               />
             </div>
@@ -2186,6 +2186,7 @@ export function InputOutputSection() {
                   onChange={(v) => setFormField('inputPath', v)}
                   onBrowse={handleLocalBrowseFolder}
                   browseLabel="Browse Folder"
+                  readOnly={isBatch}
                   required
                 />
               ) : (
@@ -2220,6 +2221,7 @@ export function InputOutputSection() {
                 placeholder="/outputs/project"
                 onChange={(v) => setFormField('outputDir', v)}
                 onBrowse={handleLocalBrowseOutputDir}
+                readOnly={isBatch}
                 required
               />
             </div>
@@ -2229,13 +2231,14 @@ export function InputOutputSection() {
           {inputSource === 'Server' && (
             <div className="grid gap-3">
               <PathField
-                id="inputPath"
+                id="inputServerDir"
                 label="Input location (server path)"
-                value={formValues.inputPath}
+                value={formValues.inputServerDir || ''}
                 placeholder="/home/user/mri-data"
-                onChange={(v) => setFormField('inputPath', v)}
+                onChange={(v) => setFormField('inputServerDir', v)}
                 onBrowse={() => setServerInputModal(true)}
                 disabled={!remoteConnected}
+                readOnly={isBatch}
                 required
               />
               <PathField
@@ -2246,6 +2249,7 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
+                readOnly={isBatch}
                 required
               />
             </div>
@@ -2289,12 +2293,13 @@ export function InputOutputSection() {
         remoteConnected ? (
           <ServerBrowserModal
             title="Browse server - Input location"
-            initialPath={formValues.inputPath || '~'}
+            initialPath={formValues.inputServerDir || '~'}
             remotePayload={remotePayload}
             selectMode="path"
             onConfirm={(p) => {
-              setFormField('inputPath', p);
+              setFormField('inputServerDir', p);
               setServerInputModal(false);
+              if (isBatch) setBatchModal(true);
             }}
             onClose={() => setServerInputModal(false)}
           />
@@ -2348,7 +2353,7 @@ export function InputOutputSection() {
       {batchModal && (
         <BatchConfigModal
           inputSource={inputSource}
-          inputPath={formValues.inputPath}
+          inputPath={inputSource === 'Server' ? (formValues.inputServerDir || '') : formValues.inputPath}
           currentCount={formValues.batchImageCount as number | undefined}
           localFileListLen={localFileListLen}
           isConnected={remoteConnected}
