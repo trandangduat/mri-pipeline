@@ -30,7 +30,7 @@ def test_browse_local_path_single_nii_dataset(tmp_path: Path) -> None:
     assert result["has_multi_subject_conflict"] is False
     entry = result["entries"][0]
     assert entry["name"] == "T1w.nii.gz"
-    assert entry["subject_label"] == "sub-01"
+    assert entry["subject_label"] == "sub-01_T1w"
     assert entry["is_dicom_series"] is False
     assert entry["size"] == len(b"data12345")
 
@@ -81,7 +81,7 @@ def test_browse_local_path_mixed_batch_dataset(tmp_path: Path) -> None:
 
     entries = {e["subject_label"]: e for e in result["entries"]}
 
-    sub1 = entries["sub-01"]
+    sub1 = entries["sub-01_sub-01_T1w"]
     assert sub1["name"] == "sub-01_T1w.nii.gz"
     assert sub1["is_dicom_series"] is False
 
@@ -102,14 +102,11 @@ def test_browse_local_path_detects_multi_subject_conflict(tmp_path: Path) -> Non
     dataset = tmp_path / "dataset"
     dataset.mkdir()
 
-    # Subject 1 has 2 volumes: 1 NIfTI and 1 DICOM series
+    # Two scans in the same folder producing the same subject label (e.g. scan.nii.gz and scan.mgz)
     sub1_dir = dataset / "sub-01"
     sub1_dir.mkdir()
-    (sub1_dir / "sub-01_T1w.nii.gz").write_bytes(b"nifti")
-    sub1_dcm = sub1_dir / "dicom_series"
-    sub1_dcm.mkdir()
-    for i in range(3):
-        (sub1_dcm / f"slice_{i}.dcm").write_bytes(b"dcm")
+    (sub1_dir / "scan.nii.gz").write_bytes(b"nifti")
+    (sub1_dir / "scan.mgz").write_bytes(b"mgz")
 
     result = browse_local_path({"path": str(dataset), "max_depth": 2})
     assert result["ok"] is True

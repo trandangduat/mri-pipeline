@@ -42,6 +42,26 @@ def _file_stem(name: str) -> str:
     return name[:dot] if dot > 0 else name
 
 
+def _generate_subject_label(rel_path: str, is_dicom: bool) -> str:
+    """Generate deterministic unique subject label based on relative path parts.
+
+    Formula: <dir_1>_<dir_2>_..._<file_stem_or_dicom_folder>
+    Example: 'ADNI_007/mprage/001.mgz' -> 'ADNI_007_mprage_001'
+    Example: 'sub-02/T1w.nii.gz' -> 'sub-02_T1w'
+    Example: 'Patient_A/dicom_dir' (dicom) -> 'Patient_A_dicom_dir'
+    """
+    parts = [p for p in rel_path.replace("\\", "/").split("/") if p and p != "."]
+    if not parts:
+        return "subject"
+    if is_dicom:
+        return "_".join(parts)
+    parent_parts = parts[:-1]
+    filename = parts[-1]
+    stem = _file_stem(filename)
+    all_parts = parent_parts + [stem]
+    return "_".join(all_parts)
+
+
 def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
     """Scan or list a local directory for files/directories or batch image candidates.
 
@@ -206,7 +226,7 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
             "modified_at": latest_mtime,
             "selectable": True,
             "relative_path": name,
-            "subject_label": name,
+            "subject_label": _generate_subject_label(name, is_dicom=True),
             "depth": 0,
             "parent": parent,
             "is_dicom_series": True,
@@ -224,7 +244,7 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
             "has_multi_subject_conflict": False,
         }
 
-    def _recurse(current_dir: str, depth: int, subject_hint: str | None) -> None:
+    def _recurse(current_dir: str, depth: int) -> None:
         if len(candidates) >= _BATCH_CANDIDATE_LIMIT:
             return
         try:
@@ -255,7 +275,7 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
                         except OSError:
                             pass
                     rel = os.path.relpath(entry_path, scan_root).replace(os.sep, "/")
-                    label = name if depth == 0 else (subject_hint or os.path.basename(current_dir))
+                    label = _generate_subject_label(rel, is_dicom=True)
                     candidates.append({
                         "name": name,
                         "path": entry_path,
@@ -271,15 +291,11 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
                         "slice_count": len(dicom_files),
                     })
                 elif depth < max_depth:
-                    label = name if depth == 0 else subject_hint
-                    _recurse(entry_path, depth + 1, label)
+                    _recurse(entry_path, depth + 1)
             else:
                 if _is_image_file(name):
                     rel = os.path.relpath(entry_path, scan_root).replace(os.sep, "/")
-                    if depth == 0:
-                        label = _file_stem(name)
-                    else:
-                        label = subject_hint or os.path.basename(current_dir)
+                    label = _generate_subject_label(rel, is_dicom=False)
                     try:
                         stat = entry.stat(follow_symlinks=False)
                         size = int(stat.st_size)
@@ -301,7 +317,7 @@ def browse_local_path(data: dict[str, object]) -> dict[str, JsonValue]:
                         "is_dicom_series": False,
                     })
 
-    _recurse(scan_root, 0, None)
+    _recurse(scan_root, 0)
 
     candidates.sort(key=lambda e: (str(e.get("subject_label", "")).lower(), str(e["name"]).lower()))
 

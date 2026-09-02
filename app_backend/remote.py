@@ -763,6 +763,23 @@ def _sftp_check_dicom_dir(client: object, dir_path: str) -> tuple[bool, int, int
     return False, 0, 0
 
 
+def _generate_subject_label(rel_path: str, is_dicom: bool) -> str:
+    """Generate deterministic unique subject label based on relative path parts.
+
+    Formula: <dir_1>_<dir_2>_..._<file_stem_or_dicom_folder>
+    """
+    parts = [p for p in rel_path.replace("\\", "/").split("/") if p and p != "."]
+    if not parts:
+        return "subject"
+    if is_dicom:
+        return "_".join(parts)
+    parent_parts = parts[:-1]
+    filename = parts[-1]
+    stem = _file_stem(filename)
+    all_parts = parent_parts + [stem]
+    return "_".join(all_parts)
+
+
 def _file_stem(name: str) -> str:
     """Return filename without any known image extension."""
     lower = name.lower()
@@ -927,7 +944,7 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                 "has_multi_subject_conflict": False,
             }
 
-        def _recurse(current_dir: str, depth: int, subject_hint: str | None) -> None:
+        def _recurse(current_dir: str, depth: int) -> None:
             if len(candidates) >= _BATCH_CANDIDATE_LIMIT:
                 return
             try:
@@ -946,7 +963,7 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                     is_dcm, slice_count, dcm_size = _sftp_check_dicom_dir(client, entry_path)
                     if is_dcm:
                         rel = entry_path[len(scan_root):].lstrip("/")
-                        label = entry.filename if depth == 0 else (subject_hint or posixpath.basename(current_dir))
+                        label = _generate_subject_label(rel, is_dicom=True)
                         candidates.append({
                             "name": entry.filename,
                             "path": entry_path,
@@ -962,19 +979,11 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                             "slice_count": slice_count,
                         })
                     elif depth < max_depth:
-                        # Use immediate child folder name as subject label hint
-                        label = entry.filename if depth == 0 else subject_hint
-                        _recurse(entry_path, depth + 1, label)
+                        _recurse(entry_path, depth + 1)
                 else:
                     if _is_image_file(entry.filename):
-                        # Relative path from scan root
                         rel = entry_path[len(scan_root):].lstrip("/")
-                        # Subject label: parent folder name for nested, file stem for flat
-                        if depth == 0:
-                            # file is directly in scan_root
-                            label = _file_stem(entry.filename)
-                        else:
-                            label = subject_hint or posixpath.basename(current_dir)
+                        label = _generate_subject_label(rel, is_dicom=False)
                         candidates.append({
                             "name": entry.filename,
                             "path": entry_path,
@@ -989,7 +998,7 @@ def _scan_batch_via_sftp(ssh: object, root: str, *, max_depth: int = 1) -> dict[
                             "is_dicom_series": False,
                         })
 
-        _recurse(scan_root, 0, None)
+        _recurse(scan_root, 0)
 
         # Sort: by subject_label then name
         candidates.sort(key=lambda e: (str(e.get("subject_label", "")).lower(), str(e["name"]).lower()))

@@ -3,11 +3,11 @@ import {toast} from 'sonner';
 import {
   Workflow, FolderInput, FolderOpen, Folder, FolderUp, FolderPlus, Save, Play, Square, Loader2, FileKey, Upload,
   SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge,
-  HardDrive, Cpu, Info, ListOrdered, ChevronDown, FileText, Server, ArrowRight, ArrowUp
+  HardDrive, Cpu, Info, ListOrdered, ChevronDown, FileText, Server, ArrowRight, ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
-import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from '../components/ui';
+import {Panel, Button, Alert, CustomSelect, BADGE, inputCls, labelCls} from '../components/ui';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
@@ -1029,7 +1029,7 @@ function WideModalOverlay({onClose, children}: {onClose: () => void; children: R
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-cursor-hairline bg-cursor-surface-card shadow-none">
+      <div className="relative my-auto w-full max-w-[min(64rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-cursor-hairline bg-cursor-surface-card shadow-none">
         {children}
       </div>
     </div>
@@ -1531,6 +1531,43 @@ const SCAN_MODE_OPTIONS: {value: ScanMode; label: string; hint: string; maxDepth
   {value: 'recursive', label: 'Recursive', hint: 'Scan up to 6 levels deep.', maxDepth: 6},
 ];
 
+function getEntryFormat(entry: RemoteBrowseEntry): string {
+  if (entry.is_dicom_series) return 'DICOM';
+  const lower = entry.name.toLowerCase();
+  if (lower.endsWith('.nii.gz')) return 'NII.GZ';
+  if (lower.endsWith('.nii')) return 'NII';
+  if (lower.endsWith('.mgz')) return 'MGZ';
+  if (lower.endsWith('.mgh')) return 'MGH';
+  if (lower.endsWith('.dcm') || lower.endsWith('.dicom')) return 'DICOM';
+  return 'OTHER';
+}
+
+function getFormatBadgeClass(fmt: string): string {
+  switch (fmt) {
+    case 'DICOM':
+      return `${BADGE.base} ${BADGE.primary}`;
+    case 'MGZ':
+    case 'MGH':
+      return `${BADGE.base} bg-purple-500/10 text-purple-700 dark:text-purple-300`;
+    case 'NII.GZ':
+      return `${BADGE.base} ${BADGE.success}`;
+    case 'NII':
+      return `${BADGE.base} ${BADGE.warning}`;
+    default:
+      return `${BADGE.base} ${BADGE.neutral}`;
+  }
+}
+
+type BatchSortField = 'subject' | 'format' | 'path' | 'size';
+type BatchSortDir = 'asc' | 'desc';
+
+interface BatchColWidths {
+  subject: number;
+  format: number;
+  path: number;
+  size: number;
+}
+
 function BatchConfigModal({
   inputSource,
   inputPath,
@@ -1577,6 +1614,52 @@ function BatchConfigModal({
   const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'recursive');
   const [scanned, setScanned] = React.useState(cacheMatches ? batchScanCache!.scanned : false);
   const [hasConflict, setHasConflict] = React.useState(cacheMatches ? batchScanCache!.hasConflict : false);
+  const [searchQuery, setSearchQuery] = React.useState('');
+
+  const [colWidths, setColWidths] = React.useState<BatchColWidths>({
+    subject: 380,
+    format: 85,
+    path: 280,
+    size: 85,
+  });
+
+  const [sortField, setSortField] = React.useState<BatchSortField | null>(null);
+  const [sortDir, setSortDir] = React.useState<BatchSortDir>('asc');
+
+  const handleSort = (field: BatchSortField) => {
+    if (sortField === field) {
+      if (sortDir === 'asc') {
+        setSortDir('desc');
+      } else {
+        setSortField(null);
+        setSortDir('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const startResize = (col: keyof BatchColWidths, e: React.MouseEvent, minWidth = 70) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = colWidths[col];
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(minWidth, startWidth + delta);
+      setColWidths((prev) => ({...prev, [col]: newWidth}));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   const doScan = React.useCallback(
     (mode: ScanMode, force = false) => {
@@ -1602,7 +1685,7 @@ function BatchConfigModal({
         setServerEntries(candidates);
         setHasConflict(res.has_multi_subject_conflict ?? false);
 
-        // Auto-select: prioritize initialSelectedPaths if provided, otherwise all candidates with unique subject_label
+        // Auto-select: prioritize initialSelectedPaths if provided, otherwise select all candidate subjects
         const initialSet = new Set(initialSelectedPaths?.map((p) => p.trim()).filter(Boolean) ?? []);
         const autoSelected = new Set<string>();
         if (initialSet.size > 0) {
@@ -1615,27 +1698,16 @@ function BatchConfigModal({
               autoSelected.add(e.path);
             }
           }
-        }
-
-        const labelCounts = new Map<string, number>();
-        for (const e of candidates) {
-          const lbl = e.subject_label ?? e.name;
-          labelCounts.set(lbl, (labelCounts.get(lbl) ?? 0) + 1);
-        }
-
-        if (autoSelected.size === 0) {
+        } else {
           for (const e of candidates) {
-            const lbl = e.subject_label ?? e.name;
-            if ((labelCounts.get(lbl) ?? 0) === 1) {
-              autoSelected.add(e.path);
-            }
+            autoSelected.add(e.path);
           }
         }
         setSelectedPaths(autoSelected);
         setCount(autoSelected.size || candidates.length || 1);
         const statusText = candidates.length === 0
           ? 'No image files found in this directory.'
-          : `${candidates.length} image${candidates.length !== 1 ? 's' : ''} found across ${labelCounts.size} subject${labelCounts.size !== 1 ? 's' : ''}.`;
+          : `Found ${candidates.length} subject${candidates.length !== 1 ? 's' : ''}.`;
         setScanStatus(statusText);
         setScanned(true);
         setBatchScanCache({
@@ -1645,7 +1717,7 @@ function BatchConfigModal({
           selectedPaths: Array.from(autoSelected),
           status: statusText,
           hasConflict: res.has_multi_subject_conflict ?? false,
-          subjectCount: labelCounts.size,
+          subjectCount: candidates.length,
           scanned: true,
         });
       };
@@ -1695,153 +1767,422 @@ function BatchConfigModal({
     });
   };
 
+  const filteredEntries = React.useMemo(() => {
+    if (!searchQuery.trim()) return serverEntries;
+    const q = searchQuery.toLowerCase().trim();
+    return serverEntries.filter(
+      (e) =>
+        (e.subject_label && e.subject_label.toLowerCase().includes(q)) ||
+        e.name.toLowerCase().includes(q) ||
+        (e.relative_path && e.relative_path.toLowerCase().includes(q)),
+    );
+  }, [serverEntries, searchQuery]);
+
+  const [firstNCount, setFirstNCount] = React.useState<number>(10);
+
+  const displayedEntries = React.useMemo(() => {
+    if (!sortField) return filteredEntries;
+    const list = [...filteredEntries];
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'subject') {
+        const aVal = a.subject_label || '';
+        const bVal = b.subject_label || '';
+        cmp = aVal.localeCompare(bVal, undefined, {numeric: true, sensitivity: 'base'});
+      } else if (sortField === 'format') {
+        const aVal = getEntryFormat(a);
+        const bVal = getEntryFormat(b);
+        cmp = aVal.localeCompare(bVal);
+      } else if (sortField === 'path') {
+        const aVal = a.relative_path || a.path;
+        const bVal = b.relative_path || b.path;
+        cmp = aVal.localeCompare(bVal, undefined, {numeric: true, sensitivity: 'base'});
+      } else if (sortField === 'size') {
+        cmp = (a.size || 0) - (b.size || 0);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filteredEntries, sortField, sortDir]);
+
+  const handleSelectAllFiltered = () => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      for (const e of displayedEntries) {
+        next.add(e.path);
+      }
+      return next;
+    });
+  };
+
+  const handleUnselectAllFiltered = () => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      for (const e of displayedEntries) {
+        next.delete(e.path);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectFirstN = () => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      for (const e of displayedEntries) {
+        next.delete(e.path);
+      }
+      const toSelect = displayedEntries.slice(0, firstNCount);
+      for (const e of toSelect) {
+        next.add(e.path);
+      }
+      return next;
+    });
+  };
+
+  const isAllFilteredSelected =
+    displayedEntries.length > 0 && displayedEntries.every((e) => selectedPaths.has(e.path));
+  const isNoneFilteredSelected =
+    displayedEntries.length === 0 || displayedEntries.every((e) => !selectedPaths.has(e.path));
+
   const finalCount = scanned ? selectedPaths.size : (selectedPaths.size > 0 ? selectedPaths.size : count);
+  const gridColumnsStyle = {
+    gridTemplateColumns: `2.25rem ${colWidths.subject}px ${colWidths.format}px ${colWidths.path}px ${colWidths.size}px`,
+  };
 
   return (
     <WideModalOverlay onClose={onClose}>
       {/* Header */}
-      {/* Header */}
-      <div className="border-b border-cursor-hairline px-4 py-2.5">
-        <h3 className="m-0 text-base font-semibold text-cursor-ink">Configure Batch Settings</h3>
-        <p className="mt-0.5 text-xs text-cursor-muted">
+      <div className="border-b border-cursor-hairline px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-cursor-primary/10 text-cursor-primary">
+              <Layers className="h-4 w-4" />
+            </span>
+            <h3 className="m-0 text-base font-semibold text-cursor-ink">Configure Batch Settings</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-cursor-muted transition-colors hover:bg-cursor-canvas-soft hover:text-cursor-ink cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="h-4.5 w-4.5" />
+          </button>
+        </div>
+        <p className="mt-1.5 truncate text-sm italic text-cursor-muted" title={inputPath}>
           {isServer && !isConnected
             ? 'Connect to the server first to scan the directory.'
-            : `Input path: ${inputPath || '(not set)'}`}
+            : inputPath || '(not set)'}
         </p>
       </div>
 
-      {/* Scan controls */}
+      {/* Scan controls & search */}
       {canScan && (
-        <div className="border-b border-cursor-hairline px-4 py-2.5">
-          <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-sm font-medium text-cursor-body">Scan mode</p>
+        <div className="border-b border-cursor-hairline bg-cursor-surface-card px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="mr-1 text-sm font-medium text-cursor-muted">Scan mode:</span>
+              {SCAN_MODE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setScanMode(opt.value);
+                    doScan(opt.value);
+                  }}
+                  title={opt.hint}
+                  className={`h-8 rounded-md border px-3 text-sm font-medium transition-colors ${
+                    scanMode === opt.value
+                      ? 'border-cursor-primary bg-cursor-primary text-white'
+                      : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-ink hover:border-cursor-hairline-strong'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => doScan(scanMode, true)}
               disabled={scanPending}
-              className="rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+              title="Re-scan directory"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
-              Re-scan
+              <RefreshCw className={`h-4 w-4 ${scanPending ? 'animate-spin' : ''}`} />
+              <span>Re-scan</span>
             </button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {SCAN_MODE_OPTIONS.map((opt) => (
+
+          {/* Quick selection action buttons */}
+          {serverEntries.length > 0 && !scanPending && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
-                key={opt.value}
                 type="button"
-                onClick={() => {
-                  setScanMode(opt.value);
-                  doScan(opt.value);
-                }}
-                title={opt.hint}
-                className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  scanMode === opt.value
-                    ? 'border-cursor-primary bg-cursor-primary text-white'
-                    : 'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong'
-                }`}
+                onClick={handleSelectAllFiltered}
+                disabled={displayedEntries.length === 0 || isAllFilteredSelected}
+                className="h-8 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-surface-card disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
               >
-                {opt.label}
+                Select all{searchQuery.trim() && displayedEntries.length > 0 ? ` (${displayedEntries.length})` : ''}
               </button>
-            ))}
-          </div>
-          {scanStatus && (
-            <p className={`mt-1.5 text-xs ${hasConflict ? 'text-cursor-semantic-error' : 'text-cursor-muted'}`}>
-              {scanStatus}
-              {hasConflict && ' Multiple images found for some subjects - review selections below.'}
-            </p>
+              <button
+                type="button"
+                onClick={handleUnselectAllFiltered}
+                disabled={displayedEntries.length === 0 || isNoneFilteredSelected}
+                className="h-8 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 text-sm font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-surface-card disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+              >
+                Unselect all{searchQuery.trim() && displayedEntries.length > 0 ? ` (${displayedEntries.length})` : ''}
+              </button>
+              <div className="inline-flex items-center rounded-md border border-cursor-hairline bg-cursor-canvas-soft">
+                <button
+                  type="button"
+                  onClick={handleSelectFirstN}
+                  disabled={displayedEntries.length === 0}
+                  className="h-8 px-3 text-sm font-medium text-cursor-ink transition-colors hover:bg-cursor-surface-card disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer rounded-l-md"
+                >
+                  Select first
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={displayedEntries.length || 1}
+                  step={1}
+                  value={firstNCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setFirstNCount(isNaN(val) ? 1 : Math.max(1, val));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSelectFirstN();
+                    }
+                  }}
+                  className="h-8 w-14 border-l border-cursor-hairline bg-cursor-surface-card px-2 text-center text-sm font-medium text-cursor-ink outline-none focus:bg-cursor-surface-card rounded-r-md"
+                  title="Number of subjects to select"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Filter search bar */}
+          {serverEntries.length > 0 && !scanPending && (
+            <div className="relative mt-2.5">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter subjects or paths..."
+                className="h-8.5 w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft pl-9 pr-8 text-sm text-cursor-ink outline-none placeholder:text-cursor-muted focus:border-cursor-hairline-strong focus:bg-cursor-surface-card"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-cursor-muted hover:text-cursor-ink cursor-pointer"
+                  aria-label="Clear filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* Candidate list */}
-      {canScan && serverEntries.length > 0 && (
+      {/* Loading state */}
+      {scanPending && (
+        <div className="flex flex-col items-center justify-center gap-2.5 py-12 text-sm text-cursor-muted">
+          <Loader2 className="h-5 w-5 animate-spin text-cursor-primary" />
+          <span>Scanning directory...</span>
+        </div>
+      )}
+
+      {/* Candidate table list */}
+      {canScan && !scanPending && serverEntries.length > 0 && (
         <TooltipProvider>
-          <div className="max-h-[min(20rem,50vh)] overflow-y-auto bg-cursor-canvas-soft">
-            {/* Table header */}
-          <div className="grid border-b border-cursor-hairline px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-cursor-muted" style={{gridTemplateColumns: '1.5rem minmax(8rem,1.5fr) minmax(5.5rem,1fr) minmax(8rem,1.6fr) minmax(10rem,2.2fr) 4.5rem'}}>
-            <span />
-            <span>Subject</span>
-            <span>Format</span>
-            <span>Name</span>
-            <span>Relative path</span>
-            <span className="text-right">Size</span>
-          </div>
-          {serverEntries.map((entry) => {
-            const checked = selectedPaths.has(entry.path);
-            const lower = entry.name.toLowerCase();
-            const formatBadge = entry.is_dicom_series ? (
-              <Tooltip>
-                <TooltipTrigger className="min-w-0 text-left">
-                  <span className="inline-flex items-center rounded bg-cursor-primary/10 px-1.5 py-0.5 text-2xs font-semibold text-cursor-primary">
-                    DCM ({entry.slice_count ?? '?'} sl)
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="start" className="text-xs">
-                  DICOM Series ({entry.slice_count ?? '?'} slices)
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <span className="inline-flex items-center rounded border border-cursor-hairline bg-cursor-surface-card px-1.5 py-0.5 text-2xs font-semibold text-cursor-muted">
-                {lower.endsWith('.nii.gz') || lower.endsWith('.nii')
-                  ? 'NII'
-                  : lower.endsWith('.mgz') || lower.endsWith('.mgh')
-                  ? 'MGZ'
-                  : lower.endsWith('.dcm') || lower.endsWith('.dicom')
-                  ? 'DCM'
-                  : 'IMG'}
-              </span>
-            );
-            return (
+          <div className="max-h-[min(26rem,58vh)] overflow-x-auto overflow-y-auto bg-cursor-canvas-soft">
+            <div className="relative min-w-fit">
+              {/* Table header */}
               <div
-                key={entry.path}
-                role="button"
-                tabIndex={0}
-                onClick={() => togglePath(entry.path)}
-                onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); togglePath(entry.path); } }}
-                className="grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-1.5 hover:bg-cursor-surface-card"
-                style={{gridTemplateColumns: '1.5rem minmax(8rem,1.5fr) minmax(5.5rem,1fr) minmax(8rem,1.6fr) minmax(10rem,2.2fr) 4.5rem'}}
+                className="sticky top-0 z-10 grid border-b border-cursor-hairline bg-cursor-surface-card px-4 py-2.5 text-sm font-semibold text-cursor-muted"
+                style={gridColumnsStyle}
               >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  readOnly
-                  className="h-3.5 w-3.5 accent-cursor-primary pointer-events-none"
-                />
-                <Tooltip>
-                  <TooltipTrigger className="min-w-0 w-full text-left">
-                    <span className="block min-w-0 truncate pr-2 text-xs font-medium text-cursor-ink">
-                      {entry.subject_label ?? '-'}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
-                    {entry.subject_label ?? '-'}
-                  </TooltipContent>
-                </Tooltip>
-                <div className="flex items-center">{formatBadge}</div>
-                <span className="min-w-0 truncate pr-2 font-mono text-xs text-cursor-ink">
-                  {entry.name}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger className="min-w-0 w-full text-left block">
-                    <span className="block min-w-0 truncate pr-2 font-mono text-2xs text-cursor-muted">
-                      {entry.relative_path ?? ''}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
-                    {entry.relative_path ?? entry.path}
-                  </TooltipContent>
-                </Tooltip>
-                <span className="text-right text-2xs text-cursor-muted">{fmtBytes(entry.size)}</span>
+                <span />
+                {/* Column: Subject ID */}
+                <div className="flex items-center pr-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSort('subject')}
+                    className={`inline-flex items-center gap-1.5 font-semibold transition-colors hover:text-cursor-ink cursor-pointer select-none truncate ${
+                      sortField === 'subject' ? 'text-cursor-primary' : 'text-cursor-muted'
+                    }`}
+                  >
+                    <span className="truncate">Subject ID</span>
+                    {sortField === 'subject' ? (
+                      sortDir === 'asc' ? <ArrowUp className="h-3.5 w-3.5 flex-none text-cursor-primary" /> : <ArrowDown className="h-3.5 w-3.5 flex-none text-cursor-primary" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 flex-none opacity-40 hover:opacity-100" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Column: Format */}
+                <div className="flex items-center px-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSort('format')}
+                    className={`inline-flex items-center gap-1.5 font-semibold transition-colors hover:text-cursor-ink cursor-pointer select-none truncate ${
+                      sortField === 'format' ? 'text-cursor-primary' : 'text-cursor-muted'
+                    }`}
+                  >
+                    <span className="truncate">Format</span>
+                    {sortField === 'format' ? (
+                      sortDir === 'asc' ? <ArrowUp className="h-3.5 w-3.5 flex-none text-cursor-primary" /> : <ArrowDown className="h-3.5 w-3.5 flex-none text-cursor-primary" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 flex-none opacity-40 hover:opacity-100" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Column: Relative path */}
+                <div className="flex items-center px-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSort('path')}
+                    className={`inline-flex items-center gap-1.5 font-semibold transition-colors hover:text-cursor-ink cursor-pointer select-none truncate ${
+                      sortField === 'path' ? 'text-cursor-primary' : 'text-cursor-muted'
+                    }`}
+                  >
+                    <span className="truncate">Relative path</span>
+                    {sortField === 'path' ? (
+                      sortDir === 'asc' ? <ArrowUp className="h-3.5 w-3.5 flex-none text-cursor-primary" /> : <ArrowDown className="h-3.5 w-3.5 flex-none text-cursor-primary" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 flex-none opacity-40 hover:opacity-100" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Column: Size */}
+                <div className="flex items-center justify-end pl-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSort('size')}
+                    className={`inline-flex items-center gap-1.5 font-semibold transition-colors hover:text-cursor-ink cursor-pointer select-none ${
+                      sortField === 'size' ? 'text-cursor-primary' : 'text-cursor-muted'
+                    }`}
+                  >
+                    <span>Size</span>
+                    {sortField === 'size' ? (
+                      sortDir === 'asc' ? <ArrowUp className="h-3.5 w-3.5 flex-none text-cursor-primary" /> : <ArrowDown className="h-3.5 w-3.5 flex-none text-cursor-primary" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 flex-none opacity-40 hover:opacity-100" />
+                    )}
+                  </button>
+                </div>
               </div>
-            );
-          })}
+
+              {/* Full-height vertical divider lines & drag resizers */}
+              <div
+                onMouseDown={(e) => startResize('subject', e, 160)}
+                style={{ left: `calc(1rem + 2.25rem + ${colWidths.subject}px)` }}
+                className="group absolute top-0 bottom-0 z-20 w-3 -translate-x-1/2 cursor-col-resize select-none flex items-center justify-center hover:bg-cursor-primary/10 active:bg-cursor-primary/20"
+                title="Drag to resize Subject ID column"
+              >
+                <div className="h-full w-[1px] bg-cursor-hairline group-hover:bg-cursor-primary group-active:bg-cursor-primary transition-colors" />
+              </div>
+
+              <div
+                onMouseDown={(e) => startResize('format', e, 70)}
+                style={{ left: `calc(1rem + 2.25rem + ${colWidths.subject + colWidths.format}px)` }}
+                className="group absolute top-0 bottom-0 z-20 w-3 -translate-x-1/2 cursor-col-resize select-none flex items-center justify-center hover:bg-cursor-primary/10 active:bg-cursor-primary/20"
+                title="Drag to resize Format column"
+              >
+                <div className="h-full w-[1px] bg-cursor-hairline group-hover:bg-cursor-primary group-active:bg-cursor-primary transition-colors" />
+              </div>
+
+              <div
+                onMouseDown={(e) => startResize('path', e, 150)}
+                style={{ left: `calc(1rem + 2.25rem + ${colWidths.subject + colWidths.format + colWidths.path}px)` }}
+                className="group absolute top-0 bottom-0 z-20 w-3 -translate-x-1/2 cursor-col-resize select-none flex items-center justify-center hover:bg-cursor-primary/10 active:bg-cursor-primary/20"
+                title="Drag to resize Relative path column"
+              >
+                <div className="h-full w-[1px] bg-cursor-hairline group-hover:bg-cursor-primary group-active:bg-cursor-primary transition-colors" />
+              </div>
+
+              {displayedEntries.map((entry) => {
+                const checked = selectedPaths.has(entry.path);
+                const fmt = getEntryFormat(entry);
+                return (
+                  <div
+                    key={entry.path}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => togglePath(entry.path)}
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        togglePath(entry.path);
+                      }
+                    }}
+                    className={`grid cursor-pointer items-center border-b border-cursor-hairline-soft px-4 py-2.5 text-sm transition-colors ${
+                      checked ? 'bg-cursor-primary/5 hover:bg-cursor-primary/10' : 'hover:bg-cursor-surface-card'
+                    }`}
+                    style={gridColumnsStyle}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        readOnly
+                        className="h-4 w-4 rounded border-cursor-hairline text-cursor-primary accent-cursor-primary pointer-events-none"
+                      />
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger className="min-w-0 w-full text-left">
+                        <span className="block truncate pr-3 text-sm font-semibold text-cursor-ink">
+                          {entry.subject_label ?? '-'}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
+                        {entry.subject_label ?? '-'}
+                      </TooltipContent>
+                    </Tooltip>
+                    <div className="px-3">
+                      <span className={getFormatBadgeClass(fmt)}>
+                        {fmt}
+                      </span>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger className="min-w-0 w-full text-left block">
+                        <span className="block min-w-0 truncate px-3 text-sm text-cursor-muted">
+                          {entry.relative_path ?? entry.name}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" align="start" className="max-w-md break-all text-xs">
+                        {entry.relative_path ?? entry.path}
+                      </TooltipContent>
+                    </Tooltip>
+                    <span className="pl-3 text-right text-sm text-cursor-muted">{fmtBytes(entry.size)}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </TooltipProvider>
       )}
 
+      {/* Empty scanned state */}
+      {canScan && !scanPending && serverEntries.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-cursor-muted">
+          <FolderOpen className="h-6 w-6 text-cursor-muted/60" />
+          <span>No MRI image files found in this directory.</span>
+        </div>
+      )}
+
       {/* Manual count fallback (local or not yet scanned) */}
-      <div className="px-4 py-2.5">
-        {(!canScan || !scanned) && (
+      {(!canScan || !scanned) && (
+        <div className="px-4 py-3">
           <label className={labelCls}>
             Number of images to process
             <input
@@ -1856,49 +2197,29 @@ function BatchConfigModal({
               }}
             />
           </label>
-        )}
-        {canScan && scanned && (
-          <div className="flex items-center justify-between gap-2.5">
-            <p className="text-xs text-cursor-muted">{selectedPaths.size} selected</p>
-            <div className="flex gap-2">
-              {selectedPaths.size !== serverEntries.length && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedPaths(new Set(serverEntries.map((e) => e.path)))}
-                  className="text-xs text-cursor-primary hover:underline"
-                >
-                  Select all
-                </button>
-              )}
-              {selectedPaths.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedPaths(new Set())}
-                  className="text-xs text-cursor-primary hover:underline"
-                >
-                  Unselect all
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Footer */}
-      <div className="flex justify-end gap-1.5 border-t border-cursor-hairline px-4 py-2.5">
-        <Button variant="ghost" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          disabled={canScan && scanned && selectedPaths.size === 0}
-          onClick={() => {
-            const paths = scanned && selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
-            onConfirm(finalCount, paths);
-          }}
-        >
-          Save selection
-        </Button>
+      {/* Sticky footer */}
+      <div className="flex items-center justify-between gap-2.5 border-t border-cursor-hairline bg-cursor-surface-card px-4 py-3">
+        <div className="text-sm font-medium text-cursor-ink">
+          {selectedPaths.size} of {serverEntries.length} selected
+        </div>
+        <div className="flex flex-none gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={canScan && scanned && selectedPaths.size === 0}
+            onClick={() => {
+              const paths = scanned && selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
+              onConfirm(finalCount, paths);
+            }}
+          >
+            Save selection
+          </Button>
+        </div>
       </div>
     </WideModalOverlay>
   );

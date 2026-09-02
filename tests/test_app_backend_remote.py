@@ -611,7 +611,7 @@ def test_scan_batch_via_sftp_groups_dicom_series_and_computes_metadata(monkeypat
 
     entries = {e["subject_label"]: e for e in result["entries"]}
 
-    sub1 = entries["sub-01"]
+    sub1 = entries["sub-01_T1w"]
     assert sub1["name"] == "T1w.nii.gz"
     assert sub1["is_dicom_series"] is False
 
