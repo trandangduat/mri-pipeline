@@ -357,10 +357,10 @@ export function RuntimeSection() {
               <div className="flex items-center gap-1.5">
                 <input
                   name="key_path"
-                  placeholder="C:\\Users\\ADMIN\\.ssh\\duat"
+                  placeholder="Select SSH key via Browse"
                   value={formValues.key_path}
-                  onChange={(e) => setFormField('key_path', e.target.value)}
-                  className={inputCls}
+                  readOnly
+                  className={`${inputCls} bg-cursor-canvas-soft text-cursor-muted`}
                 />
                 <Button
                   variant="ghost"

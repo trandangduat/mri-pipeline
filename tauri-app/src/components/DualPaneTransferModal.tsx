@@ -21,12 +21,6 @@ import {Button, Alert, inputCls} from './ui';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 import type {RemotePayload} from '../api/runConfig';
 
-function hasTauriInternals(): boolean {
-  if (typeof window === 'undefined') return false;
-  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
-  return typeof internals?.invoke === 'function';
-}
-
 function selectedDialogPath(selected: Awaited<ReturnType<typeof openDialog>>): string {
   if (Array.isArray(selected)) return selected[0] || '';
   return selected || '';
@@ -212,10 +206,6 @@ export function DualPaneTransferModal({
 
   // Local folder picker dialog fallback
   const handleLocalBrowseDialog = async () => {
-    if (!hasTauriInternals()) {
-      alert('Native folder picker is only available in desktop app mode. Type or edit the path above.');
-      return;
-    }
     try {
       const selected = await openDialog({directory: true, multiple: false});
       const path = selectedDialogPath(selected);

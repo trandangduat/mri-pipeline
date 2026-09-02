@@ -28,12 +28,6 @@ function browseJsonFile(inputRef: React.RefObject<HTMLInputElement | null>) {
   if (inputRef.current) inputRef.current.click();
 }
 
-function hasTauriInternals() {
-  if (typeof window === 'undefined') return false;
-  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
-  return typeof internals?.invoke === 'function';
-}
-
 function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
   if (Array.isArray(selected)) return selected[0] || '';
   return selected || '';
@@ -48,8 +42,6 @@ export function PipelineStepsSection() {
   const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
 
   const licensePath = usePipelineFormStore((s) => s.formValues.licensePath as string | undefined);
-  const licenseFileInput = useRef<HTMLInputElement>(null);
-  const [uploadingLicense, setUploadingLicense] = React.useState(false);
   const [showTools, setShowTools] = React.useState(formValues.pipelineMode === 'Custom');
   const [presetInvalid, setPresetInvalid] = React.useState(false);
 
@@ -167,23 +159,6 @@ export function PipelineStepsSection() {
       toast.success('Preset loaded successfully');
     } catch {
       setPresetInvalid(true);
-    }
-  }
-
-  async function handleBrowserLicenseFile(file?: File | null) {
-    if (!file) return;
-    setUploadingLicense(true);
-    try {
-      const result = await client.uploadLicense(file);
-      if (!result.ok || !result.path) {
-        throw new Error(result.error || 'License upload failed.');
-      }
-      setFormField('licensePath', result.path);
-      print('License uploaded', {name: file.name, path: result.path});
-    } catch (err: unknown) {
-      print('License upload failed', {error: (err as Error).message});
-    } finally {
-      setUploadingLicense(false);
     }
   }
 
@@ -331,21 +306,16 @@ export function PipelineStepsSection() {
               name="licensePath"
               type="text"
               value={licensePath || ''}
-              onChange={(event) => setFormField('licensePath', event.target.value)}
-              placeholder="Select or enter path to license.txt"
-              className={inputCls}
+              readOnly
+              placeholder="Select license.txt via Browse"
+              className={`${inputCls} bg-cursor-canvas-soft text-cursor-muted`}
             />
           </label>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
               variant="ghost"
-              icon={uploadingLicense ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
-              disabled={uploadingLicense}
+              icon={<FolderOpen className="h-3.5 w-3.5" />}
               onClick={async () => {
-                if (!hasTauriInternals()) {
-                  licenseFileInput.current?.click();
-                  return;
-                }
                 try {
                   const selected = await open({
                     multiple: false,
@@ -360,7 +330,7 @@ export function PipelineStepsSection() {
                 }
               }}
             >
-              {uploadingLicense ? 'Uploading...' : 'Browse'}
+              Browse
             </Button>
             {licensePath && (
               <Button
@@ -371,16 +341,6 @@ export function PipelineStepsSection() {
               </Button>
             )}
           </div>
-          <input
-            ref={licenseFileInput}
-            className="hidden"
-            type="file"
-            accept=".txt,text/plain"
-            onChange={(event) => {
-              void handleBrowserLicenseFile(event.target.files?.[0]);
-              event.target.value = '';
-            }}
-          />
         </div>
       )}
 
@@ -749,8 +709,6 @@ export function AdvancedSettingsSection() {
   });
   const client = useClient();
   const maxTaskCap = hardware.logicalCores || 32;
-  const presetConfigInput = useRef<HTMLInputElement>(null);
-  const profileConfigInput = useRef<HTMLInputElement>(null);
   const isCustomMode = formValues.pipelineMode === 'Custom';
   const hasCustomNeuroflowConfig = Boolean(
     String(formValues.neuroflowPresetFile || '').trim() && String(formValues.neuroflowProfileFile || '').trim(),
@@ -766,12 +724,7 @@ export function AdvancedSettingsSection() {
 
   const browseNeuroflowConfig = async (
     field: 'neuroflowPresetFile' | 'neuroflowProfileFile',
-    inputRef: React.RefObject<HTMLInputElement | null>,
   ) => {
-    if (!hasTauriInternals()) {
-      inputRef.current?.click();
-      return;
-    }
     const kind = field === 'neuroflowPresetFile' ? 'preset' : 'profile';
     try {
       const selected = await open({
@@ -783,27 +736,6 @@ export function AdvancedSettingsSection() {
       const res = await client.validateNeuroflowConfig({path, kind});
       if (res.ok) {
         setFormFields({pipelineMode: 'Custom', [field]: path});
-      } else {
-        if (kind === 'preset') setPresetInvalid(true);
-        else setProfileInvalid(true);
-      }
-    } catch {
-      if (kind === 'preset') setPresetInvalid(true);
-      else setProfileInvalid(true);
-    }
-  };
-
-  const handleConfigFile = async (
-    file: File | null | undefined,
-    field: 'neuroflowPresetFile' | 'neuroflowProfileFile',
-  ) => {
-    if (!file) return;
-    const kind = field === 'neuroflowPresetFile' ? 'preset' : 'profile';
-    try {
-      const content = await file.text();
-      const res = await client.validateNeuroflowConfig({content, kind});
-      if (res.ok) {
-        setFormFields({pipelineMode: 'Custom', [field]: file.name});
       } else {
         if (kind === 'preset') setPresetInvalid(true);
         else setProfileInvalid(true);
@@ -919,24 +851,18 @@ export function AdvancedSettingsSection() {
                     <input
                       type="text"
                       value={formValues.neuroflowPresetFile ?? ''}
-                      onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowPresetFile: e.target.value})}
-                      placeholder="Path to preset YAML/JSON"
-                      className={`${inputCls} flex-1 min-w-0`}
+                      readOnly
+                      placeholder="Select preset YAML/JSON via Browse"
+                      className={`${inputCls} flex-1 min-w-0 bg-cursor-canvas-soft text-cursor-muted`}
                     />
                     <Button
                       variant="ghost"
                       icon={<FolderOpen className="h-3.5 w-3.5" />}
-                      onClick={() => void browseNeuroflowConfig('neuroflowPresetFile', presetConfigInput)}
+                      aria-label="Browse preset configuration"
+                      onClick={() => void browseNeuroflowConfig('neuroflowPresetFile')}
                     >
                       Browse
                     </Button>
-                    <input
-                      ref={presetConfigInput}
-                      className="hidden"
-                      type="file"
-                      accept=".yaml,.yml,.json"
-                      onChange={(e) => void handleConfigFile(e.target.files?.[0], 'neuroflowPresetFile')}
-                    />
                   </div>
                 </label>
 
@@ -949,24 +875,18 @@ export function AdvancedSettingsSection() {
                     <input
                       type="text"
                       value={formValues.neuroflowProfileFile ?? ''}
-                      onChange={(e) => setFormFields({pipelineMode: 'Custom', neuroflowProfileFile: e.target.value})}
-                      placeholder="Path to profile YAML/JSON"
-                      className={`${inputCls} flex-1 min-w-0`}
+                      readOnly
+                      placeholder="Select profile YAML/JSON via Browse"
+                      className={`${inputCls} flex-1 min-w-0 bg-cursor-canvas-soft text-cursor-muted`}
                     />
                     <Button
                       variant="ghost"
                       icon={<FolderOpen className="h-3.5 w-3.5" />}
-                      onClick={() => void browseNeuroflowConfig('neuroflowProfileFile', profileConfigInput)}
+                      aria-label="Browse profile configuration"
+                      onClick={() => void browseNeuroflowConfig('neuroflowProfileFile')}
                     >
                       Browse
                     </Button>
-                    <input
-                      ref={profileConfigInput}
-                      className="hidden"
-                      type="file"
-                      accept=".yaml,.yml,.json"
-                      onChange={(e) => void handleConfigFile(e.target.files?.[0], 'neuroflowProfileFile')}
-                    />
                   </div>
                 </label>
               </div>
@@ -1329,6 +1249,11 @@ function ServerBrowserModal({
                     if (selectMode === 'path') setManualPath(entry.path);
                     else if (isImg) toggleFile(entry.path);
                   }}
+                  onDoubleClick={() => {
+                    if (selectMode === 'path') {
+                      onConfirm(entry.path);
+                    }
+                  }}
                   className={`min-w-0 flex-1 truncate text-left font-mono ${isImg ? 'text-cursor-ink hover:underline' : 'cursor-default text-cursor-muted'}`}
                 >
                   {entry.name}
@@ -1414,7 +1339,6 @@ function BatchConfigModal({
   currentCount,
   onConfirm,
   onClose,
-  localFileListLen,
   isConnected,
   remotePayload,
   cacheKey,
@@ -1427,7 +1351,6 @@ function BatchConfigModal({
   currentCount: number | undefined;
   onConfirm: (count: number, paths?: string[]) => void;
   onClose: () => void;
-  localFileListLen: number;
   isConnected: boolean;
   remotePayload: Record<string, unknown> | RemotePayload;
   cacheKey: string;
@@ -1437,7 +1360,7 @@ function BatchConfigModal({
 }) {
   const remoteBrowseMutation = useRemoteBrowseMutation();
   const localBrowseMutation = useLocalBrowseMutation();
-  const [count, setCount] = React.useState<number>(currentCount ?? (localFileListLen || 1));
+  const [count, setCount] = React.useState<number>(currentCount ?? 1);
 
   const isServer = inputSource === 'Server';
   const canScan = isServer ? isConnected : !!inputPath;
@@ -1798,13 +1721,13 @@ function PathField({
   secondaryBrowse,
   required,
   disabled = false,
-  readOnly = false,
+  readOnly = true,
 }: {
   id: string;
   label: string;
   value: string;
   placeholder: string;
-  onChange: (v: string) => void;
+  onChange?: (v: string) => void;
   onBrowse: () => void;
   browseLabel?: string;
   secondaryBrowse?: {
@@ -1828,7 +1751,7 @@ function PathField({
           required={required && !disabled}
           disabled={disabled}
           readOnly={readOnly}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange?.(e.target.value)}
           className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''} ${readOnly ? 'bg-cursor-canvas-soft text-cursor-muted' : ''}`}
         />
         <Button
@@ -1916,7 +1839,6 @@ function RadioCard({
 // ---------------------------------------------------------------------------
 
 export function InputOutputSection() {
-  const client = useClient();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
@@ -1933,6 +1855,7 @@ export function InputOutputSection() {
   // Local modals
   const [dualPaneModal, setDualPaneModal] = React.useState(false);
   const [serverInputModal, setServerInputModal] = React.useState(false);
+  const [serverInputModalTitle, setServerInputModalTitle] = React.useState('Browse server - Input location');
   const [serverStagingModal, setServerStagingModal] = React.useState(false);
   const [serverOutputModal, setServerOutputModal] = React.useState(false);
   const [batchModal, setBatchModal] = React.useState(false);
@@ -1980,10 +1903,6 @@ export function InputOutputSection() {
   ];
 
   const handleLocalBrowseFile = async () => {
-    if (!hasTauriInternals()) {
-      localFileInput.current?.click();
-      return;
-    }
     try {
       const selected = await open({
         multiple: false,
@@ -1999,10 +1918,6 @@ export function InputOutputSection() {
   };
 
   const handleLocalBrowseFolder = async () => {
-    if (!hasTauriInternals()) {
-      localFolderInput.current?.click();
-      return;
-    }
     try {
       const selected = await open({directory: true, multiple: false});
       const path = selectedDialogPath(selected);
@@ -2016,10 +1931,6 @@ export function InputOutputSection() {
   };
 
   const handleLocalBrowseOutputDir = async () => {
-    if (!hasTauriInternals()) {
-      localOutputDirInput.current?.click();
-      return;
-    }
     try {
       const selected = await open({directory: true, multiple: false});
       const path = selectedDialogPath(selected);
@@ -2029,20 +1940,6 @@ export function InputOutputSection() {
     } catch {
       // dialog cancelled or unavailable
     }
-  };
-
-  const localFileInput = React.useRef<HTMLInputElement>(null);
-  const localFolderInput = React.useRef<HTMLInputElement>(null);
-  const localOutputDirInput = React.useRef<HTMLInputElement>(null);
-  const [localFileListLen, setLocalFileListLen] = React.useState(0);
-
-  const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    if (files.length === 1 && files[0]) {
-      setFormField('inputPath', files[0].name);
-    }
-    setLocalFileListLen(files.length);
   };
 
   return (
@@ -2129,7 +2026,6 @@ export function InputOutputSection() {
                   onChange={(v) => setFormField('inputPath', v)}
                   onBrowse={handleLocalBrowseFolder}
                   browseLabel="Browse Folder"
-                  readOnly={isBatch}
                   required
                 />
               ) : (
@@ -2157,7 +2053,6 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('inputServerDir', v)}
                 onBrowse={() => setServerStagingModal(true)}
                 disabled={!remoteConnected}
-                readOnly={isBatch}
                 required
               />
               <PathField
@@ -2168,7 +2063,6 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
-                readOnly={isBatch}
                 required
               />
             </div>
@@ -2186,7 +2080,6 @@ export function InputOutputSection() {
                   onChange={(v) => setFormField('inputPath', v)}
                   onBrowse={handleLocalBrowseFolder}
                   browseLabel="Browse Folder"
-                  readOnly={isBatch}
                   required
                 />
               ) : (
@@ -2206,14 +2099,6 @@ export function InputOutputSection() {
                   required
                 />
               )}
-              {/* Hidden file input — browser-safe fallback */}
-              <input
-                ref={localFileInput}
-                className="hidden"
-                type="file"
-                multiple
-                onChange={handleLocalFileChange}
-              />
               <PathField
                 id="outputDir"
                 label="Output location"
@@ -2221,7 +2106,6 @@ export function InputOutputSection() {
                 placeholder="/outputs/project"
                 onChange={(v) => setFormField('outputDir', v)}
                 onBrowse={handleLocalBrowseOutputDir}
-                readOnly={isBatch}
                 required
               />
             </div>
@@ -2230,17 +2114,45 @@ export function InputOutputSection() {
           {/* Row 2: Path fields — Server */}
           {inputSource === 'Server' && (
             <div className="grid gap-3">
-              <PathField
-                id="inputServerDir"
-                label="Input location (server path)"
-                value={formValues.inputServerDir || ''}
-                placeholder="/home/user/mri-data"
-                onChange={(v) => setFormField('inputServerDir', v)}
-                onBrowse={() => setServerInputModal(true)}
-                disabled={!remoteConnected}
-                readOnly={isBatch}
-                required
-              />
+              {isBatch ? (
+                <PathField
+                  id="inputServerDir"
+                  label="Input location (server path)"
+                  value={formValues.inputServerDir || ''}
+                  placeholder="/home/user/batch_subjects_folder"
+                  onChange={(v) => setFormField('inputServerDir', v)}
+                  onBrowse={() => {
+                    setServerInputModalTitle('Browse server - Batch input folder');
+                    setServerInputModal(true);
+                  }}
+                  browseLabel="Browse Folder"
+                  disabled={!remoteConnected}
+                  required
+                />
+              ) : (
+                <PathField
+                  id="inputServerDir"
+                  label="Input location (server path)"
+                  value={formValues.inputServerDir || ''}
+                  placeholder="/home/user/sub-001_T1w.nii.gz or /home/user/dicom_series_folder"
+                  onChange={(v) => setFormField('inputServerDir', v)}
+                  onBrowse={() => {
+                    setServerInputModalTitle('Browse server - Input file');
+                    setServerInputModal(true);
+                  }}
+                  browseLabel="Browse File"
+                  secondaryBrowse={{
+                    label: 'Folder (DICOM)',
+                    title: 'Browse DICOM series folder',
+                    onClick: () => {
+                      setServerInputModalTitle('Browse server - DICOM folder');
+                      setServerInputModal(true);
+                    },
+                  }}
+                  disabled={!remoteConnected}
+                  required
+                />
+              )}
               <PathField
                 id="serverOutputDir"
                 label="Output location (server path)"
@@ -2249,7 +2161,6 @@ export function InputOutputSection() {
                 onChange={(v) => setFormField('serverOutputDir', v)}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
-                readOnly={isBatch}
                 required
               />
             </div>
@@ -2292,7 +2203,7 @@ export function InputOutputSection() {
       {serverInputModal && (
         remoteConnected ? (
           <ServerBrowserModal
-            title="Browse server - Input location"
+            title={serverInputModalTitle}
             initialPath={formValues.inputServerDir || '~'}
             remotePayload={remotePayload}
             selectMode="path"
@@ -2355,7 +2266,6 @@ export function InputOutputSection() {
           inputSource={inputSource}
           inputPath={inputSource === 'Server' ? (formValues.inputServerDir || '') : formValues.inputPath}
           currentCount={formValues.batchImageCount as number | undefined}
-          localFileListLen={localFileListLen}
           isConnected={remoteConnected}
           remotePayload={remotePayload}
           cacheKey={batchCacheKey}

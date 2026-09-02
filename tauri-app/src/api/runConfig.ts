@@ -107,7 +107,10 @@ export function buildRunConfig(
   const selectedTools = preset?.tools || selectedToolsFromForm(formValues);
   const inputMode = formValues.inputMode || 'file';
   const normalizedInputMode = inputMode === 'batch_folder' ? 'dir' : inputMode;
-  const inputPath = formValues.inputPath || '';
+  const rawInputPath = formValues.inputPath || '';
+  const inputPath = formValues.inputSource === 'Server' && !rawInputPath
+    ? (formValues.inputServerDir || '')
+    : rawInputPath;
   const additionalPaths = String(formValues.additionalInputPaths || '')
     .split(',')
     .map((path) => path.trim())
@@ -124,7 +127,9 @@ export function buildRunConfig(
           ? additionalPaths
           : [],
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
-    output_dir: formValues.outputDir,
+    output_dir: formValues.runtimeTarget === 'Server'
+      ? (formValues.outputDir || formValues.serverOutputDir || '')
+      : formValues.outputDir,
     server_output_dir: formValues.runtimeTarget === 'Server'
       ? (formValues.serverOutputDir || formValues.outputDir || '')
       : '',

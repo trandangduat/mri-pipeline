@@ -62,7 +62,8 @@ export function deriveSubjectLabel(
       const rel = normalizedPath.slice(normalizedRoot.length).replace(/^\/+/, '');
       const relParts = rel.split('/').filter(Boolean);
       if (relParts.length > 1) {
-        relParts[relParts.length - 1] = relParts[relParts.length - 1].replace(/\.(nii|nii\.gz|mgz|dcm|dicom|ima)$/i, '');
+        const lastIdx = relParts.length - 1;
+        relParts[lastIdx] = (relParts[lastIdx] || '').replace(/\.(nii|nii\.gz|mgz|dcm|dicom|ima)$/i, '');
         return {subject_id: relParts.join('__'), filename};
       }
     }

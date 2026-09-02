@@ -86,11 +86,11 @@ describe('PipelinePage - TC-01 & TC-02 Input & Output Tests', () => {
     renderWithClient(<PipelinePage />);
 
     // When disconnected with Runtime=Server, Source=Local: Local input enabled, Server input & output disabled
-    const inputLocalField = screen.getByLabelText(/Input location \(local\)/i);
+    const inputLocalField = screen.getByLabelText(/Input location \(local/i);
     expect(inputLocalField).not.toBeDisabled();
 
-    const inputServerField = screen.getByLabelText(/Input location \(server\)/i);
-    const outputDirField = screen.getByLabelText(/Output location \(server\)/i);
+    const inputServerField = screen.getByLabelText(/Input location \(server/i);
+    const outputDirField = screen.getByLabelText(/Output location \(server/i);
 
     expect(inputServerField).toBeDisabled();
     expect(inputServerField).toHaveAttribute('placeholder', 'Connect to server first');
@@ -133,6 +133,75 @@ describe('PipelinePage - TC-01 & TC-02 Input & Output Tests', () => {
     expect(outputDirField).not.toBeDisabled();
   });
 
+  it('renders Browse File and Folder (DICOM) buttons when Source is Server and mode is single', async () => {
+    const user = userEvent.setup();
+    useRemoteStore.setState({
+      connected: true,
+      host: 'server.example.com',
+      port: 22,
+      username: 'catcd1',
+    });
+    usePipelineFormStore.setState({
+      formValues: {
+        ...usePipelineFormStore.getState().formValues,
+        inputSource: 'Server',
+        inputMode: 'file',
+        pipelineMode: 'CAT12 + Volume',
+      },
+    });
+
+    renderWithClient(<PipelinePage />);
+
+    const browseFileBtn = screen.getByRole('button', {name: /Browse File/i});
+    const dicomFolderBtn = screen.getByRole('button', {name: /Folder \(DICOM\)/i});
+
+    expect(browseFileBtn).toBeInTheDocument();
+    expect(browseFileBtn).not.toBeDisabled();
+    expect(dicomFolderBtn).toBeInTheDocument();
+    expect(dicomFolderBtn).not.toBeDisabled();
+
+    // Click Browse File opens Server modal with Input file title
+    await user.click(browseFileBtn);
+    expect(screen.getByText('Browse server - Input file')).toBeInTheDocument();
+
+    // Close modal
+    await user.click(screen.getByRole('button', {name: /Cancel/i}));
+
+    // Click Folder (DICOM) opens Server modal with DICOM folder title
+    await user.click(dicomFolderBtn);
+    expect(screen.getByText('Browse server - DICOM folder')).toBeInTheDocument();
+  });
+
+  it('renders Browse Folder button when Source is Server and mode is batch', async () => {
+    const user = userEvent.setup();
+    useRemoteStore.setState({
+      connected: true,
+      host: 'server.example.com',
+      port: 22,
+      username: 'catcd1',
+    });
+    usePipelineFormStore.setState({
+      formValues: {
+        ...usePipelineFormStore.getState().formValues,
+        inputSource: 'Server',
+        inputMode: 'batch_folder',
+        pipelineMode: 'Batch',
+      },
+    });
+
+    renderWithClient(<PipelinePage />);
+
+    const browseFolderBtn = screen.getByRole('button', {name: /Browse Folder/i});
+    expect(browseFolderBtn).toBeInTheDocument();
+    expect(browseFolderBtn).not.toBeDisabled();
+
+    // Secondary DICOM folder button should not be present in batch mode
+    expect(screen.queryByRole('button', {name: /Folder \(DICOM\)/i})).not.toBeInTheDocument();
+
+    await user.click(browseFolderBtn);
+    expect(screen.getByText('Browse server - Batch input folder')).toBeInTheDocument();
+  });
+
   it('TC-02: Upload data to server button is positioned under Source Input and opens DualPane modal when connected', async () => {
     const user = userEvent.setup();
     useRemoteStore.setState({
@@ -153,5 +222,30 @@ describe('PipelinePage - TC-01 & TC-02 Input & Output Tests', () => {
     expect(screen.getByText('Upload Data to Server')).toBeInTheDocument();
     expect(screen.getByText('Local Computer')).toBeInTheDocument();
     expect(screen.getByText('Remote Server (SSH)')).toBeInTheDocument();
+  });
+
+  it('enforces read-only on path input fields by default', () => {
+    useRemoteStore.setState({
+      connected: true,
+      host: 'server.example.com',
+      port: 22,
+      username: 'catcd1',
+    });
+    usePipelineFormStore.setState({
+      formValues: {
+        ...usePipelineFormStore.getState().formValues,
+        inputSource: 'Local',
+        runtimeTarget: 'Local',
+        inputMode: 'file',
+      },
+    });
+
+    renderWithClient(<PipelinePage />);
+
+    const inputPathField = screen.getByLabelText(/Input location/i);
+    const outputDirField = screen.getByLabelText(/Output location/i);
+
+    expect(inputPathField).toHaveAttribute('readonly');
+    expect(outputDirField).toHaveAttribute('readonly');
   });
 });

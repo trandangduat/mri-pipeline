@@ -26,7 +26,6 @@ interface Props {
   onStart: () => void;
   onClose: () => void;
   canClose?: boolean | undefined;
-  webBrowseHint?: boolean | undefined;
 }
 
 function StepIcon({status}: {status: DownloadStep['status']}) {
@@ -53,7 +52,6 @@ export function DownloadOutputsDialog({
   onStart,
   onClose,
   canClose = true,
-  webBrowseHint = false,
 }: Props) {
   if (!open) return null;
 
@@ -107,9 +105,9 @@ export function DownloadOutputsDialog({
                 <input
                   type="text"
                   value={localDir}
-                  onChange={(e) => onLocalDirChange(e.target.value)}
-                  placeholder="Select or type a local folder..."
-                  className="flex-1 rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 py-2 text-sm text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10 font-mono"
+                  readOnly
+                  placeholder="Select a destination folder with Browse..."
+                  className="flex-1 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 text-sm text-cursor-muted placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-10 font-mono"
                   autoFocus
                 />
                 <button
@@ -121,11 +119,6 @@ export function DownloadOutputsDialog({
                   Browse
                 </button>
               </div>
-              {webBrowseHint && (
-                <p className="m-0 mt-1.5 text-2xs text-cursor-primary">
-                  Type or paste a local folder path in this environment.
-                </p>
-              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-cursor-hairline-soft">

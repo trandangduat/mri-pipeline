@@ -1,8 +1,44 @@
-import {fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import {beforeAll, expect, test, vi} from 'vitest';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {AdvancedSettingsSection} from '../src/pages/PipelinePage';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
+
+const {mockOpen, mockValidateNeuroflowConfig} = vi.hoisted(() => ({
+  mockOpen: vi.fn(),
+  mockValidateNeuroflowConfig: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: mockOpen,
+}));
+
+vi.mock('../src/query/useEnvironment', () => ({
+  useMetadata: () => ({
+    data: {
+      version: 1,
+      stages: [],
+      stage_order: [],
+      tools: {},
+      tools_by_stage: {},
+      pipeline_modes: [{id: 'CAT12 + Volume'}, {id: 'FreeSurfer 8 + Volume'}, {id: 'Custom'}],
+      presets: {},
+      stats_vectors: {},
+      atlases: {},
+      tool_contracts: {},
+    },
+    isLoading: false,
+    isError: false,
+  }),
+  useEnvironment: () => ({
+    data: {docker_available: true, local_hardware: {}},
+    isLoading: false,
+    isError: false,
+  }),
+  useClient: () => ({
+    validateNeuroflowConfig: mockValidateNeuroflowConfig,
+  }),
+}));
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -18,6 +54,10 @@ beforeAll(() => {
       dispatchEvent: vi.fn(),
     })),
   });
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
 function resetStore() {
@@ -130,16 +170,15 @@ test('opens and dismisses invalid preset popup modal when an invalid file is sel
     neuroflowProfileFile: '/tmp/profile.yaml',
   });
 
-  const {container} = renderSection();
+  mockOpen.mockResolvedValue('/tmp/invalid.yaml');
+  mockValidateNeuroflowConfig.mockResolvedValue({ok: false, error: 'Invalid preset'});
+
+  renderSection();
   fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
 
-  // Mock invalid preset response
-  const presetInputs = container.querySelectorAll('input[type="file"]');
-  const presetFileInput = presetInputs[0];
-  expect(presetFileInput).toBeInTheDocument();
-
-  const invalidFile = new File(['invalid content: ['], 'invalid.yaml', {type: 'text/yaml'});
-  fireEvent.change(presetFileInput, {target: {files: [invalidFile]}});
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', {name: 'Browse preset configuration'}));
+  });
 
   // Modal appears
   expect(await screen.findByText('Invalid preset file')).toBeInTheDocument();
@@ -158,15 +197,15 @@ test('opens and dismisses invalid profile popup modal when an invalid file is se
     neuroflowProfileFile: '/tmp/profile.yaml',
   });
 
-  const {container} = renderSection();
+  mockOpen.mockResolvedValue('/tmp/invalid_profile.yaml');
+  mockValidateNeuroflowConfig.mockResolvedValue({ok: false, error: 'Invalid profile'});
+
+  renderSection();
   fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
 
-  const profileInputs = container.querySelectorAll('input[type="file"]');
-  const profileFileInput = profileInputs[1];
-  expect(profileFileInput).toBeInTheDocument();
-
-  const invalidFile = new File(['invalid content: ['], 'invalid_profile.yaml', {type: 'text/yaml'});
-  fireEvent.change(profileFileInput, {target: {files: [invalidFile]}});
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', {name: 'Browse profile configuration'}));
+  });
 
   // Modal appears
   expect(await screen.findByText('Invalid profile file')).toBeInTheDocument();
@@ -175,5 +214,23 @@ test('opens and dismisses invalid profile popup modal when an invalid file is se
   // Click OK to dismiss
   fireEvent.click(screen.getByRole('button', {name: 'OK'}));
   expect(screen.queryByText('Invalid profile file')).not.toBeInTheDocument();
+});
+
+test('preset and profile inputs are read-only', () => {
+  resetStore();
+  usePipelineFormStore.getState().setFormFields({
+    pipelineMode: 'Custom',
+    neuroflowPresetFile: '/tmp/preset.yaml',
+    neuroflowProfileFile: '/tmp/profile.yaml',
+  });
+
+  renderSection();
+  fireEvent.click(screen.getByRole('button', {name: /Show Settings/i}));
+
+  const presetInput = screen.getByPlaceholderText('Select preset YAML/JSON via Browse');
+  const profileInput = screen.getByPlaceholderText('Select profile YAML/JSON via Browse');
+
+  expect(presetInput).toHaveAttribute('readonly');
+  expect(profileInput).toHaveAttribute('readonly');
 });
 

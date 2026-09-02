@@ -21,7 +21,9 @@ test('select phase renders destination input and Start button disabled without p
   render(<DownloadOutputsDialog {...baseProps} />);
   expect(screen.getByText('Download Server Outputs')).toBeTruthy();
   expect(screen.getByText('Save outputs to')).toBeTruthy();
-  expect(screen.getByPlaceholderText('Select or type a local folder...')).toBeTruthy();
+  const input = screen.getByPlaceholderText('Select a destination folder with Browse...');
+  expect(input).toBeTruthy();
+  expect(input).toHaveAttribute('readonly');
   expect(screen.getByText('Start Download')).toBeDisabled();
 });
 

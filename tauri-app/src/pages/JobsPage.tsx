@@ -62,12 +62,6 @@ import {LazyUploadProgress} from '../components/LazyUploadProgress';
 import type {DownloadStep} from '../components/DownloadOutputsDialog';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
 
-function hasTauriInternals() {
-  if (typeof window === 'undefined') return false;
-  const internals = (window as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}}).__TAURI_INTERNALS__;
-  return typeof internals?.invoke === 'function';
-}
-
 function selectedDialogPath(selected: unknown) {
   if (Array.isArray(selected)) return selected[0] || '';
   return (selected as string) || '';
@@ -619,7 +613,6 @@ export function JobsPage() {
   const [downloadFinalPath, setDownloadFinalPath] = useState<string | undefined>(undefined);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
   const [downloadRunning, setDownloadRunning] = useState(false);
-  const [webBrowseHint, setWebBrowseHint] = useState(false);
   const [remoteLagging, setRemoteLagging] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [jobToDelete, setJobToDelete] = useState<Record<string, unknown> | null>(null);
@@ -1062,7 +1055,6 @@ export function JobsPage() {
       setDownloadFinalPath(undefined);
       setDownloadError(undefined);
       setDownloadRunning(false);
-      setWebBrowseHint(false);
     } else {
       const effDir = String(displayMeta.output_dir_str);
       const subDir = String(job?.download_subdir || '');
@@ -1072,10 +1064,6 @@ export function JobsPage() {
   };
 
   const handleBrowseDownloadDir = async () => {
-    if (!hasTauriInternals()) {
-      setWebBrowseHint(true);
-      return;
-    }
     try {
       const {open} = await import('@tauri-apps/plugin-dialog');
       const selected = await open({directory: true, multiple: false});
@@ -1103,7 +1091,6 @@ export function JobsPage() {
     setDownloadFinalPath(undefined);
     setDownloadError(undefined);
     setDownloadRunning(true);
-    setWebBrowseHint(false);
 
     const remotePayload = buildRemotePayload(formValues);
     const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
@@ -2226,7 +2213,6 @@ export function JobsPage() {
           if (!downloadRunning) setDownloadDialogOpen(false);
         }}
         canClose={!downloadRunning}
-        webBrowseHint={webBrowseHint}
       />
 
       {/* 5. Delete Job Confirm Dialog */}
@@ -2341,9 +2327,9 @@ function LiveStepElapsed({
   isRunning,
   lastSyncedAt,
 }: {
-  elapsed_sec?: number;
+  elapsed_sec?: number | undefined;
   isRunning: boolean;
-  lastSyncedAt?: number;
+  lastSyncedAt?: number | undefined;
 }) {
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -2380,7 +2366,7 @@ function VerticalTimelineStepRow({
       ? 'border-cursor-primary/40 bg-cursor-canvas-soft'
       : step?.status === 'failed'
         ? 'border-cursor-semantic-error/20 bg-cursor-canvas-soft'
-        : step?.status === 'stopped' || step?.status === 'interrupted'
+        : (step?.status as string) === 'stopped' || (step?.status as string) === 'interrupted'
           ? 'border-cursor-semantic-warn/30 bg-cursor-canvas-soft'
           : isSkipped
             ? 'border-cursor-hairline-soft bg-cursor-canvas-soft/50 opacity-60'
@@ -2393,7 +2379,7 @@ function VerticalTimelineStepRow({
         ? 'bg-cursor-primary animate-pulse ring-4 ring-cursor-primary/15'
         : step?.status === 'failed'
           ? 'bg-cursor-semantic-error ring-2 ring-cursor-semantic-error/15'
-          : step?.status === 'stopped' || step?.status === 'interrupted'
+          : (step?.status as string) === 'stopped' || (step?.status as string) === 'interrupted'
             ? 'bg-cursor-semantic-warn ring-2 ring-cursor-semantic-warn/15'
             : isSkipped
               ? 'bg-cursor-hairline-strong'
