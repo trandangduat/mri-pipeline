@@ -1,6 +1,10 @@
 import React, {useRef} from 'react';
 import {toast} from 'sonner';
-import {Workflow, FolderInput, FolderOpen, Save, Play, Square, Loader2, FileKey, Upload, SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge, HardDrive, Cpu, Info, ListOrdered, ChevronDown} from 'lucide-react';
+import {
+  Workflow, FolderInput, FolderOpen, Folder, FolderUp, FolderPlus, Save, Play, Square, Loader2, FileKey, Upload,
+  SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge,
+  HardDrive, Cpu, Info, ListOrdered, ChevronDown, FileText, Server, ArrowRight, ArrowUp
+} from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
 import {useNavigate} from 'react-router';
 import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from '../components/ui';
@@ -12,7 +16,7 @@ import {StartPipelineDialog} from '../components/StartPipelineDialog';
 import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
-import {useRemoteBrowseMutation, useLocalBrowseMutation} from '../query/useRemote';
+import {useRemoteBrowseMutation, useLocalBrowseMutation, useRemoteMkdirMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -1025,7 +1029,7 @@ function WideModalOverlay({onClose, children}: {onClose: () => void; children: R
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] rounded-xl border border-cursor-hairline bg-cursor-surface-card shadow-none">
+      <div className="relative my-auto w-full max-w-[min(52rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-cursor-hairline bg-cursor-surface-card shadow-none">
         {children}
       </div>
     </div>
@@ -1036,32 +1040,49 @@ function ServerBrowserModal({
   title,
   initialPath,
   remotePayload,
-  selectMode,
+  foldersOnly = false,
   onConfirm,
   onClose,
-  onSelectFiles,
 }: {
   title: string;
   initialPath: string;
   remotePayload: RemotePayload;
-  selectMode: 'path' | 'files';
+  foldersOnly?: boolean;
   onConfirm: (path: string) => void;
   onClose: () => void;
-  onSelectFiles?: (paths: string[], count: number) => void;
 }) {
   const browseMutation = useRemoteBrowseMutation();
+  const mkdirMutation = useRemoteMkdirMutation();
   const [currentPath, setCurrentPath] = React.useState(initialPath || '~');
   const [entries, setEntries] = React.useState<RemoteBrowseEntry[]>([]);
   const [parentPath, setParentPath] = React.useState('~');
-  const [selectedFiles, setSelectedFiles] = React.useState<Set<string>>(new Set());
   const [statusMsg, setStatusMsg] = React.useState('');
   const [isError, setIsError] = React.useState(false);
   const [manualPath, setManualPath] = React.useState(initialPath || '');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [selectedEntryPath, setSelectedEntryPath] = React.useState<string | null>(null);
+
+  // New folder creation state
+  const [isCreatingFolder, setIsCreatingFolder] = React.useState(false);
+  const [newFolderName, setNewFolderName] = React.useState('');
+  const [newFolderError, setNewFolderError] = React.useState<string | null>(null);
+  const newFolderInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (isCreatingFolder) {
+      newFolderInputRef.current?.focus();
+    }
+  }, [isCreatingFolder]);
+
+  const cleanTitle = React.useMemo(() => {
+    return title.replace(/^Browse server\s*[-–—:]\s*/i, '').trim() || title;
+  }, [title]);
 
   const doBrowse = React.useCallback(
     (path: string) => {
       setStatusMsg('Loading...');
       setIsError(false);
+      setSelectedEntryPath(null);
       browseMutation.mutate(
         {...remotePayload, path} as Parameters<typeof browseMutation.mutate>[0],
         {
@@ -1072,9 +1093,10 @@ function ServerBrowserModal({
               setEntries([]);
               return;
             }
-            setCurrentPath(res.path ?? path);
-            setManualPath(res.path ?? path);
-            setParentPath(res.parent ?? res.path ?? path);
+            const resolvedPath = res.path ?? path;
+            setCurrentPath(resolvedPath);
+            setManualPath(resolvedPath);
+            setParentPath(res.parent ?? resolvedPath);
             setEntries(res.entries ?? []);
             setStatusMsg('');
             setIsError(false);
@@ -1096,66 +1118,259 @@ function ServerBrowserModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleFile = (path: string) => {
-    setSelectedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+  const handleCreateFolder = () => {
+    const trimmed = newFolderName.trim();
+    if (!trimmed) {
+      setNewFolderError('Folder name is required');
+      return;
+    }
+    if (trimmed.includes('/') || trimmed.includes('\\')) {
+      setNewFolderError('Folder name cannot contain path separators');
+      return;
+    }
+    const base = currentPath.replace(/\/+$/, '') || '/';
+    const targetPath = base === '/' ? `/${trimmed}` : `${base}/${trimmed}`;
+    setNewFolderError(null);
+
+    mkdirMutation.mutate(
+      {
+        ...remotePayload,
+        path: targetPath,
+      },
+      {
+        onSuccess: (res) => {
+          if (res.ok) {
+            setIsCreatingFolder(false);
+            setNewFolderName('');
+            setNewFolderError(null);
+            setSelectedEntryPath(targetPath);
+            setManualPath(targetPath);
+            toast.success(`Created folder "${trimmed}"`);
+            doBrowse(currentPath);
+          } else {
+            setNewFolderError(res.error || 'Failed to create folder');
+          }
+        },
+        onError: (err: unknown) => {
+          setNewFolderError(err instanceof Error ? err.message : 'Failed to create folder');
+        },
+      },
+    );
   };
 
-  const dirs = entries.filter((e) => e.kind === 'directory');
-  const files = entries.filter((e) => e.kind === 'file');
+  const filteredEntries = React.useMemo(() => {
+    const list = foldersOnly ? entries.filter((e) => e.kind === 'directory') : entries;
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.toLowerCase().trim();
+    return list.filter((e) => e.name.toLowerCase().includes(q));
+  }, [entries, searchQuery, foldersOnly]);
+
+  const dirs = filteredEntries.filter((e) => e.kind === 'directory');
+  const files = foldersOnly ? [] : filteredEntries.filter((e) => e.kind === 'file');
   const isLoading = browseMutation.isPending;
+
+  // Selected item name for footer context
+  const selectedItemName = React.useMemo(() => {
+    if (!selectedEntryPath) return null;
+    const parts = selectedEntryPath.replace(/\\/g, '/').split('/').filter(Boolean);
+    return parts[parts.length - 1] || selectedEntryPath;
+  }, [selectedEntryPath]);
+
+  const targetPathToConfirm = selectedEntryPath || manualPath || currentPath;
+
+  const confirmBtnLabel = React.useMemo(() => {
+    if (foldersOnly) return 'Select folder';
+    if (selectedEntryPath) {
+      const isFile = files.some((f) => f.path === selectedEntryPath);
+      if (isFile) return 'Select file';
+    }
+    return 'Select folder';
+  }, [foldersOnly, selectedEntryPath, files]);
 
   return (
     <WideModalOverlay onClose={onClose}>
       {/* Header */}
-      <div className="border-b border-cursor-hairline px-4 py-2.5">
-        <h3 className="m-0 text-base font-semibold text-cursor-ink">{title}</h3>
-        {/* Path bar */}
-        <div className="mt-2 flex gap-1.5">
-          <input
-            className={`${inputCls} min-w-0 flex-1 font-mono text-xs`}
-            value={manualPath}
-            onChange={(e) => setManualPath(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') doBrowse(manualPath);
-            }}
-            placeholder="/home/user/mri-data"
-            aria-label="Remote path"
-          />
+      <div className="border-b border-cursor-hairline px-4 py-3">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-cursor-primary/10 text-cursor-primary">
+              <Server className="h-4 w-4" />
+            </span>
+            <h3 className="m-0 text-base font-semibold text-cursor-ink">{cleanTitle}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-cursor-muted transition-colors hover:bg-cursor-canvas-soft hover:text-cursor-ink"
+            aria-label="Close"
+          >
+            <X className="h-4.5 w-4.5" />
+          </button>
+        </div>
+
+        {/* Path bar & Action buttons: [Input] [Go ->] [Up ^] [Reload] [New Folder] */}
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <input
+              className={`${inputCls} w-full font-mono text-sm`}
+              value={manualPath}
+              onChange={(e) => setManualPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') doBrowse(manualPath);
+              }}
+              placeholder="/home/user/mri-data"
+              aria-label="Remote path"
+            />
+          </div>
           <button
             type="button"
             onClick={() => doBrowse(manualPath)}
             disabled={isLoading}
-            className="inline-flex h-8 flex-none cursor-pointer items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card px-3 text-xs font-medium text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-50"
+            title="Go to path"
+            aria-label="Go"
+            className="inline-flex h-8.5 w-8.5 flex-none items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Go
+            <ArrowRight className="h-4 w-4" />
           </button>
-        </div>
-      </div>
-
-      {/* Entry list */}
-      <div className="max-h-[min(24rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
-        {/* Up row */}
-        {parentPath !== currentPath && !isLoading && (
           <button
             type="button"
             onClick={() => doBrowse(parentPath)}
-            className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs text-cursor-primary hover:bg-cursor-surface-card"
+            disabled={parentPath === currentPath || isLoading}
+            title={parentPath !== currentPath ? `Parent directory: ${parentPath}` : 'At root directory'}
+            aria-label="Parent directory"
+            className="inline-flex h-8.5 w-8.5 flex-none items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <span className="inline-flex h-4.5 w-7 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide text-cursor-muted">
-              UP
-            </span>
-            <span className="min-w-0 flex-1 truncate font-mono">..</span>
+            <ArrowUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => doBrowse(currentPath)}
+            disabled={isLoading}
+            title="Refresh directory"
+            aria-label="Refresh directory"
+            className="inline-flex h-8.5 w-8.5 flex-none items-center justify-center rounded-md border border-cursor-hairline bg-cursor-surface-card text-cursor-ink transition-colors hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsCreatingFolder((v) => !v);
+              setNewFolderName('');
+              setNewFolderError(null);
+            }}
+            disabled={isLoading || mkdirMutation.isPending}
+            title="Create new folder"
+            aria-label="Create new folder"
+            className={`inline-flex h-8.5 w-8.5 flex-none items-center justify-center rounded-md border transition-colors ${
+              isCreatingFolder
+                ? 'border-cursor-primary bg-cursor-primary/10 text-cursor-primary'
+                : 'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            <FolderPlus className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Create New Folder Inline Row */}
+        {isCreatingFolder && (
+          <div className="mt-2 flex flex-col gap-1 rounded-md border border-cursor-primary/30 bg-cursor-primary/5 p-2">
+            <div className="flex items-center gap-2">
+              <FolderPlus className="h-4.5 w-4.5 flex-none text-cursor-primary" />
+              <input
+                ref={newFolderInputRef}
+                type="text"
+                value={newFolderName}
+                onChange={(e) => {
+                  setNewFolderName(e.target.value);
+                  if (newFolderError) setNewFolderError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') {
+                    setIsCreatingFolder(false);
+                    setNewFolderName('');
+                    setNewFolderError(null);
+                  }
+                }}
+                placeholder="New folder name..."
+                className="h-8 min-w-0 flex-1 rounded border border-cursor-hairline bg-cursor-surface-card px-2.5 text-sm text-cursor-ink outline-none placeholder:text-cursor-muted focus:border-cursor-primary"
+              />
+              <button
+                type="button"
+                onClick={handleCreateFolder}
+                disabled={mkdirMutation.isPending || !newFolderName.trim()}
+                className="inline-flex h-8 items-center gap-1 rounded bg-cursor-primary px-3 text-xs font-medium text-white transition-colors hover:bg-cursor-primary-hover disabled:opacity-50 cursor-pointer"
+              >
+                {mkdirMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                <span>Create</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreatingFolder(false);
+                  setNewFolderName('');
+                  setNewFolderError(null);
+                }}
+                className="inline-flex h-8 w-8 items-center justify-center rounded text-cursor-muted hover:bg-cursor-canvas-soft hover:text-cursor-ink cursor-pointer"
+                aria-label="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {newFolderError && (
+              <div className="text-xs font-medium text-red-500 pl-6.5">
+                {newFolderError}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Filter bar */}
+        {entries.length > 0 && (
+          <div className="relative mt-2">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-cursor-muted" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={foldersOnly ? "Filter folders..." : "Filter files and folders..."}
+              className="h-8.5 w-full rounded-md border border-cursor-hairline bg-cursor-canvas-soft pl-9 pr-8 text-sm text-cursor-ink outline-none placeholder:text-cursor-muted focus:border-cursor-hairline-strong focus:bg-cursor-surface-card"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-cursor-muted hover:text-cursor-ink"
+                aria-label="Clear filter"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Entry list */}
+      <div className="max-h-[min(26rem,55vh)] overflow-y-auto bg-cursor-canvas-soft">
+        {/* Up row */}
+        {parentPath !== currentPath && !isLoading && !searchQuery && (
+          <button
+            type="button"
+            onClick={() => doBrowse(parentPath)}
+            className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-2.5 text-left text-sm text-cursor-muted transition-colors hover:bg-cursor-surface-card hover:text-cursor-ink"
+          >
+            <ArrowUp className="h-4.5 w-4.5 flex-none text-cursor-primary/70" />
+            <span className="text-sm font-normal">.. (Parent directory)</span>
           </button>
         )}
 
-        {/* Loading */}
+        {/* Loading with spinner icon */}
         {isLoading && (
-          <div className="flex items-center justify-center py-8 text-xs text-cursor-muted">Loading...</div>
+          <div className="flex flex-col items-center justify-center gap-2.5 py-12 text-sm text-cursor-muted">
+            <Loader2 className="h-5 w-5 animate-spin text-cursor-primary" />
+            <span>Loading directory...</span>
+          </div>
         )}
 
         {/* Error */}
@@ -1165,10 +1380,19 @@ function ServerBrowserModal({
           </div>
         )}
 
-        {/* Empty */}
+        {/* Empty directory */}
         {!isLoading && !isError && entries.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-xs text-cursor-muted">
-            Empty directory.
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-cursor-muted">
+            <FolderOpen className="h-8 w-8 stroke-[1.5] text-cursor-muted/40" />
+            <span>This directory is empty.</span>
+          </div>
+        )}
+
+        {/* Filter no results */}
+        {!isLoading && !isError && entries.length > 0 && filteredEntries.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-1.5 py-8 text-sm text-cursor-muted">
+            <Search className="h-6 w-6 stroke-[1.5] text-cursor-muted/40" />
+            <span>No matching {foldersOnly ? 'folders' : 'items'} found</span>
           </div>
         )}
 
@@ -1176,28 +1400,38 @@ function ServerBrowserModal({
         {!isLoading &&
           dirs.map((entry) => {
             const isDcm = entry.is_dicom_series;
-            const badge = isDcm ? `DCM (${entry.slice_count ?? '?'} sl)` : 'DIR';
+            const isSelected = selectedEntryPath === entry.path;
             return (
               <button
                 key={entry.path}
                 type="button"
-                title={entry.path}
+                title={`${entry.name} (Double-click to open)`}
                 onClick={() => {
-                  if (selectMode === 'path') setManualPath(entry.path);
+                  setSelectedEntryPath(entry.path);
+                  setManualPath(entry.path);
+                }}
+                onDoubleClick={() => {
                   doBrowse(entry.path);
                 }}
-                className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-left text-xs hover:bg-cursor-surface-card"
+                className={`flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-2.5 text-left text-sm transition-colors ${
+                  isSelected
+                    ? 'bg-cursor-primary/10 font-medium text-cursor-primary'
+                    : 'text-cursor-ink hover:bg-cursor-surface-card'
+                }`}
               >
-                <span
-                  className={`inline-flex h-4.5 min-w-7 px-1.5 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${
-                    isDcm ? 'bg-cursor-primary/10 text-cursor-primary' : 'bg-cursor-primary/10 text-cursor-primary'
-                  }`}
-                >
-                  {badge}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-medium text-cursor-ink">{entry.name}</span>
+                {isDcm ? (
+                  <Layers className="h-4.5 w-4.5 flex-none text-cursor-primary" />
+                ) : (
+                  <Folder className="h-4.5 w-4.5 flex-none text-cursor-primary/80" />
+                )}
+                <span className="min-w-0 flex-1 truncate font-normal">{entry.name}</span>
+                {isDcm && (
+                  <span className="inline-flex flex-none items-center rounded bg-cursor-primary/10 px-1.5 py-0.5 text-xs font-medium text-cursor-primary">
+                    {entry.slice_count ? `${entry.slice_count} slices` : 'DICOM'}
+                  </span>
+                )}
                 {entry.size != null && (
-                  <span className="flex-none text-right text-cursor-muted text-xs" style={{minWidth: '4rem'}}>
+                  <span className="flex-none text-right text-sm text-cursor-muted" style={{minWidth: '4.5rem'}}>
                     {fmtBytes(entry.size)}
                   </span>
                 )}
@@ -1205,61 +1439,37 @@ function ServerBrowserModal({
             );
           })}
 
-        {/* Files */}
+        {/* Files (hidden when foldersOnly is true) */}
         {!isLoading &&
+          !foldersOnly &&
           files.map((entry) => {
-            const checked = selectedFiles.has(entry.path);
             const isImg = entry.selectable;
-            const lower = entry.name.toLowerCase();
-            const badge = lower.endsWith('.nii.gz') || lower.endsWith('.nii')
-              ? 'NII'
-              : lower.endsWith('.mgz') || lower.endsWith('.mgh')
-              ? 'MGZ'
-              : lower.endsWith('.dcm') || lower.endsWith('.dicom')
-              ? 'DCM'
-              : isImg
-              ? 'IMG'
-              : 'FILE';
-            const badgeCls = isImg
-              ? 'bg-cursor-primary/8 text-cursor-primary'
-              : 'bg-cursor-canvas text-cursor-muted';
+            const isSelected = selectedEntryPath === entry.path;
             return (
               <div
                 key={entry.path}
-                className="flex w-full items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-1.5 text-xs"
+                onClick={() => {
+                  setSelectedEntryPath(entry.path);
+                  setManualPath(entry.path);
+                }}
+                onDoubleClick={() => {
+                  onConfirm(entry.path);
+                }}
+                className={`flex w-full cursor-pointer items-center gap-2.5 border-b border-cursor-hairline-soft px-4 py-2.5 text-sm transition-colors ${
+                  isSelected
+                    ? 'bg-cursor-primary/10 font-medium text-cursor-primary'
+                    : 'text-cursor-ink hover:bg-cursor-surface-card'
+                }`}
               >
-                {selectMode === 'files' && isImg && (
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleFile(entry.path)}
-                    className="h-3.5 w-3.5 flex-none accent-cursor-primary"
-                  />
-                )}
-                {!(selectMode === 'files' && isImg) && <span className="h-3.5 w-3.5 flex-none" />}
+                <FileText className="h-4.5 w-4.5 flex-none text-cursor-muted" />
                 <span
-                  className={`inline-flex h-4.5 min-w-7 px-1 flex-none items-center justify-center rounded text-2xs font-semibold uppercase tracking-wide ${badgeCls}`}
-                >
-                  {badge}
-                </span>
-                <button
-                  type="button"
                   title={entry.path}
-                  onClick={() => {
-                    if (selectMode === 'path') setManualPath(entry.path);
-                    else if (isImg) toggleFile(entry.path);
-                  }}
-                  onDoubleClick={() => {
-                    if (selectMode === 'path') {
-                      onConfirm(entry.path);
-                    }
-                  }}
-                  className={`min-w-0 flex-1 truncate text-left font-mono ${isImg ? 'text-cursor-ink hover:underline' : 'cursor-default text-cursor-muted'}`}
+                  className={`min-w-0 flex-1 truncate font-normal ${isImg ? 'text-cursor-ink' : 'text-cursor-muted'}`}
                 >
                   {entry.name}
-                </button>
+                </span>
                 {entry.size != null && (
-                  <span className="flex-none text-right text-cursor-muted text-xs" style={{minWidth: '4rem'}}>
+                  <span className="flex-none text-right text-sm text-cursor-muted" style={{minWidth: '4.5rem'}}>
                     {fmtBytes(entry.size)}
                   </span>
                 )}
@@ -1269,36 +1479,24 @@ function ServerBrowserModal({
       </div>
 
       {/* Sticky footer */}
-      <div className="flex items-center justify-between gap-2.5 border-t border-cursor-hairline px-4 py-2.5">
-        {selectMode === 'files' ? (
-          <span className="text-xs text-cursor-muted">{selectedFiles.size} file(s) selected</span>
-        ) : (
-          <span className="min-w-0 truncate font-mono text-xs text-cursor-muted" title={manualPath || currentPath}>
-            {manualPath || currentPath}
-          </span>
-        )}
-        <div className="flex flex-none gap-1.5">
+      <div className="flex items-center justify-between gap-2.5 border-t border-cursor-hairline bg-cursor-surface-card px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm text-cursor-muted">
+          {selectedItemName ? (
+            <>
+              <span className="text-cursor-muted text-sm">Selected:</span>
+              <span className="truncate text-sm font-medium text-cursor-ink" title={targetPathToConfirm}>
+                {selectedItemName}
+              </span>
+            </>
+          ) : null}
+        </div>
+        <div className="flex flex-none gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          {selectMode === 'path' ? (
-            <Button variant="primary" onClick={() => onConfirm(manualPath || currentPath)}>
-              Select path
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (onSelectFiles) {
-                  const arr = Array.from(selectedFiles);
-                  onSelectFiles(arr, arr.length);
-                }
-                onClose();
-              }}
-            >
-              Confirm ({selectedFiles.size})
-            </Button>
-          )}
+          <Button variant="primary" onClick={() => onConfirm(targetPathToConfirm)}>
+            {confirmBtnLabel}
+          </Button>
         </div>
       </div>
     </WideModalOverlay>
@@ -1855,7 +2053,7 @@ export function InputOutputSection() {
   // Local modals
   const [dualPaneModal, setDualPaneModal] = React.useState(false);
   const [serverInputModal, setServerInputModal] = React.useState(false);
-  const [serverInputModalTitle, setServerInputModalTitle] = React.useState('Browse server - Input location');
+  const [serverInputFoldersOnly, setServerInputFoldersOnly] = React.useState(false);
   const [serverStagingModal, setServerStagingModal] = React.useState(false);
   const [serverOutputModal, setServerOutputModal] = React.useState(false);
   const [batchModal, setBatchModal] = React.useState(false);
@@ -2122,7 +2320,7 @@ export function InputOutputSection() {
                   placeholder="/home/user/batch_subjects_folder"
                   onChange={(v) => setFormField('inputServerDir', v)}
                   onBrowse={() => {
-                    setServerInputModalTitle('Browse server - Batch input folder');
+                    setServerInputFoldersOnly(true);
                     setServerInputModal(true);
                   }}
                   browseLabel="Browse Folder"
@@ -2137,7 +2335,7 @@ export function InputOutputSection() {
                   placeholder="/home/user/sub-001_T1w.nii.gz or /home/user/dicom_series_folder"
                   onChange={(v) => setFormField('inputServerDir', v)}
                   onBrowse={() => {
-                    setServerInputModalTitle('Browse server - Input file');
+                    setServerInputFoldersOnly(false);
                     setServerInputModal(true);
                   }}
                   browseLabel="Browse File"
@@ -2145,7 +2343,7 @@ export function InputOutputSection() {
                     label: 'Folder (DICOM)',
                     title: 'Browse DICOM series folder',
                     onClick: () => {
-                      setServerInputModalTitle('Browse server - DICOM folder');
+                      setServerInputFoldersOnly(true);
                       setServerInputModal(true);
                     },
                   }}
@@ -2173,10 +2371,10 @@ export function InputOutputSection() {
       {serverStagingModal && (
         remoteConnected ? (
           <ServerBrowserModal
-            title="Browse server - Input staging location"
+            title="Input location (server path)"
             initialPath={formValues.inputServerDir || '~'}
             remotePayload={remotePayload}
-            selectMode="path"
+            foldersOnly={true}
             onConfirm={(p) => {
               setFormField('inputServerDir', p);
               setServerStagingModal(false);
@@ -2203,10 +2401,10 @@ export function InputOutputSection() {
       {serverInputModal && (
         remoteConnected ? (
           <ServerBrowserModal
-            title={serverInputModalTitle}
+            title="Input location (server path)"
             initialPath={formValues.inputServerDir || '~'}
             remotePayload={remotePayload}
-            selectMode="path"
+            foldersOnly={serverInputFoldersOnly}
             onConfirm={(p) => {
               setFormField('inputServerDir', p);
               setServerInputModal(false);
@@ -2234,10 +2432,10 @@ export function InputOutputSection() {
       {serverOutputModal && (
         remoteConnected ? (
           <ServerBrowserModal
-            title="Browse server - Output location"
+            title="Output location (server path)"
             initialPath={formValues.serverOutputDir || '~'}
             remotePayload={remotePayload}
-            selectMode="path"
+            foldersOnly={true}
             onConfirm={(p) => {
               setFormField('serverOutputDir', p);
               setServerOutputModal(false);

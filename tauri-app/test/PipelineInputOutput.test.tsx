@@ -160,16 +160,16 @@ describe('PipelinePage - TC-01 & TC-02 Input & Output Tests', () => {
     expect(dicomFolderBtn).toBeInTheDocument();
     expect(dicomFolderBtn).not.toBeDisabled();
 
-    // Click Browse File opens Server modal with Input file title
+    // Click Browse File opens Server modal with Input location (server path) title
     await user.click(browseFileBtn);
-    expect(screen.getByText('Browse server - Input file')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Input location (server path)'})).toBeInTheDocument();
 
     // Close modal
     await user.click(screen.getByRole('button', {name: /Cancel/i}));
 
-    // Click Folder (DICOM) opens Server modal with DICOM folder title
+    // Click Folder (DICOM) opens Server modal with Input location (server path) title
     await user.click(dicomFolderBtn);
-    expect(screen.getByText('Browse server - DICOM folder')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Input location (server path)'})).toBeInTheDocument();
   });
 
   it('renders Browse Folder button when Source is Server and mode is batch', async () => {
@@ -199,7 +199,7 @@ describe('PipelinePage - TC-01 & TC-02 Input & Output Tests', () => {
     expect(screen.queryByRole('button', {name: /Folder \(DICOM\)/i})).not.toBeInTheDocument();
 
     await user.click(browseFolderBtn);
-    expect(screen.getByText('Browse server - Batch input folder')).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Input location (server path)'})).toBeInTheDocument();
   });
 
   it('TC-02: Upload data to server button is positioned under Source Input and opens DualPane modal when connected', async () => {
