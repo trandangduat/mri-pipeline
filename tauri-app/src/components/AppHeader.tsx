@@ -172,12 +172,18 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
           if (val) tools[stage] = val;
         }
       }
+      const isServer = fv.inputSource === 'Server' || fv.runtimeTarget === 'Server';
+      const resolvedInputPath = isServer ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputPath || '');
+      const resolvedOutputDir = isServer ? (fv.serverOutputDir || fv.outputDir || '') : (fv.outputDir || '');
+      const resolvedInputServerDir = isServer ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputServerDir || '');
+      const resolvedServerOutputDir = isServer ? (fv.serverOutputDir || fv.outputDir || '') : (fv.serverOutputDir || '');
+
       const workspace: Record<string, unknown> = {
         version: 1,
         type: 'mri-pipeline-workspace',
         input_source: fv.inputSource,
         input_mode: fv.inputMode === 'batch_folder' ? 'batch_folder' : (fv.inputMode || 'file'),
-        input_path: fv.inputPath,
+        input_path: resolvedInputPath,
         selected_files: fv.additionalInputPaths
           ? fv.additionalInputPaths
               .split(',')
@@ -186,9 +192,9 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
           : [],
         batch_image_count: fv.batchImageCount,
         batch_scan_mode: fv.batchScanMode || (fv.nonRecursive ? 'one-level' : 'recursive'),
-        output_dir: fv.outputDir,
-        server_output_dir: fv.serverOutputDir || '',
-        input_server_dir: fv.inputServerDir || '',
+        output_dir: resolvedOutputDir,
+        server_output_dir: resolvedServerOutputDir,
+        input_server_dir: resolvedInputServerDir,
         pipeline_mode: fv.pipelineMode,
         device: fv.gpuMode === 'on' ? 'cuda' : 'cpu',
         threads: fv.cpuThreads,

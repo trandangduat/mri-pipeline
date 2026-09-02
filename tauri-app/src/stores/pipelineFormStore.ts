@@ -76,13 +76,19 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
     set((state) => {
       const nextFormValues = {...state.formValues};
       nextFormValues.pipelineMode = pipelineMode;
+      const isServer = (workspace.input_source as string) === 'Server' || workspace.run_target === 'Server';
+      const inputPath = String(workspace.input_path || '');
+      const inputServerDir = String(workspace.input_server_dir || '');
+      const outputDir = String(workspace.output_dir || '');
+      const serverOutputDir = String(workspace.server_output_dir || '');
+
       nextFormValues.inputSource = (workspace.input_source as string) || (workspace.run_target === 'Server' ? 'Server' : 'Local');
       const rawInputMode = (workspace.input_mode as string) || 'file';
       nextFormValues.inputMode = rawInputMode === 'dir' || rawInputMode === 'batch_folder' ? 'batch_folder' : rawInputMode;
-      nextFormValues.inputPath = String(workspace.input_path || '');
-      nextFormValues.outputDir = String(workspace.output_dir || '');
-      nextFormValues.serverOutputDir = String(workspace.server_output_dir || '');
-      nextFormValues.inputServerDir = String(workspace.input_server_dir || '');
+      nextFormValues.inputPath = inputPath || inputServerDir;
+      nextFormValues.outputDir = outputDir || serverOutputDir;
+      nextFormValues.serverOutputDir = serverOutputDir || (isServer ? outputDir : '');
+      nextFormValues.inputServerDir = inputServerDir || (isServer ? inputPath : '');
       nextFormValues.additionalInputPaths = Array.isArray(workspace.selected_files)
         ? workspace.selected_files.join(', ')
         : (workspace.selected_files as string) || '';

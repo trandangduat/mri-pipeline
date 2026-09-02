@@ -68,4 +68,21 @@ describe('workspace run config', () => {
     );
     expect(configLocal.server_output_dir).toBe('');
   });
+
+  it('populates inputServerDir and serverOutputDir when loading a server workspace with input_path and output_dir', () => {
+    usePipelineFormStore.getState().applyWorkspaceConfig({
+      input_source: 'Server',
+      input_mode: 'batch_folder',
+      input_path: '/home/catcd1/ADNIDOD_T1/ADNIDOD/',
+      output_dir: '/home/catcd1/neuroflow-benchmark/outputs/30subjects_20parallel',
+      server_output_dir: '',
+      input_server_dir: '',
+      run_target: 'Server',
+    });
+
+    const formValues = usePipelineFormStore.getState().formValues;
+    expect(formValues.inputSource).toBe('Server');
+    expect(formValues.inputServerDir).toBe('/home/catcd1/ADNIDOD_T1/ADNIDOD/');
+    expect(formValues.serverOutputDir).toBe('/home/catcd1/neuroflow-benchmark/outputs/30subjects_20parallel');
+  });
 });
