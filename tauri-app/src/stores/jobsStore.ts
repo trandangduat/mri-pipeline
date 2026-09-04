@@ -7,8 +7,12 @@ interface JobsState {
   jobLogSearch: string;
   outputText: string;
   hasLoadedInitialJobs: boolean;
+  lastListRefreshAt: number | null;
+  lastDetailRefreshAt: number | null;
   setLatestJobs: (jobs: Record<string, unknown>[] | ((prev: Record<string, unknown>[]) => Record<string, unknown>[])) => void;
   setHasLoadedInitialJobs: (loaded: boolean) => void;
+  setLastListRefreshAt: (at: number | null) => void;
+  setLastDetailRefreshAt: (at: number | null) => void;
   setSelectedJobId: (id: string | null | ((prev: string | null) => string | null)) => void;
   setJobEvents: (events: Record<string, unknown>[] | ((prev: Record<string, unknown>[]) => Record<string, unknown>[])) => void;
   setJobLogSearch: (query: string) => void;
@@ -35,12 +39,16 @@ export const useJobsStore = create<JobsState>((set) => ({
   jobLogSearch: '',
   outputText: 'Log stream is idle.',
   hasLoadedInitialJobs: false,
+  lastListRefreshAt: null,
+  lastDetailRefreshAt: null,
   setLatestJobs: (latestJobs) =>
     set((state) => ({
       latestJobs: typeof latestJobs === 'function' ? latestJobs(state.latestJobs) : latestJobs,
       hasLoadedInitialJobs: true,
     })),
   setHasLoadedInitialJobs: (hasLoadedInitialJobs) => set({hasLoadedInitialJobs}),
+  setLastListRefreshAt: (lastListRefreshAt) => set({lastListRefreshAt}),
+  setLastDetailRefreshAt: (lastDetailRefreshAt) => set({lastDetailRefreshAt}),
   setSelectedJobId: (selectedJobId) =>
     set((state) => ({
       selectedJobId: typeof selectedJobId === 'function' ? selectedJobId(state.selectedJobId) : selectedJobId,

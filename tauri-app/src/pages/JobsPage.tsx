@@ -449,6 +449,24 @@ function JobCard({
   );
 }
 
+/** Plain italic "last updated" label with the exact date-time. */
+function UpdatedAtLabel({timestamp, className = ''}: {timestamp: number | null; className?: string}) {
+  if (!timestamp) return null;
+  const exact = new Date(timestamp).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return (
+    <span className={`text-xs italic font-normal text-cursor-muted whitespace-nowrap ${className}`}>
+      Updated {exact}
+    </span>
+  );
+}
+
 function JobsListView({
   jobs,
   runtimeTarget,
@@ -476,6 +494,8 @@ function JobsListView({
   serverActionsBlockedReason: string;
   localActionsBlockedReason: string;
 }) {
+  // Hook first: there is an early return for the loading state below.
+  const lastListRefreshAt = useJobsStore((s) => s.lastListRefreshAt);
   if (isInitialLoading || (isRefreshing && jobs.length === 0)) {
     return (
       <div className="h-full w-full overflow-y-auto p-4 flex flex-col gap-4 text-cursor-ink">
@@ -512,6 +532,13 @@ function JobsListView({
     </Button>
   );
 
+  const refreshCluster = (
+    <div className="flex flex-none items-center gap-3">
+      <UpdatedAtLabel timestamp={lastListRefreshAt} />
+      {refreshButton}
+    </div>
+  );
+
   const localSection = (
     <section key="local-jobs">
       <div className="flex items-center justify-between gap-3 mb-2">
@@ -519,7 +546,7 @@ function JobsListView({
           <HardDrive className="h-4 w-4 text-cursor-primary" />
           <h2 className="text-base font-semibold text-cursor-ink">Local Jobs ({localJobs.length})</h2>
         </div>
-        {!isServerFirst && refreshButton}
+        {!isServerFirst && refreshCluster}
       </div>
 
       {localJobs.length > 0 && (
@@ -547,7 +574,7 @@ function JobsListView({
           <Server className="h-4 w-4 text-cursor-primary" />
           <h2 className="text-base font-semibold text-cursor-ink">Server Jobs ({serverJobs.length})</h2>
         </div>
-        {isServerFirst && refreshButton}
+        {isServerFirst && refreshCluster}
       </div>
 
       {serverJobs.length > 0 && (
@@ -600,6 +627,7 @@ export function JobsPage() {
   const setHasLoadedInitialJobs = useJobsStore((s) => s.setHasLoadedInitialJobs);
 
   const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
+  const lastDetailRefreshAt = useJobsStore((s) => s.lastDetailRefreshAt);
   const selectedJobId = useJobsStore((s) => s.selectedJobId);
   const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
   const jobEvents = useJobsStore((s) => s.jobEvents) || [];
@@ -1007,6 +1035,9 @@ export function JobsPage() {
         if (detailsAbortRef.current === controller) detailsAbortRef.current = null;
         if (seq === reqSeqRef.current) {
           lastSyncedAtRef.current = Date.now();
+          if (evRes && evRes.ok !== false && evRes.aborted !== true && !controller.signal.aborted) {
+            useJobsStore.getState().setLastDetailRefreshAt(Date.now());
+          }
           if (isInitial) {
             setJobEvents(newEvents);
             setOutputText(newLogText ? capLogLines(newLogText) : '');
@@ -1075,12 +1106,12 @@ export function JobsPage() {
       const force = options.force === true;
       const health = () => useRemoteStore.getState();
       setBusyKey('refreshJobs', true);
+      let freshLocalJobs: Record<string, unknown>[] | null = null;
+      let freshRemoteJobs: Record<string, unknown>[] | null = null;
       try {
         const prevJobs = (useJobsStore.getState().latestJobs || []) as Record<string, unknown>[];
         const prevLocalJobs = prevJobs.filter((j) => String(j?.target || 'Local') !== 'Server');
         const prevServerJobs = prevJobs.filter((j) => String(j?.target || 'Local') === 'Server');
-        let freshLocalJobs: Record<string, unknown>[] | null = null;
-        let freshRemoteJobs: Record<string, unknown>[] | null = null;
 
         let backendOkThisRound = health().backendStatus !== 'down' || force;
         try {
@@ -1174,6 +1205,11 @@ export function JobsPage() {
       } catch (err: unknown) {
         print('Refresh jobs failed', {error: (err as Error).message});
       } finally {
+        // "Last updated" only moves when at least one leg actually returned
+        // fresh data; failed rounds keep the previous timestamp.
+        if (freshLocalJobs || freshRemoteJobs) {
+          useJobsStore.getState().setLastListRefreshAt(Date.now());
+        }
         setHasLoadedInitialJobs(true);
         setBusyKey('refreshJobs', false);
       }
@@ -1316,6 +1352,8 @@ export function JobsPage() {
     prevSelectedJobIdRef.current = selectedJobId;
 
     if (selectedJobId) {
+      // A new job must not inherit the previous job's "last updated" label.
+      useJobsStore.getState().setLastDetailRefreshAt(null);
       const jobs = (useJobsStore.getState().latestJobs || []) as Record<string, unknown>[];
       const jobObj = jobs.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, selectedJobId)) as
         Record<string, unknown> | undefined;
@@ -2099,6 +2137,7 @@ export function JobsPage() {
                 <CardTitle className="font-semibold text-base text-cursor-ink">
                   Batch Subjects ({batchImages.length})
                 </CardTitle>
+                <UpdatedAtLabel timestamp={lastDetailRefreshAt} className="ml-1" />
               </div>
               <div className="flex items-center gap-1 flex-none">
                 <button
