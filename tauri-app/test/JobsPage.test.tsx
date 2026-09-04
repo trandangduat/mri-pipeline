@@ -5,6 +5,7 @@ import {MemoryRouter, Route, Routes} from 'react-router';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {JobsPage} from '../src/pages/JobsPage';
 import {useJobsStore} from '../src/stores/jobsStore';
+import {useRemoteStore} from '../src/stores/remoteStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -263,5 +264,88 @@ describe('JobsPage Redesign', () => {
       expect(refreshBtn.className).toContain('text-sm');
       expect(refreshBtn.className).toContain('font-medium');
     });
+  });
+});
+
+describe('JobsPage connection state', () => {
+  beforeEach(() => {
+    useRemoteStore.getState().reset();
+    useJobsStore.setState({
+      latestJobs: [
+        {
+          job_id: 'job_local_01',
+          display_name: 'job_local_01',
+          target: 'Local',
+          state: 'completed',
+          started_at: 1700002000,
+        },
+        {
+          job_id: 'job_server_01',
+          display_name: 'job_server_01',
+          target: 'Server',
+          state: 'completed',
+          started_at: 1700003000,
+        },
+      ],
+      hasLoadedInitialJobs: true,
+      selectedJobId: null,
+      jobEvents: [],
+      outputText: '',
+    });
+  });
+
+  it('never renders the removed Lagging badge', () => {
+    useRemoteStore.setState({connected: true});
+    renderJobsPage('/jobs');
+
+    expect(screen.queryByText('Lagging')).toBeNull();
+  });
+
+  it('shows no inline banner (warning lives in the global footer line) but marks stale and blocks server delete when SSH is down', () => {
+    useRemoteStore.setState({
+      connected: true,
+      sshStatus: 'disconnected',
+      sshFailures: 1,
+      sshLastError: 'SSH connection failed: timeout',
+      sshLastSeenAt: Date.now() - 60_000,
+    });
+    renderJobsPage('/jobs');
+
+    // Big inline banners are gone; only the compact Stale chip remains.
+    expect(screen.queryByText(/Lost SSH connection/)).toBeNull();
+    expect(screen.getByText('Stale')).toBeInTheDocument();
+
+    // Server delete blocked with a reason, local delete unaffected.
+    const serverDelete = screen.getByRole('button', {name: /Delete job_server_01/i});
+    expect(serverDelete).toBeDisabled();
+    expect(serverDelete.getAttribute('title')).toContain('SSH connection');
+    expect(screen.getByRole('button', {name: /Delete job_local_01/i })).toBeEnabled();
+  });
+
+  it('blocks every delete when the backend is down', () => {
+    useRemoteStore.setState({
+      backendStatus: 'down',
+      backendFailures: 1,
+      backendLastError: 'Cannot reach NeuroFlow backend at http://127.0.0.1:8765: Failed to fetch',
+      backendLastSeenAt: Date.now() - 120_000,
+    });
+    renderJobsPage('/jobs');
+
+    expect(screen.getByRole('button', {name: /Delete job_server_01/i})).toBeDisabled();
+    expect(screen.getByRole('button', {name: /Delete job_local_01/i })).toBeDisabled();
+  });
+
+  it('warns immediately on the first failure (no silent retry)', () => {
+    useRemoteStore.setState({
+      connected: true,
+      sshStatus: 'disconnected',
+      sshFailures: 1,
+      sshLastError: 'transient failure',
+      sshLastSeenAt: Date.now() - 60_000,
+    });
+    renderJobsPage('/jobs');
+
+    expect(screen.getByText('Stale')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: /Delete job_server_01/i })).toBeDisabled();
   });
 });

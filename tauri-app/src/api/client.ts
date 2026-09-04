@@ -167,19 +167,20 @@ export class BackendClient {
     );
   }
 
-  async validateRemoteConfig(payload: RemotePayload): Promise<RemoteValidateResponse> {
-    return remoteValidateResponseSchema.parse(await this.post('/remote/validate', {...payload}));
+  async validateRemoteConfig(payload: RemotePayload, timeoutMs = 30_000): Promise<RemoteValidateResponse> {
+    return remoteValidateResponseSchema.parse(await this.post('/remote/validate', {...payload}, timeoutMs));
   }
 
-  async listRemoteJobs(payload: RemotePayload): Promise<RemoteJobsResponse> {
-    return remoteJobsResponseSchema.parse(await this.post('/remote/jobs', {...payload}));
+  async listRemoteJobs(payload: RemotePayload, timeoutMs = 60_000): Promise<RemoteJobsResponse> {
+    return remoteJobsResponseSchema.parse(await this.post('/remote/jobs', {...payload}, timeoutMs));
   }
 
   async readRemoteEvents(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; limit?: number},
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<EventsResponse> {
-    return eventsResponseSchema.parse(await this.post('/remote/jobs/events', {...payload}, undefined, signal));
+    return eventsResponseSchema.parse(await this.post('/remote/jobs/events', {...payload}, timeoutMs, signal));
   }
 
   async readRemoteMetrics(
@@ -192,15 +193,17 @@ export class BackendClient {
       input_file?: string;
     },
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<EventsResponse> {
-    return eventsResponseSchema.parse(await this.post('/remote/jobs/metrics', {...payload}, undefined, signal));
+    return eventsResponseSchema.parse(await this.post('/remote/jobs/metrics', {...payload}, timeoutMs, signal));
   }
 
   async readRemoteLog(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; max_bytes?: number},
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<LogResponse> {
-    return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}, undefined, signal));
+    return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}, timeoutMs, signal));
   }
 
   async fetchUploadState(

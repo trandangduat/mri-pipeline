@@ -1,6 +1,6 @@
 import os
 
-from app_backend.remote import RemoteJobService
+from app_backend.remote import RemoteJobService, VALIDATE_SSH_TIMEOUT_S
 from pipeline.presets import PRESET_CONFIGS
 from remote.remote_runner import RemoteRunConfig
 
@@ -95,6 +95,24 @@ def test_validate_remote_config_connects_and_redacts_secrets() -> None:
         },
     }
     assert calls == [{"host": "server.example.edu", "password": "secret"}]
+
+
+def test_validate_remote_config_uses_single_fast_probe() -> None:
+    seen: list[RemoteRunConfig] = []
+
+    def runner_factory(config: RemoteRunConfig) -> FakeRunner:
+        seen.append(config)
+        return FakeRunner([])
+
+    service = RemoteJobService(runner_factory=runner_factory)
+    result = service.validate_config({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result["ok"] is True
+    assert len(seen) == 1
+    # One handshake attempt with a short timeout so a dead route (VPN off)
+    # fails in seconds instead of stacking pool retries.
+    assert seen[0].ssh.timeout == VALIDATE_SSH_TIMEOUT_S
+    assert seen[0].ssh.connect_attempts == 1
 
 
 def test_validate_remote_config_tolerates_hardware_without_gpus() -> None:

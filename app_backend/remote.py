@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import stat
 import threading
+from dataclasses import replace
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Callable, Iterator, Protocol, TypeAlias
@@ -12,6 +13,11 @@ from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import SSHConfig
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+# Connectivity probe budget for the Connect button: a single handshake
+# attempt. A blackholed route (VPN off) fails in ~this many seconds instead
+# of stacking pool retries (4 x 15s) behind the 60s frontend timeout.
+VALIDATE_SSH_TIMEOUT_S = 10
 
 
 class RemoteJobLister(Protocol):
@@ -176,7 +182,15 @@ class RemoteJobService:
                 "config": _safe_config_summary(config),
             }
         try:
-            runner = self.runner_factory(config)
+            # Fail-fast probe: one handshake attempt with a short timeout.
+            # The normal pool retry (4 x 15s) is for background ops against a
+            # busy sshd; here it would only stack timeouts on a dead route
+            # (e.g. VPN off) and push the answer past the UI timeout.
+            probe_config = replace(
+                config,
+                ssh=replace(config.ssh, timeout=VALIDATE_SSH_TIMEOUT_S, connect_attempts=1),
+            )
+            runner = self.runner_factory(probe_config)
             runner.test_ssh()
             hardware = runner.remote_hardware_info()
         except Exception as exc:

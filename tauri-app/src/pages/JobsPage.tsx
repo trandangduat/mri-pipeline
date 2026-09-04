@@ -31,6 +31,14 @@ import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Skeleton} from '@/components/ui/skeleton';
+import {toast} from 'sonner';
+import {
+  REMOTE_DETAIL_TIMEOUT_MS,
+  REMOTE_JOBS_TIMEOUT_MS,
+  isAbortError,
+  isBackendUnreachableMessage,
+  isSshConnectionMessage,
+} from '../lib/connection';
 import {StatusPill, StatusDotLarge, statusDotClasses} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
@@ -336,13 +344,15 @@ function JobCard({
   onClick,
   onDelete,
   deleting,
-  lagging = false,
+  deleteBlocked = false,
+  deleteBlockedReason,
 }: {
   job: Record<string, unknown>;
   onClick: () => void;
   onDelete: () => void;
   deleting: boolean;
-  lagging?: boolean;
+  deleteBlocked?: boolean;
+  deleteBlockedReason?: string;
 }) {
   const normState = normalizeJobState(job.state);
   const batchSummary = jobBatchSummary(job);
@@ -385,11 +395,6 @@ function JobCard({
           {title}
         </strong>
         <div className="flex shrink-0 items-center gap-1">
-          {lagging && (
-            <span className="inline-flex items-center rounded bg-cursor-semantic-warn/10 text-cursor-semantic-warn px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em]">
-              Lagging
-            </span>
-          )}
           <span
             className={`inline-flex items-center rounded px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.06em] ${jobStatusBadgeClasses(normState)}`}
           >
@@ -422,8 +427,14 @@ function JobCard({
           <button
             type="button"
             aria-label={`Delete ${title}`}
-            title={normState === 'running' ? 'Stop the job before deleting it' : 'Delete job'}
-            disabled={normState === 'running' || deleting}
+            title={
+              deleteBlocked && deleteBlockedReason
+                ? deleteBlockedReason
+                : normState === 'running'
+                  ? 'Stop the job before deleting it'
+                  : 'Delete job'
+            }
+            disabled={normState === 'running' || deleting || deleteBlocked}
             onClick={(event) => {
               event.stopPropagation();
               onDelete();
@@ -447,7 +458,10 @@ function JobsListView({
   isInitialLoading,
   onDeleteJob,
   deletingJobId,
-  remoteLagging,
+  serverActionsBlocked,
+  localActionsBlocked,
+  serverActionsBlockedReason,
+  localActionsBlockedReason,
 }: {
   jobs: Record<string, unknown>[];
   runtimeTarget?: string;
@@ -457,7 +471,10 @@ function JobsListView({
   isInitialLoading?: boolean;
   onDeleteJob: (job: Record<string, unknown>) => void;
   deletingJobId: string | null;
-  remoteLagging: boolean;
+  serverActionsBlocked: boolean;
+  localActionsBlocked: boolean;
+  serverActionsBlockedReason: string;
+  localActionsBlockedReason: string;
 }) {
   if (isInitialLoading || (isRefreshing && jobs.length === 0)) {
     return (
@@ -514,6 +531,8 @@ function JobsListView({
               onClick={() => onSelectJob(String(j.job_id))}
               onDelete={() => onDeleteJob(j)}
               deleting={deletingJobId === String(j.job_id)}
+              deleteBlocked={localActionsBlocked}
+              deleteBlockedReason={localActionsBlockedReason}
             />
           ))}
         </div>
@@ -540,7 +559,8 @@ function JobsListView({
               onClick={() => onSelectJob(String(j.job_id))}
               onDelete={() => onDeleteJob(j)}
               deleting={deletingJobId === String(j.job_id)}
-              lagging={remoteLagging}
+              deleteBlocked={serverActionsBlocked}
+              deleteBlockedReason={serverActionsBlockedReason}
             />
           ))}
         </div>
@@ -644,7 +664,6 @@ export function JobsPage() {
   const [downloadFinalPath, setDownloadFinalPath] = useState<string | undefined>(undefined);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
   const [downloadRunning, setDownloadRunning] = useState(false);
-  const [remoteLagging, setRemoteLagging] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [jobToDelete, setJobToDelete] = useState<Record<string, unknown> | null>(null);
   const [stoppingJob, setStoppingJob] = useState(false);
@@ -676,6 +695,25 @@ export function JobsPage() {
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
+  const sshStatus = useRemoteStore((s) => s.sshStatus);
+  const backendStatus = useRemoteStore((s) => s.backendStatus);
+
+  // Channel health (see lib/connection.ts):
+  // - backendDown: HTTP link UI -> local backend is down. Everything remote or
+  //   local that needs the backend is blocked, auto-polling pauses.
+  // - sshDown: backend is alive but the SSH leg backend -> server just failed.
+  //   Only Server jobs are stale/blocked; Local jobs keep working.
+  // The global status line above the footer (all pages) appears on the first
+  // failure. Recovery is always manual (Retry).
+  const backendDown = backendStatus === 'down';
+  const sshDown = sshStatus === 'disconnected';
+  const serverActionsBlocked = backendDown || sshDown;
+  const localActionsBlocked = backendDown;
+  const serverActionsBlockedReason = backendDown
+    ? 'Unavailable: the local backend is unreachable. Retry once it is running again.'
+    : 'Unavailable: the SSH connection to the server is down. Reconnect from Pipeline Configuration.';
+  const localActionsBlockedReason =
+    'Unavailable: the local backend is unreachable. Retry once it is running again.';
 
   const busy = useUiStore((s) => s.busy);
   const setBusyKey = useUiStore((s) => s.setBusyKey);
@@ -717,7 +755,7 @@ export function JobsPage() {
     async (
       jobId: string | null,
       targetJob?: Record<string, unknown> | null,
-      options: {resetUi?: boolean; fetchLog?: boolean} = {},
+      options: {resetUi?: boolean; fetchLog?: boolean; force?: boolean; trackHealth?: boolean} = {},
     ) => {
       const seq = ++reqSeqRef.current;
       if (!jobId) {
@@ -766,7 +804,42 @@ export function JobsPage() {
 
       const isRemote =
         String(targetJob?.target || '').toLowerCase() === 'server' ||
-        (!targetJob && (remoteResult.connected || formValues.runtimeTarget === 'Server'));
+        (!targetJob && (useRemoteStore.getState().connected || formValues.runtimeTarget === 'Server'));
+
+      // Fail fast while a channel is down: don't hang the detail view on a
+      // request that is known to fail. Manual retries pass `force: true`.
+      if (!options.force) {
+        const health = useRemoteStore.getState();
+        if (health.backendStatus === 'down') {
+          if (seq === reqSeqRef.current) {
+            if (isInitial) {
+              setJobEvents([]);
+              setOutputText('');
+            }
+            setDetailsNotice({
+              type: 'error',
+              message: 'Cannot load job details: the local backend is unreachable. Retry once it is running again.',
+            });
+            setIsLoadingDetails(false);
+          }
+          return;
+        }
+        if (isRemote && health.sshStatus === 'disconnected') {
+          if (seq === reqSeqRef.current) {
+            if (isInitial) {
+              setJobEvents([]);
+              setOutputText('');
+            }
+            setDetailsNotice({
+              type: 'error',
+              message:
+                'Cannot load server job details: the SSH connection is down. Reconnect from Pipeline Configuration, then retry.',
+            });
+            setIsLoadingDetails(false);
+          }
+          return;
+        }
+      }
 
       const eventOffset = isInitial ? 0 : eventsOffsetRef.current;
       const logOffset = isInitial ? 0 : logOffsetRef.current;
@@ -778,11 +851,12 @@ export function JobsPage() {
       detailsAbortRef.current?.abort();
       detailsAbortRef.current = controller;
 
-      type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; next_offset?: number; events_file_found?: boolean};
+      type EventsResult = {ok?: boolean; aborted?: boolean; error?: string; events?: PipelineEvent[]; next_offset?: number; events_file_found?: boolean};
       type LogResult = {ok?: boolean; text?: string; next_offset?: number};
       let newEvents: PipelineEvent[] = [];
       let newLogText = '';
       let notice: {type: 'error' | 'info'; message: string} | null = null;
+      let evRes: EventsResult | null = null;
 
       try {
         if (isRemote) {
@@ -797,8 +871,16 @@ export function JobsPage() {
               offset: eventOffset,
               limit: 10000,
               signal: controller.signal,
+              timeoutMs: REMOTE_DETAIL_TIMEOUT_MS,
             })
-            .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult);
+            .catch((err: unknown) =>
+              // Only the detail controller aborting means the user moved on
+              // (navigation/modal close). Internal request timeouts abort a
+              // different controller and must still count as failures.
+              isAbortError(err) && controller.signal.aborted
+                ? ({ok: false, aborted: true, events: []}) as EventsResult
+                : ({ok: false, error: (err as Error).message, events: []}) as EventsResult,
+            );
           const logFetch = shouldFetchLog
             ? (readRemoteLogAsync({
                   ...remotePayload,
@@ -806,6 +888,7 @@ export function JobsPage() {
                   job_id: jobId,
                   offset: logOffset,
                   signal: controller.signal,
+                  timeoutMs: REMOTE_DETAIL_TIMEOUT_MS,
                 })
                 .catch(() => ({text: ''})) as Promise<LogResult>)
             : Promise.resolve({text: '', next_offset: logOffset} as LogResult);
@@ -818,11 +901,12 @@ export function JobsPage() {
                   limit: 5000,
                   input_file: activeModalSubjectFileRef.current || '',
                   signal: controller.signal,
+                  timeoutMs: REMOTE_DETAIL_TIMEOUT_MS,
                 })
                 .catch(() => ({events: []})) as Promise<EventsResult>)
             : Promise.resolve({events: [], next_offset: modalMetricsOffsetRef.current} as EventsResult);
           const [eventsResult, logResult, metricsResult] = await Promise.all([eventFetch, logFetch, metricsFetch]);
-          const evRes = eventsResult as EventsResult;
+          evRes = eventsResult as EventsResult;
           const metRes = metricsResult as EventsResult;
           newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           newLogText = logResult?.text || '';
@@ -840,13 +924,23 @@ export function JobsPage() {
             logOffsetRef.current = logResult.next_offset;
           }
           if (evRes?.ok === false && evRes?.error) {
-            notice = {type: 'error', message: evRes.error};
+            // Connection breakdowns stay silent here: the global status line
+            // above the footer already warns, and stale data stays on screen.
+            // Only app-level errors (unknown job, ...) get an inline notice.
+            notice =
+              isSshConnectionMessage(evRes.error) || isBackendUnreachableMessage(evRes.error)
+                ? null
+                : {type: 'error', message: evRes.error};
           } else if (isInitial && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
           }
         } else {
           const eventFetch = readEventsAsync({jobId, offset: eventOffset, limit: 100000, signal: controller.signal})
-            .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult);
+            .catch((err: unknown) =>
+              isAbortError(err) && controller.signal.aborted
+                ? ({ok: false, aborted: true, events: []}) as EventsResult
+                : ({ok: false, error: (err as Error).message, events: []}) as EventsResult,
+            );
           const logFetch = shouldFetchLog
             ? (readLogAsync({jobId, offset: logOffset, maxBytes: 65536, signal: controller.signal})
                 .catch(() => ({text: ''})) as Promise<LogResult>)
@@ -862,7 +956,7 @@ export function JobsPage() {
                 .catch(() => ({events: []})) as Promise<EventsResult>)
             : Promise.resolve({events: [], next_offset: modalMetricsOffsetRef.current} as EventsResult);
           const [eventsResult, logResult, metricsResult] = await Promise.all([eventFetch, logFetch, metricsFetch]);
-          const evRes = eventsResult as EventsResult;
+          evRes = eventsResult as EventsResult;
           const metRes = metricsResult as EventsResult;
           newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           newLogText = logResult?.text || '';
@@ -880,12 +974,35 @@ export function JobsPage() {
             logOffsetRef.current = logResult.next_offset;
           }
           if (evRes?.ok === false && evRes?.error) {
-            notice = {type: 'error', message: evRes.error};
+            notice =
+              isBackendUnreachableMessage(evRes.error)
+                ? null
+                : {type: 'error', message: evRes.error};
           } else if (isInitial && newEvents.length === 0 && evRes?.events_file_found === false) {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found).'};
           }
         }
         if (seq !== reqSeqRef.current) return;
+        // Feed channel health from the main events fetch so a terminal detail
+        // view (whose list auto-poll is paused) still goes stale when its
+        // channel drops. Aborts, superseded requests, and app-level errors
+        // (unknown job, ...) never touch the counters. refreshJobs passes
+        // trackHealth: false for its internal reload to avoid counting one
+        // round twice (list + detail).
+        if (options.trackHealth !== false && !controller.signal.aborted) {
+          const conn = useRemoteStore.getState();
+          if (isRemote && conn.connected) {
+            if (evRes?.ok === true) conn.reportSshSuccess();
+            else if (evRes?.aborted !== true && evRes?.error && isSshConnectionMessage(evRes.error)) {
+              conn.reportSshFailure(evRes.error);
+            }
+          } else if (!isRemote) {
+            if (evRes?.ok === true) conn.reportBackendSuccess();
+            else if (evRes?.aborted !== true && evRes?.error && isBackendUnreachableMessage(evRes.error)) {
+              conn.reportBackendFailure(evRes.error);
+            }
+          }
+        }
       } finally {
         if (detailsAbortRef.current === controller) detailsAbortRef.current = null;
         if (seq === reqSeqRef.current) {
@@ -916,7 +1033,6 @@ export function JobsPage() {
       readRemoteEventsAsync,
       readRemoteMetricsAsync,
       readRemoteLogAsync,
-      remoteResult.connected,
       setJobEvents,
       setOutputText,
     ],
@@ -939,60 +1055,161 @@ export function JobsPage() {
     }
   }, [activeModalSubjectFile, selectedJobId, urlJobId, loadJobDetails]);
 
-  const refreshJobs = useCallback(async () => {
-    setBusyKey('refreshJobs', true);
-    try {
-      const localRes = await listLocalJobsAsync().catch(() => ({jobs: []}));
-      let remoteJobs: unknown[] = [];
-      if (remoteResult.connected) {
-        const remoteStartedAt = Date.now();
-        try {
-          const remoteRes = await listRemoteJobsAsync(buildRemotePayload(formValues));
-          remoteJobs = Array.isArray(remoteRes.jobs) ? remoteRes.jobs : [];
-          setRemoteLagging(remoteRes.ok === false || Date.now() - remoteStartedAt >= 5_000);
-        } catch {
-          setRemoteLagging(true);
-        }
-      } else {
-        setRemoteLagging(false);
-      }
-      const localJobs = (Array.isArray(localRes?.jobs) ? localRes.jobs : []).map((j) =>
-        normalizeJob(j as Record<string, unknown>, 'Local'),
-      );
-      const normalizedRemoteJobs = remoteJobs.map((j) => normalizeJob(j as Record<string, unknown>, 'Server'));
-      const jobs = sortJobsByStartedAtDesc([...localJobs, ...normalizedRemoteJobs] as Record<string, unknown>[]);
-      setLatestJobs(jobs as Record<string, unknown>[]);
+  // Refresh both channels and track their health independently.
+  // - Backend channel: proven alive by a local-jobs request that gets a
+  //   usable HTTP response. Only transport-level throws count as failures;
+  //   an `{ok: false}` payload means the backend answered, so the channel
+  //   itself is fine (and the last good list is kept, not wiped).
+  // - SSH channel: counted only while the user is connected. Any throw
+  //   counts (local already proved the backend is up in this round), plus
+  //   `{ok: false}` payloads with connection-like errors (backend-reported
+  //   "SSH ..." failures). Other app errors leave the counters alone.
+  // While a leg is down it is skipped unless this is a manual retry
+  // (`force: true`). Failed/skipped legs keep their previous jobs so the
+  // status line describes genuinely stale data instead of an emptied list.
+  // The warning appears on the first consecutive failure (MAX = 1).
+  // Manual retries get an immediate toast so the user is never left staring
+  // at a spinner; automatic polling stays silent.
+  const refreshJobs = useCallback(
+    async (options: {force?: boolean} = {}) => {
+      const force = options.force === true;
+      const health = () => useRemoteStore.getState();
+      setBusyKey('refreshJobs', true);
+      try {
+        const prevJobs = (useJobsStore.getState().latestJobs || []) as Record<string, unknown>[];
+        const prevLocalJobs = prevJobs.filter((j) => String(j?.target || 'Local') !== 'Server');
+        const prevServerJobs = prevJobs.filter((j) => String(j?.target || 'Local') === 'Server');
+        let freshLocalJobs: Record<string, unknown>[] | null = null;
+        let freshRemoteJobs: Record<string, unknown>[] | null = null;
 
-      if (urlJobId || selectedJobId) {
-        const targetId = urlJobId || selectedJobId;
-        const currentJob = jobs.find((j) => matchesJobId((j as {job_id?: string}).job_id, targetId));
-        if (currentJob) {
-          await loadJobDetails(targetId, currentJob as Record<string, unknown>);
+        let backendOkThisRound = health().backendStatus !== 'down' || force;
+        try {
+          const localRes = await listLocalJobsAsync();
+          if (localRes && localRes.ok === false) {
+            print('Refresh local jobs failed', {error: localRes.error || 'Unknown error'});
+          } else {
+            const rawJobs = Array.isArray(localRes?.jobs) ? (localRes.jobs as unknown[]) : [];
+            freshLocalJobs = rawJobs.map((j) => normalizeJob(j as Record<string, unknown>, 'Local'));
+          }
+          health().reportBackendSuccess();
+          backendOkThisRound = true;
+        } catch (err: unknown) {
+          const message = (err as Error)?.message || 'Backend request failed.';
+          print('Refresh jobs failed', {error: message});
+          if (isBackendUnreachableMessage(message)) {
+            health().reportBackendFailure(message);
+            backendOkThisRound = false;
+            if (force) {
+              toast.error('Cannot reach the local backend.');
+            }
+          } else {
+            // The backend answered but the payload was unusable: the channel
+            // itself is alive, so don't trip the offline warning.
+            health().reportBackendSuccess();
+            backendOkThisRound = true;
+          }
         }
+
+        const {connected, sshStatus: currentSsh} = health();
+        if (connected && backendOkThisRound && (currentSsh !== 'disconnected' || force)) {
+          try {
+            const remoteRes = await listRemoteJobsAsync({
+              ...buildRemotePayload(formValues),
+              timeoutMs: REMOTE_JOBS_TIMEOUT_MS,
+            });
+            if (remoteRes.ok === false) {
+              const message = remoteRes.error || 'Server jobs request failed.';
+              print('Refresh server jobs failed', {error: message});
+              if (isSshConnectionMessage(message)) {
+                health().reportSshFailure(message);
+                if (force) {
+                  toast.error('Cannot reach the server.');
+                }
+              }
+            } else {
+              freshRemoteJobs = (Array.isArray(remoteRes.jobs) ? remoteRes.jobs : []).map((j) =>
+                normalizeJob(j as Record<string, unknown>, 'Server'),
+              );
+              health().reportSshSuccess();
+            }
+          } catch (err: unknown) {
+            const message = (err as Error)?.message || 'Server jobs request failed.';
+            health().reportSshFailure(message);
+            print('Refresh server jobs failed', {error: message});
+            if (force) {
+              toast.error('Cannot reach the server.');
+            }
+          }
+        }
+        const jobs = sortJobsByStartedAtDesc([
+          ...((freshLocalJobs ?? prevLocalJobs) as Record<string, unknown>[]),
+          ...((freshRemoteJobs ?? prevServerJobs) as Record<string, unknown>[]),
+        ] as Record<string, unknown>[]);
+        setLatestJobs(jobs as Record<string, unknown>[]);
+
+        if (urlJobId || selectedJobId) {
+          const targetId = urlJobId || selectedJobId;
+          const currentJob = jobs.find((j) => matchesJobId((j as {job_id?: string}).job_id, targetId));
+          if (currentJob) {
+            const st = health();
+            const targetIsServer =
+              String((currentJob as {target?: unknown}).target || 'Local') === 'Server';
+            const channelDown =
+              st.backendStatus === 'down' || (targetIsServer && st.sshStatus === 'disconnected');
+            if (!channelDown) {
+              // trackHealth: false — the list leg already counted this round.
+              await loadJobDetails(targetId, currentJob as Record<string, unknown>, {
+                force,
+                trackHealth: false,
+              });
+            } else if (!force) {
+              // Fail-fast path only: surfaces the stale-data notice without
+              // hanging on a request that is known to fail.
+              await loadJobDetails(targetId, currentJob as Record<string, unknown>);
+            }
+            // Manual retry while still down: skip the detail fetch entirely.
+            // The banner + toast already explain; stale data stays on screen.
+          }
+        }
+      } catch (err: unknown) {
+        print('Refresh jobs failed', {error: (err as Error).message});
+      } finally {
+        setHasLoadedInitialJobs(true);
+        setBusyKey('refreshJobs', false);
       }
-    } catch (err: unknown) {
-      print('Refresh jobs failed', {error: (err as Error).message});
-    } finally {
-      setHasLoadedInitialJobs(true);
-      setBusyKey('refreshJobs', false);
-    }
-  }, [
-    formValues,
-    listLocalJobsAsync,
-    listRemoteJobsAsync,
-    loadJobDetails,
-    remoteResult.connected,
-    selectedJobId,
-    setBusyKey,
-    setHasLoadedInitialJobs,
-    setLatestJobs,
-    urlJobId,
-    print,
-  ]);
+    },
+    [
+      formValues,
+      listLocalJobsAsync,
+      listRemoteJobsAsync,
+      loadJobDetails,
+      selectedJobId,
+      setBusyKey,
+      setHasLoadedInitialJobs,
+      setLatestJobs,
+      urlJobId,
+      print,
+    ],
+  );
+
+  const isServerTarget = (targetJob: Record<string, unknown>) =>
+    String(targetJob?.target || 'Local') === 'Server';
+
+  const actionBlockedReason = (serverJob: boolean): string | null => {
+    const st = useRemoteStore.getState();
+    if (st.backendStatus === 'down') return localActionsBlockedReason;
+    if (serverJob && st.sshStatus === 'disconnected') return serverActionsBlockedReason;
+    return null;
+  };
 
   const handleDeleteJob = (targetJob: Record<string, unknown>) => {
     const jobId = String(targetJob.job_id || '');
     if (!jobId || normalizeJobState(targetJob.state) === 'running') return;
+    const blocked = actionBlockedReason(isServerTarget(targetJob));
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
     setJobToDelete(targetJob);
   };
 
@@ -1000,6 +1217,13 @@ export function JobsPage() {
     if (!jobToDelete) return;
     const jobId = String(jobToDelete.job_id || '');
     if (!jobId) return;
+    const blocked = actionBlockedReason(isServerTarget(jobToDelete));
+    if (blocked) {
+      print('Delete job blocked', {error: blocked});
+      toast.error(blocked);
+      setJobToDelete(null);
+      return;
+    }
 
     setDeletingJobId(jobId);
     try {
@@ -1031,11 +1255,23 @@ export function JobsPage() {
 
   const handleStopJob = () => {
     if (!job || normState !== 'running' || isTerminal || stoppingJob) return;
+    const blocked = actionBlockedReason(isServerJob);
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
     setShowStopConfirm(true);
   };
 
   const handleConfirmStopJob = async () => {
     if (!job || normState !== 'running' || isTerminal || stoppingJob) return;
+    const blocked = actionBlockedReason(isServerJob);
+    if (blocked) {
+      print('Stop job blocked', {error: blocked});
+      toast.error(blocked);
+      setShowStopConfirm(false);
+      return;
+    }
     setStoppingJob(true);
     try {
       const client = new BackendClient(DEFAULT_BACKEND_URL);
@@ -1144,14 +1380,24 @@ export function JobsPage() {
   // - If looking at a running job: poll every 30s with lightweight delta fetch
   // - If looking at a terminal job: do not poll (paused)
   // - If on jobs list: poll every 20s
+  // - If the backend is down: pause entirely. The status-line Retry is the
+  //   manual path (no auto-reconnect). SSH-down still polls Local jobs; the
+  //   remote leg is skipped inside refreshJobs until a manual retry.
+  // Ticks never overlap: a tick while a refresh is in flight is skipped.
   useEffect(() => {
+    if (backendDown) {
+      return;
+    }
     if (selectedJobId && isTerminal) {
       return;
     }
     const pollDelay = selectedJobId && normState === 'running' ? 30_000 : 20_000;
-    const interval = setInterval(() => void refreshJobs(), pollDelay);
+    const interval = setInterval(() => {
+      if (useUiStore.getState().busy.refreshJobs) return;
+      void refreshJobs();
+    }, pollDelay);
     return () => clearInterval(interval);
-  }, [refreshJobs, selectedJobId, isTerminal, normState]);
+  }, [refreshJobs, selectedJobId, isTerminal, normState, backendDown]);
 
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = React.useMemo(() => {
@@ -1202,6 +1448,11 @@ export function JobsPage() {
   const handleDownloadClick = () => {
     if (!job || !isTerminal) return;
     if (isServerJob) {
+      const blocked = actionBlockedReason(true);
+      if (blocked) {
+        toast.error(blocked);
+        return;
+      }
       const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
       const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
       const remotePath =
@@ -1237,6 +1488,12 @@ export function JobsPage() {
   const handleStartServerDownload = () => {
     const trimmedDir = downloadLocalDir.trim();
     if (!trimmedDir || !job) return;
+    const blocked = actionBlockedReason(true);
+    if (blocked) {
+      setDownloadPhase('failed');
+      setDownloadError(blocked);
+      return;
+    }
 
     const initialSteps: DownloadStep[] = [
       {id: 'connect', label: 'Connecting to server', status: 'pending'},
@@ -1387,12 +1644,15 @@ export function JobsPage() {
             setSelectedJobId(id);
             navigate(`/jobs/${encodeURIComponent(id)}`);
           }}
-          onRefresh={refreshJobs}
+          onRefresh={() => void refreshJobs({force: true})}
           isRefreshing={busy.refreshJobs}
           isInitialLoading={(!hasLoadedInitialJobs || busy.refreshJobs) && jobsList.length === 0}
           onDeleteJob={handleDeleteJob}
           deletingJobId={deletingJobId}
-          remoteLagging={remoteLagging}
+          serverActionsBlocked={serverActionsBlocked}
+          localActionsBlocked={localActionsBlocked}
+          serverActionsBlockedReason={serverActionsBlockedReason}
+          localActionsBlockedReason={localActionsBlockedReason}
         />
 
         <ConfirmDialog
@@ -1411,6 +1671,9 @@ export function JobsPage() {
       </>
     );
   }
+
+  const stopBlockedReason = actionBlockedReason(isServerJob);
+  const serverDownloadBlockedReason = isServerJob ? actionBlockedReason(true) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden text-cursor-ink p-6">
@@ -1745,7 +2008,8 @@ export function JobsPage() {
                 <Button
                   variant="default"
                   onClick={handleDownloadClick}
-                  disabled={downloadRunning}
+                  disabled={downloadRunning || (isServerJob && serverDownloadBlockedReason !== null)}
+                  title={isServerJob ? serverDownloadBlockedReason || undefined : undefined}
                   className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs shadow-none cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
@@ -1754,7 +2018,7 @@ export function JobsPage() {
                 <Button
                   id="refreshJobsButton"
                   variant="default"
-                  onClick={refreshJobs}
+                  onClick={() => void refreshJobs({force: true})}
                   disabled={busy.refreshJobs}
                   className="w-full h-8 bg-cursor-primary hover:bg-cursor-primary-active text-white font-medium text-xs shadow-none cursor-pointer"
                 >
@@ -1773,7 +2037,8 @@ export function JobsPage() {
               {(!isTerminal || displayMeta.status_reconciled !== 'completed') && (
                 <Button
                   onClick={handleStopJob}
-                  disabled={!job || normState !== 'running' || isTerminal || stoppingJob}
+                  disabled={!job || normState !== 'running' || isTerminal || stoppingJob || stopBlockedReason !== null}
+                  title={stopBlockedReason || undefined}
                   className="w-full h-8 border-cursor-semantic-error text-cursor-semantic-error bg-cursor-surface-card hover:bg-cursor-semantic-error/5 font-medium text-xs cursor-pointer"
                 >
                   {stoppingJob ? (
@@ -1789,7 +2054,7 @@ export function JobsPage() {
                 <Button
                   id="refreshJobsButton"
                   variant="outline"
-                  onClick={refreshJobs}
+                  onClick={() => void refreshJobs({force: true})}
                   disabled={busy.refreshJobs}
                   className="w-full h-8 border-cursor-hairline text-cursor-ink bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs cursor-pointer"
                 >
@@ -1807,7 +2072,8 @@ export function JobsPage() {
                 <Button
                   variant="ghost"
                   onClick={handleDownloadClick}
-                  disabled={!job || !isTerminal || downloadRunning}
+                  disabled={!job || !isTerminal || downloadRunning || (isServerJob && serverDownloadBlockedReason !== null)}
+                  title={isServerJob ? serverDownloadBlockedReason || undefined : undefined}
                   className="w-full h-8 border-cursor-hairline text-cursor-body bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5 mr-1.5" /> Download Outputs
@@ -1865,16 +2131,11 @@ export function JobsPage() {
 
           {/* Interior: Search + Filter + Grid */}
           <div className="flex min-h-0 flex-1 flex-col bg-cursor-surface-card p-3.5 overflow-hidden">
-            {/* Job Data Notice */}
-            {detailsNotice && (
-              <div
-                className={`mb-2.5 flex-none rounded-md border px-3 py-2 text-xs leading-relaxed ${
-                  detailsNotice.type === 'error'
-                    ? 'border-cursor-semantic-error/30 bg-cursor-semantic-error/5 text-cursor-semantic-error'
-                    : 'border-cursor-hairline bg-cursor-canvas-soft text-cursor-body'
-                }`}
-              >
-                {detailsNotice.type === 'error' ? 'Could not read job data: ' : ''}
+            {/* Job Data Notice: info only (e.g. no metric file). Error/warning
+                lines are intentionally never shown here — connection problems
+                already surface in the global status line above the footer. */}
+            {detailsNotice?.type === 'info' && (
+              <div className="mb-2.5 flex-none rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-3 py-2 text-xs leading-relaxed text-cursor-body">
                 {detailsNotice.message}
               </div>
             )}
@@ -2181,7 +2442,7 @@ export function JobsPage() {
           </p>
           <Button
             variant="default"
-            onClick={refreshJobs}
+            onClick={() => void refreshJobs({force: true})}
             disabled={busy.refreshJobs}
             className="bg-cursor-primary hover:bg-cursor-primary-active text-white h-8 text-xs"
           >

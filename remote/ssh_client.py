@@ -118,9 +118,13 @@ class SSHConnectionPool:
     ) -> tuple[object, threading.BoundedSemaphore]:
         # Auth errors must fail fast; handshake/banner throttling is retried
         # with backoff so a busy sshd is not hammered by an immediate storm.
-        delays = (0.5, 1.5, 3.0)
+        try:
+            max_attempts = max(1, int(config.connect_attempts))
+        except (TypeError, ValueError):
+            max_attempts = 4
+        delays = (0.5, 1.5, 3.0)[: max(0, max_attempts - 1)]
         last_exc: Exception | None = None
-        for attempt in range(len(delays) + 1):
+        for attempt in range(max_attempts):
             try:
                 return self._create_connection(config, on_log)
             except Exception as exc:  # noqa: BLE001 - mapped below
@@ -263,6 +267,11 @@ class SSHConfig:
     password: str = ""
     key_path: str = ""
     timeout: int = 15
+    # How many TCP/SSH handshake attempts the pool makes before giving up.
+    # Background ops keep 4 (with backoff); explicit connectivity probes
+    # (Connect button) pass 1 so a dead route fails fast instead of
+    # stacking timeouts.
+    connect_attempts: int = 4
 
 
 class RemoteSSHClient:

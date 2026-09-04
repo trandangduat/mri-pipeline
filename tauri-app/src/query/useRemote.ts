@@ -8,7 +8,10 @@ import {queryKeys} from './keys';
 export function useRemoteValidate(client: BackendClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: RemotePayload) => client.validateRemoteConfig(payload),
+    mutationFn: (payload: RemotePayload & {timeoutMs?: number}) => {
+      const {timeoutMs, ...requestPayload} = payload;
+      return client.validateRemoteConfig(requestPayload, timeoutMs);
+    },
     onSuccess: (result: RemoteValidateResponse) => {
       if (result.connected === true) {
         void queryClient.invalidateQueries({queryKey: queryKeys.remote.validate()});
@@ -19,21 +22,30 @@ export function useRemoteValidate(client: BackendClient) {
 
 export function useRemoteJobs(client: BackendClient) {
   return useMutation({
-    mutationFn: (payload: RemotePayload) => client.listRemoteJobs(payload),
+    mutationFn: (payload: RemotePayload & {timeoutMs?: number}) => {
+      const {timeoutMs, ...requestPayload} = payload;
+      return client.listRemoteJobs(requestPayload, timeoutMs);
+    },
   });
 }
 
 export function useRemoteValidateMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: (payload: RemotePayload) => client.validateRemoteConfig(payload),
+    mutationFn: (payload: RemotePayload & {timeoutMs?: number}) => {
+      const {timeoutMs, ...requestPayload} = payload;
+      return client.validateRemoteConfig(requestPayload, timeoutMs);
+    },
   });
 }
 
 export function useListRemoteJobsMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: (payload: RemotePayload) => client.listRemoteJobs(payload),
+    mutationFn: (payload: RemotePayload & {timeoutMs?: number}) => {
+      const {timeoutMs, ...requestPayload} = payload;
+      return client.listRemoteJobs(requestPayload, timeoutMs);
+    },
   });
 }
 
@@ -47,10 +59,11 @@ export function useReadRemoteEventsMutation() {
         offset?: number;
         limit?: number;
         signal?: AbortSignal;
+        timeoutMs?: number;
       },
     ) => {
-      const {signal, ...requestPayload} = payload;
-      return client.readRemoteEvents(requestPayload, signal);
+      const {signal, timeoutMs, ...requestPayload} = payload;
+      return client.readRemoteEvents(requestPayload, signal, timeoutMs);
     },
   });
 }
@@ -67,10 +80,11 @@ export function useReadRemoteMetricsMutation() {
         subject_id?: string;
         input_file?: string;
         signal?: AbortSignal;
+        timeoutMs?: number;
       },
     ) => {
-      const {signal, ...requestPayload} = payload;
-      return client.readRemoteMetrics(requestPayload, signal);
+      const {signal, timeoutMs, ...requestPayload} = payload;
+      return client.readRemoteMetrics(requestPayload, signal, timeoutMs);
     },
   });
 }
@@ -85,10 +99,11 @@ export function useReadRemoteLogMutation() {
         offset?: number;
         max_bytes?: number;
         signal?: AbortSignal;
+        timeoutMs?: number;
       },
     ) => {
-      const {signal, ...requestPayload} = payload;
-      return client.readRemoteLog(requestPayload, signal);
+      const {signal, timeoutMs, ...requestPayload} = payload;
+      return client.readRemoteLog(requestPayload, signal, timeoutMs);
     },
   });
 }

@@ -2,13 +2,16 @@ import React, {useEffect, useCallback, useRef} from 'react';
 import {HashRouter, Routes, Route, Navigate, useNavigate, useLocation} from 'react-router';
 import {AppHeader} from '../components/AppHeader';
 import {AppFooter} from '../components/AppFooter';
+import {ConnectionStatusLine} from '../components/ConnectionStatusLine';
 import {PipelinePage} from '../pages/PipelinePage';
 import {ToolsPage} from '../pages/ToolsPage';
 import {JobsPage} from '../pages/JobsPage';
 import type {AppTab} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
+import {useRemoteStore} from '../stores/remoteStore';
 import {useEnvironment, useClient} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
+import {getConnectionWarningKind} from '../lib/connection';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
 
 function AppLayout() {
@@ -28,11 +31,6 @@ function AppLayout() {
       ? 'jobs'
       : 'pipeline';
 
-  const envParts = ['python', 'docker', 'ssh'].map((name) => {
-    const item = (environment as Record<string, unknown> | undefined)?.[name] as {ok?: boolean} | undefined;
-    return `${name}: ${item?.ok ? 'ready' : 'missing'}`;
-  });
-
   const pythonOk = Boolean(
     (environment as Record<string, unknown> | undefined)?.python &&
       ((environment as Record<string, unknown> | undefined)?.python as {ok?: boolean}).ok,
@@ -42,6 +40,27 @@ function AppLayout() {
       ((environment as Record<string, unknown> | undefined)?.docker as {ok?: boolean}).ok,
   );
   const isEnvReady = pythonOk && dockerOk;
+
+  // Live connection state overrides the footer status so it never claims
+  // "System ready" while the backend/SSH leg is down.
+  const backendStatus = useRemoteStore((s) => s.backendStatus);
+  const sshStatus = useRemoteStore((s) => s.sshStatus);
+  const sshConnected = useRemoteStore((s) => s.connected);
+  const sshLastSeenAt = useRemoteStore((s) => s.sshLastSeenAt);
+  const runtimeTarget = usePipelineFormStore((s) => s.formValues.runtimeTarget);
+  const connectionKind = getConnectionWarningKind({
+    backendStatus,
+    sshStatus,
+    connected: sshConnected,
+    sshLastSeenAt,
+    runtimeTarget,
+  });
+  const connectionLabel =
+    connectionKind === 'backend'
+      ? 'Backend offline'
+      : connectionKind === 'ssh'
+        ? 'Server unreachable'
+        : null;
 
   const print = useCallback(
     (label: string, payload: unknown) => {
@@ -92,6 +111,7 @@ function AppLayout() {
         jobsCount={latestJobs.length}
       />
 
+      <ConnectionStatusLine />
       <main className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
         <Routes>
           <Route path="/" element={<Navigate to="/pipeline" replace />} />
@@ -130,7 +150,7 @@ function AppLayout() {
         </Routes>
       </main>
 
-      <AppFooter envText={envParts.join(' · ')} isReady={isEnvReady} />
+      <AppFooter isReady={isEnvReady} connectionLabel={connectionLabel} />
     </div>
   );
 }

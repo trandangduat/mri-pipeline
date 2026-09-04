@@ -2,11 +2,12 @@ import React from 'react';
 import {ExternalLink} from 'lucide-react';
 
 export interface AppFooterProps {
-  envText?: string;
   isReady?: boolean;
+  /** Live connection warning (backend/SSH down). Overrides the ready label. */
+  connectionLabel?: string | null;
 }
 
-export function AppFooter({envText, isReady = true}: AppFooterProps) {
+export function AppFooter({isReady = true, connectionLabel}: AppFooterProps) {
   const currentYear = new Date().getFullYear();
 
   return (
@@ -15,16 +16,19 @@ export function AppFooter({envText, isReady = true}: AppFooterProps) {
         <span>NeuroFlow MRI Pipeline © {currentYear}</span>
       </div>
 
-      <div className="flex items-center gap-1.5" title={envText || 'Environment status'}>
+      <div className="flex items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${
-            isReady ? 'bg-cursor-semantic-success' : 'bg-cursor-semantic-error'
+            connectionLabel
+              ? 'bg-cursor-semantic-error'
+              : isReady
+                ? 'bg-cursor-semantic-success'
+                : 'bg-cursor-semantic-error'
           }`}
         />
         <span className="font-medium text-cursor-ink">
-          {isReady ? 'System ready' : 'Environment incomplete'}
+          {connectionLabel ?? (isReady ? 'System ready' : 'Environment incomplete')}
         </span>
-        {envText ? <span className="text-cursor-muted">({envText})</span> : null}
       </div>
 
       <div className="flex items-center gap-3 text-cursor-body">

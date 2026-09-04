@@ -18,6 +18,7 @@ import {useUiStore} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {buildRemotePayload} from '../api/runConfig';
 import {useRemoteValidateMutation} from '../query/useRemote';
+import {shortConnectionError} from '../lib/connection';
 import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary} from '../types/backend';
 
 function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
@@ -32,6 +33,16 @@ export function RuntimeSection() {
 
   const remoteResult = useRemoteStore();
   const setRemoteResult = useRemoteStore((s) => s.setResult);
+  const setSshConnected = useRemoteStore((s) => s.setSshConnected);
+  const resetSshHealth = useRemoteStore((s) => s.resetSshHealth);
+  const sshStatus = useRemoteStore((s) => s.sshStatus);
+  const sshLastError = useRemoteStore((s) => s.sshLastError);
+  const sshLastSeenAt = useRemoteStore((s) => s.sshLastSeenAt);
+  // `connected` is sticky (last explicit Connect result); the live health
+  // can report a mid-session drop while it stays true. `hadSsh` distinguishes
+  // a real drop from a first-time Connect that never succeeded.
+  const sshDown = sshStatus === 'disconnected';
+  const hadSsh = remoteResult.connected || sshLastSeenAt != null;
 
   const busy = useUiStore((s) => s.busy);
   const setBusyKey = useUiStore((s) => s.setBusyKey);
@@ -54,25 +65,30 @@ export function RuntimeSection() {
     warnings?: string[] | undefined;
   }) {
     if (!result.ok) {
+      const error = result.error || (result.errors || []).join(' ') || 'SSH connection failed.';
       setRemoteResult({
         ok: false,
         connected: false,
         config: null,
         hardware: null,
-        error: result.error || (result.errors || []).join(' ') || 'SSH connection failed.',
+        error,
         jobs: [],
         warnings: [],
       });
+      // Intentionally NOT touching SSH health here: a failed explicit Connect
+      // means "never connected", not "connection lost". The monitored health
+      // (disconnected) is only ever set by mid-session drops.
       return;
     }
     if (result.connected !== true) {
+      const error =
+        'SSH connection was not confirmed. Restart NeuroFlow so the updated backend is used, then press Connect again.';
       setRemoteResult({
         ok: true,
         connected: false,
         config: null,
         hardware: null,
-        error:
-          'SSH connection was not confirmed. Restart NeuroFlow so the updated backend is used, then press Connect again.',
+        error,
         jobs: [],
         warnings: [],
       });
@@ -87,6 +103,7 @@ export function RuntimeSection() {
       jobs: result.jobs || [],
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
     });
+    setSshConnected();
   }
 
   const validateRemoteMutation = useRemoteValidateMutation();
@@ -140,6 +157,11 @@ export function RuntimeSection() {
   const handleRuntimeTargetChange = (value: string) => {
     setFormField('runtimeTarget', value);
     const nextTarget = (value === 'Server' ? 'Server' : 'Local') as RuntimeTarget;
+    if (nextTarget === 'Local') {
+      // Server leg abandoned: drop the SSH warning immediately instead of
+      // waiting for recovery. The global status line hides with it.
+      resetSshHealth();
+    }
     const nextThreadCap = cpuThreadCapForTarget({runtimeTarget: nextTarget, environment, remoteResult});
     setFormField('cpuThreads', reclampCpuThreadsForTarget({cpuThreads: formValues.cpuThreads, threadCap: nextThreadCap}));
     setFormField('ramPercent', reclampRamPercentForTarget({ramPercent: formValues.ramPercent}));
@@ -155,15 +177,23 @@ export function RuntimeSection() {
             {formValues.runtimeTarget === 'Server' && (
               <span
                 className={`inline-flex items-center gap-1 text-2xs font-medium ${
-                  remoteResult.connected ? 'text-cursor-semantic-success' : 'text-cursor-muted'
+                  sshDown && hadSsh
+                    ? 'text-cursor-semantic-error'
+                    : remoteResult.connected
+                      ? 'text-cursor-semantic-success'
+                      : 'text-cursor-muted'
                 }`}
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    remoteResult.connected ? 'bg-cursor-semantic-success' : 'bg-cursor-muted'
+                    sshDown && hadSsh
+                      ? 'bg-cursor-semantic-error'
+                      : remoteResult.connected
+                        ? 'bg-cursor-semantic-success'
+                        : 'bg-cursor-muted'
                   }`}
                 />
-                {remoteResult.connected ? 'Connected' : 'Disconnected'}
+                {sshDown && hadSsh ? 'Connection lost' : remoteResult.connected ? 'Connected' : 'Disconnected'}
               </span>
             )}
           </span>
@@ -398,17 +428,25 @@ export function RuntimeSection() {
               </Button>
             </div>
 
-            {remoteResult.connected ? (
+            {sshDown && hadSsh ? (
+              <Alert severity="error" size="sm" badgeLabel="Connection lost">
+                <span title={sshLastError || remoteResult.error}>
+                  The SSH connection dropped
+                  {sshLastError ? ` (${shortConnectionError(sshLastError)})` : ''}. Press Reconnect to
+                  restore it.
+                </span>
+              </Alert>
+            ) : remoteResult.connected ? (
               <Alert severity="success" size="sm">
                 Connected to {remoteResult.config?.username}@{remoteResult.config?.host}:{remoteResult.config?.port} ({remoteResult.hardware?.logical_cores || '—'} cores, {formatBytes(remoteResult.hardware?.total_ram_bytes)} RAM{remoteResult.hardware?.gpus?.length ? `, ${remoteResult.hardware.gpus.length} GPU${remoteResult.hardware.gpus.length > 1 ? 's' : ''}` : ''})
               </Alert>
             ) : remoteResult.error ? (
               <Alert severity="error" size="sm">
-                {remoteResult.error}
+                <span title={remoteResult.error}>{shortConnectionError(remoteResult.error)}</span>
               </Alert>
             ) : null}
 
-            {remoteResult.connected && Array.isArray(remoteResult.warnings) && remoteResult.warnings.length > 0 && (
+            {!sshDown && remoteResult.connected && Array.isArray(remoteResult.warnings) && remoteResult.warnings.length > 0 && (
               <Alert severity="warning" size="sm">
                 {remoteResult.warnings.length > 1 ? (
                   <ul className="m-0 list-disc space-y-1 pl-4 text-sm">
