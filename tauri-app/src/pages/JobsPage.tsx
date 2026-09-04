@@ -35,6 +35,7 @@ import {StatusPill, StatusDotLarge, statusDotClasses} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
   deriveBatchImages,
+  reduceBatchImages,
   deriveBatchSummary,
   deriveImageSteps,
   deriveJobDisplayMetadata,
@@ -47,10 +48,20 @@ import {
   DEFAULT_STAGE_ORDER,
   DEFAULT_STAGE_LABELS,
 } from '../lib/jobs';
-import {useListLocalJobsMutation, useReadLocalEventsMutation, useReadLocalLogMutation} from '../query/useJobs';
-import {useListRemoteJobsMutation, useReadRemoteEventsMutation, useReadRemoteLogMutation} from '../query/useRemote';
+import {
+  useListLocalJobsMutation,
+  useReadLocalEventsMutation,
+  useReadLocalLogMutation,
+  useReadLocalMetricsMutation,
+} from '../query/useJobs';
+import {
+  useListRemoteJobsMutation,
+  useReadRemoteEventsMutation,
+  useReadRemoteLogMutation,
+  useReadRemoteMetricsMutation,
+} from '../query/useRemote';
 import {useMetadata} from '../query/useEnvironment';
-import {useJobsStore} from '../stores/jobsStore';
+import {useJobsStore, capLogLines} from '../stores/jobsStore';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
@@ -601,6 +612,26 @@ export function JobsPage() {
     'all' | 'success' | 'running' | 'stopped' | 'interrupted' | 'failed' | 'pending'
   >('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
+  const [isLogExpanded, setIsLogExpanded] = useState<boolean>(false);
+
+  const isLogExpandedRef = useRef<boolean>(false);
+  isLogExpandedRef.current = isLogExpanded;
+  const activeModalSubjectFileRef = useRef<string | null>(null);
+  activeModalSubjectFileRef.current = activeModalSubjectFile;
+  const [modalMetricsEvents, setModalMetricsEvents] = useState<PipelineEvent[]>([]);
+  const modalMetricsOffsetRef = useRef<number>(0);
+  const prevModalSubjectRef = useRef<string | null>(null);
+
+  // Reset accumulated telemetry whenever the modal subject changes (including
+  // close). Byte offsets are per-file; reusing a stale offset from another
+  // subject/job seeks past EOF and returns empty metrics forever.
+  useEffect(() => {
+    if (prevModalSubjectRef.current !== activeModalSubjectFile) {
+      prevModalSubjectRef.current = activeModalSubjectFile;
+      setModalMetricsEvents([]);
+      modalMetricsOffsetRef.current = 0;
+    }
+  }, [activeModalSubjectFile]);
 
   // Download dialog state
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
@@ -626,6 +657,22 @@ export function JobsPage() {
   const logOffsetRef = useRef<number>(0);
   const lastSyncedAtRef = useRef<number>(Date.now());
   const currentJobIdRef = useRef<string | null>(null);
+  const detailsAbortRef = useRef<AbortController | null>(null);
+
+  const closeSubjectModal = useCallback(() => {
+    // Legacy jobs can have very large telemetry files. Abort detail reads as
+    // soon as the subject view is no longer visible.
+    reqSeqRef.current += 1;
+    detailsAbortRef.current?.abort();
+    detailsAbortRef.current = null;
+    activeModalSubjectFileRef.current = null;
+    isLogExpandedRef.current = false;
+    prevModalSubjectRef.current = null;
+    modalMetricsOffsetRef.current = 0;
+    setModalMetricsEvents([]);
+    setActiveModalSubjectFile(null);
+    setIsLogExpanded(false);
+  }, []);
 
   const formValues = usePipelineFormStore((s) => s.formValues);
   const remoteResult = useRemoteStore();
@@ -641,19 +688,43 @@ export function JobsPage() {
 
   const listLocalJobsMutation = useListLocalJobsMutation();
   const readEventsMutation = useReadLocalEventsMutation();
+  const readLocalMetricsMutation = useReadLocalMetricsMutation();
   const readLogMutation = useReadLocalLogMutation();
   const listRemoteJobsMutation = useListRemoteJobsMutation();
   const readRemoteEventsMutation = useReadRemoteEventsMutation();
+  const readRemoteMetricsMutation = useReadRemoteMetricsMutation();
   const readRemoteLogMutation = useReadRemoteLogMutation();
+
+  // useMutation() returns a NEW result object identity on every render
+  // (`{...result, mutate, mutateAsync}`). Depending on the whole objects in
+  // useCallback/useEffect dep arrays recreates the callbacks every render and
+  // re-fires the detail-fetch effects in a loop. Only `mutateAsync` is
+  // referentially stable, so depend on these instead.
+  const listLocalJobsAsync = listLocalJobsMutation.mutateAsync;
+  const readEventsAsync = readEventsMutation.mutateAsync;
+  const readLocalMetricsAsync = readLocalMetricsMutation.mutateAsync;
+  const readLogAsync = readLogMutation.mutateAsync;
+  const listRemoteJobsAsync = listRemoteJobsMutation.mutateAsync;
+  const readRemoteEventsAsync = readRemoteEventsMutation.mutateAsync;
+  const readRemoteMetricsAsync = readRemoteMetricsMutation.mutateAsync;
+  const readRemoteLogAsync = readRemoteLogMutation.mutateAsync;
 
   const {jobId: urlJobId} = useParams<{jobId?: string}>();
 
   const navigate = useNavigate();
 
   const loadJobDetails = useCallback(
-    async (jobId: string | null, targetJob?: Record<string, unknown> | null, options: {resetUi?: boolean} = {}) => {
+    async (
+      jobId: string | null,
+      targetJob?: Record<string, unknown> | null,
+      options: {resetUi?: boolean; fetchLog?: boolean} = {},
+    ) => {
       const seq = ++reqSeqRef.current;
       if (!jobId) {
+        detailsAbortRef.current?.abort();
+        detailsAbortRef.current = null;
+        activeModalSubjectFileRef.current = null;
+        isLogExpandedRef.current = false;
         currentJobIdRef.current = null;
         eventsOffsetRef.current = 0;
         logOffsetRef.current = 0;
@@ -677,6 +748,8 @@ export function JobsPage() {
         (eventsOffsetRef.current === 0 && currentEvents.length === 0);
 
       if (isInitial) {
+        // A new job must not inherit a modal subject or its telemetry query.
+        activeModalSubjectFileRef.current = null;
         eventsOffsetRef.current = 0;
         logOffsetRef.current = 0;
         setIsLoadingDetails(true);
@@ -697,6 +770,13 @@ export function JobsPage() {
 
       const eventOffset = isInitial ? 0 : eventsOffsetRef.current;
       const logOffset = isInitial ? 0 : logOffsetRef.current;
+      const shouldFetchLog = Boolean(
+        options.fetchLog || (isLogExpandedRef.current && activeModalSubjectFileRef.current),
+      );
+      const shouldFetchMetrics = Boolean(activeModalSubjectFileRef.current);
+      const controller = new AbortController();
+      detailsAbortRef.current?.abort();
+      detailsAbortRef.current = controller;
 
       type EventsResult = {ok?: boolean; error?: string; events?: PipelineEvent[]; next_offset?: number; events_file_found?: boolean};
       type LogResult = {ok?: boolean; text?: string; next_offset?: number};
@@ -710,17 +790,49 @@ export function JobsPage() {
           const jobWorkspace = String(targetJob?.remote_workspace || '');
           if (jobWorkspace) remotePayload.workspace = jobWorkspace;
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
-          const [eventsResult, logResult] = await Promise.all([
-            readRemoteEventsMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: eventOffset, limit: 0})
-              .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
-            readRemoteLogMutation
-              .mutateAsync({...remotePayload, remote_job_dir: remoteJobDir, job_id: jobId, offset: logOffset})
-              .catch(() => ({text: ''})) as Promise<LogResult>,
-          ]);
+          const eventFetch = readRemoteEventsAsync({
+              ...remotePayload,
+              remote_job_dir: remoteJobDir,
+              job_id: jobId,
+              offset: eventOffset,
+              limit: 10000,
+              signal: controller.signal,
+            })
+            .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult);
+          const logFetch = shouldFetchLog
+            ? (readRemoteLogAsync({
+                  ...remotePayload,
+                  remote_job_dir: remoteJobDir,
+                  job_id: jobId,
+                  offset: logOffset,
+                  signal: controller.signal,
+                })
+                .catch(() => ({text: ''})) as Promise<LogResult>)
+            : Promise.resolve({text: '', next_offset: logOffset} as LogResult);
+          const metricsFetch = shouldFetchMetrics
+            ? (readRemoteMetricsAsync({
+                  ...remotePayload,
+                  remote_job_dir: remoteJobDir,
+                  job_id: jobId,
+                  offset: modalMetricsOffsetRef.current,
+                  limit: 5000,
+                  input_file: activeModalSubjectFileRef.current || '',
+                  signal: controller.signal,
+                })
+                .catch(() => ({events: []})) as Promise<EventsResult>)
+            : Promise.resolve({events: [], next_offset: modalMetricsOffsetRef.current} as EventsResult);
+          const [eventsResult, logResult, metricsResult] = await Promise.all([eventFetch, logFetch, metricsFetch]);
           const evRes = eventsResult as EventsResult;
+          const metRes = metricsResult as EventsResult;
           newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           newLogText = logResult?.text || '';
+          const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
+          if (newMetrics.length > 0) {
+            setModalMetricsEvents((prev) => [...prev, ...newMetrics]);
+          }
+          if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
+            modalMetricsOffsetRef.current = metRes.next_offset;
+          }
           if (typeof evRes?.next_offset === 'number' && evRes.next_offset > 0) {
             eventsOffsetRef.current = evRes.next_offset;
           }
@@ -733,13 +845,34 @@ export function JobsPage() {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
           }
         } else {
-          const [eventsResult, logResult] = await Promise.all([
-            readEventsMutation.mutateAsync({jobId, offset: eventOffset, limit: 100000}).catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult),
-            readLogMutation.mutateAsync({jobId, offset: logOffset, maxBytes: 65536}).catch(() => ({text: ''})) as Promise<LogResult>,
-          ]);
+          const eventFetch = readEventsAsync({jobId, offset: eventOffset, limit: 100000, signal: controller.signal})
+            .catch((err: unknown) => ({ok: false, error: (err as Error).message, events: []}) as EventsResult);
+          const logFetch = shouldFetchLog
+            ? (readLogAsync({jobId, offset: logOffset, maxBytes: 65536, signal: controller.signal})
+                .catch(() => ({text: ''})) as Promise<LogResult>)
+            : Promise.resolve({text: '', next_offset: logOffset} as LogResult);
+          const metricsFetch = shouldFetchMetrics
+            ? (readLocalMetricsAsync({
+                  jobId,
+                  offset: modalMetricsOffsetRef.current,
+                  limit: 5000,
+                  inputFile: activeModalSubjectFileRef.current || '',
+                  signal: controller.signal,
+                })
+                .catch(() => ({events: []})) as Promise<EventsResult>)
+            : Promise.resolve({events: [], next_offset: modalMetricsOffsetRef.current} as EventsResult);
+          const [eventsResult, logResult, metricsResult] = await Promise.all([eventFetch, logFetch, metricsFetch]);
           const evRes = eventsResult as EventsResult;
+          const metRes = metricsResult as EventsResult;
           newEvents = Array.isArray(evRes?.events) ? (evRes.events as PipelineEvent[]) : [];
           newLogText = logResult?.text || '';
+          const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
+          if (newMetrics.length > 0) {
+            setModalMetricsEvents((prev) => [...prev, ...newMetrics]);
+          }
+          if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
+            modalMetricsOffsetRef.current = metRes.next_offset;
+          }
           if (typeof evRes?.next_offset === 'number' && evRes.next_offset > 0) {
             eventsOffsetRef.current = evRes.next_offset;
           }
@@ -752,12 +885,14 @@ export function JobsPage() {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found).'};
           }
         }
+        if (seq !== reqSeqRef.current) return;
       } finally {
+        if (detailsAbortRef.current === controller) detailsAbortRef.current = null;
         if (seq === reqSeqRef.current) {
           lastSyncedAtRef.current = Date.now();
           if (isInitial) {
             setJobEvents(newEvents);
-            setOutputText(newLogText || '');
+            setOutputText(newLogText ? capLogLines(newLogText) : '');
           } else {
             if (newEvents.length > 0) {
               appendJobEvents(newEvents);
@@ -775,25 +910,44 @@ export function JobsPage() {
       appendJobEvents,
       appendOutputText,
       formValues,
-      readEventsMutation,
-      readLogMutation,
-      readRemoteEventsMutation,
-      readRemoteLogMutation,
+      readEventsAsync,
+      readLocalMetricsAsync,
+      readLogAsync,
+      readRemoteEventsAsync,
+      readRemoteMetricsAsync,
+      readRemoteLogAsync,
       remoteResult.connected,
       setJobEvents,
       setOutputText,
     ],
   );
 
+  // Idempotency key for the modal fetch below. Even with stable callback
+  // identities, any unrelated rerender must not restart the telemetry
+  // download for the already-open subject.
+  const modalFetchKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (activeModalSubjectFile && (selectedJobId || urlJobId)) {
+      const jId = selectedJobId || urlJobId || null;
+      const fetchKey = `${jId}::${activeModalSubjectFile}`;
+      if (modalFetchKeyRef.current === fetchKey) return;
+      modalFetchKeyRef.current = fetchKey;
+      void loadJobDetails(jId);
+    } else {
+      modalFetchKeyRef.current = null;
+    }
+  }, [activeModalSubjectFile, selectedJobId, urlJobId, loadJobDetails]);
+
   const refreshJobs = useCallback(async () => {
     setBusyKey('refreshJobs', true);
     try {
-      const localRes = await listLocalJobsMutation.mutateAsync().catch(() => ({jobs: []}));
+      const localRes = await listLocalJobsAsync().catch(() => ({jobs: []}));
       let remoteJobs: unknown[] = [];
       if (remoteResult.connected) {
         const remoteStartedAt = Date.now();
         try {
-          const remoteRes = await listRemoteJobsMutation.mutateAsync(buildRemotePayload(formValues));
+          const remoteRes = await listRemoteJobsAsync(buildRemotePayload(formValues));
           remoteJobs = Array.isArray(remoteRes.jobs) ? remoteRes.jobs : [];
           setRemoteLagging(remoteRes.ok === false || Date.now() - remoteStartedAt >= 5_000);
         } catch {
@@ -824,8 +978,8 @@ export function JobsPage() {
     }
   }, [
     formValues,
-    listLocalJobsMutation,
-    listRemoteJobsMutation,
+    listLocalJobsAsync,
+    listRemoteJobsAsync,
     loadJobDetails,
     remoteResult.connected,
     selectedJobId,
@@ -936,11 +1090,11 @@ export function JobsPage() {
       queueMicrotask(() => {
         setJobEvents([]);
         setOutputText('Log stream is idle.');
-        setActiveModalSubjectFile(null);
+        closeSubjectModal();
         setIsLoadingDetails(false);
       });
     }
-  }, [selectedJobId, loadJobDetails, setJobEvents, setOutputText]);
+  }, [closeSubjectModal, selectedJobId, loadJobDetails, setJobEvents, setOutputText]);
 
   // Initial mount auto-refresh if empty
   useEffect(() => {
@@ -957,12 +1111,12 @@ export function JobsPage() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setActiveModalSubjectFile(null);
+        closeSubjectModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [closeSubjectModal]);
 
   const jobsList = Array.isArray(latestJobs) ? latestJobs : [];
   const rawJob = React.useMemo(
@@ -977,8 +1131,14 @@ export function JobsPage() {
   const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
   const batchImages = React.useMemo(() => deriveBatchImages(safeEvents, job || {}), [safeEvents, job]);
   const batchSummary = React.useMemo(() => deriveBatchSummary(batchImages), [batchImages]);
-  const displayMeta = React.useMemo(() => deriveJobDisplayMetadata(job, safeEvents), [job, safeEvents]);
+  const displayMeta = React.useMemo(() => deriveJobDisplayMetadata(job, safeEvents, batchImages), [job, safeEvents, batchImages]);
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
+
+  useEffect(() => {
+    if (isLogExpanded && selectedJobId) {
+      void loadJobDetails(selectedJobId, null, {fetchLog: true});
+    }
+  }, [isLogExpanded, selectedJobId, loadJobDetails]);
 
   // Adaptive polling:
   // - If looking at a running job: poll every 30s with lightweight delta fetch
@@ -1173,17 +1333,23 @@ export function JobsPage() {
     return batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
   }, [batchImages, activeModalSubjectFile]);
 
+  const modalEvents = React.useMemo(() => {
+    const lifecycleEvents = safeEvents.filter((event) => event.kind !== 'metrics');
+    if (modalMetricsEvents.length === 0) return lifecycleEvents;
+    return [...lifecycleEvents, ...modalMetricsEvents];
+  }, [safeEvents, modalMetricsEvents]);
+
   const modalImageSteps = React.useMemo(() => {
     return modalSubject
-      ? deriveImageSteps(safeEvents, modalSubject, selectedTools, stageOrder, stageLabels)
+      ? deriveImageSteps(modalEvents, modalSubject, selectedTools, stageOrder, stageLabels)
       : [];
-  }, [safeEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
+  }, [modalEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
 
   const modalMetricsSeries = React.useMemo(() => {
     return modalSubject
-      ? deriveMetricsSeries(safeEvents, modalSubject)
+      ? deriveMetricsSeries(modalEvents, modalSubject)
       : {cpuSeries: [], ramSeries: [], latestContainer: ''};
-  }, [safeEvents, modalSubject]);
+  }, [modalEvents, modalSubject]);
 
   const subjectStageInfoMap = React.useMemo(() => {
     const map = new Map<
@@ -1267,6 +1433,7 @@ export function JobsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  closeSubjectModal();
                   setSelectedJobId(null);
                   navigate('/jobs');
                 }}
@@ -2027,7 +2194,7 @@ export function JobsPage() {
       {modalSubject && (
         <div
           className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-3"
-          onClick={() => setActiveModalSubjectFile(null)}
+          onClick={closeSubjectModal}
         >
           <div
             className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1360px,calc(100vw-1.5rem))] max-h-[92vh] flex flex-col shadow-none overflow-hidden"
@@ -2074,7 +2241,7 @@ export function JobsPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setActiveModalSubjectFile(null)}
+                  onClick={closeSubjectModal}
                   className="h-7 w-7 p-0 rounded text-cursor-muted hover:text-cursor-ink hover:bg-cursor-canvas-soft"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -2130,57 +2297,68 @@ export function JobsPage() {
                   </div>
                 </div>
 
-                {/* Operator Console Log */}
-                <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-1 min-h-0 flex flex-col">
-                  <div className="p-0 pb-2 flex-none">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Operator Console Log</h3>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowRawLog(!showRawLog)}
-                        className="h-7 px-2 text-xs border-cursor-hairline text-cursor-body"
-                      >
-                        {showRawLog ? (
-                          <>
-                            <EyeOff className="h-3 w-3 mr-1" /> Sanitized
-                          </>
-                        ) : (
-                          <>
-                            <Eye className="h-3 w-3 mr-1" /> Raw
-                          </>
-                        )}
-                      </Button>
-                      <label className="relative m-0 block w-full max-w-[9rem]">
-                        <input
-                          type="search"
-                          placeholder="Filter..."
-                          value={jobLogSearch}
-                          onChange={(e) => setJobLogSearch(e.target.value)}
-                          className="w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2.5 py-1 pr-7 text-xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-7"
-                        />
-                        <Search className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
-                      </label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={clearJobLog}
-                        className="h-7 px-2 text-xs text-cursor-body"
-                      >
-                        <Eraser className="h-3 w-3 mr-1" /> Clear
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="p-0 flex-1 min-h-0 overflow-hidden">
-                    <pre
-                      className="h-full min-h-[14rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 text-xs leading-relaxed text-cursor-ink"
-                      aria-live="polite"
+                {/* Operator Console Log - Collapsible and Collapsed by Default */}
+                <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex flex-col transition-all">
+                  <div className="p-0 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setIsLogExpanded(!isLogExpanded)}
+                      className="flex items-center gap-1.5 text-sm font-semibold leading-[1.3] text-cursor-ink hover:text-cursor-primary cursor-pointer bg-transparent border-none p-0"
                     >
-                      {filteredLog || 'Log stream is empty.'}
-                    </pre>
+                      <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isLogExpanded ? 'rotate-90' : ''}`} />
+                      <span>Operator Console Log</span>
+                    </button>
+                    {!isLogExpanded ? (
+                      <span className="text-2xs text-cursor-muted font-normal italic">Collapsed (click to view)</span>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowRawLog(!showRawLog)}
+                          className="h-6 px-2 text-2xs border-cursor-hairline text-cursor-body"
+                        >
+                          {showRawLog ? (
+                            <>
+                              <EyeOff className="h-3 w-3 mr-1" /> Sanitized
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-3 w-3 mr-1" /> Raw
+                            </>
+                          )}
+                        </Button>
+                        <label className="relative m-0 block w-full max-w-[8rem]">
+                          <input
+                            type="search"
+                            placeholder="Filter..."
+                            value={jobLogSearch}
+                            onChange={(e) => setJobLogSearch(e.target.value)}
+                            className="w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2 py-0.5 pr-6 text-2xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-6"
+                          />
+                          <Search className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
+                        </label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearJobLog}
+                          className="h-6 px-1.5 text-2xs text-cursor-body"
+                        >
+                          <Eraser className="h-3 w-3 mr-1" /> Clear
+                        </Button>
+                      </div>
+                    )}
                   </div>
+                  {isLogExpanded && (
+                    <div className="p-0 pt-2.5 flex-1 min-h-0 overflow-hidden">
+                      <pre
+                        className="h-full max-h-[18rem] min-h-[10rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 text-xs leading-relaxed text-cursor-ink font-mono"
+                        aria-live="polite"
+                      >
+                        {filteredLog || 'Log stream is empty.'}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

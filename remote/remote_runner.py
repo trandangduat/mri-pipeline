@@ -20,6 +20,8 @@ from remote.ssh_client import RemoteSSHClient, SSHConfig
 
 LogCallback = Callable[[str], None]
 
+_TERMINAL_REMOTE_JOBS: dict[tuple[str, str], dict[str, object]] = {}
+
 
 def _positive_int(value: object) -> int | None:
     try:
@@ -955,6 +957,7 @@ class RemoteRunner:
             return {**base_status, "state": state}
 
     def list_background_jobs(self) -> list[dict[str, object]]:
+        host_key = self.config.ssh.host
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             workspace = self._remote_workspace(ssh)
             script = "\n".join(
@@ -966,7 +969,6 @@ class RemoteRunner:
                     "    if not os.path.isdir(d):",
                     "        continue",
                     "    cfg, meta, st = {}, {}, {}",
-                    "    image_states, event_total = {}, 0",
                     "    for fn, var in (('job_config.json', cfg), ('job_metadata.json', meta), ('job_status.json', st)):",
                     "        try:",
                     "            with open(os.path.join(d, fn), 'r', encoding='utf-8') as f:",
@@ -1007,60 +1009,94 @@ class RemoteRunner:
                     "    tools = cfg.get('selected_tools') or {}",
                     "    scheduled_tools = [t for t in tools.values() if t and str(t).lower() not in ('none', 'null', 'disabled', '')]",
                     "    has_scheduled = len(scheduled_tools) > 0",
-                    "    try:",
-                    "        with open(os.path.join(d, 'events.jsonl'), 'r', encoding='utf-8') as f:",
-                    "            for line in f:",
-                    "                try:",
-                    "                    event = json.loads(line)",
-                    "                except Exception:",
-                    "                    continue",
-                    "                kind = str(event.get('kind', ''))",
-                    "                if kind not in ('image_start', 'image_done'):",
-                    "                    continue",
-                    "                try: event_total = max(event_total, int(event.get('total') or 0))",
-                    "                except (TypeError, ValueError): pass",
-                    "                input_file = str(event.get('input_file') or '')",
-                    "                if input_file:",
-                    "                    ev_status = str(event.get('status') or '').lower()",
-                    "                    log_text = str(event.get('log_text') or '')",
-                    "                    if ev_status == 'stopped':",
-                    "                        image_states[input_file] = 'stopped'",
-                    "                    elif kind == 'image_start':",
-                    "                        image_states[input_file] = 'running'",
-                    "                    elif kind == 'image_done':",
-                    "                        is_ok = bool(event.get('success'))",
-                    "                        if is_ok and log_text and has_scheduled:",
-                    "                            ok_lines = [l for l in log_text.splitlines() if ('- OK' in l or '- SUCCESS' in l)]",
-                    "                            if len(ok_lines) < len(scheduled_tools):",
-                    "                                is_ok = False",
-                    "                        if is_ok:",
-                    "                            image_states[input_file] = 'success'",
-                    "                        elif state == 'stopped' or ev_status == 'stopped':",
+                    "    batch_summary = None",
+                    "    sum_file = os.path.join(d, 'job_summary.json')",
+                    "    if os.path.exists(sum_file):",
+                    "        try:",
+                    "            with open(sum_file, 'r', encoding='utf-8') as sf:",
+                    "                s_data = json.load(sf)",
+                    "                if isinstance(s_data, dict) and 'total' in s_data:",
+                    "                    batch_summary = {",
+                    "                        'total': int(s_data.get('total', 0)),",
+                    "                        'success': int(s_data.get('success', 0)),",
+                    "                        'failed': int(s_data.get('failed', 0)),",
+                    "                        'running': int(s_data.get('running', 0)),",
+                    "                        'pending': int(s_data.get('pending', 0)),",
+                    "                    }",
+                    "                    if 'stopped' in s_data or int(s_data.get('stopped', 0)) > 0 or state == 'stopped':",
+                    "                        batch_summary['stopped'] = int(s_data.get('stopped', 0))",
+                    "                        batch_summary['interrupted'] = int(s_data.get('stopped', 0))",
+                    "        except Exception:",
+                    "            pass",
+                    "    if batch_summary is None:",
+                    "        image_states, event_total = {}, 0",
+                    "        try:",
+                    "            with open(os.path.join(d, 'events.jsonl'), 'r', encoding='utf-8') as f:",
+                    "                for _line_no, line in enumerate(f):",
+                    "                    if _line_no >= 50000:",
+                    "                        break",
+                    "                    try:",
+                    "                        event = json.loads(line)",
+                    "                    except Exception:",
+                    "                        continue",
+                    "                    kind = str(event.get('kind', ''))",
+                    "                    if kind not in ('image_start', 'image_done'):",
+                    "                        continue",
+                    "                    try: event_total = max(event_total, int(event.get('total') or 0))",
+                    "                    except (TypeError, ValueError): pass",
+                    "                    input_file = str(event.get('input_file') or '')",
+                    "                    if input_file:",
+                    "                        ev_status = str(event.get('status') or '').lower()",
+                    "                        log_text = str(event.get('log_text') or '')",
+                    "                        if ev_status == 'stopped':",
                     "                            image_states[input_file] = 'stopped'",
-                    "                        else:",
-                    "                            image_states[input_file] = 'failed'",
-                    "    except Exception:",
-                    "        pass",
+                    "                        elif kind == 'image_start':",
+                    "                            image_states[input_file] = 'running'",
+                    "                        elif kind == 'image_done':",
+                    "                            is_ok = bool(event.get('success'))",
+                    "                            if is_ok and log_text and has_scheduled:",
+                    "                                ok_lines = [l for l in log_text.splitlines() if ('- OK' in l or '- SUCCESS' in l)]",
+                    "                                if len(ok_lines) < len(scheduled_tools):",
+                    "                                    is_ok = False",
+                    "                            if is_ok:",
+                    "                                image_states[input_file] = 'success'",
+                    "                            elif state == 'stopped' or ev_status == 'stopped':",
+                    "                                image_states[input_file] = 'stopped'",
+                    "                            else:",
+                    "                                image_states[input_file] = 'failed'",
+                    "        except Exception:",
+                    "            pass",
+                    "        input_files = cfg.get('input_files') or ([cfg.get('input_file')] if cfg.get('input_file') else [])",
+                    "        total = max(len(input_files), event_total, len(image_states), 1 if state != 'uploaded' else 0)",
+                    "        if state == 'completed':",
+                    "            for k in list(image_states.keys()):",
+                    "                if image_states[k] != 'failed':",
+                    "                    image_states[k] = 'success'",
+                    "        elif state == 'stopped':",
+                    "            for k, v in list(image_states.items()):",
+                    "                if v != 'success':",
+                    "                    image_states[k] = 'stopped'",
+                    "        success = sum(value == 'success' for value in image_states.values())",
+                    "        failed = sum(value == 'failed' for value in image_states.values())",
+                    "        running = sum(value == 'running' for value in image_states.values()) if state == 'running' else 0",
+                    "        stopped = sum(value == 'stopped' for value in image_states.values()) + (max(0, total - len(image_states)) if state == 'stopped' else 0)",
+                    "        if state == 'completed' and success == 0 and failed == 0 and stopped == 0:",
+                    "            success = total",
+                    "        if state == 'stopped' and stopped == 0 and success == 0 and failed == 0:",
+                    "            stopped = total",
+                    "        pending = max(0, total - success - failed - running - stopped)",
+                    "        batch_summary = {'total': total, 'success': success, 'failed': failed, 'running': running, 'pending': pending}",
+                    "        if stopped > 0 or state == 'stopped':",
+                    "            batch_summary['stopped'] = stopped",
+                    "            batch_summary['interrupted'] = stopped",
+                    "        if exit_code is not None or state in ('completed', 'failed', 'stopped'):",
+                    "            try:",
+                    "                with open(sum_file + '.tmp', 'w', encoding='utf-8') as sf:",
+                    "                    json.dump(batch_summary, sf)",
+                    "                os.replace(sum_file + '.tmp', sum_file)",
+                    "            except Exception:",
+                    "                pass",
                     "    input_files = cfg.get('input_files') or ([cfg.get('input_file')] if cfg.get('input_file') else [])",
-                    "    total = max(len(input_files), event_total, len(image_states), 1 if state != 'uploaded' else 0)",
-                    "    if state == 'completed':",
-                    "        for k in list(image_states.keys()):",
-                    "            if image_states[k] != 'failed':",
-                    "                image_states[k] = 'success'",
-                    "    elif state == 'stopped':",
-                    "        for k, v in list(image_states.items()):",
-                    "            if v != 'success':",
-                    "                image_states[k] = 'stopped'",
-                    "    success = sum(value == 'success' for value in image_states.values())",
-                    "    failed = sum(value == 'failed' for value in image_states.values())",
-                    "    running = sum(value == 'running' for value in image_states.values()) if state == 'running' else 0",
-                    "    stopped = sum(value == 'stopped' for value in image_states.values()) + (max(0, total - len(image_states)) if state == 'stopped' else 0)",
-                    "    if state == 'completed' and success == 0 and failed == 0 and stopped == 0:",
-                    "        success = total",
-                    "    if state == 'stopped' and stopped == 0 and success == 0 and failed == 0:",
-                    "        stopped = total",
-                    "    pending = max(0, total - success - failed - running - stopped)",
-                    "    batch_summary = {'total': total, 'success': success, 'failed': failed, 'running': running, 'stopped': stopped, 'interrupted': stopped, 'pending': pending}",
                     "    folder = os.path.basename(d)",
                     "    meta_job_id = str(meta.get('job_id') or '')",
                     "    job_id = meta_job_id if meta_job_id.startswith('remote_') else 'remote_' + folder",
@@ -1087,7 +1123,14 @@ class RemoteRunner:
                 try:
                     parsed = json.loads(text.strip().splitlines()[-1])
                     if isinstance(parsed, list):
-                        return parsed
+                        result_jobs: list[dict[str, object]] = []
+                        for j in parsed:
+                            j_id = str(j.get("job_id", ""))
+                            state = str(j.get("state", ""))
+                            if state in {"completed", "failed", "stopped"}:
+                                _TERMINAL_REMOTE_JOBS[(host_key, j_id)] = j
+                            result_jobs.append(j)
+                        return result_jobs
                 except Exception:
                     pass
 
@@ -1113,18 +1156,73 @@ class RemoteRunner:
             if len(parts) != 3:
                 continue
             state, pid, remote_job_dir = parts
-            jobs.append({
-                "job_id": f"remote_{posixpath.basename(remote_job_dir)}",
+            j_id = f"remote_{posixpath.basename(remote_job_dir)}"
+            job_dict = {
+                "job_id": j_id,
                 "state": state,
                 "pid": pid,
                 "remote_job_dir": remote_job_dir,
-            })
+            }
+            if state in {"completed", "failed", "stopped"}:
+                _TERMINAL_REMOTE_JOBS[(host_key, j_id)] = job_dict
+            jobs.append(job_dict)
         return jobs
 
     def read_remote_events(self, offset: int = 0, limit: int = 0) -> dict[str, object]:
         if not self.remote_job_dir:
             return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "events_file_found": False}
+        # Unbounded reads (limit<=0) transfer the whole file on every Jobs
+        # monitor open; cap so initial loads stay fast. Delta polls use a
+        # near-EOF offset and are unaffected.
+        max_events = limit if limit > 0 else 10000
+        max_events = max(1, min(int(max_events), 10000))
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            # 1. Fast server-side python execution
+            try:
+                events_path = self._job_child_path(ssh, "events.jsonl")
+                script = "\n".join([
+                    "import json, os, sys",
+                    f"path = {json.dumps(events_path)}",
+                    f"offset = {int(offset)}",
+                    f"limit = {int(max_events)}",
+                    "if not os.path.exists(path):",
+                    "    print(json.dumps({'ok': True, 'events': [], 'warnings': [], 'next_offset': offset, 'events_file_found': False}))",
+                    "    sys.exit(0)",
+                    "lifecycle = []",
+                    "next_offset = offset",
+                    "with open(path, 'r', encoding='utf-8', errors='replace') as f:",
+                    "    f.seek(offset)",
+                    "    while True:",
+                    "        line = f.readline()",
+                    "        if not line:",
+                    "            break",
+                    "        next_offset = f.tell()",
+                    "        line = line.strip()",
+                    "        if not line:",
+                    "            continue",
+                    "        try:",
+                    "            ev = json.loads(line)",
+                    "        except Exception:",
+                    "            continue",
+                    "        if ev.get('kind') == 'metrics':",
+                    "            continue",
+                    "        lifecycle.append(ev)",
+                    "        if limit > 0 and len(lifecycle) >= limit:",
+                    "            break",
+                    "print(json.dumps({'ok': True, 'events': lifecycle, 'warnings': [], 'next_offset': next_offset, 'events_file_found': True}))",
+                ])
+                code, out = ssh.read_text(f"python3 -c {shlex.quote(script)} 2>/dev/null")
+                if code == 0 and out.strip():
+                    try:
+                        res = json.loads(out.strip().splitlines()[-1])
+                        if isinstance(res, dict) and "ok" in res:
+                            return res
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 2. SFTP fallback for legacy environments or test mocks
             try:
                 events_path = self._job_child_path(ssh, "events.jsonl")
                 with ssh.sftp.open(events_path, "r") as f:
@@ -1136,10 +1234,12 @@ class RemoteRunner:
                         line_str = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line).strip()
                         if line_str:
                             try:
-                                events.append(json.loads(line_str))
+                                ev = json.loads(line_str)
+                                if ev.get("kind") != "metrics":
+                                    events.append(ev)
                             except Exception:
                                 pass
-                        if limit > 0 and len(events) >= limit:
+                        if len(events) >= max_events:
                             break
                     return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset, "events_file_found": True}
             except (FileNotFoundError, OSError):
@@ -1147,25 +1247,139 @@ class RemoteRunner:
             except Exception as exc:
                 return {"ok": False, "error": str(exc), "events": [], "warnings": [], "next_offset": offset}
 
-    def read_remote_log_since(self, offset: int = 0) -> tuple[str, int]:
+    def read_remote_metrics(
+        self,
+        offset: int = 0,
+        limit: int = 0,
+        subject_id: str = "",
+        input_file: str = "",
+    ) -> dict[str, object]:
+        if not self.remote_job_dir:
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "source": None}
+        max_events = limit if limit > 0 else 2000
+        max_events = max(1, min(int(max_events), 5000))
+        subject_id = str(subject_id or "").strip()
+        input_file = str(input_file or "").strip()
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            # 1. Fast server-side python extraction. metrics.jsonl (new jobs)
+            # is preferred; events.jsonl (old jobs) is only a fallback. The
+            # first existing file wins and the loop MUST break, otherwise the
+            # second file resets `events` and discards metrics.jsonl results.
+            try:
+                # Resolve through the validated workspace child path so the
+                # embedded job_dir is absolute and containment-checked, exactly
+                # like read_remote_events does (raw remote_job_dir may be
+                # relative or use ~).
+                job_dir = posixpath.dirname(self._job_child_path(ssh, "events.jsonl"))
+                script = "\n".join([
+                    "import json, os, sys",
+                    f"job_dir = {json.dumps(job_dir)}",
+                    f"offset = {int(offset)}",
+                    f"limit = {int(max_events)}",
+                    f"subject_id = {json.dumps(subject_id)}",
+                    f"input_file = {json.dumps(input_file)}",
+                    "source = None",
+                    "events = []",
+                    "next_offset = offset",
+                    "for fname in ('metrics.jsonl', 'events.jsonl'):",
+                    "    fpath = os.path.join(job_dir, fname)",
+                    "    if not os.path.exists(fpath):",
+                    "        continue",
+                    "    source = fname",
+                    "    with open(fpath, 'r', encoding='utf-8', errors='replace') as f:",
+                    "        try:",
+                    "            f.seek(offset)",
+                    "        except Exception:",
+                    "            pass",
+                    "        while True:",
+                    "            line = f.readline()",
+                    "            if not line:",
+                    "                break",
+                    "            next_offset = f.tell()",
+                    "            line = line.strip()",
+                    "            if not line:",
+                    "                continue",
+                    "            try:",
+                    "                ev = json.loads(line)",
+                    "                if fname != 'metrics.jsonl' and ev.get('kind') != 'metrics':",
+                    "                    continue",
+                    "                if (subject_id or input_file) and not (",
+                    "                    (subject_id and str(ev.get('subject_id') or '') == subject_id) or",
+                    "                    (input_file and str(ev.get('input_file') or '') == input_file)",
+                    "                ):",
+                    "                    continue",
+                    "                events.append(ev)",
+                    "            except Exception:",
+                    "                continue",
+                    "            if len(events) >= limit:",
+                    "                break",
+                    "    break",
+                    "print(json.dumps({'ok': True, 'events': events, 'warnings': [], 'next_offset': next_offset, 'source': source}))",
+                ])
+                code, out = ssh.read_text(f"python3 -c {shlex.quote(script)} 2>/dev/null")
+                if code == 0 and out.strip():
+                    try:
+                        res = json.loads(out.strip().splitlines()[-1])
+                        if isinstance(res, dict) and "ok" in res:
+                            return res
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 2. SFTP fallback (already prefers metrics.jsonl via early return)
+            for fname in ("metrics.jsonl", "events.jsonl"):
+                try:
+                    fpath = self._job_child_path(ssh, fname)
+                    with ssh.sftp.open(fpath, "r") as f:
+                        f.seek(offset)
+                        events: list[object] = []
+                        next_offset = offset
+                        for line in f:
+                            next_offset = f.tell()
+                            line_str = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line).strip()
+                            if line_str:
+                                try:
+                                    ev = json.loads(line_str)
+                                    if fname != "metrics.jsonl" and ev.get("kind") != "metrics":
+                                        continue
+                                    if (subject_id or input_file) and not (
+                                        (subject_id and str(ev.get("subject_id") or "") == subject_id)
+                                        or (input_file and str(ev.get("input_file") or "") == input_file)
+                                    ):
+                                        continue
+                                    events.append(ev)
+                                except Exception:
+                                    pass
+                            if len(events) >= max_events:
+                                break
+                        return {"ok": True, "events": events, "warnings": [], "next_offset": next_offset, "source": fname}
+                except (FileNotFoundError, OSError):
+                    continue
+                except Exception as exc:
+                    return {"ok": False, "error": str(exc), "events": [], "warnings": [], "next_offset": offset, "source": None}
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "source": None}
+
+    def read_remote_log_since(self, offset: int = 0, max_bytes: int = 65536) -> tuple[str, int]:
         if not self.remote_job_dir:
             return "", offset
+        byte_limit = max(1, min(int(max_bytes), 1_000_000))
         with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
             remote_log = self._job_child_path(ssh, "run.log")
             launcher_log = self._job_child_path(ssh, "launcher.log")
-            try:
-                with ssh.sftp.open(remote_log, "r") as f:
-                    f.seek(offset)
-                    data = f.read().decode(errors="replace")
-                    return data, f.tell()
-            except OSError:
+            fallback_offset = offset
+            for path in (remote_log, launcher_log):
                 try:
-                    with ssh.sftp.open(launcher_log, "r") as f:
+                    with ssh.sftp.open(path, "r") as f:
                         f.seek(offset)
-                        data = f.read().decode(errors="replace")
-                        return data, f.tell()
+                        data = f.read(byte_limit)
+                        fallback_offset = f.tell()
+                        if data:
+                            text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
+                            return text, fallback_offset
                 except OSError:
-                    return "", offset
+                    continue
+            return "", fallback_offset
 
     def request_pause(self) -> None:
         if not self.remote_job_dir:

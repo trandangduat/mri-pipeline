@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -27,11 +28,61 @@ def _append_line(path: Path, line: str) -> None:
         f.write(line + "\n")
 
 
+def _atomic_write_json(path: Path, data: dict) -> None:
+    tmp_path = path.with_suffix(f".tmp_{os.getpid()}")
+    write_json(tmp_path, data)
+    try:
+        tmp_path.replace(path)
+    except OSError:
+        pass
+
+
+def _save_job_summary(job_dir: Path, total: int, image_states: dict[str, str], state: str = "running") -> dict[str, object]:
+    success = sum(s == "success" for s in image_states.values())
+    failed = sum(s == "failed" for s in image_states.values())
+    running = sum(s == "running" for s in image_states.values()) if state == "running" else 0
+    stopped = sum(s == "stopped" for s in image_states.values()) + (max(0, total - len(image_states)) if state == "stopped" else 0)
+    if state == "completed" and success == 0 and failed == 0 and stopped == 0:
+        success = total
+    if state == "stopped" and stopped == 0 and success == 0 and failed == 0:
+        stopped = total
+    pending = max(0, total - success - failed - running - stopped)
+    summary = {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "running": running,
+        "stopped": stopped,
+        "interrupted": stopped,
+        "pending": pending,
+        "image_states": dict(image_states),
+        "updated_at": time.time(),
+    }
+    _atomic_write_json(job_dir / "job_summary.json", summary)
+    return summary
+
+
+def _finalize_job_summary(job_dir: Path, state: str) -> None:
+    sum_file = job_dir / "job_summary.json"
+    if sum_file.exists():
+        try:
+            data = read_json(sum_file, {})
+            if isinstance(data, dict):
+                total = int(data.get("total", 0))
+                image_states = data.get("image_states") or {}
+                _save_job_summary(job_dir, total, image_states, state)
+        except Exception:
+            pass
+
+
 def _emit_event(job_dir: Path, kind: str, **payload) -> None:
     event = {"kind": kind, "time": time.time(), **payload}
-    line = "MRI_EVENT " + json.dumps(event, ensure_ascii=False)
     _append_line(job_dir / "events.jsonl", json.dumps(event, ensure_ascii=False))
-    _append_line(job_dir / "run.log", line)
+
+
+def _emit_metric(job_dir: Path, **payload) -> None:
+    event = {"kind": "metrics", "time": time.time(), **payload}
+    _append_line(job_dir / "metrics.jsonl", json.dumps(event, ensure_ascii=False))
 
 
 def _log(job_dir: Path, message: str) -> None:
@@ -92,9 +143,34 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         normalize_stats_vector_config_for_pipeline_mode(pipeline_mode, req.get("stats_vector_config"))
     )
 
+    image_states: dict[str, str] = {}
+    init_files = req.get("input_files", []) if mode == "files" else ([req.get("input_file")] if mode == "file" and req.get("input_file") else [])
+    total_images = [max(1 if mode == "file" else 0, len(init_files))]
+    _save_job_summary(job_dir, total_images[0], image_states, "running")
+
+    stage_start_times: dict[str, float] = {}
+
     def progress_cb(stage: str, status: str, pct: float, msg: str) -> None:
         _log(job_dir, f"{status.upper()} {stage}: {msg}")
-        _emit_event(job_dir, "progress", stage=stage, status=status, pct=pct, msg=msg)
+        norm_status = status.lower()
+        elapsed_sec = None
+        if norm_status in ("start", "started", "running"):
+            stage_start_times[stage] = time.time()
+        elif norm_status in ("success", "done", "ok", "completed", "failed", "error", "stopped"):
+            start_t = stage_start_times.pop(stage, None)
+            if start_t is not None:
+                elapsed_sec = round(max(0.0, time.time() - start_t), 1)
+        if elapsed_sec is None and msg:
+            match = re.search(r"done in\s+([\d.]+)\s*s", msg, re.I)
+            if match:
+                try:
+                    elapsed_sec = float(match.group(1))
+                except Exception:
+                    pass
+        payload = {"stage": stage, "status": status, "pct": pct, "msg": msg}
+        if elapsed_sec is not None:
+            payload["elapsed_sec"] = elapsed_sec
+        _emit_event(job_dir, "progress", **payload)
 
     def build_log_cb(msg: str) -> None:
         _log(job_dir, f"DOCKER: {msg}")
@@ -113,15 +189,14 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
             payload["subject_id"] = subject_id
         if input_file:
             payload["input_file"] = input_file
-        _emit_event(
-            job_dir,
-            "metrics",
-            **payload,
-        )
+        _emit_metric(job_dir, **payload)
 
     def image_start_cb(input_file: str, idx: int, total: int) -> None:
         _log(job_dir, f"Starting image {idx}/{total}: {input_file}")
         _emit_event(job_dir, "image_start", input_file=input_file, idx=idx, total=total)
+        image_states[input_file] = "running"
+        total_images[0] = max(total_images[0], total)
+        _save_job_summary(job_dir, total_images[0], image_states, "running")
 
     def image_done_cb(result: BatchImageResult, idx: int, total: int) -> None:
         is_stopped = should_stop() or (bool(result.error) and "stopped" in result.error.lower())
@@ -149,6 +224,10 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 [f"[{step.stage}] {step.tool} - {_step_tag(step)} ({step.duration_sec:.1f}s)" for step in result.steps]
             ),
         )
+        status_val = "success" if result.success else ("stopped" if is_stopped else "failed")
+        image_states[result.input_file] = status_val
+        total_images[0] = max(total_images[0], total)
+        _save_job_summary(job_dir, total_images[0], image_states, "running")
 
     def should_stop() -> bool:
         return stop_file.exists()
@@ -370,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             state = "completed" if code == 0 else "failed"
         _write_status(job_dir, state=state, exit_code=code, finished_at=time.time(), duration_sec=time.time() - start)
-        _log(job_dir, f"Background job finished with state {state} (exit code {code})")
+        _finalize_job_summary(job_dir, state)
     except Exception as exc:
         stop_file = job_dir / "stop_requested"
         if stop_file.exists():
@@ -382,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
             code = 1
             _write_status(job_dir, state="failed", exit_code=1, error=f"{type(exc).__name__}: {exc}", finished_at=time.time(), duration_sec=time.time() - start)
             _log(job_dir, f"ERROR: {type(exc).__name__}: {exc}")
+        _finalize_job_summary(job_dir, state)
     with open(job_dir / "exit_code.txt", "w", encoding="utf-8") as f:
         f.write(str(code))
     return code

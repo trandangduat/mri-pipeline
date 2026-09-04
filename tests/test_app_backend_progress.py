@@ -63,6 +63,22 @@ def test_read_events_respects_offset_and_limit(tmp_path: Path) -> None:
     assert result["events"] == [{"idx": 1}, {"idx": 2}]
 
 
+def test_read_metrics_filters_by_subject_without_returning_other_subjects(tmp_path: Path) -> None:
+    service, job_dir, job_id = _job(tmp_path)
+    events = [
+        {"kind": "metrics", "subject_id": "sub-01", "input_file": "/data/one.nii.gz", "cpu_pct": 12.0},
+        {"kind": "metrics", "subject_id": "sub-02", "input_file": "/data/two.nii.gz", "cpu_pct": 88.0},
+    ]
+    (job_dir / "events.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8"
+    )
+
+    result = service.read_metrics(job_id, subject_id="sub-01", limit=10)
+
+    assert result["ok"] is True
+    assert result["events"] == [events[0]]
+
+
 def test_read_events_is_bounded_by_bytes_and_rejects_large_line(tmp_path: Path) -> None:
     service, job_dir, job_id = _job(tmp_path)
     (job_dir / "events.jsonl").write_text("{" + "x" * 1_100_000, encoding="utf-8")

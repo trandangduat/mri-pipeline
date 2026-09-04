@@ -40,7 +40,7 @@ import type {RemotePayload} from './runConfig';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8765';
 
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 60000;
 
 export type FetchLike = (url: string, options?: RequestInit) => Promise<Response>;
 
@@ -120,15 +120,37 @@ export class BackendClient {
     return localJobsResponseSchema.parse(await this.get('/jobs/local'));
   }
 
-  async readLocalEvents(jobId: string, offset = 0, limit = 500): Promise<EventsResponse> {
+  async readLocalEvents(jobId: string, offset = 0, limit = 500, signal?: AbortSignal): Promise<EventsResponse> {
     return eventsResponseSchema.parse(
-      await this.get(`/jobs/local/events?job_id=${encodeURIComponent(jobId)}&offset=${offset}&limit=${limit}`),
+      await this.request(
+        `/jobs/local/events?job_id=${encodeURIComponent(jobId)}&offset=${offset}&limit=${limit}`,
+        {method: 'GET', signal: signal ?? null},
+      ),
     );
   }
 
-  async readLocalLog(jobId: string, offset = 0, maxBytes = 65536): Promise<LogResponse> {
+  async readLocalLog(jobId: string, offset = 0, maxBytes = 65536, signal?: AbortSignal): Promise<LogResponse> {
     return logResponseSchema.parse(
-      await this.get(`/jobs/local/log?job_id=${encodeURIComponent(jobId)}&offset=${offset}&max_bytes=${maxBytes}`),
+      await this.request(
+        `/jobs/local/log?job_id=${encodeURIComponent(jobId)}&offset=${offset}&max_bytes=${maxBytes}`,
+        {method: 'GET', signal: signal ?? null},
+      ),
+    );
+  }
+
+  async readLocalMetrics(
+    jobId: string,
+    offset = 0,
+    limit = 500,
+    filters: {subjectId?: string; inputFile?: string} = {},
+    signal?: AbortSignal,
+  ): Promise<EventsResponse> {
+    return eventsResponseSchema.parse(
+      await this.request(
+        `/jobs/local/metrics?job_id=${encodeURIComponent(jobId)}&offset=${offset}&limit=${limit}` +
+          `&subject_id=${encodeURIComponent(filters.subjectId || '')}&input_file=${encodeURIComponent(filters.inputFile || '')}`,
+        {method: 'GET', signal: signal ?? null},
+      ),
     );
   }
 
@@ -155,14 +177,30 @@ export class BackendClient {
 
   async readRemoteEvents(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; limit?: number},
+    signal?: AbortSignal,
   ): Promise<EventsResponse> {
-    return eventsResponseSchema.parse(await this.post('/remote/jobs/events', {...payload}));
+    return eventsResponseSchema.parse(await this.post('/remote/jobs/events', {...payload}, undefined, signal));
+  }
+
+  async readRemoteMetrics(
+    payload: RemotePayload & {
+      job_id?: string;
+      remote_job_dir?: string;
+      offset?: number;
+      limit?: number;
+      subject_id?: string;
+      input_file?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<EventsResponse> {
+    return eventsResponseSchema.parse(await this.post('/remote/jobs/metrics', {...payload}, undefined, signal));
   }
 
   async readRemoteLog(
     payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; max_bytes?: number},
+    signal?: AbortSignal,
   ): Promise<LogResponse> {
-    return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}));
+    return logResponseSchema.parse(await this.post('/remote/jobs/log', {...payload}, undefined, signal));
   }
 
   async fetchUploadState(
@@ -326,18 +364,24 @@ export class BackendClient {
     return this.request(path, {method: 'GET'});
   }
 
-  async post(path: string, body: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
-    const controller = timeoutMs ? new AbortController() : null;
-    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  async post(path: string, body: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal): Promise<unknown> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs ?? REQUEST_TIMEOUT_MS);
+    const abortExternal = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', abortExternal, {once: true});
+    }
     try {
       return await this.request(path, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body ?? {}),
-        signal: controller?.signal ?? null,
+        signal: controller.signal,
       });
     } finally {
-      if (timeout !== null) clearTimeout(timeout);
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortExternal);
     }
   }
 

@@ -66,9 +66,39 @@ export function useListLocalJobsMutation() {
 export function useReadLocalEventsMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: (input: string | {jobId: string; offset?: number; limit?: number}) => {
+    mutationFn: (input: string | {jobId: string; offset?: number; limit?: number; signal?: AbortSignal}) => {
       if (typeof input === 'string') return client.readLocalEvents(input);
-      return client.readLocalEvents(input.jobId, input.offset, input.limit);
+      return client.readLocalEvents(input.jobId, input.offset, input.limit, input.signal);
+    },
+  });
+}
+
+export function useReadLocalMetricsMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (
+      input:
+        | string
+        | {
+            jobId: string;
+            offset?: number;
+            limit?: number;
+            subjectId?: string;
+            inputFile?: string;
+            signal?: AbortSignal;
+          },
+    ) => {
+      if (typeof input === 'string') return client.readLocalMetrics(input);
+      return client.readLocalMetrics(
+        input.jobId,
+        input.offset,
+        input.limit,
+        {
+          ...(input.subjectId ? {subjectId: input.subjectId} : {}),
+          ...(input.inputFile ? {inputFile: input.inputFile} : {}),
+        },
+        input.signal,
+      );
     },
   });
 }
@@ -76,8 +106,8 @@ export function useReadLocalEventsMutation() {
 export function useReadLocalLogMutation() {
   const client = useClient();
   return useMutation({
-    mutationFn: ({jobId, offset, maxBytes}: {jobId: string; offset?: number; maxBytes?: number}) =>
-      client.readLocalLog(jobId, offset, maxBytes),
+    mutationFn: ({jobId, offset, maxBytes, signal}: {jobId: string; offset?: number; maxBytes?: number; signal?: AbortSignal}) =>
+      client.readLocalLog(jobId, offset, maxBytes, signal),
   });
 }
 

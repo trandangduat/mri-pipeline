@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 
 import pytest
 from pathlib import Path
@@ -84,6 +85,8 @@ class ExecPythonListSSHClient(FakeRemoteSSHClient):
         if command.startswith("python3 -c "):
             stripped = command.removesuffix(" 2>/dev/null")
             parts = shlex.split(stripped)
+            if parts and parts[0] == "python3":
+                parts[0] = sys.executable
             result = subprocess.run(parts, check=False, capture_output=True, text=True)
             return result.returncode, result.stdout + result.stderr
         return super().read_text(command)
@@ -247,6 +250,7 @@ def test_remote_runner_expands_local_license_path_before_upload(mocker, tmp_path
     license_file = home / "license.txt"
     license_file.write_text("license", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     FakeRemoteSSHClient.uploaded_files = []
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
     runner = RemoteRunner(
@@ -751,3 +755,284 @@ def test_remote_hardware_info_without_nvidia_smi_yields_empty_gpus(mocker) -> No
     runner = RemoteRunner(config)
     info = runner.remote_hardware_info()
     assert info["gpus"] == []
+
+
+def test_read_remote_events_filters_metrics_and_returns_lifecycle_events(mocker, tmp_path) -> None:
+    job_dir = tmp_path / "job_test"
+    job_dir.mkdir()
+    events_path = job_dir / "events.jsonl"
+    events = [
+        {"kind": "image_start", "input_file": "/data/sub-01.nii.gz", "idx": 1},
+        {"kind": "metrics", "cpu_pct": 80.5, "ram_bytes": 1024},
+        {"kind": "progress", "stage": "segmentation", "status": "running"},
+        {"kind": "metrics", "cpu_pct": 95.0, "ram_bytes": 2048},
+        {"kind": "image_done", "input_file": "/data/sub-01.nii.gz", "success": True},
+    ]
+    events_path.write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=tmp_path.as_posix(),
+        )
+    )
+    runner.remote_job_dir = "job_test"
+
+    result = runner.read_remote_events()
+    assert result["ok"] is True
+    assert result["events_file_found"] is True
+    kinds = [e["kind"] for e in result["events"]]
+    assert kinds == ["image_start", "progress", "image_done"]
+
+
+def test_ssh_client_lazy_sftp(mocker) -> None:
+    import threading
+    from remote.ssh_client import RemoteSSHClient, SSHConfig
+
+    mock_client = mocker.MagicMock()
+    mock_sftp = mocker.MagicMock()
+    mock_client.open_sftp.return_value = mock_sftp
+    mock_channel = mocker.MagicMock()
+    mock_channel.recv_exit_status.return_value = 0
+    mock_client.exec_command.return_value = (
+        mocker.MagicMock(),
+        mocker.MagicMock(read=lambda: b"hello", channel=mock_channel),
+        mocker.MagicMock(read=lambda: b""),
+    )
+
+    client = RemoteSSHClient(SSHConfig(host="h", username="u"), use_pool=False)
+    client._client = mock_client
+    client._semaphore = threading.BoundedSemaphore(7)
+
+    # 1. read_text should not open an SFTP channel
+    code, text = client.read_text("echo test")
+    assert code == 0
+    assert text == "hello"
+    assert mock_client.open_sftp.call_count == 0
+
+    # 2. Accessing .sftp opens SFTP lazily on demand
+    sftp = client.sftp
+    assert sftp is mock_sftp
+    assert mock_client.open_sftp.call_count == 1
+
+    # 3. Closing client cleanly closes SFTP channel and resets state
+    client.close()
+    assert mock_sftp.close.call_count == 1
+    assert client._sftp is None
+
+
+def test_ssh_session_semaphore_limits_channel_concurrency(mocker) -> None:
+    import concurrent.futures
+    import threading
+    import time
+    from remote.ssh_client import RemoteSSHClient, SSHConfig
+
+    semaphore = threading.BoundedSemaphore(7)
+    active_channels = []
+    max_observed = [0]
+    lock = threading.Lock()
+
+    def fake_exec(*_args, **_kwargs):
+        with lock:
+            active_channels.append(1)
+            if len(active_channels) > max_observed[0]:
+                max_observed[0] = len(active_channels)
+        time.sleep(0.03)
+        with lock:
+            active_channels.pop()
+        mock_channel = mocker.MagicMock()
+        mock_channel.recv_exit_status.return_value = 0
+        return (
+            mocker.MagicMock(),
+            mocker.MagicMock(read=lambda: b"ok", channel=mock_channel),
+            mocker.MagicMock(read=lambda: b""),
+        )
+
+    mock_client = mocker.MagicMock()
+    mock_client.exec_command.side_effect = fake_exec
+
+    def worker():
+        client = RemoteSSHClient(SSHConfig(host="h", username="u"), use_pool=False)
+        client._client = mock_client
+        client._semaphore = semaphore
+        client.read_text("echo concurrency")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+        futures = [ex.submit(worker) for _ in range(15)]
+        concurrent.futures.wait(futures)
+
+    assert max_observed[0] <= 7
+
+
+def test_read_remote_metrics_prefers_metrics_jsonl(mocker, tmp_path) -> None:
+    """metrics.jsonl results must not be discarded when events.jsonl also exists."""
+    job_dir = tmp_path / "job_metrics"
+    job_dir.mkdir()
+    (job_dir / "metrics.jsonl").write_text(
+        "\n".join(
+            json.dumps(e)
+            for e in [
+                {"kind": "metrics", "cpu_pct": 11.0, "subject_id": "sub-01"},
+                {"kind": "metrics", "cpu_pct": 22.0, "subject_id": "sub-01"},
+                {"kind": "metrics", "cpu_pct": 33.0, "subject_id": "sub-02"},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (job_dir / "events.jsonl").write_text(
+        "\n".join(
+            json.dumps(e)
+            for e in [
+                {"kind": "image_start", "input_file": "/data/sub-01.nii.gz", "idx": 1},
+                {"kind": "image_done", "input_file": "/data/sub-01.nii.gz", "success": True},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=tmp_path.as_posix(),
+        )
+    )
+    runner.remote_job_dir = "job_metrics"
+
+    result = runner.read_remote_metrics()
+    assert result["ok"] is True
+    assert result.get("source") == "metrics.jsonl"
+    assert [e["cpu_pct"] for e in result["events"]] == [11.0, 22.0, 33.0]
+
+    filtered_runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=tmp_path.as_posix(),
+        )
+    )
+    filtered_runner.remote_job_dir = "job_metrics"
+    filtered = filtered_runner.read_remote_metrics(subject_id="sub-01")
+    assert [e["cpu_pct"] for e in filtered["events"]] == [11.0, 22.0]
+
+
+def test_read_remote_metrics_falls_back_to_events_jsonl(mocker, tmp_path) -> None:
+    """Old jobs without metrics.jsonl still serve metrics embedded in events.jsonl."""
+    job_dir = tmp_path / "job_legacy"
+    job_dir.mkdir()
+    (job_dir / "events.jsonl").write_text(
+        "\n".join(
+            json.dumps(e)
+            for e in [
+                {"kind": "image_start", "input_file": "/data/sub-01.nii.gz", "idx": 1},
+                {"kind": "metrics", "cpu_pct": 80.5, "subject_id": "sub-01"},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=tmp_path.as_posix(),
+        )
+    )
+    runner.remote_job_dir = "job_legacy"
+
+    result = runner.read_remote_metrics()
+    assert result["ok"] is True
+    assert result.get("source") == "events.jsonl"
+    assert [e["cpu_pct"] for e in result["events"]] == [80.5]
+
+
+def test_read_remote_events_caps_unbounded_limit(mocker, tmp_path) -> None:
+    job_dir = tmp_path / "job_big"
+    job_dir.mkdir()
+    with (job_dir / "events.jsonl").open("w", encoding="utf-8") as handle:
+        for idx in range(10050):
+            handle.write(
+                json.dumps({"kind": "progress", "stage": "segmentation", "status": "running", "idx": idx}) + "\n"
+            )
+
+    mocker.patch("remote.remote_runner.RemoteSSHClient", ExecPythonListSSHClient)
+    runner = RemoteRunner(
+        RemoteRunConfig(
+            ssh=SSHConfig(host="example", username="tester"),
+            remote_workspace=tmp_path.as_posix(),
+        )
+    )
+    runner.remote_job_dir = "job_big"
+
+    result = runner.read_remote_events(limit=0)
+    assert result["ok"] is True
+    assert len(result["events"]) == 10000
+
+
+def test_ssh_pool_single_flight_connect(mocker) -> None:
+    """Concurrent acquires must trigger exactly one TCP handshake."""
+    import concurrent.futures
+    import threading
+    import time
+    from remote.ssh_client import SSHConnectionPool, SSHConfig
+
+    pool = SSHConnectionPool()
+    created = []
+    fake_client = mocker.MagicMock()
+    fake_transport = mocker.MagicMock()
+    fake_transport.is_active.return_value = True
+    fake_transport.is_authenticated.return_value = True
+    fake_client.get_transport.return_value = fake_transport
+
+    real_create = pool._create_connection
+
+    def counting_create(config, on_log=None):
+        time.sleep(0.05)
+        created.append(1)
+        return fake_client, __import__("threading").BoundedSemaphore(4)
+
+    mocker.patch.object(pool, "_create_connection", side_effect=counting_create)
+    config = SSHConfig(host="h", username="u")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda _: pool.acquire(config), range(8)))
+
+    assert len(created) == 1
+    assert all(client is fake_client for client, _sem in results)
+
+
+def test_ssh_client_keeps_pool_on_transient_channel_error(mocker) -> None:
+    """A transient exec failure on a live transport must not evict the pool."""
+    import threading
+    from remote.ssh_client import RemoteSSHClient, SSHConfig, _GLOBAL_SSH_POOL
+
+    mock_client = mocker.MagicMock()
+    mock_transport = mocker.MagicMock()
+    mock_transport.is_active.return_value = True
+    mock_transport.is_authenticated.return_value = True
+    mock_client.get_transport.return_value = mock_transport
+    mock_client.exec_command.side_effect = Exception("Secsh channel 12 open FAILED: open failed")
+
+    config = SSHConfig(host="pool-host", username="u")
+    pooled_sem = threading.BoundedSemaphore(4)
+    _GLOBAL_SSH_POOL._pool.clear()
+    from remote.ssh_client import PoolKey, _PooledConnection
+
+    _GLOBAL_SSH_POOL._pool[PoolKey(config.host, config.port, config.username)] = _PooledConnection(
+        mock_client, pooled_sem, __import__("time").time(), 1
+    )
+    try:
+        client = RemoteSSHClient(config, use_pool=True)
+        client.connect()
+        try:
+            client.read_text("echo hi")
+            raise AssertionError("expected channel error")
+        except Exception as exc:
+            assert "Secsh channel" in str(exc)
+        # Pool entry survives a transient error on a live transport.
+        assert PoolKey(config.host, config.port, config.username) in _GLOBAL_SSH_POOL._pool
+    finally:
+        _GLOBAL_SSH_POOL.remove(config)

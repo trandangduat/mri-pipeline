@@ -68,9 +68,20 @@ class LocalJobService:
 
     def list_local_jobs(self) -> dict[str, JsonValue]:
         registry = self._load_registry()
-        local_jobs = [self._refresh_local_job(entry) for entry in registry if entry.get("target") == "Local"]
-        other_jobs = [entry for entry in registry if entry.get("target") != "Local"]
-        self._save_registry([*local_jobs, *other_jobs])
+        changed = False
+        local_jobs: list[dict[str, JsonValue]] = []
+        for entry in registry:
+            if entry.get("target") == "Local":
+                refreshed = self._refresh_local_job(entry)
+                if (
+                    refreshed.get("state") != entry.get("state")
+                    or refreshed.get("exit_code") != entry.get("exit_code")
+                ):
+                    changed = True
+                local_jobs.append(refreshed)
+        if changed:
+            other_jobs = [entry for entry in registry if entry.get("target") != "Local"]
+            self._save_registry([*local_jobs, *other_jobs])
         return {"ok": True, "jobs": [_job_summary(job) for job in local_jobs]}
 
     def stop_local_job(self, job_id: str) -> dict[str, JsonValue]:
@@ -355,54 +366,129 @@ def _input_files_for_request(request: dict[str, JsonValue]) -> list[str]:
     return []
 
 
-def _read_batch_summary(job_dir: Path, input_files: list[JsonValue]) -> dict[str, int]:
-    """Summarize image events without inferring failures from job state."""
-    states: dict[str, str] = {}
-    event_total = 0
-    events_path = job_dir / "events.jsonl"
-    try:
-        with events_path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                try:
-                    event = _json_dict(json.loads(line))
-                except (json.JSONDecodeError, OSError):
-                    continue
-                kind = str(event.get("kind", ""))
-                if kind not in {"image_start", "image_done"}:
-                    continue
-                try:
-                    event_total = max(event_total, int(event.get("total", 0) or 0))
-                except (TypeError, ValueError):
-                    pass
-                input_file = str(event.get("input_file", ""))
-                if not input_file:
-                    continue
-                ev_status = str(event.get("status", "")).lower()
-                if ev_status == "stopped":
-                    states[input_file] = "stopped"
-                else:
-                    states[input_file] = "running" if kind == "image_start" else (
-                        "success" if bool(event.get("success")) else "failed"
-                    )
-    except OSError:
-        pass
+@dataclass
+class _BatchSummaryCacheEntry:
+    mtime: float
+    st_size: int
+    byte_offset: int
+    states: dict[str, str]
+    event_total: int
+    summary: dict[str, int]
 
-    total = max(len(input_files), event_total, len(states))
-    success = sum(state == "success" for state in states.values())
-    failed = sum(state == "failed" for state in states.values())
-    running = sum(state == "running" for state in states.values())
-    stopped = sum(state == "stopped" for state in states.values())
-    summary = {
-        "total": total,
-        "success": success,
-        "failed": failed,
-        "running": running,
-        "pending": max(0, total - success - failed - running - stopped),
-    }
-    if stopped > 0:
-        summary["stopped"] = stopped
-        summary["interrupted"] = stopped
-    return summary
+
+class BatchSummaryCache:
+    """In-memory dirty-state cache for batch summary calculation with incremental file scans."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, _BatchSummaryCacheEntry] = {}
+
+    def get_or_update(self, job_dir: Path, input_files: list[JsonValue]) -> dict[str, int]:
+        sum_file = job_dir / "job_summary.json"
+        if sum_file.exists():
+            try:
+                s_data = read_json(sum_file, {})
+                if isinstance(s_data, dict) and "total" in s_data:
+                    return {
+                        "total": int(s_data.get("total", 0)),
+                        "success": int(s_data.get("success", 0)),
+                        "failed": int(s_data.get("failed", 0)),
+                        "running": int(s_data.get("running", 0)),
+                        "stopped": int(s_data.get("stopped", 0)),
+                        "interrupted": int(s_data.get("stopped", 0)),
+                        "pending": int(s_data.get("pending", 0)),
+                    }
+            except Exception:
+                pass
+
+        events_path = job_dir / "events.jsonl"
+        if not events_path.exists():
+            total = len(input_files)
+            return {"total": total, "success": 0, "failed": 0, "running": 0, "pending": total}
+
+        try:
+            stat_res = events_path.stat()
+        except OSError:
+            total = len(input_files)
+            return {"total": total, "success": 0, "failed": 0, "running": 0, "pending": total}
+
+        key = str(job_dir.resolve())
+        cached = self._cache.get(key)
+        if cached is not None and cached.mtime == stat_res.st_mtime and cached.st_size == stat_res.st_size:
+            return cached.summary
+
+        # Incremental file growth check
+        if cached is not None and stat_res.st_size >= cached.st_size and cached.byte_offset <= stat_res.st_size:
+            states = dict(cached.states)
+            event_total = cached.event_total
+            offset = cached.byte_offset
+        else:
+            states = {}
+            event_total = 0
+            offset = 0
+
+        new_offset = offset
+        try:
+            with events_path.open("r", encoding="utf-8") as handle:
+                handle.seek(offset)
+                for line in handle:
+                    try:
+                        event = _json_dict(json.loads(line))
+                    except (json.JSONDecodeError, OSError):
+                        continue
+                    kind = str(event.get("kind", ""))
+                    if kind not in {"image_start", "image_done"}:
+                        continue
+                    try:
+                        event_total = max(event_total, int(event.get("total", 0) or 0))
+                    except (TypeError, ValueError):
+                        pass
+                    input_file = str(event.get("input_file", ""))
+                    if not input_file:
+                        continue
+                    ev_status = str(event.get("status", "")).lower()
+                    if ev_status == "stopped":
+                        states[input_file] = "stopped"
+                    else:
+                        states[input_file] = "running" if kind == "image_start" else (
+                            "success" if bool(event.get("success")) else "failed"
+                        )
+                new_offset = handle.tell()
+        except OSError:
+            pass
+
+        total = max(len(input_files), event_total, len(states))
+        success = sum(state == "success" for state in states.values())
+        failed = sum(state == "failed" for state in states.values())
+        running = sum(state == "running" for state in states.values())
+        stopped = sum(state == "stopped" for state in states.values())
+        summary = {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "running": running,
+            "pending": max(0, total - success - failed - running - stopped),
+        }
+        if stopped > 0:
+            summary["stopped"] = stopped
+            summary["interrupted"] = stopped
+
+        self._cache[key] = _BatchSummaryCacheEntry(
+            mtime=stat_res.st_mtime,
+            st_size=stat_res.st_size,
+            byte_offset=new_offset,
+            states=states,
+            event_total=event_total,
+            summary=summary,
+        )
+        return summary
+
+
+_BATCH_SUMMARY_CACHE = BatchSummaryCache()
+
+
+def _read_batch_summary(job_dir: Path, input_files: list[JsonValue]) -> dict[str, int]:
+    """Summarize image events using the dirty-state cache with O(1) validation."""
+    return _BATCH_SUMMARY_CACHE.get_or_update(job_dir, input_files)
 
 
 def _exit_code(job_dir: Path, status: dict) -> int | None:

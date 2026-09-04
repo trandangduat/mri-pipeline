@@ -281,12 +281,13 @@ class RemoteJobService:
         assert isinstance(config, RemoteRunConfig)
         remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
         offset = _int_val(data.get("offset"), 0)
+        max_bytes = _int_val(data.get("max_bytes"), 65536)
         try:
             runner = self.runner_factory(config)
             if remote_job_dir and hasattr(runner, "remote_job_dir"):
                 runner.remote_job_dir = remote_job_dir
             if hasattr(runner, "read_remote_log_since"):
-                text, next_offset = runner.read_remote_log_since(offset=offset)
+                text, next_offset = runner.read_remote_log_since(offset=offset, max_bytes=max_bytes)
                 return {"ok": True, "text": text, "next_offset": next_offset, "truncated": False}
             return {"ok": True, "text": "", "next_offset": offset, "truncated": False}
         except Exception as exc:
@@ -296,6 +297,52 @@ class RemoteJobService:
                 "text": "",
                 "next_offset": offset,
                 "truncated": False,
+            }
+
+    def read_job_metrics(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        offset = _int_val(data.get("offset"), 0)
+        limit = _int_val(data.get("limit"), 500)
+        subject_id = str(data.get("subject_id") or "").strip()
+        input_file = str(data.get("input_file") or "").strip()
+        try:
+            runner = self.runner_factory(config)
+            if remote_job_dir and hasattr(runner, "remote_job_dir"):
+                runner.remote_job_dir = remote_job_dir
+            if hasattr(runner, "read_remote_metrics"):
+                res = runner.read_remote_metrics(
+                    offset=offset,
+                    limit=limit,
+                    subject_id=subject_id,
+                    input_file=input_file,
+                )
+                return {
+                    "ok": bool(res.get("ok", True)),
+                    "events": list(res.get("events", [])),
+                    "warnings": list(res.get("warnings", [])),
+                    "next_offset": int(res.get("next_offset", offset)),
+                }
+            if hasattr(runner, "read_remote_events"):
+                res = runner.read_remote_events(offset=offset, limit=limit)
+                events = [e for e in res.get("events", []) if isinstance(e, dict) and e.get("kind") == "metrics"]
+                return {
+                    "ok": bool(res.get("ok", True)),
+                    "events": events,
+                    "warnings": list(res.get("warnings", [])),
+                    "next_offset": int(res.get("next_offset", offset)),
+                }
+            return {"ok": True, "events": [], "warnings": [], "next_offset": offset}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": _safe_error_message(exc, config),
+                "events": [],
+                "next_offset": offset,
             }
 
     def browse_path(self, data: dict[str, object]) -> dict[str, JsonValue]:

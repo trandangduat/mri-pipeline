@@ -129,7 +129,7 @@ class LocalDockerExecutor(BaseExecutor):
                             on_metrics(cpu, current, time.time() - t0, req.container_name or "")
                 except Exception:
                     pass
-                stop_monitor.wait(0.5)
+                stop_monitor.wait(2.0)
 
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

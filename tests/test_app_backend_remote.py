@@ -1,4 +1,4 @@
-from __future__ import annotations
+import os
 
 from app_backend.remote import RemoteJobService
 from pipeline.presets import PRESET_CONFIGS
@@ -132,10 +132,13 @@ def test_validate_remote_config_returns_safe_connection_error_without_secret() -
     }
 
 
-def test_validate_remote_config_rejects_key_with_open_permissions(tmp_path) -> None:
+def test_validate_remote_config_rejects_key_with_open_permissions(tmp_path, monkeypatch) -> None:
     key_path = tmp_path / "id_rsa"
     key_path.write_text("private key", encoding="utf-8")
     key_path.chmod(0o777)
+    if os.name == "nt":
+        monkeypatch.setattr("remote.ssh_key._uses_posix_key_permissions", lambda: True)
+        monkeypatch.setattr("remote.ssh_key.stat.S_IMODE", lambda _m: 0o777)
     service = RemoteJobService(runner_factory=lambda _config: FakeRunner([]))
 
     result = service.validate_config({"host": "server", "username": "alice", "key_path": str(key_path)})

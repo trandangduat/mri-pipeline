@@ -293,6 +293,140 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
   return Array.from(imagesMap.values());
 }
 
+export function reduceBatchImages(
+  currentImages: BatchImageItem[],
+  newEvents: PipelineEvent[],
+  job: AnyJob = {},
+): BatchImageItem[] {
+  if (!currentImages || currentImages.length === 0) {
+    return deriveBatchImages(newEvents, job);
+  }
+  const reqSummary = (job.run_request_summary as Record<string, unknown>) || {};
+  const req = (job.run_request as Record<string, unknown>) || {};
+  const datasetRoot = String(
+    job.dataset_root ||
+      job.input_dir ||
+      job.input_path ||
+      job.effective_input_dir ||
+      reqSummary.input_dir ||
+      req.input_dir ||
+      '',
+  );
+
+  const imagesMap = new Map<string, BatchImageItem>();
+  for (const img of currentImages) {
+    imagesMap.set(img.input_file, {...img});
+  }
+
+  if (newEvents && newEvents.length > 0) {
+    function findMatchingImage(file: string, idx: number, subjectHint?: string): BatchImageItem | undefined {
+      if (file && imagesMap.has(file)) return imagesMap.get(file);
+      const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
+      const targetSubject = subjectHint || subject_id;
+      for (const item of imagesMap.values()) {
+        if (item.subject_id === targetSubject || item.idx === idx) {
+          return item;
+        }
+      }
+      return undefined;
+    }
+
+  for (const event of newEvents) {
+    const kind = String(event.kind || '');
+    if (kind === 'image_start') {
+      const file = String(event.input_file || '');
+      const idx = Number(event.idx || 1);
+      const total = Number(event.total || currentImages.length || 1);
+      const existing = findMatchingImage(file, idx, event.subject_id ? String(event.subject_id) : undefined);
+      if (existing) {
+        existing.status = 'running';
+        existing.idx = idx;
+        existing.total = total;
+        if (event.subject_id) {
+          existing.subject_id = String(event.subject_id);
+        }
+      } else if (file) {
+        const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
+        imagesMap.set(file, {
+          input_file: file,
+          subject_id: event.subject_id ? String(event.subject_id) : subject_id,
+          idx,
+          total,
+          status: 'running',
+        });
+      }
+    } else if (kind === 'image_done') {
+      const file = String(event.input_file || '');
+      const idx = Number(event.idx || 1);
+      const total = Number(event.total || currentImages.length || 1);
+      let success = Boolean(event.success);
+      const duration_sec = typeof event.duration_sec === 'number' ? event.duration_sec : undefined;
+      const subject_id = String(event.subject_id || '');
+      const existing = findMatchingImage(file, idx, subject_id || undefined);
+      const computedSubj = subject_id || deriveSubjectLabel(file, idx, datasetRoot).subject_id;
+      const logText = String(event.log_text || '');
+
+      if (success && logText) {
+        const reqObj = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
+        const tools = ((reqObj.selected_tools || {}) as Record<string, string>) || {};
+        const isScheduledTool = (t: unknown) =>
+          Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
+        const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
+        if (scheduledCount > 0) {
+          const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*(OK|SUCCESS)/gi) || []).length;
+          if (okLines < scheduledCount) {
+            success = false;
+          }
+        }
+      }
+
+      const eventStatus = String(event.status || '').toLowerCase();
+      const finalStatus: BatchImageItem['status'] =
+        eventStatus === 'stopped' ? 'stopped' : success ? 'success' : 'failed';
+
+      if (existing) {
+        existing.status = finalStatus;
+        if (computedSubj) existing.subject_id = computedSubj;
+        if (duration_sec !== undefined) existing.duration_sec = duration_sec;
+      } else if (file) {
+        const item: BatchImageItem = {
+          input_file: file,
+          subject_id: computedSubj,
+          idx,
+          total,
+          status: finalStatus,
+        };
+        if (duration_sec !== undefined) item.duration_sec = duration_sec;
+        imagesMap.set(file, item);
+      }
+    }
+  }
+  }
+
+  const normState = normalizeJobState(job.state);
+  if (normState === 'completed') {
+    imagesMap.forEach((img) => {
+      if (img.status === 'running' || img.status === 'pending') {
+        img.status = 'success';
+      }
+    });
+  } else if (normState === 'stopped') {
+    imagesMap.forEach((img) => {
+      if (img.status !== 'success') {
+        img.status = 'stopped';
+      }
+    });
+  } else if (normState === 'failed') {
+    imagesMap.forEach((img) => {
+      if (img.status === 'running' || img.status === 'pending') {
+        img.status = 'failed';
+      }
+    });
+  }
+
+  return Array.from(imagesMap.values());
+}
+
 export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
   const total = images.length;
   let success = 0;
@@ -461,7 +595,15 @@ export function deriveImageSteps(
           } else if (['skipped', 'skip', 'not_scheduled', 'not scheduled'].includes(rawStatus)) {
             step.status = 'skipped';
           }
-          if (typeof event.elapsed_sec === 'number') step.elapsed_sec = event.elapsed_sec;
+          if (typeof event.elapsed_sec === 'number') {
+            step.elapsed_sec = event.elapsed_sec;
+          } else {
+            const msg = String(event.msg || event.message || '');
+            const match = msg.match(/done in\s+([\d.]+)\s*s/i);
+            if (match && match[1]) {
+              step.elapsed_sec = parseFloat(match[1]);
+            }
+          }
           if (typeof event.pct === 'number' && event.pct === 100) step.status = 'success';
         }
       }
@@ -549,6 +691,12 @@ export function deriveImageSteps(
         s.status = 'stopped';
       }
     });
+  } else if (image.status === 'failed') {
+    stepMap.forEach((s) => {
+      if (s.status === 'running') {
+        s.status = 'failed';
+      }
+    });
   }
 
   return Array.from(stepMap.values());
@@ -608,12 +756,16 @@ export interface JobDisplayMetadata {
   status_reconciled: string;
 }
 
-export function deriveJobDisplayMetadata(job: AnyJob | null, events: PipelineEvent[] = []): JobDisplayMetadata {
+export function deriveJobDisplayMetadata(
+  job: AnyJob | null,
+  events: PipelineEvent[] = [],
+  precomputedBatchImages?: BatchImageItem[],
+): JobDisplayMetadata {
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const jobStateRaw = String(job?.state || 'unknown');
   const normState = normalizeJobState(jobStateRaw);
 
-  const batchImages = deriveBatchImages(events, job || {});
+  const batchImages = precomputedBatchImages ?? deriveBatchImages(events, job || {});
   const anyImageRunning = batchImages.some((img) => img.status === 'running');
   const anyImageFailed = batchImages.some((img) => img.status === 'failed');
   const allImagesTerminal =
@@ -647,16 +799,16 @@ export function deriveJobDisplayMetadata(job: AnyJob | null, events: PipelineEve
   let status_reconciled = normState;
   if (normState === 'stopped') {
     status_reconciled = 'stopped';
+  } else if (normState === 'failed') {
+    status_reconciled = 'failed';
   } else if (hasTerminalEvent) {
     status_reconciled = hasFailedEvent || anyImageFailed ? 'failed' : 'completed';
   } else if (allImagesTerminal) {
     status_reconciled = anyImageFailed ? 'failed' : 'completed';
-  } else if (normState === 'running') {
+  } else if (normState === 'completed') {
+    status_reconciled = anyImageFailed ? 'failed' : 'completed';
+  } else if (normState === 'running' || anyImageRunning) {
     status_reconciled = 'running';
-  } else if (anyImageRunning) {
-    status_reconciled = 'running';
-  } else if (normState === 'completed' && anyImageFailed) {
-    status_reconciled = 'failed';
   }
 
   const firstEv = events[0];

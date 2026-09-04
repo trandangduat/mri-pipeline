@@ -41,8 +41,37 @@ export function useReadRemoteEventsMutation() {
   const client = useClient();
   return useMutation({
     mutationFn: (
-      payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; limit?: number},
-    ) => client.readRemoteEvents(payload),
+      payload: RemotePayload & {
+        job_id?: string;
+        remote_job_dir?: string;
+        offset?: number;
+        limit?: number;
+        signal?: AbortSignal;
+      },
+    ) => {
+      const {signal, ...requestPayload} = payload;
+      return client.readRemoteEvents(requestPayload, signal);
+    },
+  });
+}
+
+export function useReadRemoteMetricsMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (
+      payload: RemotePayload & {
+        job_id?: string;
+        remote_job_dir?: string;
+        offset?: number;
+        limit?: number;
+        subject_id?: string;
+        input_file?: string;
+        signal?: AbortSignal;
+      },
+    ) => {
+      const {signal, ...requestPayload} = payload;
+      return client.readRemoteMetrics(requestPayload, signal);
+    },
   });
 }
 
@@ -50,8 +79,17 @@ export function useReadRemoteLogMutation() {
   const client = useClient();
   return useMutation({
     mutationFn: (
-      payload: RemotePayload & {job_id?: string; remote_job_dir?: string; offset?: number; max_bytes?: number},
-    ) => client.readRemoteLog(payload),
+      payload: RemotePayload & {
+        job_id?: string;
+        remote_job_dir?: string;
+        offset?: number;
+        max_bytes?: number;
+        signal?: AbortSignal;
+      },
+    ) => {
+      const {signal, ...requestPayload} = payload;
+      return client.readRemoteLog(requestPayload, signal);
+    },
   });
 }
 

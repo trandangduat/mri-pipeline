@@ -103,6 +103,21 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
                 ),
             )
             return
+        if path == "/jobs/local/metrics":
+            self._write_json(
+                HTTPStatus.OK,
+                self._local_progress().read_metrics(
+                    _query_string(query, "job_id"),
+                    offset=_query_int(query, "offset", 0),
+                    limit=_query_int(query, "limit", 500),
+                    subject_id=_query_string(query, "subject_id"),
+                    input_file=_query_string(query, "input_file"),
+                ),
+            )
+            return
+        if path == "/jobs/stream":
+            self._handle_jobs_stream(query)
+            return
         if path == "/config/workspaces":
             self._write_json(HTTPStatus.OK, self._configs().list_workspaces())
             return
@@ -213,6 +228,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/jobs/log":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_log(payload))
+            return
+        if self.path == "/remote/jobs/metrics":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_metrics(payload))
             return
         if self.path == "/remote/jobs/upload/state":
             self._write_json(HTTPStatus.OK, self._remote_jobs().upload_state(payload))
@@ -398,9 +416,16 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
 
     def _write_json(self, status: HTTPStatus, payload: dict[str, JsonValue]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        accept_encoding = getattr(self, "headers", {}).get("Accept-Encoding", "") if hasattr(self, "headers") and self.headers else ""
+        use_gzip = "gzip" in accept_encoding.lower() and len(body) > 1024
+        if use_gzip:
+            import gzip
+            body = gzip.compress(body, compresslevel=6)
         self.send_response(int(status))
         self._write_cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -450,6 +475,54 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+        finally:
+            self.close_connection = True
+
+    def _handle_jobs_stream(self, query: dict[str, list[str]]) -> None:
+        job_id = _query_string(query, "job_id")
+        if not job_id:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "job_id is required"})
+            return
+        event_offset = _query_int(query, "event_offset", 0)
+        log_offset = _query_int(query, "log_offset", 0)
+        self._write_sse_headers()
+        try:
+            import time
+            last_ping = time.time()
+            while True:
+                now = time.time()
+                ev_res = self._local_progress().read_events(job_id, offset=event_offset, limit=500)
+                new_events = ev_res.get("events", []) if isinstance(ev_res, dict) else []
+                new_ev_offset = int(ev_res.get("next_offset", event_offset)) if isinstance(ev_res, dict) else event_offset
+
+                log_res = self._local_progress().read_log(job_id, offset=log_offset, max_bytes=65536)
+                new_log_text = str(log_res.get("text", "") or "") if isinstance(log_res, dict) else ""
+                new_log_offset = int(log_res.get("next_offset", log_offset)) if isinstance(log_res, dict) else log_offset
+
+                has_update = bool(new_events) or bool(new_log_text)
+                if has_update:
+                    event_offset = new_ev_offset
+                    log_offset = new_log_offset
+                    self._send_sse_event("update", {
+                        "job_id": job_id,
+                        "events": new_events,
+                        "event_offset": event_offset,
+                        "log_text": new_log_text,
+                        "log_offset": log_offset,
+                    })
+
+                if now - last_ping >= 15.0:
+                    self._send_sse_event("ping", {"time": now})
+                    last_ping = now
+
+                time.sleep(1.0)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            try:
+                self._send_sse_event("error", {"error": str(exc)})
+            except Exception:
+                pass
         finally:
             self.close_connection = True
 

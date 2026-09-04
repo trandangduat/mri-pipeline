@@ -11,6 +11,7 @@ JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dic
 
 MAX_EVENT_BYTES = 1_000_000
 MAX_EVENT_LINE_BYTES = 262_144
+MAX_FILTERED_METRICS_BYTES = 100_000_000
 
 
 class LocalJobProgressService:
@@ -61,6 +62,61 @@ class LocalJobProgressService:
                 else:
                     warnings.append("Skipped non-object event line")
         return {"ok": True, "events": events, "warnings": warnings, "next_offset": next_offset}
+
+    def read_metrics(
+        self,
+        job_id: str,
+        offset: int = 0,
+        limit: int = 500,
+        subject_id: str = "",
+        input_file: str = "",
+    ) -> dict[str, JsonValue]:
+        job_dir = self._job_dir(job_id)
+        if job_dir is None:
+            return {"ok": False, "error": "Local job not found"}
+
+        for fname in ("metrics.jsonl", "events.jsonl"):
+            metrics_path = _safe_child_file(job_dir, fname)
+            if metrics_path is None or not metrics_path.exists():
+                continue
+            start = max(0, int(offset))
+            max_events = max(1, min(int(limit), 5000))
+            filtered = bool(subject_id or input_file)
+            events: list[JsonValue] = []
+            warnings: list[JsonValue] = []
+            next_offset = start
+            scanned = 0
+            with metrics_path.open("rb") as handle:
+                handle.seek(start)
+                scan_limit = MAX_FILTERED_METRICS_BYTES if filtered else MAX_EVENT_BYTES
+                while len(events) < max_events and scanned < scan_limit:
+                    raw_line = handle.readline(MAX_EVENT_LINE_BYTES + 1)
+                    if not raw_line:
+                        break
+                    scanned += len(raw_line)
+                    next_offset = handle.tell()
+                    if len(raw_line) > MAX_EVENT_LINE_BYTES:
+                        warnings.append("Stopped at oversized metric line")
+                        break
+                    text = raw_line.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    try:
+                        event = json.loads(text)
+                    except json.JSONDecodeError:
+                        warnings.append("Skipped malformed metric line")
+                        continue
+                    if isinstance(event, dict):
+                        if fname != "metrics.jsonl" and event.get("kind") != "metrics":
+                            continue
+                        if filtered and not _metric_matches(event, subject_id, input_file):
+                            continue
+                        events.append(_json_value(event))
+                    else:
+                        warnings.append("Skipped non-object metric line")
+            return {"ok": True, "events": events, "warnings": warnings, "next_offset": next_offset}
+
+        return {"ok": True, "events": [], "warnings": [], "next_offset": max(0, offset)}
 
     def read_log(self, job_id: str, offset: int = 0, max_bytes: int = 65536) -> dict[str, JsonValue]:
         job_dir = self._job_dir(job_id)
@@ -122,6 +178,14 @@ def _safe_child_file(job_dir: Path, name: str) -> Path | None:
     except ValueError:
         return None
     return path
+
+
+def _metric_matches(event: dict[str, object], subject_id: str, input_file: str) -> bool:
+    """Match either stable subject identity used by new and legacy jobs."""
+    return bool(
+        (subject_id and str(event.get("subject_id", "")) == subject_id)
+        or (input_file and str(event.get("input_file", "")) == input_file)
+    )
 
 
 def _json_value(value: object) -> JsonValue:

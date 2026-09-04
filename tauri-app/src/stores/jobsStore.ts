@@ -19,6 +19,15 @@ interface JobsState {
   appendOutput: (block: string) => void;
 }
 
+const MAX_LOG_LINES = 5000;
+
+export function capLogLines(text: string, maxLines: number = MAX_LOG_LINES): string {
+  if (!text) return '';
+  const lines = text.split('\n');
+  if (lines.length <= maxLines) return text;
+  return lines.slice(-maxLines).join('\n');
+}
+
 export const useJobsStore = create<JobsState>((set) => ({
   latestJobs: [],
   selectedJobId: null,
@@ -42,17 +51,23 @@ export const useJobsStore = create<JobsState>((set) => ({
     })),
   setJobLogSearch: (jobLogSearch) => set({jobLogSearch}),
   setOutputText: (outputText) =>
-    set((state) => ({
-      outputText: typeof outputText === 'function' ? outputText(state.outputText) : outputText,
-    })),
+    set((state) => {
+      const val = typeof outputText === 'function' ? outputText(state.outputText) : outputText;
+      return {outputText: capLogLines(val)};
+    }),
   appendJobEvents: (events) =>
     set((state) => ({
       jobEvents: [...state.jobEvents, ...events],
     })),
   appendOutputText: (text) =>
-    set((state) => ({
-      outputText: state.outputText ? `${state.outputText}${text}` : text,
-    })),
+    set((state) => {
+      const combined = state.outputText ? `${state.outputText}${text}` : text;
+      return {outputText: capLogLines(combined)};
+    }),
   clearJobLog: () => set({outputText: ''}),
-  appendOutput: (block) => set((state) => ({outputText: `${block}${state.outputText}`})),
+  appendOutput: (block) =>
+    set((state) => {
+      const combined = `${block}${state.outputText}`;
+      return {outputText: capLogLines(combined)};
+    }),
 }));
