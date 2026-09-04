@@ -1474,9 +1474,9 @@ export function JobsPage() {
       })()}
 
       {/* 1. Top Grid: Jobs Metadata (Left) + Batch Summary (Right) */}
-      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] gap-3">
+      <div className="grid flex-none grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] items-stretch gap-3">
         {/* Left: Jobs Metadata Card */}
-        <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5">
+        <Card className="rounded-lg border-cursor-hairline bg-cursor-surface-card shadow-none p-3.5 flex flex-col">
           <div className="flex items-center justify-between pb-2 border-b border-cursor-hairline-soft mb-2.5">
             <div className="flex items-center gap-1.5 min-w-0">
               <BrainCircuit className="h-4 w-4 text-cursor-primary flex-none" />
@@ -1523,8 +1523,8 @@ export function JobsPage() {
                 : 'Sequential';
 
             return (
-              <div className="mt-2.5 overflow-hidden rounded-md border border-cursor-hairline bg-cursor-surface-card">
-                <table className="w-full text-xs divide-y divide-cursor-hairline-soft table-fixed border-collapse">
+              <div className="mt-2.5 flex flex-1 flex-col overflow-hidden rounded-md border border-cursor-hairline bg-cursor-surface-card">
+                <table className="w-full flex-1 h-full text-xs divide-y divide-cursor-hairline-soft table-fixed border-collapse">
                   <tbody className="divide-y divide-cursor-hairline-soft">
                     {/* Row 1: Started & Preset */}
                     <tr className="divide-x divide-cursor-hairline-soft">
@@ -2200,25 +2200,9 @@ export function JobsPage() {
             className="relative bg-cursor-canvas border border-cursor-hairline rounded-xl w-[min(1360px,calc(100vw-1.5rem))] max-h-[92vh] flex flex-col shadow-none overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
+            {/* Modal Header: [status badge] [#idx + subject name] */}
             <div className="flex items-center justify-between border-b border-cursor-hairline px-4 py-3 bg-cursor-canvas flex-none">
-              <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
-                <Badge variant="outline" className="text-2xs font-semibold uppercase tracking-[0.08em] text-cursor-muted bg-cursor-surface-card px-2 py-0.5 flex-none">
-                  #{modalSubject.idx}
-                </Badge>
-                <div className="flex flex-col min-w-0 gap-0.5 flex-1">
-                  <h3 className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate">
-                    {modalSubject.subject_id}
-                  </h3>
-                  <span
-                    className="inline-block break-all rounded bg-cursor-surface-card border border-cursor-hairline-soft px-1.5 py-0.5 text-2xs text-cursor-body font-mono"
-                    title={modalSubject.input_file}
-                  >
-                    {modalSubject.input_file}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-none">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-3">
                 <Badge
                   variant={
                     modalSubject.status === 'success'
@@ -2231,6 +2215,7 @@ export function JobsPage() {
                             ? 'primary'
                             : 'secondary'
                   }
+                  className="flex-none"
                 >
                   {modalSubject.status === 'success'
                     ? 'SUCCESS'
@@ -2238,6 +2223,17 @@ export function JobsPage() {
                       ? 'STOPPED'
                       : modalSubject.status.toUpperCase()}
                 </Badge>
+                <div className="min-w-0 flex-1">
+                  <h3
+                    className="m-0 text-base font-semibold leading-tight tracking-tight text-cursor-ink truncate"
+                    title={`[#${modalSubject.idx}] ${modalSubject.subject_id}`}
+                  >
+                    <span className="text-cursor-muted font-medium">#{modalSubject.idx}</span>{' '}
+                    {modalSubject.subject_id}
+                  </h3>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-none">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -2279,7 +2275,6 @@ export function JobsPage() {
                 <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex-none">
                   <div className="p-0 pb-2 flex flex-row items-center justify-between">
                     <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Run Telemetry</h3>
-                    <span className="text-xs text-cursor-muted">events.jsonl metrics</span>
                   </div>
                   <div className="p-0">
                     <div className="grid grid-cols-1 gap-2.5">
