@@ -11,6 +11,24 @@ export interface BatchImageItem {
   total: number;
   status: 'pending' | 'running' | 'success' | 'failed' | 'stopped';
   duration_sec?: number | undefined;
+  /** Wall-clock start/finish (epoch seconds) from image_start/image_done event.time. */
+  started_at?: number | undefined;
+  finished_at?: number | undefined;
+}
+
+/** Extract epoch-seconds timestamp from a pipeline event, if present. */
+export function eventTimeSec(event: PipelineEvent): number | undefined {
+  const raw = event.time;
+  const parsed = typeof raw === 'string' ? Number(raw) : Number(raw as number);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** Execution-order comparator: earliest start first; not-started sink to the end. */
+export function compareBatchImagesByStartTime(a: BatchImageItem, b: BatchImageItem): number {
+  const aStart = a.started_at ?? Number.POSITIVE_INFINITY;
+  const bStart = b.started_at ?? Number.POSITIVE_INFINITY;
+  if (aStart !== bStart) return aStart - bStart;
+  return a.idx - b.idx;
 }
 
 export interface BatchSummary {
@@ -203,6 +221,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       const file = String(event.input_file || '');
       const idx = Number(event.idx || 1);
       const total = Number(event.total || initialFiles.length || 1);
+      const startedAt = eventTimeSec(event);
       const existing = findMatchingImage(file, idx, event.subject_id ? String(event.subject_id) : undefined);
       if (existing) {
         existing.status = 'running';
@@ -210,6 +229,9 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
         existing.total = total;
         if (event.subject_id) {
           existing.subject_id = String(event.subject_id);
+        }
+        if (startedAt !== undefined) {
+          existing.started_at = existing.started_at === undefined ? startedAt : Math.min(existing.started_at, startedAt);
         }
       } else if (file) {
         const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
@@ -219,6 +241,7 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
           idx,
           total,
           status: 'running',
+          started_at: startedAt,
         });
       }
     } else if (kind === 'image_done') {
@@ -250,10 +273,19 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       const finalStatus: BatchImageItem['status'] =
         eventStatus === 'stopped' ? 'stopped' : success ? 'success' : 'failed';
 
+      const finishedAt = eventTimeSec(event);
       if (existing) {
         existing.status = finalStatus;
         if (computedSubj) existing.subject_id = computedSubj;
-        if (duration_sec !== undefined) existing.duration_sec = duration_sec;
+        if (duration_sec !== undefined) {
+          existing.duration_sec = duration_sec;
+        }
+        if (finishedAt !== undefined) {
+          existing.finished_at = existing.finished_at === undefined ? finishedAt : Math.max(existing.finished_at, finishedAt);
+          if (existing.duration_sec === undefined && existing.started_at !== undefined) {
+            existing.duration_sec = Math.max(0, existing.finished_at - existing.started_at);
+          }
+        }
       } else if (file) {
         const item: BatchImageItem = {
           input_file: file,
@@ -261,8 +293,11 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
           idx,
           total,
           status: finalStatus,
+          finished_at: finishedAt,
         };
-        if (duration_sec !== undefined) item.duration_sec = duration_sec;
+        if (duration_sec !== undefined) {
+          item.duration_sec = duration_sec;
+        }
         imagesMap.set(file, item);
       }
     }
@@ -337,6 +372,7 @@ export function reduceBatchImages(
       const file = String(event.input_file || '');
       const idx = Number(event.idx || 1);
       const total = Number(event.total || currentImages.length || 1);
+      const startedAt = eventTimeSec(event);
       const existing = findMatchingImage(file, idx, event.subject_id ? String(event.subject_id) : undefined);
       if (existing) {
         existing.status = 'running';
@@ -344,6 +380,9 @@ export function reduceBatchImages(
         existing.total = total;
         if (event.subject_id) {
           existing.subject_id = String(event.subject_id);
+        }
+        if (startedAt !== undefined) {
+          existing.started_at = existing.started_at === undefined ? startedAt : Math.min(existing.started_at, startedAt);
         }
       } else if (file) {
         const {subject_id} = deriveSubjectLabel(file, idx, datasetRoot);
@@ -353,6 +392,7 @@ export function reduceBatchImages(
           idx,
           total,
           status: 'running',
+          started_at: startedAt,
         });
       }
     } else if (kind === 'image_done') {
@@ -384,10 +424,19 @@ export function reduceBatchImages(
       const finalStatus: BatchImageItem['status'] =
         eventStatus === 'stopped' ? 'stopped' : success ? 'success' : 'failed';
 
+      const finishedAt = eventTimeSec(event);
       if (existing) {
         existing.status = finalStatus;
         if (computedSubj) existing.subject_id = computedSubj;
-        if (duration_sec !== undefined) existing.duration_sec = duration_sec;
+        if (duration_sec !== undefined) {
+          existing.duration_sec = duration_sec;
+        }
+        if (finishedAt !== undefined) {
+          existing.finished_at = existing.finished_at === undefined ? finishedAt : Math.max(existing.finished_at, finishedAt);
+          if (existing.duration_sec === undefined && existing.started_at !== undefined) {
+            existing.duration_sec = Math.max(0, existing.finished_at - existing.started_at);
+          }
+        }
       } else if (file) {
         const item: BatchImageItem = {
           input_file: file,
@@ -395,8 +444,11 @@ export function reduceBatchImages(
           idx,
           total,
           status: finalStatus,
+          finished_at: finishedAt,
         };
-        if (duration_sec !== undefined) item.duration_sec = duration_sec;
+        if (duration_sec !== undefined) {
+          item.duration_sec = duration_sec;
+        }
         imagesMap.set(file, item);
       }
     }

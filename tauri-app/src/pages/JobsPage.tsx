@@ -44,6 +44,7 @@ import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} f
 import {
   deriveBatchImages,
   reduceBatchImages,
+  compareBatchImagesByStartTime,
   deriveBatchSummary,
   deriveImageSteps,
   deriveJobDisplayMetadata,
@@ -240,6 +241,12 @@ function jobStatusBadgeClasses(state: unknown): string {
   if (normalized === 'running')
     return 'bg-cursor-primary/10 text-cursor-primary';
   return 'bg-cursor-surface-strong/70 text-cursor-body';
+}
+
+function formatClockTime(timestampSeconds: number | null | undefined): string {
+  if (!timestampSeconds || timestampSeconds <= 0) return '—';
+  const date = new Date(timestampSeconds * 1000);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString();
 }
 
 function formatRelativeTime(timestampSeconds: number): string {
@@ -660,6 +667,7 @@ export function JobsPage() {
     'all' | 'success' | 'running' | 'stopped' | 'interrupted' | 'failed' | 'pending'
   >('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
+  const [subjectSortMode, setSubjectSortMode] = useState<'start-time' | 'input-order'>('start-time');
   const [isLogExpanded, setIsLogExpanded] = useState<boolean>(false);
 
   const isLogExpandedRef = useRef<boolean>(false);
@@ -1598,10 +1606,11 @@ export function JobsPage() {
     );
   };
 
-  // Filter batch images by search query & status filter
+  // Filter batch images by search query & status filter, then sort by
+  // execution start time (default) or input order
   const filteredBatchImages = React.useMemo(() => {
     const q = subjectSearchQuery.trim().toLowerCase();
-    return batchImages.filter((img) => {
+    const filtered = batchImages.filter((img) => {
       const matchesStatus =
         subjectStatusFilter === 'all'
           ? true
@@ -1621,7 +1630,14 @@ export function JobsPage() {
 
       return matchesStatus && matchesText;
     });
-  }, [batchImages, subjectStatusFilter, subjectSearchQuery]);
+    const sorted = [...filtered];
+    if (subjectSortMode === 'start-time') {
+      sorted.sort(compareBatchImagesByStartTime);
+    } else {
+      sorted.sort((a, b) => a.idx - b.idx);
+    }
+    return sorted;
+  }, [batchImages, subjectStatusFilter, subjectSearchQuery, subjectSortMode]);
 
   // Modal active subject
   const modalSubject = React.useMemo(() => {
@@ -2263,6 +2279,32 @@ export function JobsPage() {
                   );
                 })}
               </div>
+              <div className="hidden sm:block h-4 w-px bg-cursor-hairline flex-none" />
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Subject sort order">
+                {(
+                  [
+                    {value: 'start-time', label: 'Run order'},
+                    {value: 'input-order', label: 'Input order'},
+                  ] as const
+                ).map((opt) => {
+                  const isSelected = subjectSortMode === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSubjectSortMode(opt.value)}
+                      title={opt.value === 'start-time' ? 'Sort by actual start time' : 'Sort by input queue number'}
+                      className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium cursor-pointer border ${
+                        isSelected
+                          ? 'border-cursor-hairline-strong bg-cursor-canvas text-cursor-ink font-semibold ring-1 ring-cursor-ink/20'
+                          : 'border-cursor-hairline bg-cursor-surface-card text-cursor-body hover:text-cursor-ink hover:bg-cursor-canvas-soft'
+                      }`}
+                    >
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Subject Grid or List */}
@@ -2337,8 +2379,12 @@ export function JobsPage() {
                       >
                         {/* Card Header: Index Text & Status Badge */}
                         <div className="flex items-center justify-between gap-2 min-w-0">
-                          <span className="text-xs font-semibold text-cursor-muted tracking-tight">
+                          <span
+                            className="text-xs font-semibold text-cursor-muted tracking-tight truncate"
+                            title={img.started_at ? `Started ${new Date(img.started_at * 1000).toLocaleString()}` : 'Not started yet'}
+                          >
                             #{String(img.idx).padStart(3, '0')}
+                            <span className="font-normal"> · {formatClockTime(img.started_at)}</span>
                           </span>
                           <Badge variant={statusVariant} className="flex-none">
                             {img.status === 'success' ? 'SUCCESS' : (img.status === 'stopped' || (img.status as string) === 'interrupted') ? 'STOPPED' : img.status.toUpperCase()}
@@ -2446,6 +2492,15 @@ export function JobsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-4 flex-none">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Started:</span>
+                            <span
+                              className="text-xs text-cursor-body font-medium tabular-nums"
+                              title={img.started_at ? new Date(img.started_at * 1000).toLocaleString() : 'Not started yet'}
+                            >
+                              {formatClockTime(img.started_at)}
+                            </span>
+                          </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Stage:</span>
                             <span
@@ -2577,6 +2632,20 @@ export function JobsPage() {
                     <h3 className="m-0 text-sm font-semibold leading-[1.3] text-cursor-ink">Run Telemetry</h3>
                   </div>
                   <div className="p-0">
+                    <div className="mb-2.5 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5">
+                        <div className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Started</div>
+                        <div className="text-cursor-ink font-medium tabular-nums" title={modalSubject.started_at ? new Date(modalSubject.started_at * 1000).toLocaleString() : 'Not started yet'}>
+                          {modalSubject.started_at ? formatClockTime(modalSubject.started_at) : '—'}
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5">
+                        <div className="text-3xs uppercase tracking-[0.06em] text-cursor-muted font-medium">Finished</div>
+                        <div className="text-cursor-ink font-medium tabular-nums" title={modalSubject.finished_at ? new Date(modalSubject.finished_at * 1000).toLocaleString() : 'Not finished yet'}>
+                          {modalSubject.finished_at ? formatClockTime(modalSubject.finished_at) : '—'}
+                        </div>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 gap-2.5">
                       <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
                       <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
