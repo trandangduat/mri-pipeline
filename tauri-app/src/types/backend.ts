@@ -19,6 +19,11 @@ import type {
   remoteBrowseEntrySchema,
   remoteBrowseResponseSchema,
   remoteConfigSummarySchema,
+  remoteEnvironmentDockerSchema,
+  remoteEnvironmentPythonSchema,
+  remoteEnvironmentResponseSchema,
+  remoteEnvironmentServerSchema,
+  remoteEnvironmentVenvSchema,
   remoteHardwareSchema,
   remoteJobSummarySchema,
   remoteJobsResponseSchema,
@@ -51,6 +56,11 @@ export type ToolsImageResponse = z.infer<typeof toolsImageResponseSchema>;
 export type RemoteConfigSummary = z.infer<typeof remoteConfigSummarySchema>;
 export type RemoteHardware = z.infer<typeof remoteHardwareSchema>;
 export type RemoteValidateResponse = z.infer<typeof remoteValidateResponseSchema>;
+export type RemoteEnvironmentServer = z.infer<typeof remoteEnvironmentServerSchema>;
+export type RemoteEnvironmentPython = z.infer<typeof remoteEnvironmentPythonSchema>;
+export type RemoteEnvironmentVenv = z.infer<typeof remoteEnvironmentVenvSchema>;
+export type RemoteEnvironmentDocker = z.infer<typeof remoteEnvironmentDockerSchema>;
+export type RemoteEnvironmentResponse = z.infer<typeof remoteEnvironmentResponseSchema>;
 export type RemoteJobSummary = z.infer<typeof remoteJobSummarySchema>;
 export type RemoteJobsResponse = z.infer<typeof remoteJobsResponseSchema>;
 export type ToolMetadata = z.infer<typeof toolMetadataSchema>;

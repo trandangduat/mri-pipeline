@@ -29,10 +29,15 @@ export const hardwareSchema = z.object({
   gpus: z.array(gpuInfoSchema).optional(),
 });
 
+export const dockerStatusSchema = commandStatusSchema.extend({
+  version: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const environmentSchema = z.object({
   ok: z.boolean(),
   python: pythonStatusSchema,
-  docker: commandStatusSchema,
+  docker: dockerStatusSchema,
   ssh: commandStatusSchema,
   hardware: hardwareSchema,
 });
@@ -157,6 +162,45 @@ export const remoteValidateResponseSchema = z.object({
   connected: z.boolean().optional(),
   config: remoteConfigSummarySchema.optional(),
   hardware: remoteHardwareSchema.optional(),
+  warnings: z.array(z.string()).optional(),
+  errors: z.array(z.string()).optional(),
+  error: z.string().optional(),
+});
+
+export const remoteEnvironmentServerSchema = remoteHardwareSchema.extend({
+  ok: z.boolean(),
+});
+
+export const remoteEnvironmentPythonSchema = z.object({
+  ok: z.boolean(),
+  path: z.string(),
+  version: z.string(),
+});
+
+export const remoteEnvironmentVenvSchema = z.object({
+  ok: z.boolean(),
+  path: z.string(),
+  venv_exists: z.boolean(),
+  python_ok: z.boolean(),
+  python_version: z.string(),
+  pip_ok: z.boolean(),
+  pip_version: z.string(),
+});
+
+export const remoteEnvironmentDockerSchema = z.object({
+  ok: z.boolean(),
+  version: z.string(),
+  error: z.string(),
+});
+
+export const remoteEnvironmentResponseSchema = z.object({
+  ok: z.boolean(),
+  connected: z.boolean().optional(),
+  config: remoteConfigSummarySchema.optional(),
+  server: remoteEnvironmentServerSchema.optional(),
+  python: remoteEnvironmentPythonSchema.optional(),
+  environment: remoteEnvironmentVenvSchema.optional(),
+  docker: remoteEnvironmentDockerSchema.optional(),
   warnings: z.array(z.string()).optional(),
   errors: z.array(z.string()).optional(),
   error: z.string().optional(),
