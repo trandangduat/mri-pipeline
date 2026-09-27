@@ -1198,6 +1198,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "template_registration",
         "needs_license": True,
         "command_builder": _fs8r_stage4,
+        "timeout": 14400,
         "output_files": [],
         "output_globs": [
             "freesurfer/*/mri/transforms/talairach.xfm",
@@ -1415,6 +1416,7 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "segmentation",
         "needs_license": True,
         "command_builder": _fs8_synthseg,
+        "timeout": 14400,
         "output_files": ["03_freesurfer_synthseg_segmentation.nii.gz"],
         "output_globs": ["freesurfer/*/mri/synthseg.rca.mgz", "freesurfer/*/mri/synthseg.vol.csv"],
     },

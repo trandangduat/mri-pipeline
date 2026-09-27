@@ -194,7 +194,7 @@ profiles:
     upper_ms: 1038290
   memory:
     peak_mib: 14900
-    reservation_mib: 18624
+    reservation_mib: 24576
   sample_count: 1
   source: normal_pipeline_benchmark_20260820
   status: measured

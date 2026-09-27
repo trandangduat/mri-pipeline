@@ -98,11 +98,15 @@ def check_freesurfer_license(selected_tools: object, license_path: str) -> tuple
 
 
 def image_exists(image: str) -> bool:
-    try:
-        proc = subprocess.run(["docker", "image", "inspect", image], capture_output=True, text=True, timeout=10)
-        return proc.returncode == 0
-    except Exception:
-        return False
+    for attempt in range(3):
+        try:
+            proc = subprocess.run(["docker", "image", "inspect", image], capture_output=True, text=True, timeout=30)
+            return proc.returncode == 0
+        except Exception:
+            if attempt == 2:
+                return False
+            time.sleep(1)
+    return False
 
 
 def image_size_bytes(image: str) -> int | None:
