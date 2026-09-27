@@ -149,6 +149,18 @@ def test_sidecar_health_and_metadata_endpoints() -> None:
         thread.join(timeout=5)
 
 
+def test_sidecar_runtime_capabilities_endpoint() -> None:
+    server, thread, base_url = _serve_in_thread()
+    try:
+        result = _get_json(f"{base_url}/capabilities/runtime")
+        assert {"ok", "state", "components", "ssh", "diagnostics"} <= set(result)
+        assert all({"id", "label", "ok", "reason"} <= set(item) for item in result["components"])
+        assert "python_executable" in result["diagnostics"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_sidecar_allows_tauri_dev_origin_and_json_preflight() -> None:
     server, thread, base_url = _serve_in_thread()
     try:
@@ -337,6 +349,9 @@ def test_sidecar_remote_validate_and_jobs_endpoints() -> None:
         def validate_config(self, data: dict[str, object]) -> dict[str, object]:
             return {"ok": True, "config": {"host": data.get("host", "")}}
 
+        def inspect_environment(self, data: dict[str, object]) -> dict[str, object]:
+            return {"ok": True, "connected": True, "server": {"ok": True, "hostname": data.get("host", "")}}
+
         def list_jobs(self, data: dict[str, object]) -> dict[str, object]:
             return {"ok": True, "jobs": [{"target": "Server", "state": "running", "remote_job_dir": "/workspace/job_1"}]}
 
@@ -344,6 +359,9 @@ def test_sidecar_remote_validate_and_jobs_endpoints() -> None:
     try:
         validated = _post_json(f"{base_url}/remote/validate", {"host": "server", "username": "alice", "password": "secret"})
         assert validated == {"ok": True, "config": {"host": "server"}}
+
+        environment = _post_json(f"{base_url}/remote/environment", {"host": "server", "username": "alice", "password": "secret"})
+        assert environment == {"ok": True, "connected": True, "server": {"ok": True, "hostname": "server"}}
 
         jobs = _post_json(f"{base_url}/remote/jobs", {"host": "server", "username": "alice", "password": "secret"})
         assert jobs == {"ok": True, "jobs": [{"target": "Server", "state": "running", "remote_job_dir": "/workspace/job_1"}]}

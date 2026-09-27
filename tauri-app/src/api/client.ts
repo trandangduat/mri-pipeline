@@ -11,6 +11,7 @@ import type {
   PreparedRunRequest,
   PullImageResponse,
   RemoteBrowseResponse,
+  RemoteEnvironmentResponse,
   RemoteJobsResponse,
   RemoteValidateResponse,
   RemoveImageResponse,
@@ -30,6 +31,7 @@ import {
   preparedRunRequestSchema,
   pullImageResponseSchema,
   remoteBrowseResponseSchema,
+  remoteEnvironmentResponseSchema,
   remoteJobsResponseSchema,
   remoteValidateResponseSchema,
   removeImageResponseSchema,
@@ -43,16 +45,6 @@ export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8765';
 const REQUEST_TIMEOUT_MS = 60000;
 
 export type FetchLike = (url: string, options?: RequestInit) => Promise<Response>;
-
-export interface WaitForHealthOptions {
-  attempts?: number;
-  delayMs?: number;
-  sleep?: (delayMs: number) => Promise<void>;
-}
-
-function defaultSleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
-}
 
 function defaultFetch(url: string, options?: RequestInit): Promise<Response> {
   return globalThis.fetch(url, options);
@@ -69,25 +61,6 @@ export class BackendClient {
 
   async health(): Promise<HealthResponse> {
     return healthSchema.parse(await this.get('/health'));
-  }
-
-  async waitForHealth({
-    attempts = 20,
-    delayMs = 250,
-    sleep = defaultSleep,
-  }: WaitForHealthOptions = {}): Promise<HealthResponse> {
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        return await this.health();
-      } catch (error) {
-        lastError = error;
-        if (attempt + 1 < attempts) {
-          await sleep(delayMs);
-        }
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error('Backend did not become healthy.');
   }
 
   async metadata(): Promise<AppMetadata> {
@@ -169,6 +142,10 @@ export class BackendClient {
 
   async validateRemoteConfig(payload: RemotePayload, timeoutMs = 30_000): Promise<RemoteValidateResponse> {
     return remoteValidateResponseSchema.parse(await this.post('/remote/validate', {...payload}, timeoutMs));
+  }
+
+  async inspectRemoteEnvironment(payload: RemotePayload, timeoutMs = 30_000): Promise<RemoteEnvironmentResponse> {
+    return remoteEnvironmentResponseSchema.parse(await this.post('/remote/environment', {...payload}, timeoutMs));
   }
 
   async listRemoteJobs(payload: RemotePayload, timeoutMs = 60_000): Promise<RemoteJobsResponse> {

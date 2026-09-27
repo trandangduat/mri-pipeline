@@ -9,6 +9,7 @@ from typing import TypeAlias
 from urllib.parse import parse_qs, urlparse
 
 from app_backend.config_store import ConfigStore
+from app_backend.capabilities import runtime_capabilities
 from app_backend.environment import LocalEnvironmentService
 from app_backend.jobs import LocalJobService
 from app_backend.licenses import LicenseStore
@@ -73,6 +74,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         if path == "/health":
             self._write_json(HTTPStatus.OK, {"ok": True, "service": "mri-pipeline-backend", "pid": os.getpid()})
+            return
+        if path == "/capabilities/runtime":
+            self._write_json(HTTPStatus.OK, runtime_capabilities())
             return
         if path == "/metadata":
             self._write_json(HTTPStatus.OK, get_app_metadata())
@@ -213,6 +217,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/validate":
             self._write_json(HTTPStatus.OK, self._remote_jobs().validate_config(payload))
+            return
+        if self.path == "/remote/environment":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().inspect_environment(payload))
             return
         if self.path == "/remote/jobs":
             self._write_json(HTTPStatus.OK, self._remote_jobs().list_jobs(payload))

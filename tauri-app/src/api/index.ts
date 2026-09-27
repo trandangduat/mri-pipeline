@@ -1,5 +1,5 @@
 export {BackendClient, DEFAULT_BACKEND_URL, normalizeBaseUrl} from './client';
-export type {FetchLike, WaitForHealthOptions} from './client';
+export type {FetchLike} from './client';
 export {buildRunConfig, buildRemotePayload, DEFAULT_FORM_VALUES} from './runConfig';
 export type {PipelineFormValues, RemotePayload} from './runConfig';
 export type {
@@ -11,6 +11,7 @@ export type {
   LocalJobsResponse,
   LogResponse,
   PipelineEvent,
+  RemoteEnvironmentResponse,
   RemoteValidateResponse,
   StartJobResponse,
   ToolImage,

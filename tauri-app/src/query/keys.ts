@@ -16,5 +16,6 @@ export const queryKeys = {
   },
   remote: {
     validate: () => ['remote', 'validate'] as const,
+    environment: (fingerprint: string) => ['remote', 'environment', fingerprint] as const,
   },
 } as const;

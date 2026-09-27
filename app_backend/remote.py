@@ -210,6 +210,45 @@ class RemoteJobService:
             response["warnings"] = [inspection.warning_message]
         return response
 
+    def inspect_environment(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        """Collect server prerequisite status without creating or changing anything."""
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "connected": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        from remote.ssh_key import inspect_ssh_key
+
+        key_inspection = inspect_ssh_key(config.ssh.key_path)
+        if key_inspection.error_message:
+            return {
+                "ok": False,
+                "connected": False,
+                "error": key_inspection.error_message,
+                "config": _safe_config_summary(config),
+            }
+        try:
+            inspection = self.runner_factory(config).inspect_environment()  # type: ignore[attr-defined]
+        except Exception as exc:
+            return {
+                "ok": False,
+                "connected": False,
+                "error": _safe_error_message(exc, config),
+                "config": _safe_config_summary(config),
+            }
+        response: dict[str, JsonValue] = {
+            "ok": True,
+            "connected": True,
+            "config": _safe_config_summary(config),
+            "server": dict(inspection.get("server", {})),
+            "python": dict(inspection.get("python", {})),
+            "environment": dict(inspection.get("environment", {})),
+            "docker": dict(inspection.get("docker", {})),
+        }
+        if key_inspection.warning_message:
+            response["warnings"] = [key_inspection.warning_message]
+        return response
+
     def list_jobs(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:

@@ -26,6 +26,24 @@ class FakeRunner:
             "gpus": [{"name": "NVIDIA A100", "total_memory_mib": 40960, "free_memory_mib": 39321}],
         }
 
+    def inspect_environment(self) -> dict[str, object]:
+        if self.fail_connect:
+            raise RuntimeError("auth failed for secret")
+        return {
+            "server": {"ok": True, **self.remote_hardware_info()},
+            "python": {"ok": True, "path": "python3", "version": "Python 3.12.1"},
+            "environment": {
+                "ok": True,
+                "path": "/workspace/.venv",
+                "venv_exists": True,
+                "python_ok": True,
+                "python_version": "Python 3.12.1",
+                "pip_ok": True,
+                "pip_version": "pip 24.0",
+            },
+            "docker": {"ok": True, "version": "26.1.0", "error": ""},
+        }
+
     def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
         return {image: True for image in image_names}
 
@@ -188,6 +206,69 @@ def test_validate_remote_config_rejects_invalid_required_fields() -> None:
         "ok": False,
         "errors": ["Remote host is required.", "Remote username is required.", "Remote port must be between 1 and 65535."],
     }
+
+
+def test_inspect_remote_environment_returns_complete_read_only_status() -> None:
+    service = RemoteJobService(runner_factory=lambda _config: FakeRunner([]))
+
+    result = service.inspect_environment({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result["ok"] is True
+    assert result["connected"] is True
+    assert result["config"] == {
+        "host": "server",
+        "port": 22,
+        "username": "alice",
+        "auth_method": "password",
+        "workspace": "~/mri-remote-jobs",
+        "python": "python3",
+    }
+    assert result["server"] == {
+        "ok": True,
+        "hostname": "server",
+        "logical_cores": 32,
+        "total_ram_bytes": 128_000_000_000,
+        "gpus": [{"name": "NVIDIA A100", "total_memory_mib": 40960, "free_memory_mib": 39321}],
+    }
+    assert result["python"] == {"ok": True, "path": "python3", "version": "Python 3.12.1"}
+    assert result["environment"]["pip_ok"] is True
+    assert result["docker"] == {"ok": True, "version": "26.1.0", "error": ""}
+
+
+def test_inspect_remote_environment_retains_partial_results() -> None:
+    class PartialRunner(FakeRunner):
+        def inspect_environment(self) -> dict[str, object]:
+            result = super().inspect_environment()
+            result["environment"] = {
+                "ok": False,
+                "path": "/workspace/.venv",
+                "venv_exists": False,
+                "python_ok": False,
+                "python_version": "Virtual environment not created",
+                "pip_ok": False,
+                "pip_version": "pip not available because venv is missing",
+            }
+            result["docker"] = {"ok": False, "version": "", "error": "Docker daemon is unavailable"}
+            return result
+
+    service = RemoteJobService(runner_factory=lambda _config: PartialRunner([]))
+    result = service.inspect_environment({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result["ok"] is True
+    assert result["server"]["hostname"] == "server"
+    assert result["python"]["ok"] is True
+    assert result["environment"]["ok"] is False
+    assert result["docker"]["ok"] is False
+
+
+def test_inspect_remote_environment_redacts_ssh_failure() -> None:
+    service = RemoteJobService(runner_factory=lambda _config: FakeRunner([], fail_connect=True))
+
+    result = service.inspect_environment({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result["ok"] is False
+    assert result["connected"] is False
+    assert result["error"] == "SSH connection failed: auth failed for [redacted]"
 
 
 def test_list_remote_jobs_uses_injected_runner_and_normalizes_response() -> None:

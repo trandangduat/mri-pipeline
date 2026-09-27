@@ -60,6 +60,14 @@ test('BackendClient uses expected endpoint paths', async () => {
       log: {ok: true, text: '', next_offset: 0, truncated: false},
       tools: {ok: true, target: 'Local', images: []},
       remote: {ok: true, connected: true},
+      remoteEnvironment: {
+        ok: true,
+        connected: true,
+        server: {ok: true, hostname: 'server', logical_cores: 8, total_ram_bytes: 17179869184, gpus: []},
+        python: {ok: true, path: 'python3', version: 'Python 3.12.1'},
+        environment: {ok: true, path: '/workspace/.venv', venv_exists: true, python_ok: true, python_version: 'Python 3.12.1', pip_ok: true, pip_version: 'pip 24.0'},
+        docker: {ok: true, version: '26.1.0', error: ''},
+      },
       start: {ok: true},
     };
     const pick = () => {
@@ -71,6 +79,7 @@ test('BackendClient uses expected endpoint paths', async () => {
       if (u.includes('/jobs/local/log')) return payload.log;
       if (u.includes('/jobs/local')) return payload.jobs;
       if (u.includes('/tools/local/images')) return payload.tools;
+      if (u.includes('/remote/environment')) return payload.remoteEnvironment;
       if (u.includes('/remote/validate')) return payload.remote;
       if (u.includes('/remote/jobs')) return {ok: true, jobs: []};
       if (u.includes('/jobs/local/start')) return payload.start;
@@ -87,6 +96,15 @@ test('BackendClient uses expected endpoint paths', async () => {
   await client.readLocalLog('job 1', 11, 13);
   await client.localImageStatus({segmentation: 'tool'});
   await client.validateRemoteConfig({
+    host: 'server',
+    port: 22,
+    username: 'u',
+    password: '',
+    remote_python: 'python3',
+    workspace: '~/mri-remote-jobs',
+    key_path: '',
+  });
+  await client.inspectRemoteEnvironment({
     host: 'server',
     port: 22,
     username: 'u',
@@ -119,7 +137,8 @@ test('BackendClient uses expected endpoint paths', async () => {
     JSON.stringify({target: 'Local', selected_tools: {segmentation: 'tool'}, remote: null}),
   );
   expect(calls[7]?.url).toBe('http://backend/remote/validate');
-  expect(calls[8]?.url).toBe('http://backend/remote/jobs');
+  expect(calls[8]?.url).toBe('http://backend/remote/environment');
+  expect(calls[9]?.url).toBe('http://backend/remote/jobs');
 });
 
 test('BackendClient raises backend JSON errors', async () => {
@@ -172,32 +191,6 @@ test('BackendClient default fetch keeps global fetch binding', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test('BackendClient waits for health across transient failures', async () => {
-  let calls = 0;
-  const client = new BackendClient('http://backend', async () => {
-    calls += 1;
-    if (calls < 3) {
-      throw new Error('connection refused');
-    }
-    return {ok: true, json: async () => validHealth} as Response;
-  });
-
-  const result = await client.waitForHealth({attempts: 3, delayMs: 0, sleep: async () => {}});
-
-  expect(result).toEqual(validHealth);
-  expect(calls).toBe(3);
-});
-
-test('BackendClient waitForHealth raises the last failure', async () => {
-  const client = new BackendClient('http://backend', async () => {
-    throw new Error('connection refused');
-  });
-
-  await expect(() => client.waitForHealth({attempts: 2, delayMs: 0, sleep: async () => {}})).rejects.toThrow(
-    /connection refused/,
-  );
 });
 
 test('buildRunConfig uses preset tools from metadata', () => {

@@ -225,31 +225,64 @@ class RemoteRunner:
 
     def remote_hardware_info(self) -> dict[str, object]:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
-            code, text = ssh.read_text(
-                "printf 'hostname='; hostname; "
-                "printf '\\nlogical_cores='; getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 0; "
-                "printf '\\nphys_pages='; getconf _PHYS_PAGES 2>/dev/null || printf 0; "
-                "printf '\\npage_size='; getconf PAGE_SIZE 2>/dev/null || printf 0; "
-                "printf '\\ngpus='; nvidia-smi --query-gpu=memory.free,memory.total,name "
-                "--format=csv,noheader,nounits 2>/dev/null | tr '\\n' '|'; printf '\\n';"
-            )
-            if code != 0:
-                return {"hostname": "", "logical_cores": None, "total_ram_bytes": None, "gpus": []}
-            values: dict[str, str] = {}
-            for line in text.splitlines():
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    values[key.strip()] = value.strip()
-            logical_cores = _positive_int(values.get("logical_cores"))
-            phys_pages = _positive_int(values.get("phys_pages"))
-            page_size = _positive_int(values.get("page_size"))
-            total_ram_bytes = phys_pages * page_size if phys_pages and page_size else None
-            return {
-                "hostname": values.get("hostname", ""),
-                "logical_cores": logical_cores,
-                "total_ram_bytes": total_ram_bytes,
-                "gpus": _parse_gpu_rows(values.get("gpus", "")),
-            }
+            return self._remote_hardware_info(ssh)
+
+    def _remote_hardware_info(self, ssh: RemoteSSHClient) -> dict[str, object]:
+        code, text = ssh.read_text(
+            "printf 'hostname='; hostname; "
+            "printf '\\nlogical_cores='; getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf 0; "
+            "printf '\\nphys_pages='; getconf _PHYS_PAGES 2>/dev/null || printf 0; "
+            "printf '\\npage_size='; getconf PAGE_SIZE 2>/dev/null || printf 0; "
+            "printf '\\ngpus='; nvidia-smi --query-gpu=memory.free,memory.total,name "
+            "--format=csv,noheader,nounits 2>/dev/null | tr '\\n' '|'; printf '\\n';"
+        )
+        if code != 0:
+            return {"hostname": "", "logical_cores": None, "total_ram_bytes": None, "gpus": []}
+        values: dict[str, str] = {}
+        for line in text.splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip()
+        logical_cores = _positive_int(values.get("logical_cores"))
+        phys_pages = _positive_int(values.get("phys_pages"))
+        page_size = _positive_int(values.get("page_size"))
+        total_ram_bytes = phys_pages * page_size if phys_pages and page_size else None
+        return {
+            "hostname": values.get("hostname", ""),
+            "logical_cores": logical_cores,
+            "total_ram_bytes": total_ram_bytes,
+            "gpus": _parse_gpu_rows(values.get("gpus", "")),
+        }
+
+    def inspect_environment(self) -> dict[str, object]:
+        """Read the configured server's prerequisites without changing it."""
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            hardware = self._remote_hardware_info(ssh)
+            python = self._check_python_details(ssh)
+            docker_code, docker_text = ssh.read_text("docker version --format '{{.Server.Version}}' 2>&1")
+
+        return {
+            "server": {"ok": bool(hardware.get("hostname")), **hardware},
+            "python": {
+                "ok": bool(python["base_python_ok"]),
+                "path": self.config.remote_python,
+                "version": str(python["base_python_text"]),
+            },
+            "environment": {
+                "ok": bool(python["venv_exists"] and python["venv_python_ok"] and python["venv_pip_ok"]),
+                "path": str(python["venv_path"]),
+                "venv_exists": bool(python["venv_exists"]),
+                "python_ok": bool(python["venv_python_ok"]),
+                "python_version": str(python["python_text"]),
+                "pip_ok": bool(python["venv_pip_ok"]),
+                "pip_version": str(python["pip_text"]),
+            },
+            "docker": {
+                "ok": docker_code == 0,
+                "version": docker_text.strip() if docker_code == 0 else "",
+                "error": "" if docker_code == 0 else (docker_text.strip() or "Docker daemon is unavailable"),
+            },
+        }
 
     def check_python_details(self) -> dict[str, str | bool]:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
