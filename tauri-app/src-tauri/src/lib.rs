@@ -1,25 +1,35 @@
 use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{Manager, WindowEvent};
 
 struct BackendSidecar {
     child: Mutex<Option<Child>>,
 }
 
+#[derive(Debug)]
+struct StartupFailure {
+    runtime: String,
+    missing_components: Vec<String>,
+    detail: String,
+}
+
 impl BackendSidecar {
-    fn start(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Self {
-        let child = match spawn_backend(resource_dir, app_dir) {
-            Ok(process) => Some(process),
-            Err(error) => {
-                eprintln!("Failed to start MRI Pipeline Python backend: {error}");
-                None
-            }
-        };
-        Self {
-            child: Mutex::new(child),
-        }
+    fn start(
+        resource_dir: Option<PathBuf>,
+        app_dir: Option<PathBuf>,
+    ) -> Result<(Self, String), std::io::Error> {
+        let (child, runtime) = spawn_backend(resource_dir, app_dir)?;
+        Ok((
+            Self {
+                child: Mutex::new(Some(child)),
+            },
+            runtime,
+        ))
     }
 
     fn shutdown(&self) {
@@ -38,39 +48,12 @@ impl Drop for BackendSidecar {
     }
 }
 
-fn resolve_python(repo_root: &Path) -> PathBuf {
-    std::env::var("MRI_PIPELINE_PYTHON")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let venv_python = if cfg!(target_os = "windows") {
-                repo_root.join(".venv").join("Scripts").join("python.exe")
-            } else {
-                repo_root.join(".venv").join("bin").join("python")
-            };
-            if venv_python.exists() {
-                venv_python
-            } else {
-                PathBuf::from("python3")
-            }
-        })
+fn is_development_build() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("NEUROFLOW_FORCE_BUNDLED_BACKEND").is_none()
 }
 
-fn cleanup_stale_backend(python: &Path, repo_root: &Path) {
-    let _ = Command::new(python)
-        .args([
-            "-m",
-            "app_backend.dev_cleanup",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "8765",
-            "--backend-root",
-            repo_root.to_str().unwrap_or("."),
-        ])
-        .current_dir(repo_root)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+fn sidecar_owns_backend(is_development: bool) -> bool {
+    !is_development
 }
 
 fn portable_root_for_backend(exe_path: &Path, app_dir: Option<&Path>) -> PathBuf {
@@ -129,16 +112,19 @@ fn backend_executable_name() -> &'static str {
     }
 }
 
-fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Result<Child, std::io::Error> {
+fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Result<(Child, String), std::io::Error> {
     if let Some(ref resources) = resource_dir {
         if let Some(exe_path) = find_backend_exe(resources) {
             return spawn_frozen_backend(exe_path, app_dir.as_deref());
         }
     }
-    spawn_dev_backend(resource_dir)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "Bundled NeuroFlow backend was not found.",
+    ))
 }
 
-fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<Child, std::io::Error> {
+fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<(Child, String), std::io::Error> {
     let portable_root = portable_root_for_backend(&exe_path, app_dir);
 
     let config_root = portable_root.join("config");
@@ -156,7 +142,100 @@ fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<Chi
         .stdout(stdout)
         .stderr(stderr);
 
-    cmd.spawn()
+    let runtime = exe_path.display().to_string();
+    cmd.spawn().map(|child| (child, runtime))
+}
+
+fn wait_for_backend_capabilities() -> Result<(), (Vec<String>, String)> {
+    let mut last_error = "The application backend did not answer its health check.".to_string();
+    for attempt in 0..20 {
+        match backend_capabilities() {
+            Ok(()) => return Ok(()),
+            Err((missing, detail)) if !missing.is_empty() => return Err((missing, detail)),
+            Err((_, detail)) => last_error = detail,
+        }
+        if attempt < 19 {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+    Err((Vec::new(), last_error))
+}
+
+fn backend_capabilities() -> Result<(), (Vec<String>, String)> {
+    let health = backend_json("/health").map_err(|error| (Vec::new(), error))?;
+    if health.get("ok").and_then(|value| value.as_bool()) != Some(true) {
+        return Err((Vec::new(), "The application backend health check did not succeed.".to_string()));
+    }
+    let capabilities = backend_json("/capabilities/runtime").map_err(|error| (Vec::new(), error))?;
+    if capabilities.get("ok").and_then(|value| value.as_bool()) == Some(true) {
+        return Ok(());
+    }
+    let missing = capabilities
+        .get("components")
+        .and_then(|value| value.as_array())
+        .map(|components| {
+            components
+                .iter()
+                .filter(|component| component.get("ok").and_then(|value| value.as_bool()) != Some(true))
+                .filter_map(|component| component.get("label").and_then(|value| value.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Err((missing, "Required application backend components are unavailable.".to_string()))
+}
+
+fn backend_json(path: &str) -> Result<serde_json::Value, String> {
+    let address = "127.0.0.1:8765".parse().expect("valid loopback address");
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(300))
+        .map_err(|error| format!("Cannot reach the application backend: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .map_err(|error| format!("Cannot configure the application backend connection: {error}"))?;
+    stream
+        .write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").as_bytes())
+        .map_err(|error| format!("Cannot request application backend status: {error}"))?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|error| format!("Cannot read application backend status: {error}"))?;
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "The application backend returned an invalid response.".to_string())?;
+    if !headers.starts_with("HTTP/1.1 200") {
+        return Err(format!("The application backend returned {}.", headers.lines().next().unwrap_or("an invalid status")));
+    }
+    serde_json::from_str(body).map_err(|error| format!("The application backend returned invalid status data: {error}"))
+}
+
+fn startup_failure_message(failure: &StartupFailure) -> (String, String) {
+    let title = if failure.missing_components.is_empty() {
+        "Backend unavailable"
+    } else {
+        "Backend diagnostics"
+    };
+    let components = if failure.missing_components.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nMissing components: {}", failure.missing_components.join(", "))
+    };
+    let remediation = "\n\nRepair or reinstall NeuroFlow, then start the application again.";
+    (
+        title.to_string(),
+        format!(
+            "NeuroFlow could not start before its main window was created.\n\nSelected runtime: {}{}\n\n{}{}",
+            failure.runtime, components, failure.detail, remediation
+        ),
+    )
+}
+
+fn show_startup_failure(failure: &StartupFailure) {
+    let (title, message) = startup_failure_message(failure);
+    rfd::MessageDialog::new()
+        .set_title(title)
+        .set_description(message)
+        .set_level(rfd::MessageLevel::Error)
+        .show();
 }
 
 fn backend_log_stdio(portable_root: &Path) -> (Stdio, Stdio) {
@@ -179,43 +258,7 @@ fn open_append_log(path: &Path) -> Stdio {
         .unwrap_or_else(|_| Stdio::null())
 }
 
-fn spawn_dev_backend(resource_dir: Option<PathBuf>) -> Result<Child, std::io::Error> {
-    let repo_root = backend_root(resource_dir);
-    let python = resolve_python(&repo_root);
-    cleanup_stale_backend(&python, &repo_root);
-
-    Command::new(python)
-        .args([
-            "-m",
-            "app_backend.server",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "8765",
-        ])
-        .current_dir(&repo_root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-}
-
-fn backend_root(resource_dir: Option<PathBuf>) -> PathBuf {
-    if let Ok(root) = std::env::var("MRI_PIPELINE_ROOT") {
-        return PathBuf::from(root);
-    }
-    if let Some(resources) = resource_dir {
-        if let Some(candidate) = find_resource_backend_root(resources) {
-            return candidate;
-        }
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
+#[cfg(test)]
 #[allow(clippy::manual_find)]
 fn find_resource_backend_root(resources: PathBuf) -> Option<PathBuf> {
     for candidate in [resources.clone(), resources.join("_up_").join("_up_")] {
@@ -237,13 +280,44 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            if !sidecar_owns_backend(is_development_build()) {
+                app.manage(BackendSidecar {
+                    child: Mutex::new(None),
+                });
+                return Ok(());
+            }
             let resource_dir = app.path().resource_dir().ok();
             let app_dir = app
                 .path()
                 .app_data_dir()
                 .ok()
                 .and_then(|d| d.parent().map(PathBuf::from));
-            app.manage(BackendSidecar::start(resource_dir, app_dir));
+            let (sidecar, runtime) = match BackendSidecar::start(
+                resource_dir,
+                app_dir,
+            ) {
+                Ok(started) => started,
+                Err(error) => {
+                    let failure = StartupFailure {
+                        runtime: "bundled NeuroFlow backend".to_string(),
+                        missing_components: Vec::new(),
+                        detail: format!("The application backend could not be started: {error}"),
+                    };
+                    show_startup_failure(&failure);
+                    return Err(error.into());
+                }
+            };
+            if let Err((missing_components, detail)) = wait_for_backend_capabilities() {
+                let failure = StartupFailure {
+                    runtime,
+                    missing_components,
+                    detail,
+                };
+                show_startup_failure(&failure);
+                sidecar.shutdown();
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, failure.detail).into());
+            }
+            app.manage(sidecar);
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -254,7 +328,7 @@ pub fn run() {
 mod tests {
     use super::{
         backend_executable_name, find_backend_exe, find_resource_backend_root,
-        portable_root_for_backend,
+        portable_root_for_backend, sidecar_owns_backend, startup_failure_message, StartupFailure,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -322,6 +396,27 @@ mod tests {
         let root = portable_root_for_backend(&exe_path, Some(Path::new("/tmp/app-data")));
 
         assert_eq!(root, portable);
+    }
+
+    #[test]
+    fn development_build_leaves_backend_to_the_node_launcher() {
+        assert!(!sidecar_owns_backend(true));
+        assert!(sidecar_owns_backend(false));
+    }
+
+    #[test]
+    fn packaged_startup_failure_directs_repair_instead_of_python_setup() {
+        let failure = StartupFailure {
+            runtime: "C:/NeuroFlow/backend/neuroflow-backend.exe".to_string(),
+            missing_components: Vec::new(),
+            detail: "Cannot reach the application backend.".to_string(),
+        };
+
+        let (title, message) = startup_failure_message(&failure);
+
+        assert_eq!(title, "Backend unavailable");
+        assert!(message.contains("Repair or reinstall NeuroFlow"));
+        assert!(!message.contains("venv"));
     }
 
     fn test_dir(name: &str) -> PathBuf {

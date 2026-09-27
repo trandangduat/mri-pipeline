@@ -46,3 +46,23 @@ if (Test-Path $exePath) {
     Write-Error "Expected output not found: $exePath"
     exit 1
 }
+
+Write-Host "Checking bundled backend capabilities..."
+$smokePort = 18765
+$backend = Start-Process -FilePath $exePath -ArgumentList @("server", "--host", "127.0.0.1", "--port", "$smokePort") -PassThru -WindowStyle Hidden
+try {
+    $capabilities = $null
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try {
+            $capabilities = Invoke-RestMethod -Uri "http://127.0.0.1:$smokePort/capabilities/runtime" -TimeoutSec 2
+            break
+        } catch {
+            Start-Sleep -Milliseconds 250
+        }
+    }
+    if ($null -eq $capabilities -or -not $capabilities.ssh.ok) {
+        throw "Bundled backend smoke test failed: Paramiko capability is unavailable."
+    }
+} finally {
+    if (-not $backend.HasExited) { Stop-Process -Id $backend.Id -Force }
+}

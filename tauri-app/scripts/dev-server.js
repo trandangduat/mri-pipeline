@@ -2,6 +2,9 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePythonPath } from "./python-resolution.mjs";
+import { printPythonRemediation, probeBackendPython, pythonFailureDiagnostic } from "./backend-preflight.mjs";
+import { waitForBackendReadiness } from "./backend-readiness.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,14 +14,24 @@ const tauriAppDir = path.resolve(__dirname, "..");
 const isWin = process.platform === "win32";
 
 function getPythonPath() {
-  const venvPython = isWin
-    ? path.join(rootDir, ".venv", "Scripts", "python.exe")
-    : path.join(rootDir, ".venv", "bin", "python");
+  return resolvePythonPath({ rootDir, isWin, exists: fs.existsSync });
+}
 
-  if (fs.existsSync(venvPython)) {
-    return venvPython;
+function showNativeStartupFailure(diagnostic) {
+  const {title, message} = diagnostic;
+  if (isWin) {
+    const encodedTitle = Buffer.from(title, 'utf8').toString('base64');
+    const body = Buffer.from(message, 'utf8').toString('base64');
+    const script = [
+      'Add-Type -AssemblyName PresentationFramework',
+      `$title = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedTitle}'))`,
+      `$body = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${body}'))`,
+      '[System.Windows.MessageBox]::Show($body, $title, [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null',
+    ].join('; ');
+    spawnSync('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {stdio: 'ignore'});
+  } else {
+    spawnSync('zenity', ['--error', `--title=${title}`, `--text=${message}`], {stdio: 'ignore'});
   }
-  return isWin ? "python" : "python3";
 }
 
 function freePort(port) {
@@ -63,6 +76,13 @@ if (!fs.existsSync(iconIco) && fs.existsSync(iconPng)) {
 }
 
 console.log(`[Dev] Using Python: ${pythonExe}`);
+const pythonProbe = probeBackendPython(pythonExe, rootDir);
+if (!pythonProbe.ok) {
+  printPythonRemediation({ pythonExe, probe: pythonProbe, isWin });
+  showNativeStartupFailure(pythonFailureDiagnostic({pythonExe, probe: pythonProbe, isWin}));
+  process.exit(1);
+}
+console.log(`[Dev] Python probe: ${pythonProbe.details?.executable || pythonExe} (${pythonProbe.details?.version || 'unknown version'}); required backend imports available.`);
 console.log("[Dev] Cleaning up stale backend and vite instances...");
 
 try {
@@ -82,6 +102,31 @@ const backend = spawn(
   ["-m", "app_backend.server", "--host", "127.0.0.1", "--port", "8765"],
   { cwd: rootDir, stdio: "inherit" }
 );
+
+const readiness = await waitForBackendReadiness();
+if (!readiness.ok) {
+  const probe = readiness.missing.length > 0
+    ? {...pythonProbe, kind: 'missing-imports', details: {...pythonProbe.details, missing: readiness.missing}}
+    : {...pythonProbe, kind: 'interpreter-unavailable', details: pythonProbe.details};
+  const diagnostic = readiness.missing.length > 0
+    ? pythonFailureDiagnostic({pythonExe, probe, isWin})
+    : {
+      title: 'Backend unavailable',
+      message: [
+        'NeuroFlow could not start before its main window was created.',
+        '',
+        `Selected runtime: ${pythonProbe.details?.executable || pythonExe}`,
+        readiness.error,
+      ].join('\n'),
+    };
+  console.error(`[Dev] ${diagnostic.title}: ${diagnostic.message.replaceAll('\n', ' ')}`);
+  showNativeStartupFailure(diagnostic);
+  try {
+    if (isWin && backend.pid) spawnSync('taskkill', ['/pid', backend.pid.toString(), '/f', '/t']);
+    else backend.kill('SIGTERM');
+  } catch (_) {}
+  process.exit(1);
+}
 
 console.log("[Dev] Starting Vite frontend server at http://127.0.0.1:1420...");
 const vite = spawn(
@@ -131,7 +176,7 @@ vite.on("close", (code) => {
   process.exit(code ?? 0);
 });
 
-backend.on("close", (code) => {
+backend?.on("close", (code) => {
   if (code !== 0 && code !== null) {
     console.error(`[Dev] Backend exited unexpectedly with code ${code}`);
   }

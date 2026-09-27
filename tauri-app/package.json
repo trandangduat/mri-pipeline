@@ -19,8 +19,8 @@
     "cargo:clippy": "cd src-tauri && cargo clippy --all-targets -- -D warnings",
     "check:all": "npm run typecheck && npm run lint && npm run format:check && npm run knip && npm run test && npm run build && npm run cargo:clippy && npm run cargo:test",
     "vite:cleanup": "fuser -k 1420/tcp 2>/dev/null; true",
-    "backend": "cd .. && ./.venv/bin/python -m app_backend.server --host 127.0.0.1 --port 8765",
-    "backend:cleanup": "cd .. && ./.venv/bin/python -m app_backend.dev_cleanup --host 127.0.0.1 --port 8765 --backend-root .",
+    "backend": "node scripts/backend-command.mjs server",
+    "backend:cleanup": "node scripts/backend-command.mjs cleanup",
     "tauri:dev": "tauri dev"
   },
   "devDependencies": {

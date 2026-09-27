@@ -33,3 +33,15 @@ if [[ ! -x "$OUTPUT_EXE" ]]; then
 fi
 
 echo "Build succeeded: $OUTPUT_EXE"
+
+SMOKE_PORT=18765
+"$OUTPUT_EXE" server --host 127.0.0.1 --port "$SMOKE_PORT" >/tmp/neuroflow-backend-smoke.log 2>&1 &
+BACKEND_PID=$!
+cleanup_smoke() { kill "$BACKEND_PID" 2>/dev/null || true; }
+trap cleanup_smoke EXIT
+for _ in $(seq 1 20); do
+  if curl -fsS "http://127.0.0.1:$SMOKE_PORT/capabilities/runtime" >/tmp/neuroflow-capabilities.json; then break; fi
+  sleep 0.25
+done
+grep -q '"id": "paramiko"' /tmp/neuroflow-capabilities.json
+grep -A3 '"id": "paramiko"' /tmp/neuroflow-capabilities.json | grep -q '"ok": true'
