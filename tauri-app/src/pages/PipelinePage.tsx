@@ -221,17 +221,6 @@ export function PipelineStepsSection() {
           <span className="text-xs text-cursor-muted">Connecting to backend&hellip;</span>
         </div>
       )}
-      {metaError && !metaLoading && (
-        <Alert severity="error">
-          <p className="m-0 font-semibold text-sm">Backend unavailable</p>
-          <p className="mt-1 text-sm text-cursor-muted">
-            The MRI pipeline backend is not running. Start the dev server with{' '}
-            <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">npm run dev</code>{' '}
-            from the <code className="rounded bg-cursor-canvas-soft px-1 font-mono text-2xs text-cursor-ink">tauri-app/</code>{' '}
-            directory, which also starts the Python backend on port 8765.
-          </p>
-        </Alert>
-      )}
       {!metaLoading && !metaError && showTools && (() => {
         const isCat12Preset = typeof formValues.pipelineMode === 'string' && formValues.pipelineMode.startsWith('CAT12 +');
         const displayedStages = (metadata?.stages || []).filter((stage) => {

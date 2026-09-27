@@ -9,7 +9,7 @@ import {JobsPage} from '../pages/JobsPage';
 import type {AppTab} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {useEnvironment, useClient} from '../query/useEnvironment';
+import {useClient} from '../query/useEnvironment';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {getConnectionWarningKind} from '../lib/connection';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
@@ -19,7 +19,6 @@ function AppLayout() {
   const navigate = useNavigate();
   const client = useClient();
 
-  const {data: environment} = useEnvironment();
   const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
 
   const latestJobs = useJobsStore((s) => s.latestJobs);
@@ -30,16 +29,6 @@ function AppLayout() {
     : location.pathname.startsWith('/jobs')
       ? 'jobs'
       : 'pipeline';
-
-  const pythonOk = Boolean(
-    (environment as Record<string, unknown> | undefined)?.python &&
-      ((environment as Record<string, unknown> | undefined)?.python as {ok?: boolean}).ok,
-  );
-  const dockerOk = Boolean(
-    (environment as Record<string, unknown> | undefined)?.docker &&
-      ((environment as Record<string, unknown> | undefined)?.docker as {ok?: boolean}).ok,
-  );
-  const isEnvReady = pythonOk && dockerOk;
 
   // Live connection state overrides the footer status so it never claims
   // "System ready" while the backend/SSH leg is down.
@@ -76,7 +65,6 @@ function AppLayout() {
     initialized.current = true;
     (async () => {
       try {
-        await client.waitForHealth();
         const meta = await client.metadata();
         const currentMode = usePipelineFormStore.getState().formValues.pipelineMode;
         const preset = meta?.presets?.[currentMode];
@@ -150,7 +138,7 @@ function AppLayout() {
         </Routes>
       </main>
 
-      <AppFooter isReady={isEnvReady} connectionLabel={connectionLabel} />
+      <AppFooter connectionLabel={connectionLabel} />
     </div>
   );
 }

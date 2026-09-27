@@ -8,6 +8,15 @@ import '@fontsource/geist-sans/700.css';
 import '@fontsource/jetbrains-mono/latin-400.css';
 import '@fontsource/jetbrains-mono/latin-500.css';
 import {App} from './App';
+import {usePipelineFormStore} from './stores/pipelineFormStore';
+import {useRemoteStore} from './stores/remoteStore';
+import {useToolsStore} from './stores/toolsStore';
+import {queryClient} from './query/queryClient';
+
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  (window as any).__stores = {usePipelineFormStore, useRemoteStore, useToolsStore};
+  (window as any).__queryClient = queryClient;
+}
 
 const container = document.getElementById('root');
 if (!container) {

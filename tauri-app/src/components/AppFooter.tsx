@@ -27,7 +27,7 @@ export function AppFooter({isReady = true, connectionLabel}: AppFooterProps) {
           }`}
         />
         <span className="font-medium text-cursor-ink">
-          {connectionLabel ?? (isReady ? 'System ready' : 'Environment incomplete')}
+          {connectionLabel ?? (isReady ? 'System ready' : 'System attention required')}
         </span>
       </div>
 
