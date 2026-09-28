@@ -64,3 +64,29 @@ The portable build does not affect the existing development flow:
 - `npm run tauri:dev` still uses the system Python backend.
 - `MRI_PIPELINE_ROOT` and `MRI_PIPELINE_PYTHON` env vars still work for dev overrides.
 - Linux/macOS development continues to work unchanged.
+
+## Unsigned internal-test artifact (current Windows smoke)
+
+Public Authenticode signing is **not** available on this machine. Until signing
+credentials and a full Tauri NSIS run are unblocked, treat Windows outputs as
+**unsigned internal test** only:
+
+| Path | Contents |
+| --- | --- |
+| `dist/neuroflow-backend/` | PyInstaller one-directory backend (`neuroflow-backend.exe` + `_internal/`). Marked with `UNSIGNED-INTERNAL-TEST.txt`. |
+| `dist-portable/backend/` | Copy of the same frozen backend for portable assembly staging. Marked unsigned. |
+
+Verified smoke on this checkout (via `packaging/windows/build-backend.ps1` and a
+manual re-probe):
+
+- `Authorization: Bearer` required — `/capabilities/runtime` returns **401** without the launch token.
+- With token: Paramiko capability `ssh.ok == true`.
+- `/metadata` `project_root` resolves under `...\_internal` (PyInstaller resource-root contract).
+- `/content-packs` lists `surface-atlases` (not installed by default).
+- Smoke backend process is stopped after probes (no orphan).
+
+Backend-only freeze is the supported internal-test path when `tauri build` is
+too slow or blocked (for example WebView2 bootstrapper download). To finish a
+portable shell later, run `build-portable.ps1` or place `backend/` beside
+`NeuroFlow.exe` from an unsigned Tauri build.
+
