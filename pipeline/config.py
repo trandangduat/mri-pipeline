@@ -79,9 +79,11 @@ SCHAEFER2018_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
 )
 
 # Only Kong parcel counts that ship with redistributable assets in this tree.
-# 100/300/400 require a future signed content pack (no redistribution approval yet).
+# 100/300/400 are optional (not redistributed); gated out of the picker until present on disk.
 KONG2022_SHIPPED_PARCELS: tuple[int, ...] = (200,)
-KONG2022_CONTENT_PACK_PARCELS: tuple[int, ...] = (100, 300, 400)
+KONG2022_OPTIONAL_PARCELS: tuple[int, ...] = (100, 300, 400)
+# Back-compat alias during content-pack removal.
+KONG2022_CONTENT_PACK_PARCELS = KONG2022_OPTIONAL_PARCELS
 
 KONG2022_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
     (

@@ -3,7 +3,6 @@ import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server} f
 import {Button, StatusPill} from '../components/ui';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
-import {ContentPacksPanel} from '../components/ContentPacksPanel';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
 import type {EnvironmentResponse, RemoteEnvironmentResponse, ToolImage} from '../types/backend';
 import {useEnvironment, useRemoteEnvironment} from '../query/useEnvironment';
@@ -216,8 +215,6 @@ export function ToolsPage() {
           )}
         </section>
 
-        <ContentPacksPanel />
-
         {/* Section 2: Available Images */}
         <section>
           <div className="mb-2.5 flex items-center justify-between">
@@ -417,7 +414,7 @@ export function ServerEnvironmentCards({
           <div className="mt-2 space-y-1 text-xs text-cursor-muted">
             {computeReady ? (
               <>
-                <div>{server?.logical_cores ?? 'Unknown'} cores · {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
+                <div>{server?.logical_cores ?? 'Unknown'} cores Â· {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
                 {gpuSummary ? (
                   <div className="truncate" title={gpuSummary}>{gpuSummary}</div>
                 ) : (
@@ -647,7 +644,7 @@ export function LocalEnvironmentCards({
           <div className="mt-2 space-y-1 text-xs text-cursor-muted">
             {computeReady ? (
               <>
-                <div>{hardware?.logical_cores ?? 'Unknown'} cores · {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
+                <div>{hardware?.logical_cores ?? 'Unknown'} cores Â· {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
                 {gpuSummary ? (
                   <div className="truncate" title={gpuSummary}>{gpuSummary}</div>
                 ) : (

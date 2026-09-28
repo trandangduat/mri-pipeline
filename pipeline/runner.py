@@ -158,14 +158,14 @@ def _build_execution_request(
         atlas_dir = _resolve_mni_atlas_dir()
         if not atlas_dir.is_dir():
             raise RuntimeError(
-                "The selected MNI atlas content is not installed. Install the required NeuroFlow content pack, then retry."
+                "The selected MNI atlas content is not installed. Provide the required atlas assets, then retry."
             )
         mounts.append((str(atlas_dir), "/atlases"))
     if any(thickness_atlas_needs_assets(atlas) for atlas in selected_atlases):
         surface_atlas_dir = _resolve_surface_atlas_dir()
         if not surface_atlas_dir.is_dir():
             raise RuntimeError(
-                "The selected surface atlas content is not installed. Install the required NeuroFlow content pack, then retry."
+                "The selected surface atlas content is not installed. Provide the required atlas assets, then retry."
             )
         mounts.append((str(surface_atlas_dir), "/atlas-assets"))
 

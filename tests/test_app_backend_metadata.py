@@ -59,10 +59,10 @@ def test_app_metadata_exposes_pipeline_sources_of_truth() -> None:
     assert set(metadata["presets"]) == set(PRESET_CONFIGS)
     assert set(metadata["export_items"]) == set(EXPORT_OUTPUT_ITEMS)
     assert set(metadata["stats_vectors"]) == set(STAT_VECTOR_DEFS)
-    from pipeline.content_packs import SURFACE_ATLASES_PACK_ONLY_ATLASES
+    from pipeline.atlas_content import OPTIONAL_SURFACE_ATLASES
 
     assert set(ATLAS_DEFS) <= set(metadata["atlases"])
-    assert set(SURFACE_ATLASES_PACK_ONLY_ATLASES) <= set(metadata["atlases"])
+    assert set(OPTIONAL_SURFACE_ATLASES) <= set(metadata["atlases"])
 
 
 def test_app_metadata_exposes_mni_atlas_metadata() -> None:
@@ -103,23 +103,23 @@ def test_app_metadata_exposes_tool_contracts() -> None:
 
 
 def test_app_metadata_marks_atlas_availability_and_hides_missing_kong_options() -> None:
-    from pipeline.atlas_content import kong2022_content_pack_atlas_keys
+    from pipeline.atlas_content import kong2022_optional_atlas_keys
 
     metadata = _get_app_metadata()
     atlases = metadata["atlases"]
     assert atlases["aparc"]["available"] is True
     assert atlases["kong"]["available"] is True
-    for key in kong2022_content_pack_atlas_keys():
-        # Pack-only Kong options are advertised but unavailable until a signed
-        # surface-atlases pack is installed.
+    for key in kong2022_optional_atlas_keys():
+        # Optional Kong parcel counts stay advertised but unavailable until assets exist on disk.
         assert key in atlases
         assert atlases[key]["available"] is False
-        assert atlases[key].get("content_pack") == "surface-atlases"
-        assert "content pack" in str(atlases[key].get("unavailable_reason", "")).lower()
+        assert "content_pack" not in atlases[key]
+        reason = str(atlases[key].get("unavailable_reason", "")).lower()
+        assert "unavailable" in reason
 
     thickness = metadata["stats_vectors"]["cortical_thickness"]["atlases"]
     assert "aparc" in thickness
     assert "kong" in thickness
-    for key in kong2022_content_pack_atlas_keys():
+    for key in kong2022_optional_atlas_keys():
         assert key not in thickness
 

@@ -6,7 +6,7 @@ from pipeline.atlas_content import (
     atlas_selection_errors,
     available_atlases_for_stat,
     is_atlas_content_available,
-    kong2022_content_pack_atlas_keys,
+    kong2022_optional_atlas_keys,
     unavailable_atlas_message,
 )
 from pipeline.config import ATLAS_DEFS, CORTICAL_THICKNESS_ATLASES, KONG2022_ATLAS_VARIANTS
@@ -17,7 +17,7 @@ def test_kong_variants_only_include_shipped_200_parcel_atlas() -> None:
     assert [parcels for _key, parcels, _networks, _stem in KONG2022_ATLAS_VARIANTS] == [200]
     assert "kong" in ATLAS_DEFS
     assert "kong" in CORTICAL_THICKNESS_ATLASES
-    for key in kong2022_content_pack_atlas_keys():
+    for key in kong2022_optional_atlas_keys():
         assert key not in ATLAS_DEFS
         assert key not in CORTICAL_THICKNESS_ATLASES
         assert is_atlas_content_available(key) is False
@@ -31,18 +31,17 @@ def test_present_surface_atlases_are_available() -> None:
     assert "aparc" in available_atlases_for_stat("cortical_thickness")
 
 
-def test_content_pack_kong_options_fail_closed_with_actionable_error() -> None:
-    key = kong2022_content_pack_atlas_keys()[0]
+def test_optional_kong_options_fail_closed_with_actionable_error() -> None:
+    key = kong2022_optional_atlas_keys()[0]
     message = unavailable_atlas_message(key)
     assert "unavailable" in message.lower()
-    assert "content pack" in message.lower()
+    assert "not shipped" in message.lower() or "redistributable" in message.lower()
 
     errors = atlas_selection_errors(
         {"atlases": {"cortical_thickness": [key, "aparc"]}}
     )
     assert errors
     assert key in errors[0]
-    assert "content pack" in errors[0].lower()
 
 
 def test_unknown_atlas_selection_fails_closed() -> None:

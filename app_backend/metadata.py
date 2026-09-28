@@ -4,11 +4,11 @@ from typing import TypeAlias
 
 from app_backend import paths
 from pipeline.atlas_content import (
+    OPTIONAL_SURFACE_ATLASES,
     available_atlases_for_stat,
     is_atlas_content_available,
     unavailable_atlas_message,
 )
-from pipeline.content_packs import SURFACE_ATLASES_PACK_ONLY_ATLASES
 from pipeline.config import ATLAS_DEFS, EXTERNAL_MNI_VOLUME_ATLASES, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, ExportConfig
 from pipeline.presets import PIPELINE_MODE_ALIASES, PIPELINE_MODES, PRESET_CONFIGS
 from pipeline.registry import (
@@ -124,7 +124,7 @@ def get_app_metadata() -> dict[str, JsonValue]:
                 "key": stat,
                 "label": str(stat_def.get("label", stat)),
                 "value_column": str(stat_def.get("value_column", "")),
-                # Only ready-to-use atlases: missing Kong/content-pack options stay out of the picker.
+                # Only ready-to-use atlases: missing optional Kong options stay out of the picker.
                 "atlases": available_atlases_for_stat(stat),
             }
             for stat, stat_def in STAT_VECTOR_DEFS.items()
@@ -145,9 +145,8 @@ def get_app_metadata() -> dict[str, JsonValue]:
                     "label": str(defn.get("label", atlas)),
                     "available": is_atlas_content_available(atlas),
                     "unavailable_reason": unavailable_atlas_message(atlas),
-                    "content_pack": "surface-atlases",
                 }
-                for atlas, defn in SURFACE_ATLASES_PACK_ONLY_ATLASES.items()
+                for atlas, defn in OPTIONAL_SURFACE_ATLASES.items()
             },
         },
         "mni_atlases": _mni_atlas_metadata(),

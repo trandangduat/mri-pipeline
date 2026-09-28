@@ -23,7 +23,6 @@ from app_backend.progress import LocalJobProgressService
 from app_backend.remote import RemoteJobService
 from app_backend.run_request import prepare_run_request
 from app_backend.tools import LocalToolService
-from app_backend.content_packs import ContentPackService
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -67,7 +66,6 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         self.local_tool_service = local_tool_service or LocalToolService()
         self.local_environment_service = local_environment_service or LocalEnvironmentService()
         self.license_store = license_store or LicenseStore()
-        self.content_pack_service = ContentPackService()
 
 
 class AppBackendRequestHandler(BaseHTTPRequestHandler):
@@ -104,9 +102,6 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/metadata":
             self._write_json(HTTPStatus.OK, get_app_metadata())
-            return
-        if path == "/content-packs":
-            self._write_json(HTTPStatus.OK, self.server.content_pack_service.list_packs())
             return
         if path == "/environment/local":
             self._write_json(HTTPStatus.OK, self._local_environment().status())
@@ -169,12 +164,6 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/run-request/prepare":
             self._write_json(HTTPStatus.OK, prepare_run_request(payload))
-            return
-        if self.path == "/content-packs/install":
-            self._write_json(HTTPStatus.OK, self.server.content_pack_service.install(payload))
-            return
-        if self.path == "/content-packs/remove":
-            self._write_json(HTTPStatus.OK, self.server.content_pack_service.remove(payload))
             return
         if self.path == "/licenses/upload":
             self._write_json(HTTPStatus.OK, self._licenses().save_upload(payload))

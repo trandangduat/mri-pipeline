@@ -75,7 +75,7 @@ The app must show pack size, version, digest, license, install location, and exa
 ### 2. Separate immutable resources from mutable state
 
 - Extend `app_backend/paths.py` with explicit, validated paths for `NEUROFLOW_RESOURCE_ROOT` (read-only) and `NEUROFLOW_DATA_ROOT` (writable). Retain the existing portable variables only as backward-compatible aliases.
-- Refactor `pipeline/config.py`, `pipeline/stats.py`, `pipeline/runner.py`, `pipeline/docker_ops.py`, `app_backend/metadata.py`, and remote upload code to resolve immutable assets, info tables, tool build contexts, `normalize_volumes.py`, and optional scheduler content from the resource/content-pack root—not `Path(__file__).parent.parent`.
+- Refactor `pipeline/config.py`, `pipeline/stats.py`, `pipeline/runner.py`, `pipeline/docker_ops.py`, `app_backend/metadata.py`, and remote upload code to resolve immutable assets, info tables, tool build contexts, `normalize_volumes.py`, and optional scheduler content from the resource/content-pack rootâ€”not `Path(__file__).parent.parent`.
 - Keep app config, licences, logs, job registry, and temporary state in the data root. Preserve the selected user output directory unchanged.
 - Add explicit availability checks at startup and request validation. If a selected atlas/scheduler/tool context is missing, show a direct install action and do not silently skip work.
 
@@ -96,7 +96,7 @@ The app must show pack size, version, digest, license, install location, and exa
 - Implement unknown-host handling as a typed, non-writing error. `/remote/validate` must return structured `trust_required` data before any command execution, and an explicit protected approval endpoint must re-fetch and compare the displayed SHA-256 fingerprint before atomically saving it. Never use Paramiko `AutoAddPolicy()` in either pooled or direct connection paths.
 - Parse and allowlist the configured remote Python command; reject shell operators and quote every accepted token. Replace unquoted image-pull here-documents with safe data writes so `$()`, backticks, variables, and newlines cannot execute remotely.
 - Store SSH password/secret material only in OS credential storage. Migrate existing job registries by removing plaintext secret fields. Keep a redacted run summary only.
-- Add a database/locking strategy for job state and a 20–50 concurrent start/refresh test to prove no data loss or corruption.
+- Add a database/locking strategy for job state and a 20â€“50 concurrent start/refresh test to prove no data loss or corruption.
 
 ### 5. Reduce resource use without observable performance loss
 
@@ -111,7 +111,7 @@ The app must show pack size, version, digest, license, install location, and exa
 ### 6. Implement optional content packs and Docker policy
 
 - Create a content manifest format with product version, OS/architecture applicability, source URL, SHA-256, signature, licences, unpacked size, and resource-root mapping.
-- Start with one `surface-atlases` data-only pack. It must contain exactly the referenced Destrieux, Yale `_new`, Kong, and Schaefer files—never the two orphan Yale annotations—and mount as a single verified read-only `/atlas-assets` root. Built-in `aparc` must require no pack.
+- Start with one `surface-atlases` data-only pack. It must contain exactly the referenced Destrieux, Yale `_new`, Kong, and Schaefer filesâ€”never the two orphan Yale annotationsâ€”and mount as a single verified read-only `/atlas-assets` root. Built-in `aparc` must require no pack.
 - Pin an Ed25519 public key in the core application. The detached signature covers canonical index bytes; the pack archive contains its own per-file manifest (relative path, bytes, SHA-256). Make `cryptography` an explicit runtime release dependency rather than relying on Paramiko's transitive dependency.
 - Install only after an explicit action: accept only a known pack ID, use HTTPS, stream to a random `.part`, enforce size limits, verify index/archive/pack signatures and hashes, reject traversal/symlinks/duplicates/unknown files/compression bombs, verify in a same-filesystem staging directory, then atomically activate a version and preserve the previous version on failure.
 - Make missing, partial, incompatible, or unlicensed pack content a pre-Docker/pre-SSH validation error. Derive and sync only the selected surface files in remote runs. Do not silently mount an empty directory or upload every atlas.
@@ -175,7 +175,7 @@ Implement this plan in ordered phases. Do not build or publish release artifacts
 - SSH host-key **UI** fingerprint review before Connect is in place (`5d58991`), with backend `trust_required` + protected approval from the release-hardening foundation (`1914a1f`).
 - PyInstaller resource root is pinned to `_internal` across specs and the Tauri shell (`28f688d`); frozen metadata smoke resolves `project_root` under `_internal`.
 - Kong 100/300/400 options stay gated out of the core picker until a pack provides files (`fe56afa`); they are advertised as pack-backed and flip to available when a signed `surface-atlases` pack is activated (`5d4fcc9`).
-- **Content-pack machinery implemented** (`5d4fcc9`): Ed25519-pinned verifier, `surface-atlases` manifest/archive format, install/remove API + Tools UI import hook, synthetic signed fixtures (verify/install/activate/reject-tamper). `cryptography` is an explicit runtime dependency. **Redistribution rights are still required before shipping real proprietary atlas binaries.**
+- **Content-pack machinery REMOVED** (user directive): no Content Packs UI, install/remove APIs, or signed pack verifier in the product. Kong 100/300/400 remain gated/unavailable without shipped assets.
 - **Windows unsigned internal-test backend freeze**: `packaging/windows/build-backend.ps1` produced `dist/neuroflow-backend/` (copied to `dist-portable/backend/`). Smoke green: token auth (401 without bearer), capabilities SSH ok, metadata `_internal` root, content-packs list, process cleanup. Artifacts marked `UNSIGNED-INTERNAL-TEST.txt`.
 - **Windows unsigned internal-test desktop app** (2026-09-28 ~11:15 ICT): `packaging/windows/build-portable.ps1` completed end-to-end (backend rebuild + Tauri NSIS + portable assemble). Artifacts:
   - Portable: `dist-portable/windows/NeuroFlowPortable/` (~37 MB) with `NeuroFlow.exe` (~4.7 MB) beside `backend/` (`neuroflow-backend.exe` + `_internal` layout intact: `normalize_volumes.py`, `pipeline/job_worker.py`, `info/`, `configs/neuroflow`).

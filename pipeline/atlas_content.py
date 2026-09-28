@@ -3,38 +3,75 @@ from __future__ import annotations
 """Availability of atlas feature lists and optional atlas asset files.
 
 One source of truth for "is this atlas ready to run under the resource root?".
-Built-in FreeSurfer classifiers (aparc) need no pack. Asset-backed surface and
-MNI atlases require their feature list plus matching files on disk. Missing
-content is a pre-Docker / pre-SSH validation error, not a mid-pipeline surprise.
+Built-in FreeSurfer classifiers (aparc) need no extra assets. Asset-backed
+surface and MNI atlases require their feature list plus matching files on disk.
+Missing content is a pre-Docker / pre-SSH validation error, not a mid-pipeline
+surprise.
 
-When a signed ``surface-atlases`` content pack is activated, its atlas-assets
-root supplies Destrieux / Yale ``_new`` / Kong / Schaefer files and can flip
-Kong 100/300/400 pack-only options to available.
+Kong 100/300/400 parcel options are defined for fail-closed validation but are
+not shipped with redistributable assets; they stay hidden from the picker until
+files are present under the resource root.
 """
 
 from pathlib import Path
+from typing import Any
 
 from pipeline.config import (
     EXTERNAL_MNI_VOLUME_ATLASES,
-    KONG2022_CONTENT_PACK_PARCELS,
+    KONG2022_OPTIONAL_PARCELS,
     MNI_ATLAS_DIR,
     PROJECT_ROOT,
     STAT_VECTOR_DEFS,
     SURFACE_ATLAS_DIR,
 )
-from pipeline.content_packs import (
-    SURFACE_ATLASES_PACK_ONLY_ATLASES,
-    surface_atlas_assets_root,
-    surface_atlas_info_root,
-)
+
+# Optional Kong parcel atlases that are not redistributed with the core product.
+# Kept for fail-closed selection errors; availability still requires on-disk files.
+OPTIONAL_SURFACE_ATLASES: dict[str, dict[str, Any]] = {
+    "kong2022_100parcels_17networks": {
+        "kind": "asset_annot",
+        "label": "Kong2022 100 parcels (17 networks)",
+        "stat": "cortical_thickness",
+        "features": "100Parcels_Kong2022_17Networks_feats.txt",
+        "files": {
+            "lh": "kong/lh.100Parcels_Kong2022_17Networks.annot",
+            "rh": "kong/rh.100Parcels_Kong2022_17Networks.annot",
+        },
+    },
+    "kong2022_300parcels_17networks": {
+        "kind": "asset_annot",
+        "label": "Kong2022 300 parcels (17 networks)",
+        "stat": "cortical_thickness",
+        "features": "300Parcels_Kong2022_17Networks_feats.txt",
+        "files": {
+            "lh": "kong/lh.300Parcels_Kong2022_17Networks.annot",
+            "rh": "kong/rh.300Parcels_Kong2022_17Networks.annot",
+        },
+    },
+    "kong2022_400parcels_17networks": {
+        "kind": "asset_annot",
+        "label": "Kong2022 400 parcels (17 networks)",
+        "stat": "cortical_thickness",
+        "features": "400Parcels_Kong2022_17Networks_feats.txt",
+        "files": {
+            "lh": "kong/lh.400Parcels_Kong2022_17Networks.annot",
+            "rh": "kong/rh.400Parcels_Kong2022_17Networks.annot",
+        },
+    },
+}
 
 
-def kong2022_content_pack_atlas_key(parcels: int) -> str:
+def kong2022_optional_atlas_key(parcels: int) -> str:
     return f"kong2022_{parcels}parcels_17networks"
 
 
-def kong2022_content_pack_atlas_keys() -> tuple[str, ...]:
-    return tuple(kong2022_content_pack_atlas_key(parcels) for parcels in KONG2022_CONTENT_PACK_PARCELS)
+def kong2022_optional_atlas_keys() -> tuple[str, ...]:
+    return tuple(kong2022_optional_atlas_key(parcels) for parcels in KONG2022_OPTIONAL_PARCELS)
+
+
+# Back-compat aliases used by older tests/call sites during the content-pack removal.
+kong2022_content_pack_atlas_key = kong2022_optional_atlas_key
+kong2022_content_pack_atlas_keys = kong2022_optional_atlas_keys
 
 
 def _project_info_root(resource_root: Path | None = None) -> Path:
@@ -48,22 +85,6 @@ def _project_surface_atlas_dir(resource_root: Path | None = None) -> Path:
     return SURFACE_ATLAS_DIR
 
 
-def _info_root(resource_root: Path | None = None, *, prefer_pack: bool = False) -> Path:
-    if prefer_pack:
-        pack_info = surface_atlas_info_root()
-        if pack_info is not None:
-            return pack_info
-    return _project_info_root(resource_root)
-
-
-def _surface_atlas_dir(resource_root: Path | None = None, *, prefer_pack: bool = True) -> Path:
-    if prefer_pack:
-        pack_assets = surface_atlas_assets_root()
-        if pack_assets is not None:
-            return pack_assets
-    return _project_surface_atlas_dir(resource_root)
-
-
 def _mni_atlas_dir(resource_root: Path | None = None) -> Path:
     if resource_root is not None:
         return Path(resource_root) / "assets" / "atlases" / "mni"
@@ -71,12 +92,12 @@ def _mni_atlas_dir(resource_root: Path | None = None) -> Path:
 
 
 def feature_list_path(atlas_key: str, *, resource_root: Path | None = None) -> Path | None:
-    pack_only = SURFACE_ATLASES_PACK_ONLY_ATLASES.get(atlas_key)
-    if pack_only is not None:
-        features = pack_only.get("features")
+    optional = OPTIONAL_SURFACE_ATLASES.get(atlas_key)
+    if optional is not None:
+        features = optional.get("features")
         if not isinstance(features, str) or not features.strip():
             return None
-        return _info_root(resource_root, prefer_pack=True) / features
+        return _project_info_root(resource_root) / features
 
     from pipeline.stats import VECTOR_SPECS
 
@@ -86,24 +107,16 @@ def feature_list_path(atlas_key: str, *, resource_root: Path | None = None) -> P
     features = spec.get("features")
     if not isinstance(features, str) or not features.strip():
         return None
-    primary = _project_info_root(resource_root) / features
-    if primary.is_file():
-        return primary
-    pack_info = surface_atlas_info_root()
-    if pack_info is not None:
-        pack_path = pack_info / features
-        if pack_path.is_file():
-            return pack_path
-    return primary
+    return _project_info_root(resource_root) / features
 
 
 def surface_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = None) -> list[Path]:
-    pack_only = SURFACE_ATLASES_PACK_ONLY_ATLASES.get(atlas_key)
-    if pack_only is not None:
-        files = pack_only.get("files")
+    optional = OPTIONAL_SURFACE_ATLASES.get(atlas_key)
+    if optional is not None:
+        files = optional.get("files")
         if not isinstance(files, dict):
             return []
-        surface_root = _surface_atlas_dir(resource_root, prefer_pack=True)
+        surface_root = _project_surface_atlas_dir(resource_root)
         return [surface_root / str(rel) for rel in files.values()]
 
     from pipeline.registry import THICKNESS_ATLAS_DEFS
@@ -117,18 +130,8 @@ def surface_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = No
     files = defn.get("files")
     if not isinstance(files, dict):
         return []
-    # Prefer pack mount when it contains the file; otherwise fall back to
-    # resource/repo assets so source checkouts keep working beside a pack.
-    pack_root = surface_atlas_assets_root()
-    project_root = _project_surface_atlas_dir(resource_root)
-    paths: list[Path] = []
-    for rel in files.values():
-        rel_s = str(rel)
-        if pack_root is not None and (pack_root / rel_s).is_file():
-            paths.append(pack_root / rel_s)
-        else:
-            paths.append(project_root / rel_s)
-    return paths
+    surface_root = _project_surface_atlas_dir(resource_root)
+    return [surface_root / str(rel) for rel in files.values()]
 
 
 def mni_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = None) -> list[Path]:
@@ -163,23 +166,18 @@ def missing_atlas_content_paths(atlas_key: str, *, resource_root: Path | None = 
 
 
 def is_atlas_content_available(atlas_key: str, *, resource_root: Path | None = None) -> bool:
-    if atlas_key in SURFACE_ATLASES_PACK_ONLY_ATLASES or atlas_key in kong2022_content_pack_atlas_keys():
-        # Pack-only Kong variants require the signed surface-atlases pack mount.
-        if surface_atlas_assets_root() is None:
-            return False
-        return not missing_atlas_content_paths(atlas_key, resource_root=resource_root)
     return not missing_atlas_content_paths(atlas_key, resource_root=resource_root)
 
 
 def unavailable_atlas_message(atlas_key: str, *, resource_root: Path | None = None) -> str:
-    if atlas_key in SURFACE_ATLASES_PACK_ONLY_ATLASES or atlas_key in kong2022_content_pack_atlas_keys():
+    if atlas_key in OPTIONAL_SURFACE_ATLASES or atlas_key in kong2022_optional_atlas_keys():
         if is_atlas_content_available(atlas_key, resource_root=resource_root):
             return ""
         return (
             f"Atlas '{atlas_key}' is unavailable in this install. "
-            "Kong 100/300/400 parcel atlases require a NeuroFlow surface-atlases "
-            "content pack (redistribution rights still required for real binaries); "
-            "install the pack or choose another atlas."
+            "Kong 100/300/400 parcel atlases are not shipped with redistributable "
+            "assets; choose another atlas (for example Kong 200) or provide the "
+            "required atlas files under the resource root."
         )
     missing = missing_atlas_content_paths(atlas_key, resource_root=resource_root)
     if not missing:
@@ -187,14 +185,14 @@ def unavailable_atlas_message(atlas_key: str, *, resource_root: Path | None = No
     names = ", ".join(path.name for path in missing)
     return (
         f"Atlas '{atlas_key}' content is not installed (missing: {names}). "
-        "Install the required NeuroFlow content pack, then retry."
+        "Install the required atlas assets, then retry."
     )
 
 
 def available_atlases_for_stat(stat_key: str, *, resource_root: Path | None = None) -> list[str]:
     allowed = [str(atlas) for atlas in STAT_VECTOR_DEFS.get(stat_key, {}).get("atlases", ())]
     result = [atlas for atlas in allowed if is_atlas_content_available(atlas, resource_root=resource_root)]
-    for atlas_key, defn in SURFACE_ATLASES_PACK_ONLY_ATLASES.items():
+    for atlas_key, defn in OPTIONAL_SURFACE_ATLASES.items():
         if str(defn.get("stat", "")) != stat_key:
             continue
         if atlas_key in result:
@@ -222,9 +220,9 @@ def atlas_selection_errors(
         if not isinstance(atlases, (list, tuple)):
             continue
         allowed = {str(atlas) for atlas in STAT_VECTOR_DEFS.get(str(stat_key), {}).get("atlases", ())}
-        pack_allowed = {
+        optional_allowed = {
             key
-            for key, defn in SURFACE_ATLASES_PACK_ONLY_ATLASES.items()
+            for key, defn in OPTIONAL_SURFACE_ATLASES.items()
             if str(defn.get("stat", "")) == str(stat_key)
         }
         for atlas in atlases:
@@ -232,7 +230,7 @@ def atlas_selection_errors(
             if atlas_key in seen:
                 continue
             seen.add(atlas_key)
-            if atlas_key in pack_allowed or atlas_key in kong2022_content_pack_atlas_keys():
+            if atlas_key in optional_allowed or atlas_key in kong2022_optional_atlas_keys():
                 message = unavailable_atlas_message(atlas_key, resource_root=resource_root)
                 if message:
                     errors.append(message)

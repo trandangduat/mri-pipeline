@@ -5,8 +5,6 @@ import type {
   GenericResponse,
   HealthResponse,
   LicenseUploadResponse,
-  ContentPacksListResponse,
-  ContentPackMutationResponse,
   LocalJobsResponse,
   LogResponse,
   NeuroflowValidationResponse,
@@ -28,8 +26,6 @@ import {
   genericResponseSchema,
   healthSchema,
   licenseUploadResponseSchema,
-  contentPacksListResponseSchema,
-  contentPackMutationResponseSchema,
   localJobsResponseSchema,
   logResponseSchema,
   neuroflowValidationResponseSchema,
@@ -83,19 +79,6 @@ export class BackendClient {
   }
 
 
-  async listContentPacks(): Promise<ContentPacksListResponse> {
-    return contentPacksListResponseSchema.parse(await this.get('/content-packs'));
-  }
-
-  async installContentPack(payload: Record<string, unknown>): Promise<ContentPackMutationResponse> {
-    return contentPackMutationResponseSchema.parse(await this.post('/content-packs/install', payload));
-  }
-
-  async removeContentPack(packId: string): Promise<ContentPackMutationResponse> {
-    return contentPackMutationResponseSchema.parse(
-      await this.post('/content-packs/remove', {pack_id: packId}),
-    );
-  }
 
   async uploadLicense(file: File): Promise<LicenseUploadResponse> {
     const content = await file.arrayBuffer();

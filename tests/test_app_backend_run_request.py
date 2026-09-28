@@ -556,14 +556,14 @@ def test_normalize_stats_vector_config_preserves_custom_config() -> None:
 
 
 
-def test_prepare_run_request_rejects_unavailable_kong_content_pack_atlases(tmp_path: Path) -> None:
-    from pipeline.atlas_content import kong2022_content_pack_atlas_keys
+def test_prepare_run_request_rejects_unavailable_optional_kong_atlases(tmp_path: Path) -> None:
+    from pipeline.atlas_content import kong2022_optional_atlas_keys
 
     input_file = tmp_path / "subject.nii.gz"
     input_file.write_bytes(b"nifti")
     output_dir = tmp_path / "out"
     output_dir.mkdir()
-    kong_key = kong2022_content_pack_atlas_keys()[0]
+    kong_key = kong2022_optional_atlas_keys()[0]
     result = prepare_run_request(
         _base_config(
             tmp_path,
@@ -579,7 +579,7 @@ def test_prepare_run_request_rejects_unavailable_kong_content_pack_atlases(tmp_p
     assert result["ok"] is False
     assert result["errors"]
     assert kong_key in result["errors"][0]
-    assert "content pack" in result["errors"][0].lower()
+    assert "unavailable" in result["errors"][0].lower()
 
 
 def test_prepare_run_request_accepts_present_kong_200(tmp_path: Path) -> None:
