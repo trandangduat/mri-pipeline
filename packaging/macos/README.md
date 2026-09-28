@@ -23,9 +23,10 @@ This will:
 
 1. Build `neuroflow-backend` with PyInstaller one-dir mode.
 2. Stage the complete one-directory backend at `build/tauri-resources/backend/` for Tauri bundling.
-3. Run `npm run tauri build`.
-4. Ad-hoc `codesign --force --deep --sign -` on `NeuroFlow.app` (local unsigned convenience only; **not** notarization).
-5. Rebuild the DMG from that ad-hoc-signed `.app` under `tauri-app/src-tauri/target/release/bundle/dmg/`.
+3. Run `npm run tauri build -- --bundles app`.
+4. Keep the `.app` (Tauri's DMG step would delete it) (Tauri's DMG step would delete the `.app`).
+5. Ad-hoc `codesign --force --deep --sign -` on `NeuroFlow.app` (local unsigned convenience only; **not** notarization).
+6. If DMG was requested, create it with `hdiutil` from the signed `.app` under `tauri-app/src-tauri/target/release/bundle/dmg/`.
 
 Use a native Apple Silicon machine for arm64 and an Intel machine for x64. Each DMG contains a macOS application bundle with the native backend; macOS cannot use one executable that runs on both CPU architectures.
 
@@ -56,5 +57,5 @@ before packaging continues.
 
 ## Signing
 
-- **Internal test / GHA artifact:** unsigned + optional ad-hoc identity (`codesign -s -`). No Apple certs. Expect quarantine on download → use `OPEN-ON-MAC.md`.
+- **Internal test / GHA artifact:** unsigned + optional ad-hoc identity (`codesign -s -`). No Apple certs. Expect quarantine on download Ã¢â€ â€™ use `OPEN-ON-MAC.md`.
 - **Public distribution:** Developer ID Application certificate, notarize, and staple. Do not pretend ad-hoc signing replaces that.

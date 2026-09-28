@@ -59,14 +59,23 @@ done
 echo "  icon.png and icon.icns exist"
 echo ""
 
-echo "[6/7] Building Tauri app..."
-TAURI_BUNDLES="${NEUROFLOW_TAURI_BUNDLES:-dmg}"
-(cd "$TAURI_APP_DIR" && npm run tauri build -- --bundles "$TAURI_BUNDLES")
+# Tauri's dmg bundler removes macos/*.app after packaging ("Cleaning NeuroFlow.app").
+# Always build the .app bundle first, ad-hoc codesign, then optionally rebuild DMG
+# ourselves so both stay in the artifact (and OPEN-ON-MAC.md can refer to either).
+REQUESTED_BUNDLES="${NEUROFLOW_TAURI_BUNDLES:-dmg}"
+WANT_DMG=0
+case ",${REQUESTED_BUNDLES}," in
+  *,dmg,*) WANT_DMG=1 ;;
+esac
+
+echo "[6/7] Building Tauri .app (bundle=app; DMG handled after codesign)..."
+echo "  Requested NEUROFLOW_TAURI_BUNDLES=${REQUESTED_BUNDLES} (WANT_DMG=${WANT_DMG})"
+(cd "$TAURI_APP_DIR" && npm run tauri build -- --bundles app)
 echo ""
 
 APP_PATH="$TAURI_SRC_DIR/target/release/bundle/macos/NeuroFlow.app"
 DMG_DIR="$TAURI_SRC_DIR/target/release/bundle/dmg"
-DMG_PATH="$(find "$DMG_DIR" -maxdepth 1 -name '*.dmg' -print -quit 2>/dev/null || true)"
+DMG_PATH=""
 
 echo "[7/7] Ad-hoc codesign (unsigned internal test; NOT notarized)..."
 if [[ ! -d "$APP_PATH" ]]; then
@@ -82,22 +91,16 @@ codesign --force --deep --sign - "$APP_PATH"
 echo "  codesign -dv:"
 codesign -dv --verbose=2 "$APP_PATH" 2>&1 | sed 's/^/    /' || true
 
-# Rebuild DMG from the ad-hoc-signed .app so the uploaded image matches.
-if [[ "${TAURI_BUNDLES}" == *"dmg"* ]]; then
+if [[ "$WANT_DMG" -eq 1 ]]; then
   mkdir -p "$DMG_DIR"
-  if [[ -n "$DMG_PATH" && -f "$DMG_PATH" ]]; then
-    DMG_OUT="$DMG_PATH"
-  else
-    DMG_OUT="$DMG_DIR/NeuroFlow-adhoc.dmg"
-  fi
-  echo "  Rebuilding DMG from ad-hoc-signed .app → $DMG_OUT"
+  DMG_PATH="$DMG_DIR/NeuroFlow.dmg"
+  echo "  Creating DMG from ad-hoc-signed .app → $DMG_PATH"
   TMP_DMG_DIR="$(mktemp -d)"
   cp -R "$APP_PATH" "$TMP_DMG_DIR/"
   ln -sf /Applications "$TMP_DMG_DIR/Applications"
-  rm -f "$DMG_OUT"
-  hdiutil create -volname "NeuroFlow" -srcfolder "$TMP_DMG_DIR" -ov -format UDZO "$DMG_OUT"
+  rm -f "$DMG_PATH"
+  hdiutil create -volname "NeuroFlow" -srcfolder "$TMP_DMG_DIR" -ov -format UDZO "$DMG_PATH"
   rm -rf "$TMP_DMG_DIR"
-  DMG_PATH="$DMG_OUT"
 fi
 echo ""
 
@@ -105,7 +108,7 @@ echo "========================================"
 echo "  Build Complete"
 echo "========================================"
 echo "App: $APP_PATH"
-if [[ -n "${DMG_PATH:-}" && -f "$DMG_PATH" ]]; then
+if [[ -n "${DMG_PATH}" && -f "$DMG_PATH" ]]; then
   echo "DMG: $DMG_PATH"
 fi
 echo "Note: unsigned internal test — see packaging/macos/OPEN-ON-MAC.md"
