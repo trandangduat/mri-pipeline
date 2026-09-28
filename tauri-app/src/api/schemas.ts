@@ -305,6 +305,7 @@ export const appMetadataSchema = z.object({
       label: z.string(),
       available: z.boolean().optional(),
       unavailable_reason: z.string().optional(),
+      content_pack: z.string().optional(),
     }),
   ),
   vector_specs: z.record(z.string(), z.record(z.string(), z.string())),
@@ -325,6 +326,34 @@ export const genericResponseSchema = z.object({
 export const licenseUploadResponseSchema = z.object({
   ok: z.boolean(),
   path: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const contentPackStatusSchema = z.object({
+  pack_id: z.string(),
+  known: z.boolean(),
+  installed: z.boolean(),
+  version: z.string().nullable().optional(),
+  product_version: z.string().nullable().optional(),
+  licences: z.array(z.string()).optional(),
+  unpacked_size: z.number().nullable().optional(),
+  root: z.string().nullable().optional(),
+  resource_root_mapping: z.record(z.string(), z.string()).optional(),
+  redistribution_note: z.string().nullable().optional(),
+});
+
+export const contentPacksListResponseSchema = z.object({
+  ok: z.boolean(),
+  packs: z.array(contentPackStatusSchema).optional(),
+  error: z.string().optional(),
+});
+
+export const contentPackMutationResponseSchema = z.object({
+  ok: z.boolean(),
+  pack_id: z.string().optional(),
+  version: z.string().optional(),
+  root: z.string().optional(),
+  removed: z.boolean().optional(),
   error: z.string().optional(),
 });
 

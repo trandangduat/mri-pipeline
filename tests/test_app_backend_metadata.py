@@ -59,7 +59,10 @@ def test_app_metadata_exposes_pipeline_sources_of_truth() -> None:
     assert set(metadata["presets"]) == set(PRESET_CONFIGS)
     assert set(metadata["export_items"]) == set(EXPORT_OUTPUT_ITEMS)
     assert set(metadata["stats_vectors"]) == set(STAT_VECTOR_DEFS)
-    assert set(metadata["atlases"]) == set(ATLAS_DEFS)
+    from pipeline.content_packs import SURFACE_ATLASES_PACK_ONLY_ATLASES
+
+    assert set(ATLAS_DEFS) <= set(metadata["atlases"])
+    assert set(SURFACE_ATLASES_PACK_ONLY_ATLASES) <= set(metadata["atlases"])
 
 
 def test_app_metadata_exposes_mni_atlas_metadata() -> None:
@@ -107,7 +110,12 @@ def test_app_metadata_marks_atlas_availability_and_hides_missing_kong_options() 
     assert atlases["aparc"]["available"] is True
     assert atlases["kong"]["available"] is True
     for key in kong2022_content_pack_atlas_keys():
-        assert key not in atlases
+        # Pack-only Kong options are advertised but unavailable until a signed
+        # surface-atlases pack is installed.
+        assert key in atlases
+        assert atlases[key]["available"] is False
+        assert atlases[key].get("content_pack") == "surface-atlases"
+        assert "content pack" in str(atlases[key].get("unavailable_reason", "")).lower()
 
     thickness = metadata["stats_vectors"]["cortical_thickness"]["atlases"]
     assert "aparc" in thickness

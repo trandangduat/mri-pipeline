@@ -3,6 +3,7 @@ import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server} f
 import {Button, StatusPill} from '../components/ui';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
+import {ContentPacksPanel} from '../components/ContentPacksPanel';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
 import type {EnvironmentResponse, RemoteEnvironmentResponse, ToolImage} from '../types/backend';
 import {useEnvironment, useRemoteEnvironment} from '../query/useEnvironment';
@@ -214,6 +215,8 @@ export function ToolsPage() {
             />
           )}
         </section>
+
+        <ContentPacksPanel />
 
         {/* Section 2: Available Images */}
         <section>

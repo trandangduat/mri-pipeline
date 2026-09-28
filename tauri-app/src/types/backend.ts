@@ -9,6 +9,9 @@ import type {
   hardwareSchema,
   healthSchema,
   licenseUploadResponseSchema,
+  contentPackStatusSchema,
+  contentPacksListResponseSchema,
+  contentPackMutationResponseSchema,
   localJobSummarySchema,
   localJobsResponseSchema,
   logResponseSchema,
@@ -52,6 +55,9 @@ export type PipelineEvent = z.infer<typeof pipelineEventSchema>;
 export type EventsResponse = z.infer<typeof eventsResponseSchema>;
 export type LogResponse = z.infer<typeof logResponseSchema>;
 export type LicenseUploadResponse = z.infer<typeof licenseUploadResponseSchema>;
+export type ContentPackStatus = z.infer<typeof contentPackStatusSchema>;
+export type ContentPacksListResponse = z.infer<typeof contentPacksListResponseSchema>;
+export type ContentPackMutationResponse = z.infer<typeof contentPackMutationResponseSchema>;
 export type ToolImage = z.infer<typeof toolImageSchema>;
 export type ToolDetail = z.infer<typeof toolDetailSchema>;
 export type ToolsImageResponse = z.infer<typeof toolsImageResponseSchema>;
