@@ -177,12 +177,17 @@ Implement this plan in ordered phases. Do not build or publish release artifacts
 - Kong 100/300/400 options stay gated out of the core picker until a pack provides files (`fe56afa`); they are advertised as pack-backed and flip to available when a signed `surface-atlases` pack is activated (`5d4fcc9`).
 - **Content-pack machinery implemented** (`5d4fcc9`): Ed25519-pinned verifier, `surface-atlases` manifest/archive format, install/remove API + Tools UI import hook, synthetic signed fixtures (verify/install/activate/reject-tamper). `cryptography` is an explicit runtime dependency. **Redistribution rights are still required before shipping real proprietary atlas binaries.**
 - **Windows unsigned internal-test backend freeze**: `packaging/windows/build-backend.ps1` produced `dist/neuroflow-backend/` (copied to `dist-portable/backend/`). Smoke green: token auth (401 without bearer), capabilities SSH ok, metadata `_internal` root, content-packs list, process cleanup. Artifacts marked `UNSIGNED-INTERNAL-TEST.txt`.
+- **Windows unsigned internal-test desktop app** (2026-09-28 ~11:15 ICT): `packaging/windows/build-portable.ps1` completed end-to-end (backend rebuild + Tauri NSIS + portable assemble). Artifacts:
+  - Portable: `dist-portable/windows/NeuroFlowPortable/` (~37 MB) with `NeuroFlow.exe` (~4.7 MB) beside `backend/` (`neuroflow-backend.exe` + `_internal` layout intact: `normalize_volumes.py`, `pipeline/job_worker.py`, `info/`, `configs/neuroflow`).
+  - NSIS installer: `tauri-app/src-tauri/target/release/bundle/nsis/NeuroFlow_0.1.0_x64-setup.exe` (~12.3 MB).
+  - All three marked `UNSIGNED-INTERNAL-TEST.txt` (no Authenticode).
+  - Smoke: portable backend token path green (caps SSH ok, metadata `project_root` under `backend\_internal`, 401 without bearer); brief GUI launch kept process alive and `/health` on `127.0.0.1:8765` returned `ok` (service `mri-pipeline-backend`). Signing skipped (none available). WebView2 present on host; NSIS configured with `downloadBootstrapper` for machines without it.
 
 ### Remaining external / unfinished blockers (honest)
 
 - **Authenticode signing + timestamp** for Windows NSIS/embedded exes — no signing identity on this machine; do not publish as a public release.
 - **macOS signing/notarization** and **native macOS/Linux CI runners** — not available here; AppImage/DMG public artifacts cannot be produced or verified on this Windows host.
-- Full **Tauri NSIS / portable shell** assembly may still be blocked by WebView2 bootstrapper download time or related host setup; backend one-dir freeze is the supported internal-test path until that is unblocked.
+- **Windows unsigned desktop build is available locally** (portable + NSIS above); remaining Windows gap is Authenticode signing + clean-machine install verification, not assembly.
 - **Missing MNI NIfTI assets** still need their own verified pack or explicit UI unavailability (separate from surface-atlases).
 - Clean-machine install tests, SBOM/provenance upload of signed primary artifacts, size/performance baselines, and offline OCI image packs remain unverified.
 - Workflows must continue to label outputs as **unsigned-test** until the blockers above are cleared.
