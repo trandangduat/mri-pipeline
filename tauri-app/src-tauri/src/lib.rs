@@ -245,6 +245,16 @@ fn backend_json_with_token(path: &str, api_token: &str) -> Result<serde_json::Va
     backend_json_request(path, Some(api_token))
 }
 
+/// Python ``http.server`` defaults to HTTP/1.0 status lines even when the
+/// client requested HTTP/1.1. Treat both 1.0 and 1.1 ``200`` responses as OK
+/// so a healthy backend is not reported as a fatal startup failure.
+fn http_status_ok(status_line: &str) -> bool {
+    let mut parts = status_line.split_whitespace();
+    let version = parts.next().unwrap_or("");
+    let code = parts.next().unwrap_or("");
+    matches!(version, "HTTP/1.0" | "HTTP/1.1") && code == "200"
+}
+
 fn backend_json_request(path: &str, api_token: Option<&str>) -> Result<serde_json::Value, String> {
     let address = "127.0.0.1:8765".parse().expect("valid loopback address");
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(300))
@@ -270,10 +280,10 @@ fn backend_json_request(path: &str, api_token: Option<&str>) -> Result<serde_jso
     let (headers, body) = response
         .split_once("\r\n\r\n")
         .ok_or_else(|| "The application backend returned an invalid response.".to_string())?;
-    if !headers.starts_with("HTTP/1.1 200") {
+    let status_line = headers.lines().next().unwrap_or("an invalid status");
+    if !http_status_ok(status_line) {
         return Err(format!(
-            "The application backend returned {}.",
-            headers.lines().next().unwrap_or("an invalid status")
+            "The application backend returned {status_line}."
         ));
     }
     serde_json::from_str(body)
@@ -416,8 +426,8 @@ pub fn run() {
 mod tests {
     use super::{
         backend_executable_name, data_root_for_backend, find_backend_exe,
-        find_resource_backend_root, pyinstaller_resource_root, sidecar_owns_backend,
-        startup_failure_message, StartupFailure,
+        find_resource_backend_root, http_status_ok, pyinstaller_resource_root,
+        sidecar_owns_backend, startup_failure_message, StartupFailure,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -520,6 +530,19 @@ mod tests {
     fn development_build_leaves_backend_to_the_node_launcher() {
         assert!(!sidecar_owns_backend(true));
         assert!(sidecar_owns_backend(false));
+    }
+
+    #[test]
+    fn accepts_http_10_and_11_ok_status_lines() {
+        // Live NeuroFlow backend (Python http.server) answers HTTP/1.0 200 OK.
+        assert!(http_status_ok("HTTP/1.0 200 OK"));
+        assert!(http_status_ok("HTTP/1.1 200 OK"));
+        assert!(http_status_ok("HTTP/1.0 200"));
+        assert!(!http_status_ok("HTTP/1.0 503 Service Unavailable"));
+        assert!(!http_status_ok("HTTP/1.1 401 Unauthorized"));
+        assert!(!http_status_ok("HTTP/2 200 OK"));
+        assert!(!http_status_ok("an invalid status"));
+        assert!(!http_status_ok(""));
     }
 
     #[test]

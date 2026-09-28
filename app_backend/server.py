@@ -72,6 +72,9 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
 
 class AppBackendRequestHandler(BaseHTTPRequestHandler):
     server_version = "MRIPipelineBackend/0.1"
+    # Prefer HTTP/1.1 so status lines match modern clients. Content-Length is
+    # always sent by _write_json / CORS helpers, so keep-alive framing is safe.
+    protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
         try:

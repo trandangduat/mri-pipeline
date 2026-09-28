@@ -138,6 +138,25 @@ def _options(url: str) -> tuple[int, str | None, str | None]:
         connection.close()
 
 
+def test_sidecar_health_status_line_is_http_11() -> None:
+    """Rust startup probe accepts HTTP/1.0 or 1.1; prefer advertising 1.1."""
+    server, thread, base_url = _serve_in_thread()
+    try:
+        parsed = urlparse(base_url)
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+        conn.request("GET", "/health")
+        response = conn.getresponse()
+        # http.client exposes version as 10 or 11
+        assert response.version == 11, f"expected HTTP/1.1, got version={response.version}"
+        assert response.status == 200
+        body = json.loads(response.read().decode("utf-8"))
+        assert body["ok"] is True
+        conn.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_sidecar_health_and_metadata_endpoints() -> None:
     server, thread, base_url = _serve_in_thread()
     try:
