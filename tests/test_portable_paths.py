@@ -33,6 +33,39 @@ class TestPortablePathsModule:
             assert paths.resource_root() == internal
             assert paths.backend_cwd() == internal
 
+    def test_simulated_pyinstaller_layout_requires_internal_not_exe_parent(self, tmp_path: Path) -> None:
+        """Datas live under _internal; pointing RESOURCE_ROOT at the exe parent misses them."""
+        backend = tmp_path / "backend"
+        internal = backend / "_internal"
+        (internal / "configs" / "neuroflow").mkdir(parents=True)
+        (internal / "normalize_volumes.py").write_text("# bundled\n", encoding="utf-8")
+        # Decoy beside the executable - a wrong root would find this and miss configs.
+        (backend / "normalize_volumes.py").write_text("# decoy\n", encoding="utf-8")
+
+        with patch.dict("os.environ", {"NEUROFLOW_RESOURCE_ROOT": str(backend)}, clear=False):
+            wrong = paths.resource_root()
+            assert wrong == backend
+            assert (wrong / "normalize_volumes.py").read_text(encoding="utf-8") == "# decoy\n"
+            assert not (wrong / "configs" / "neuroflow").is_dir()
+
+        with patch.dict("os.environ", {"NEUROFLOW_RESOURCE_ROOT": str(internal)}, clear=False):
+            root = paths.resource_root()
+            assert root == internal
+            assert (root / "configs" / "neuroflow").is_dir()
+            assert (root / "normalize_volumes.py").read_text(encoding="utf-8") == "# bundled\n"
+
+    def test_resource_root_falls_back_to_meipass_when_frozen(self, tmp_path: Path) -> None:
+        meipass = tmp_path / "_internal"
+        meipass.mkdir()
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("NEUROFLOW_RESOURCE_ROOT", None)
+            os.environ.pop("NEUROFLOW_PORTABLE_ROOT", None)
+            with patch.object(paths, "is_frozen", return_value=True):
+                with patch.object(sys, "_MEIPASS", str(meipass), create=True):
+                    assert paths.resource_root() == meipass
+
     def test_config_root_from_env(self, tmp_path: Path) -> None:
         with patch.dict("os.environ", {"NEUROFLOW_CONFIG_ROOT": str(tmp_path / "my-config")}, clear=False):
             assert paths.config_root() == tmp_path / "my-config"

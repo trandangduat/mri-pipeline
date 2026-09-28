@@ -45,7 +45,7 @@ NeuroFlowPortable/
 
 ## How It Works
 
-- **Tauri** starts `neuroflow-backend.exe server --host 127.0.0.1 --port 8765` from the bundled `backend/` directory. Its immutable files are kept in PyInstaller's `_internal/` directory; portable data remains beside the app.
+- **Tauri** starts `neuroflow-backend.exe server --host 127.0.0.1 --port 8765` from the bundled `backend/` directory and sets `NEUROFLOW_RESOURCE_ROOT` to `backend/_internal` (PyInstaller 6 one-dir contents). Specs keep COLLECT(contents_directory="_internal"); do not point the resource root at the executable parent. Portable/mutable data remains beside the app.
 - Environment variables (`NEUROFLOW_PORTABLE_ROOT`, etc.) are set so all app data is written inside the portable folder.
 - When a job is launched, the backend runs `neuroflow-backend.exe worker --job-config <path>` (frozen mode) instead of `python -m pipeline.job_worker`.
 - Closing the Tauri window kills the backend process.

@@ -10,13 +10,21 @@ from pipeline.config import PROJECT_ROOT
 def resource_root() -> Path:
     """Return immutable application resources.
 
-    Packaged launches set this to the sidecar's resource directory. Source
-    launches retain the repository root, which keeps developer workflows and
-    tests independent of an installer layout.
+    Cross-platform contract (PyInstaller 6 one-directory + Tauri):
+    specs keep `COLLECT(contents_directory="_internal")`, so static `a.datas`
+    land under `backend/_internal/`. The native shell must set
+    `NEUROFLOW_RESOURCE_ROOT` to that `_internal` directory - not the
+    backend executable's parent. Using the parent would make packaged atlases
+    and configs resolve incorrectly even when the bundle builds successfully.
+
+    When the env var is unset, a frozen process falls back to `sys._MEIPASS`
+    (the same contents directory). Source launches retain the repository root.
     """
     raw = os.environ.get("NEUROFLOW_RESOURCE_ROOT")
     if raw:
         return Path(raw).expanduser()
+    if is_frozen():
+        return Path(sys._MEIPASS)
     # Legacy portable launchers supplied one root for both code and mutable
     # state. Preserve that source-compatible behaviour; packaged launches use
     # the explicit immutable resource root above.

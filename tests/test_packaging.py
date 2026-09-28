@@ -79,3 +79,16 @@ def test_native_release_workflows_upload_one_platform_distribution_not_portable_
     assert "NeuroFlow-macOS-arm64" in unix
     assert "unsigned-test" in unix
     assert "dist-portable" not in unix
+
+
+def test_native_shell_sets_resource_root_to_pyinstaller_internal() -> None:
+    """Guard the chosen contract: resource root is backend/_internal, not exe parent."""
+    lib = Path("tauri-app/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    assert "fn pyinstaller_resource_root" in lib
+    assert 'backend_root.join("_internal")' in lib
+    assert "NEUROFLOW_RESOURCE_ROOT" in lib
+    # Reject the alternate COLLECT(contents_directory=".") contract unless
+    # specs and shell are updated together.
+    for platform in ("linux", "macos", "windows"):
+        spec = Path("packaging") / platform / "neuroflow-backend.spec"
+        assert 'contents_directory="_internal"' in spec.read_text(encoding="utf-8")

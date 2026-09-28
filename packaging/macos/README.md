@@ -28,6 +28,15 @@ This will:
 
 Use a native Apple Silicon machine for arm64 and an Intel machine for x64. Each DMG contains a macOS application bundle with the native backend; macOS cannot use one executable that runs on both CPU architectures.
 
+## Resource-root contract
+
+PyInstaller 6 one-directory builds keep declared data under `_internal/`.
+Specs keep COLLECT(contents_directory="_internal"). Tauri stages that whole
+folder as `backend/` and sets NEUROFLOW_RESOURCE_ROOT to `backend/_internal`
+- not the directory that holds neuroflow-backend. Build scripts inspect the
+frozen `_internal` tree and smoke-check /metadata so a wrong root fails
+before packaging continues.
+
 ## End User Requirements
 
 - Docker Desktop installed and running.
