@@ -2,6 +2,11 @@
 
 This directory contains scripts to build a portable Windows distribution of NeuroFlow.
 
+## Release / signing status (read me)
+
+Builds from this tree on a typical developer Windows host are **unsigned internal-test** only (see `UNSIGNED-INTERNAL-TEST.txt` next to artifacts). Public multi-OS release requires Authenticode + timestamp, native Linux AppImage CI, native macOS arm64/x64 signed+notarized DMGs, atlas redistribution rights, and the verification gates listed under **External blockers** in `.agents/plans/cross-platform-single-download-release.md`. Do not claim Linux/macOS artifacts from a Windows-only build machine.
+
+
 ## Prerequisites
 
 - **Windows 10/11** (or CI environment)
@@ -67,26 +72,20 @@ The portable build does not affect the existing development flow:
 
 ## Unsigned internal-test artifact (current Windows smoke)
 
-Public Authenticode signing is **not** available on this machine. Until signing
-credentials and a full Tauri NSIS run are unblocked, treat Windows outputs as
-**unsigned internal test** only:
+Public Authenticode signing is **not** available on this machine. Treat all
+Windows outputs as **unsigned internal test** only (see also **Release /
+signing status** above and External blockers in
+`.agents/plans/cross-platform-single-download-release.md`).
 
 | Path | Contents |
 | --- | --- |
-| `dist/neuroflow-backend/` | PyInstaller one-directory backend (`neuroflow-backend.exe` + `_internal/`). Marked with `UNSIGNED-INTERNAL-TEST.txt`. |
-| `dist-portable/backend/` | Copy of the same frozen backend for portable assembly staging. Marked unsigned. |
+| `dist/neuroflow-backend/` | PyInstaller one-directory backend (`neuroflow-backend.exe` + `_internal/`). Marked `UNSIGNED-INTERNAL-TEST.txt`. |
+| `dist-portable/windows/NeuroFlowPortable/` | Portable shell: `NeuroFlow.exe` beside `backend/` (+ data dirs). Marked unsigned. |
+| `tauri-app/src-tauri/target/release/bundle/nsis/NeuroFlow_0.1.0_x64-setup.exe` | Unsigned NSIS setup from `build-portable.ps1`. Marked unsigned beside the installer. |
 
-Verified smoke on this checkout (via `packaging/windows/build-backend.ps1` and a
-manual re-probe):
+Verified on this checkout (`build-backend.ps1` + `build-portable.ps1`, 2026-09-28):
 
-- `Authorization: Bearer` required — `/capabilities/runtime` returns **401** without the launch token.
-- With token: Paramiko capability `ssh.ok == true`.
-- `/metadata` `project_root` resolves under `...\_internal` (PyInstaller resource-root contract).
-- `/content-packs` lists `surface-atlases` (not installed by default).
-- Smoke backend process is stopped after probes (no orphan).
-
-Backend-only freeze is the supported internal-test path when `tauri build` is
-too slow or blocked (for example WebView2 bootstrapper download). To finish a
-portable shell later, run `build-portable.ps1` or place `backend/` beside
-`NeuroFlow.exe` from an unsigned Tauri build.
-
+- Token auth: `/capabilities/runtime` returns **401** without bearer; with token, Paramiko `ssh.ok == true`.
+- `/metadata` `project_root` resolves under `backend\_internal`.
+- Brief GUI launch of portable `NeuroFlow.exe`: process stayed up; `/health` on `127.0.0.1:8765` returned ok.
+- Do **not** claim Linux/macOS artifacts or a public release from this Windows host.

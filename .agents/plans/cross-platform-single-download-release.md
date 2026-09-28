@@ -183,11 +183,15 @@ Implement this plan in ordered phases. Do not build or publish release artifacts
   - All three marked `UNSIGNED-INTERNAL-TEST.txt` (no Authenticode).
   - Smoke: portable backend token path green (caps SSH ok, metadata `project_root` under `backend\_internal`, 401 without bearer); brief GUI launch kept process alive and `/health` on `127.0.0.1:8765` returned `ok` (service `mri-pipeline-backend`). Signing skipped (none available). WebView2 present on host; NSIS configured with `downloadBootstrapper` for machines without it.
 
-### Remaining external / unfinished blockers (honest)
+### External blockers / cannot claim public multi-OS release
 
-- **Authenticode signing + timestamp** for Windows NSIS/embedded exes — no signing identity on this machine; do not publish as a public release.
-- **macOS signing/notarization** and **native macOS/Linux CI runners** — not available here; AppImage/DMG public artifacts cannot be produced or verified on this Windows host.
-- **Windows unsigned desktop build is available locally** (portable + NSIS above); remaining Windows gap is Authenticode signing + clean-machine install verification, not assembly.
-- **Missing MNI NIfTI assets** still need their own verified pack or explicit UI unavailability (separate from surface-atlases).
-- Clean-machine install tests, SBOM/provenance upload of signed primary artifacts, size/performance baselines, and offline OCI image packs remain unverified.
-- Workflows must continue to label outputs as **unsigned-test** until the blockers above are cleared.
+**Honest host status (2026-09-28):** this Windows checkout produced **unsigned Windows internal-test artifacts only** (portable folder + NSIS setup, both marked `UNSIGNED-INTERNAL-TEST.txt`). Do **not** claim Linux AppImage or macOS DMG artifacts, signed installers, or a public multi-OS release from this machine.
+
+Blockers that must clear before any public release:
+
+- **Windows Authenticode + timestamp** for the NSIS setup and every embedded executable (shell + PyInstaller backend). No signing identity on this host; unsigned builds must stay labeled internal-test.
+- **macOS code signing + notarization/stapling**, and a **native macOS runner** able to produce separate **arm64 and x64 DMGs** (do not lipo PyInstaller backends; do not build macOS on Windows).
+- **Native Linux runner** for the **AppImage** (WebKitGTK/Tauri Linux deps + package smoke). Not available or verifiable on this Windows host.
+- **Redistribution rights + licence notices** for real **surface-atlases** binaries (Destrieux / Yale / Kong / Schaefer, etc.). Machinery and **synthetic fixtures only** are in-tree today (`packaging/content_packs/`, `5d4fcc9`); do not ship proprietary atlas payloads without approval. Optional **MNI NIfTI** pack (or explicit UI unavailability) is still unfinished.
+- **Release-grade verification still open:** clean-machine install/uninstall/portable-move tests; size and performance baselines vs budget; SBOM/provenance attached to signed primary artifacts; offline OCI image packs / digest-pinned image policy checks.
+- Until the above are cleared, CI/workflows and humans must keep labeling outputs **unsigned-test / internal-only** and must not publish them as the public single-download release.
