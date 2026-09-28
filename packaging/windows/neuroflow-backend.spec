@@ -2,20 +2,27 @@
 """PyInstaller spec for neuroflow-backend (one-dir mode)."""
 
 import os
+import sys
+from pathlib import Path
 
 block_cipher = None
 
 PROJECT_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
+sys.path.insert(0, PROJECT_ROOT)
+
+from packaging_resources import collect_core_info_datas, collect_python_source_datas
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "app_backend", "neuroflow_backend_cli.py")],
     pathex=[PROJECT_ROOT],
     binaries=[],
     datas=[
-        (os.path.join(PROJECT_ROOT, "app_backend"), "app_backend"),
-        (os.path.join(PROJECT_ROOT, "pipeline"), "pipeline"),
-        (os.path.join(PROJECT_ROOT, "remote"), "remote"),
+        *collect_python_source_datas(Path(PROJECT_ROOT) / "pipeline", "pipeline"),
         (os.path.join(PROJECT_ROOT, "configs", "neuroflow"), "configs/neuroflow"),
+        *collect_core_info_datas(Path(PROJECT_ROOT)),
+        (os.path.join(PROJECT_ROOT, "assets", "atlases", "mni"), "assets/atlases/mni"),
+        (os.path.join(PROJECT_ROOT, "docker"), "docker"),
+        (os.path.join(PROJECT_ROOT, "normalize_volumes.py"), "."),
         (os.path.join(PROJECT_ROOT, "pipeline_runner.py"), "."),
         (os.path.join(PROJECT_ROOT, "requirements.txt"), "."),
     ],
@@ -54,14 +61,9 @@ a = Analysis(
         "pipeline.workspace",
         "pipeline.neuroflow_adapter",
         "remote",
-        "pandas",
-        "pandas._libs",
-        "pandas._libs.tslibs",
         "paramiko",
         "paramiko.transport",
         "paramiko.ssh_gss",
-        "PIL",
-        "psutil",
     ],
     hookspath=[],
     hooksconfig={},
@@ -98,4 +100,5 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name="neuroflow-backend",
+    contents_directory="_internal",
 )

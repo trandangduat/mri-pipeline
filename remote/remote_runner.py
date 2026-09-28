@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+import re
 
 from pipeline_runner import PROJECT_ROOT, _derive_subject_id, build_subject_id_map
 from pipeline.docker_ops import license_check_script, license_check_tool
@@ -21,6 +22,33 @@ from remote.ssh_client import RemoteSSHClient, SSHConfig
 LogCallback = Callable[[str], None]
 
 _TERMINAL_REMOTE_JOBS: dict[tuple[str, str], dict[str, object]] = {}
+
+_REMOTE_PYTHON_RE = re.compile(
+    r"(?:python|python3(?:\.\d{1,2})?|/[A-Za-z0-9_./-]*python(?:3(?:\.\d{1,2})?)?)\Z"
+)
+_REMOTE_SHELL_METACHARACTERS = frozenset("|&;<>()$`\\\r\n")
+
+
+def parse_remote_python_command(value: object) -> str:
+    """Allow one Python executable, never an arbitrary remote shell command.
+
+    The application used to accept examples such as ``source … && python``.
+    That turns a configuration field into remote code execution.  Environment
+    setup belongs in the account's login configuration; this field accepts a
+    Python executable name or an absolute POSIX executable path only.
+    """
+    command = str(value or "").strip()
+    if not command:
+        raise ValueError("Remote Python command is required.")
+    if any(character in command for character in _REMOTE_SHELL_METACHARACTERS):
+        raise ValueError("Remote Python must be a Python executable, not a shell command.")
+    try:
+        parts = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise ValueError("Remote Python command is invalid.") from exc
+    if len(parts) != 1 or parts[0] != command or not _REMOTE_PYTHON_RE.fullmatch(command):
+        raise ValueError("Remote Python must be python, python3, python3.X, or an absolute Python executable path.")
+    return command
 
 
 def _positive_int(value: object) -> int | None:
@@ -379,7 +407,8 @@ class RemoteRunner:
         return self._require_workspace_child(ssh, posixpath.join(workspace, "micromamba"), "managed micromamba")
 
     def _python_shell_command(self, python_cmd: str, *args: str) -> str:
-        command = " ".join([python_cmd, *(shlex.quote(arg) for arg in args)]).strip()
+        executable = parse_remote_python_command(python_cmd)
+        command = " ".join(shlex.quote(item) for item in (executable, *args)).strip()
         return f"bash -lc {shlex.quote(command)}"
 
     def _remote_python_version(self, ssh: RemoteSSHClient, python_cmd: str) -> tuple[int, int] | None:
@@ -1694,38 +1723,43 @@ class RemoteRunner:
 
             ssh.run("mkdir -p /tmp/neuroflow-image-pulls && chmod 1777 /tmp/neuroflow-image-pulls || true", stream=False, check=False)
 
-            shell_script = f"""\
-set +e
+            # Write script content through SFTP.  Shell here-documents expand
+            # command substitutions and variables before writing, which made a
+            # crafted image string dangerous even though docker itself was
+            # quoted.  Every dynamic script value is a shell-quoted literal.
+            shell_script = f"""set +e
 pid=$$
 started=$(date +%s)
-cat > {shlex.quote(paths['json'])}.tmp <<JSONEOF
-{{"image": {json.dumps(image)}, "status": "pulling", "pid": $pid, "started_at": $started, "updated_at": $started, "exit_code": null, "error": null, "log_path": {json.dumps(paths['log'])}}}
-JSONEOF
-mv {shlex.quote(paths['json'])}.tmp {shlex.quote(paths['json'])}
+image_json={shlex.quote(json.dumps(image))}
+log_path_json={shlex.quote(json.dumps(paths['log']))}
+state_file={shlex.quote(paths['json'])}
+state_tmp={shlex.quote(paths['json'] + '.tmp')}
+
+write_state() {{
+  state=$1
+  exit_code=$2
+  error_json=$3
+  updated=$(date +%s)
+  printf '{{"image":%s,"status":"%s","pid":"%s","started_at":%s,"updated_at":%s,"exit_code":%s,"error":%s,"log_path":%s}}\\n' \\
+    "$image_json" "$state" "$pid" "$started" "$updated" "$exit_code" "$error_json" "$log_path_json" > "$state_tmp"
+  mv "$state_tmp" "$state_file"
+}}
+
+write_state pulling null null
 docker pull {quoted_image} >> {shlex.quote(paths['log'])} 2>&1
 code=$?
-updated=$(date +%s)
-if [ $code -eq 0 ]; then
-  status="success"
-  err="null"
+if [ "$code" -eq 0 ]; then
+  write_state success "$code" null
 else
-  status="failed"
-  err="\\\"Pull failed (exit $code)\\\""
+  write_state failed "$code" {shlex.quote(json.dumps("Pull failed (see remote pull log)"))}
 fi
-cat > {shlex.quote(paths['json'])}.tmp <<JSONEOF2
-{{"image": {json.dumps(image)}, "status": "$status", "pid": $pid, "started_at": $started, "updated_at": $updated, "exit_code": $code, "error": $err, "log_path": {json.dumps(paths['log'])}}}
-JSONEOF2
-mv {shlex.quote(paths['json'])}.tmp {shlex.quote(paths['json'])}
-exit $code
+exit "$code"
 """
-            ssh.run(f"cat > {shlex.quote(paths['sh'])} <<'SCREOF'\n{shell_script}\nSCREOF", stream=False, check=False)
+            ssh.write_text_file(paths["sh"], shell_script)
             ssh.run(f"chmod +x {shlex.quote(paths['sh'])}", stream=False, check=False)
 
-            sh_path = paths['sh']
-            start_cmd = (
-                f"nohup bash -c 'exec -a {shlex.quote(marker)} bash {shlex.quote(sh_path)}' "
-                f">/dev/null 2>&1 < /dev/null &"
-            )
+            start_payload = f"exec -a {shlex.quote(marker)} bash {shlex.quote(paths['sh'])}"
+            start_cmd = f"nohup bash -c {shlex.quote(start_payload)} >/dev/null 2>&1 < /dev/null &"
             ssh.run(start_cmd, stream=False, check=False)
 
             self.on_log(f"Started detached remote image pull: {image}")

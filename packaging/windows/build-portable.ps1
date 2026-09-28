@@ -1,5 +1,6 @@
 param(
-    [string]$ProjectRoot = (Split-Path $PSScriptRoot | Split-Path)
+    [string]$ProjectRoot = (Split-Path $PSScriptRoot | Split-Path),
+    [switch]$SkipPortable
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,11 +97,12 @@ Write-Host ""
 # --- Copy backend to Tauri resources ---
 Write-Host "[3/6] Preparing Tauri backend resources..." -ForegroundColor Yellow
 $tauriSrcDir = Join-Path (Join-Path $ProjectRoot "tauri-app") "src-tauri"
-$backendResourceDir = Join-Path $tauriSrcDir "backend"
+$backendResourceDir = Join-Path (Join-Path (Join-Path $ProjectRoot "build") "tauri-resources") "backend"
 
 if (Test-Path $backendResourceDir) {
     Remove-Item -Recurse -Force $backendResourceDir
 }
+New-Item -ItemType Directory -Path (Split-Path $backendResourceDir -Parent) -Force | Out-Null
 $distBackend = Join-Path (Join-Path $ProjectRoot "dist") "neuroflow-backend"
 Copy-Item -Recurse -Force $distBackend $backendResourceDir
 Write-Host "  Copied backend to: $backendResourceDir"
@@ -111,10 +113,10 @@ Write-Host "[4/6] Installing frontend dependencies..." -ForegroundColor Yellow
 $tauriAppDir = Join-Path $ProjectRoot "tauri-app"
 Push-Location $tauriAppDir
 try {
-    if (-not (Test-Path "node_modules")) {
-        npm install
+    if ($env:CI -eq "true" -or -not (Test-Path "node_modules")) {
+        npm ci
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "npm install failed."
+            Write-Error "npm ci failed."
             exit 1
         }
     } else {
@@ -149,7 +151,8 @@ Write-Host ""
 Write-Host "[6/7] Building Tauri app..." -ForegroundColor Yellow
 Push-Location $tauriAppDir
 try {
-    npm run tauri build
+    $tauriBundles = if ($env:NEUROFLOW_TAURI_BUNDLES) { $env:NEUROFLOW_TAURI_BUNDLES } else { "nsis" }
+    npm run tauri build -- --bundles $tauriBundles
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Tauri build failed."
         exit 1
@@ -159,7 +162,12 @@ try {
 }
 Write-Host ""
 
-# --- Assemble portable folder ---
+# --- Assemble optional portable folder ---
+if ($SkipPortable) {
+    Write-Host "Skipping optional portable-folder assembly."
+    exit 0
+}
+
 Write-Host "[7/7] Assembling portable folder..." -ForegroundColor Yellow
 $portableDir = Join-Path (Join-Path (Join-Path $ProjectRoot "dist-portable") "windows") "NeuroFlowPortable"
 

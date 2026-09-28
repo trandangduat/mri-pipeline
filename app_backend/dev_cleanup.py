@@ -14,7 +14,9 @@ def _is_own_backend_process(cmdline: list[str] | None, cwd: str | None, backend_
         return False
 
     cmd_str = " ".join(cmdline)
-    matches_cmd = "app_backend.server" in cmd_str or any(arg.endswith("app_backend/server.py") for arg in cmdline)
+    matches_cmd = "app_backend.server" in cmd_str or any(
+        arg.replace("\\", "/").endswith("app_backend/server.py") for arg in cmdline
+    )
     if not matches_cmd:
         return False
 

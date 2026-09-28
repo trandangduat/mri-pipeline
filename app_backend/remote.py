@@ -9,8 +9,15 @@ from queue import Queue, Empty
 from typing import Callable, Iterator, Protocol, TypeAlias
 
 from app_backend.sse_utils import step_event, complete_event, SSEEvent
-from remote.remote_runner import RemoteRunConfig, RemoteRunner
-from remote.ssh_client import SSHConfig
+from app_backend.redaction import redact_text, secret_values
+from remote.remote_runner import RemoteRunConfig, RemoteRunner, parse_remote_python_command
+from remote.ssh_client import (
+    HostKeyChangedError,
+    HostKeyFingerprintMismatchError,
+    SSHConfig,
+    UnknownHostKeyError,
+    approve_host_key,
+)
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -193,6 +200,22 @@ class RemoteJobService:
             runner = self.runner_factory(probe_config)
             runner.test_ssh()
             hardware = runner.remote_hardware_info()
+        except UnknownHostKeyError as exc:
+            return {
+                "ok": False,
+                "connected": False,
+                "error": "SSH host-key approval is required before connecting.",
+                "trust_required": exc.as_dict(),
+                "config": _safe_config_summary(config),
+            }
+        except HostKeyChangedError as exc:
+            return {
+                "ok": False,
+                "connected": False,
+                "error": "SSH host key changed. Connection refused.",
+                "host_key_changed": exc.as_dict(),
+                "config": _safe_config_summary(config),
+            }
         except Exception as exc:
             return {
                 "ok": False,
@@ -209,6 +232,46 @@ class RemoteJobService:
         if inspection.warning_message:
             response["warnings"] = [inspection.warning_message]
         return response
+
+    def approve_host_key(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        """Persist only the exact unknown key the caller explicitly approved."""
+        parsed = parse_remote_config(data)
+        if parsed["errors"]:
+            return {"ok": False, "errors": parsed["errors"]}
+        config = parsed["config"]
+        assert isinstance(config, RemoteRunConfig)
+        fingerprint = str(data.get("fingerprint", "") or "").strip()
+        try:
+            offer = approve_host_key(config.ssh, fingerprint)
+        except HostKeyFingerprintMismatchError:
+            return {
+                "ok": False,
+                "error": "SSH host key changed while awaiting approval. Connection refused.",
+                "config": _safe_config_summary(config),
+            }
+        except HostKeyChangedError as exc:
+            return {
+                "ok": False,
+                "error": "SSH host key changed. Connection refused.",
+                "host_key_changed": exc.as_dict(),
+                "config": _safe_config_summary(config),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": _safe_error_message(exc, config),
+                "config": _safe_config_summary(config),
+            }
+        return {
+            "ok": True,
+            "trusted": True,
+            "host_key": {
+                "host": offer.host,
+                "port": offer.port,
+                "key_type": offer.key_type,
+                "fingerprint": offer.fingerprint,
+            },
+        }
 
     def inspect_environment(self, data: dict[str, object]) -> dict[str, JsonValue]:
         """Collect server prerequisite status without creating or changing anything."""
@@ -1146,6 +1209,11 @@ def parse_remote_config(data: dict[str, object]) -> dict[str, object]:
         errors.append("Remote workspace is required.")
     if not remote_python:
         errors.append("Remote Python command is required.")
+    else:
+        try:
+            remote_python = parse_remote_python_command(remote_python)
+        except ValueError as exc:
+            errors.append(str(exc))
     if errors:
         return {"errors": errors, "config": None}
     return {
@@ -1200,9 +1268,11 @@ def _safe_error_message(exc: Exception, config: RemoteRunConfig | None = None) -
     if not message:
         return "An error occurred"
     if config is not None:
-        for secret in (config.ssh.password, config.ssh.key_path):
-            if secret:
-                message = message.replace(secret, "[redacted]")
+        message = redact_text(
+            message,
+            *secret_values({"password": config.ssh.password}),
+            config.ssh.key_path,
+        )
     if isinstance(exc, (FileNotFoundError, PermissionError, ValueError, KeyError)) or "Permission denied" in message:
         return message
     return f"SSH connection failed: {message}"
@@ -1211,10 +1281,11 @@ def _safe_error_message(exc: Exception, config: RemoteRunConfig | None = None) -
 def _safe_preflight_error(exc: Exception, config: RemoteRunConfig) -> str:
     """Redact connection secrets without mislabeling a preflight failure as SSH."""
     message = str(exc).strip() or "Preflight check failed"
-    for secret in (config.ssh.password, config.ssh.key_path):
-        if secret:
-            message = message.replace(secret, "[redacted]")
-    return message
+    return redact_text(
+        message,
+        *secret_values({"password": config.ssh.password}),
+        config.ssh.key_path,
+    )
 
 
 def _hardware_summary(hardware: dict[str, object]) -> dict[str, JsonValue]:

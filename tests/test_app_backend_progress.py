@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app_backend.progress import LocalJobProgressService
 from pipeline.jobs import write_json
 
@@ -38,11 +40,13 @@ def test_read_events_returns_events_and_next_offset(tmp_path: Path) -> None:
     ]
     (job_dir / "events.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    event_text = "\n".join(lines) + "\n"
     result = service.read_events(job_id, offset=0, limit=10)
 
     assert result["ok"] is True
-    assert result["next_offset"] == len(event_text.encode("utf-8"))
+    # Offsets are byte positions in the underlying file.  Text-mode writes
+    # use CRLF on Windows, so derive the expected cursor from the actual
+    # file rather than a platform-specific newline assumption.
+    assert result["next_offset"] == len((job_dir / "events.jsonl").read_bytes())
     assert result["events"] == [
         {"kind": "progress", "stage": "segmentation"},
         {"kind": "metrics", "cpu_pct": 12.5},
@@ -56,10 +60,15 @@ def test_read_events_respects_offset_and_limit(tmp_path: Path) -> None:
     lines = [first_line, *(json.dumps({"idx": idx}) + "\n" for idx in range(1, 5))]
     (job_dir / "events.jsonl").write_text("".join(lines), encoding="utf-8")
 
-    result = service.read_events(job_id, offset=len(first_line.encode("utf-8")), limit=2)
+    event_path = job_dir / "events.jsonl"
+    file_bytes = event_path.read_bytes()
+    first_offset = file_bytes.index(b"\n") + 1
+    expected_offset = len(b"".join(file_bytes.splitlines(keepends=True)[:3]))
+
+    result = service.read_events(job_id, offset=first_offset, limit=2)
 
     assert result["ok"] is True
-    assert result["next_offset"] == len("".join(lines[:3]).encode("utf-8"))
+    assert result["next_offset"] == expected_offset
     assert result["events"] == [{"idx": 1}, {"idx": 2}]
 
 
@@ -94,7 +103,7 @@ def test_read_events_rejects_symlinked_event_file(tmp_path: Path) -> None:
     service, job_dir, job_id = _job(tmp_path)
     outside = tmp_path / "outside.jsonl"
     outside.write_text(json.dumps({"kind": "progress"}) + "\n", encoding="utf-8")
-    (job_dir / "events.jsonl").symlink_to(outside)
+    _symlink_or_skip(job_dir / "events.jsonl", outside)
 
     result = service.read_events(job_id)
 
@@ -114,7 +123,7 @@ def test_read_log_rejects_symlinked_log_file(tmp_path: Path) -> None:
     service, job_dir, job_id = _job(tmp_path)
     outside = tmp_path / "outside.log"
     outside.write_text("do not read", encoding="utf-8")
-    (job_dir / "run.log").symlink_to(outside)
+    _symlink_or_skip(job_dir / "run.log", outside)
 
     result = service.read_log(job_id)
 
@@ -125,3 +134,12 @@ def test_progress_service_rejects_unknown_or_unsafe_job(tmp_path: Path) -> None:
     service = LocalJobProgressService(tmp_path / "jobs")
 
     assert service.read_events("missing") == {"ok": False, "error": "Local job not found"}
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            pytest.skip(f"Windows symlink creation is unavailable: {error}")
+        raise

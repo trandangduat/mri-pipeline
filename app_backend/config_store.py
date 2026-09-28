@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TypeAlias
 
 from app_backend import paths
+from app_backend.redaction import redact_secrets
 from pipeline.jobs import read_json, write_json
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -40,7 +41,7 @@ class ConfigStore:
         target = Path(raw).expanduser()
         if target.suffix.lower() != ".json":
             target = target.with_name(target.name + ".json")
-        payload = redact_passwords(_json_dict(data))
+        payload = redact_secrets(_json_dict(data))
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             write_json(target, payload)
@@ -55,7 +56,7 @@ class ConfigStore:
         path = self._path(subdir, config_name)
         if path is None:
             return {"ok": False, "error": "Invalid config name"}
-        payload = redact_passwords(_json_dict(data))
+        payload = redact_secrets(_json_dict(data))
         payload["type"] = config_type
         payload["name"] = config_name
         write_json(path, payload)
@@ -103,17 +104,8 @@ def _sanitize_name(name: str) -> str:
 
 
 def redact_passwords(value: JsonValue) -> JsonValue:
-    if isinstance(value, list):
-        return [redact_passwords(item) for item in value]
-    if isinstance(value, dict):
-        redacted: dict[str, JsonValue] = {}
-        for key, item in value.items():
-            normalized = key.lower().replace("-", "_")
-            if normalized == "password" or normalized.endswith("password") or normalized.endswith("_password"):
-                continue
-            redacted[key] = redact_passwords(item)
-        return redacted
-    return value
+    """Backward-compatible export name for the shared secret redactor."""
+    return redact_secrets(value)
 
 
 def _json_dict(value: object) -> dict[str, JsonValue]:

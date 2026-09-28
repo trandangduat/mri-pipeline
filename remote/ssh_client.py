@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import os
 import posixpath
 import random
@@ -10,6 +13,7 @@ from dataclasses import dataclass
 
 from pathlib import Path
 from typing import Callable, NamedTuple
+import tempfile
 
 
 LogCallback = Callable[[str], None]
@@ -24,6 +28,234 @@ class PoolKey(NamedTuple):
     host: str
     port: int
     username: str
+    known_hosts_path: str = ""
+
+
+class UnknownHostKeyError(RuntimeError):
+    """The server presented a key that has not been approved by this user."""
+
+    def __init__(self, host: str, port: int, key_type: str, fingerprint: str) -> None:
+        self.host = host
+        self.port = port
+        self.key_type = key_type
+        self.fingerprint = fingerprint
+        super().__init__(f"SSH host key for {host}:{port} is not trusted ({key_type} {fingerprint}).")
+
+    def as_dict(self) -> dict[str, str | int]:
+        return {
+            "host": self.host,
+            "port": self.port,
+            "key_type": self.key_type,
+            "fingerprint": self.fingerprint,
+        }
+
+
+class HostKeyChangedError(RuntimeError):
+    """A trusted server identity changed, so no command may be executed."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        key_type: str,
+        fingerprint: str,
+        expected_fingerprint: str = "",
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.key_type = key_type
+        self.fingerprint = fingerprint
+        self.expected_fingerprint = expected_fingerprint
+        super().__init__(f"SSH host key changed for {host}:{port}; connection refused.")
+
+    def as_dict(self) -> dict[str, str | int]:
+        result: dict[str, str | int] = {
+            "host": self.host,
+            "port": self.port,
+            "key_type": self.key_type,
+            "fingerprint": self.fingerprint,
+        }
+        if self.expected_fingerprint:
+            result["expected_fingerprint"] = self.expected_fingerprint
+        return result
+
+
+class HostKeyFingerprintMismatchError(RuntimeError):
+    """The key shown to the user no longer matches the approval request."""
+
+    def __init__(self, host: str, port: int) -> None:
+        super().__init__(f"SSH host key changed while awaiting approval for {host}:{port}; connection refused.")
+
+
+@dataclass(frozen=True)
+class HostKeyOffer:
+    host: str
+    port: int
+    key_type: str
+    fingerprint: str
+    key: object
+
+
+_KNOWN_HOSTS_LOCK = threading.RLock()
+
+
+def host_key_fingerprint(key: object) -> str:
+    """Return the OpenSSH SHA-256 fingerprint for a Paramiko key object."""
+    key_bytes = getattr(key, "asbytes")()
+    digest = hashlib.sha256(key_bytes).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _server_hostkey_name(config: "SSHConfig") -> str:
+    return config.host if config.port == 22 else f"[{config.host}]:{config.port}"
+
+
+def _known_hosts_path(config: "SSHConfig") -> Path:
+    if config.known_hosts_path:
+        return Path(config.known_hosts_path).expanduser()
+    # Import lazily: remote utilities are also used by standalone diagnostic
+    # scripts, while the desktop backend is responsible for choosing its
+    # writable per-user data root.
+    from app_backend.paths import data_root
+
+    return data_root() / "ssh" / "known_hosts"
+
+
+class _RejectUntrustedHostKey:
+    """Paramiko policy that reports a key but never writes or accepts it."""
+
+    def __init__(self, config: "SSHConfig") -> None:
+        self.config = config
+
+    def missing_host_key(self, _client: object, _hostname: str, key: object) -> None:
+        raise UnknownHostKeyError(
+            self.config.host,
+            self.config.port,
+            str(getattr(key, "get_name")()),
+            host_key_fingerprint(key),
+        )
+
+
+def _configure_host_key_verification(client: object, config: "SSHConfig") -> None:
+    path = _known_hosts_path(config)
+    if path.exists():
+        if path.is_symlink():
+            raise RuntimeError(f"SSH known-hosts file is not safe: {path}")
+        getattr(client, "load_host_keys")(str(path))
+    getattr(client, "set_missing_host_key_policy")(_RejectUntrustedHostKey(config))
+
+
+def _host_key_error(exc: Exception, config: "SSHConfig") -> Exception:
+    """Map Paramiko's changed-key exception to a stable, safe domain error."""
+    if isinstance(exc, (UnknownHostKeyError, HostKeyChangedError, HostKeyFingerprintMismatchError)):
+        return exc
+    try:
+        import paramiko  # type: ignore[import-not-found]
+
+        if isinstance(exc, paramiko.BadHostKeyException):
+            received = getattr(exc, "key", None)
+            expected = getattr(exc, "expected_key", None)
+            return HostKeyChangedError(
+                config.host,
+                config.port,
+                str(getattr(received, "get_name")()) if received is not None else "unknown",
+                host_key_fingerprint(received) if received is not None else "",
+                host_key_fingerprint(expected) if expected is not None else "",
+            )
+    except ImportError:
+        pass
+    return exc
+
+
+def fetch_host_key(config: "SSHConfig") -> HostKeyOffer:
+    """Fetch a host key without authentication or command execution."""
+    try:
+        import paramiko
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install with `python3 -m pip install paramiko`") from exc
+
+    transport = None
+    try:
+        transport = paramiko.Transport((config.host, config.port))
+        transport.banner_timeout = config.timeout
+        transport.auth_timeout = config.timeout
+        transport.start_client(timeout=config.timeout)
+        key = transport.get_remote_server_key()
+        if key is None:
+            raise RuntimeError("SSH server did not present a host key")
+        return HostKeyOffer(
+            host=config.host,
+            port=config.port,
+            key_type=str(key.get_name()),
+            fingerprint=host_key_fingerprint(key),
+            key=key,
+        )
+    finally:
+        if transport is not None:
+            try:
+                transport.close()
+            except Exception:
+                pass
+
+
+def approve_host_key(config: "SSHConfig", expected_fingerprint: str) -> HostKeyOffer:
+    """Re-fetch, compare, then atomically persist a first-use host key.
+
+    Existing entries are never replaced here.  A key rotation must be handled
+    out of band, so a man-in-the-middle cannot turn an approval click into a
+    known-hosts overwrite.
+    """
+    expected = str(expected_fingerprint or "").strip()
+    if not expected.startswith("SHA256:"):
+        raise ValueError("A SHA-256 SSH host-key fingerprint is required for approval.")
+
+    offer = fetch_host_key(config)
+    if not hmac.compare_digest(offer.fingerprint, expected):
+        raise HostKeyFingerprintMismatchError(config.host, config.port)
+
+    try:
+        import paramiko
+    except ImportError as exc:
+        raise RuntimeError("Missing dependency: install with `python3 -m pip install paramiko`") from exc
+
+    path = _known_hosts_path(config)
+    with _KNOWN_HOSTS_LOCK:
+        if path.exists() and path.is_symlink():
+            raise RuntimeError(f"SSH known-hosts file is not safe: {path}")
+        hosts = paramiko.HostKeys()
+        if path.exists():
+            hosts.load(str(path))
+        server_name = _server_hostkey_name(config)
+        existing = hosts.lookup(server_name)
+        if existing:
+            known = existing.get(offer.key_type)
+            if known is not None and hmac.compare_digest(host_key_fingerprint(known), offer.fingerprint):
+                return offer
+            expected_key = known or next(iter(existing.values()))
+            raise HostKeyChangedError(
+                config.host,
+                config.port,
+                offer.key_type,
+                offer.fingerprint,
+                host_key_fingerprint(expected_key),
+            )
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        hosts.add(server_name, offer.key_type, offer.key)
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        os.close(fd)
+        try:
+            hosts.save(tmp_name)
+            if os.name != "nt":
+                os.chmod(tmp_name, 0o600)
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
+    return offer
 
 
 @dataclass
@@ -94,7 +326,7 @@ class SSHConnectionPool:
         return None
 
     def acquire(self, config: SSHConfig, on_log: LogCallback | None = None) -> tuple[object, threading.BoundedSemaphore]:
-        key = PoolKey(config.host, config.port, config.username)
+        key = PoolKey(config.host, config.port, config.username, config.known_hosts_path)
         entry = self._get_live_entry(key)
         if entry is not None:
             return entry.client, entry.semaphore
@@ -149,7 +381,7 @@ class SSHConnectionPool:
             raise RuntimeError("Missing dependency: install with `python3 -m pip install paramiko`") from exc
 
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _configure_host_key_verification(client, config)
 
         kwargs = {
             "hostname": config.host,
@@ -173,10 +405,10 @@ class SSHConnectionPool:
             on_log(f"Connecting pooled SSH {config.username}@{config.host}:{config.port}...")
         try:
             client.connect(**kwargs)
-        except Exception:
+        except Exception as exc:
             if prepared_key:
                 prepared_key.cleanup()
-            raise
+            raise _host_key_error(exc, config) from exc
 
         transport = client.get_transport()
         if transport is not None:
@@ -193,7 +425,7 @@ class SSHConnectionPool:
         pass
 
     def remove(self, config: SSHConfig) -> None:
-        key = PoolKey(config.host, config.port, config.username)
+        key = PoolKey(config.host, config.port, config.username, config.known_hosts_path)
         with self._lock:
             entry = self._pool.pop(key, None)
         if entry:
@@ -205,7 +437,7 @@ class SSHConnectionPool:
         Prevents one thread's transient channel error from destroying a fresh
         healthy connection created concurrently by another thread.
         """
-        key = PoolKey(config.host, config.port, config.username)
+        key = PoolKey(config.host, config.port, config.username, config.known_hosts_path)
         with self._lock:
             entry = self._pool.get(key)
             if entry is None or entry.client is not client:
@@ -235,6 +467,8 @@ class SSHConnectionPool:
 
 
 def _is_auth_failure(exc: BaseException) -> bool:
+    if isinstance(exc, (UnknownHostKeyError, HostKeyChangedError, HostKeyFingerprintMismatchError)):
+        return True
     try:
         import paramiko  # type: ignore[import-not-found]
 
@@ -272,6 +506,9 @@ class SSHConfig:
     # (Connect button) pass 1 so a dead route fails fast instead of
     # stacking timeouts.
     connect_attempts: int = 4
+    # Empty means the app-managed known-hosts file under its data root.
+    # Supplying a path is reserved for tests and controlled integrations.
+    known_hosts_path: str = ""
 
 
 class RemoteSSHClient:
@@ -334,7 +571,7 @@ class RemoteSSHClient:
             raise RuntimeError("Missing dependency: install with `python3 -m pip install paramiko`") from exc
 
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _configure_host_key_verification(client, self.config)
 
         kwargs = {
             "hostname": self.config.host,
@@ -357,11 +594,11 @@ class RemoteSSHClient:
         self.on_log(f"Connecting SSH {self.config.username}@{self.config.host}:{self.config.port}...")
         try:
             client.connect(**kwargs)
-        except Exception:
+        except Exception as exc:
             if self._prepared_key:
                 self._prepared_key.cleanup()
                 self._prepared_key = None
-            raise
+            raise _host_key_error(exc, self.config) from exc
 
         self._client = client
         self._semaphore = threading.BoundedSemaphore(MAX_CHANNELS_PER_CONNECTION)

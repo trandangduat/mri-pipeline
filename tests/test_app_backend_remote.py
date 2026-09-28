@@ -2,7 +2,8 @@ import os
 
 from app_backend.remote import RemoteJobService, VALIDATE_SSH_TIMEOUT_S
 from pipeline.presets import PRESET_CONFIGS
-from remote.remote_runner import RemoteRunConfig
+from remote.remote_runner import RemoteRunConfig, parse_remote_python_command
+from remote.ssh_client import HostKeyChangedError, HostKeyOffer, UnknownHostKeyError
 
 
 class FakeRunner:
@@ -206,6 +207,90 @@ def test_validate_remote_config_rejects_invalid_required_fields() -> None:
         "ok": False,
         "errors": ["Remote host is required.", "Remote username is required.", "Remote port must be between 1 and 65535."],
     }
+
+
+def test_validate_remote_config_requires_explicit_host_key_trust() -> None:
+    class UnknownHostRunner(FakeRunner):
+        def test_ssh(self) -> None:
+            raise UnknownHostKeyError("server", 22, "ssh-ed25519", "SHA256:firstUseFingerprint")
+
+    service = RemoteJobService(runner_factory=lambda _config: UnknownHostRunner([]))
+
+    result = service.validate_config({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result == {
+        "ok": False,
+        "connected": False,
+        "error": "SSH host-key approval is required before connecting.",
+        "trust_required": {
+            "host": "server",
+            "port": 22,
+            "key_type": "ssh-ed25519",
+            "fingerprint": "SHA256:firstUseFingerprint",
+        },
+        "config": {
+            "host": "server",
+            "port": 22,
+            "username": "alice",
+            "auth_method": "password",
+            "workspace": "~/mri-remote-jobs",
+            "python": "python3",
+        },
+    }
+
+
+def test_validate_remote_config_hard_fails_for_changed_host_key() -> None:
+    class ChangedHostRunner(FakeRunner):
+        def test_ssh(self) -> None:
+            raise HostKeyChangedError("server", 22, "ssh-ed25519", "SHA256:new", "SHA256:old")
+
+    service = RemoteJobService(runner_factory=lambda _config: ChangedHostRunner([]))
+    result = service.validate_config({"host": "server", "username": "alice", "password": "secret"})
+
+    assert result["ok"] is False
+    assert result["connected"] is False
+    assert result["error"] == "SSH host key changed. Connection refused."
+    assert result["host_key_changed"] == {
+        "host": "server",
+        "port": 22,
+        "key_type": "ssh-ed25519",
+        "fingerprint": "SHA256:new",
+        "expected_fingerprint": "SHA256:old",
+    }
+
+
+def test_host_key_approval_returns_refetched_fingerprint(monkeypatch) -> None:
+    offered = HostKeyOffer("server", 22, "ssh-ed25519", "SHA256:approved", object())
+    monkeypatch.setattr("app_backend.remote.approve_host_key", lambda _config, _fingerprint: offered)
+    service = RemoteJobService()
+
+    result = service.approve_host_key(
+        {"host": "server", "username": "alice", "password": "secret", "fingerprint": "SHA256:approved"}
+    )
+
+    assert result == {
+        "ok": True,
+        "trusted": True,
+        "host_key": {
+            "host": "server",
+            "port": 22,
+            "key_type": "ssh-ed25519",
+            "fingerprint": "SHA256:approved",
+        },
+    }
+
+
+def test_remote_python_rejects_shell_operators_before_connecting() -> None:
+    service = RemoteJobService()
+    result = service.validate_config(
+        {"host": "server", "username": "alice", "password": "secret", "remote_python": "python3; id"}
+    )
+
+    assert result == {
+        "ok": False,
+        "errors": ["Remote Python must be a Python executable, not a shell command."],
+    }
+    assert parse_remote_python_command("/opt/neuroflow/bin/python3.11") == "/opt/neuroflow/bin/python3.11"
 
 
 def test_inspect_remote_environment_returns_complete_read_only_status() -> None:

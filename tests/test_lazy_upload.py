@@ -81,6 +81,10 @@ class FakeSSHClient:
         if callback:
             callback(10, 10)
 
+    def write_text_file(self, remote_path: str, content: str) -> None:
+        with self.sftp.open(remote_path, "w") as marker:
+            marker.write(content)
+
 
 class FakeRunner:
     def __init__(self, events: list[dict] | None = None) -> None:

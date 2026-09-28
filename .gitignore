@@ -79,7 +79,12 @@ output-tauri/
 
 # Build output
 dist/
-build/
+build/*
+!build/tauri-resources/
+build/tauri-resources/*
+!build/tauri-resources/backend/
+build/tauri-resources/backend/*
+!build/tauri-resources/backend/.gitkeep
 dist-portable/
 tauri-app/src-tauri/backend/
 

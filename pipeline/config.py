@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Callable
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
+# This is deliberately evaluated at process start. The native shell supplies
+# the immutable resource directory before Python imports this module.
+PROJECT_ROOT = Path(os.environ.get("NEUROFLOW_RESOURCE_ROOT", str(SOURCE_ROOT))).expanduser()
 MNI_ATLAS_DIR = PROJECT_ROOT / "assets" / "atlases" / "mni"
 SURFACE_ATLAS_DIR = PROJECT_ROOT / "assets" / "atlases" / "surface"
 

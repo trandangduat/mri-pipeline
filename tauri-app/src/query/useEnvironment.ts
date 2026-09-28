@@ -2,7 +2,7 @@ import {useQuery} from '@tanstack/react-query';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
 import {queryKeys} from './keys';
 
-import type {RemotePayload} from '../types/backend';
+import type {RemotePayload} from '../api/runConfig';
 
 export function useClient(): BackendClient {
   return new BackendClient(DEFAULT_BACKEND_URL);

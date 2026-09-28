@@ -181,8 +181,16 @@ export function DualPaneTransferModal({
 
   // Initial browse on mount
   useEffect(() => {
-    browseLocal(initialLocalPath || '');
-    browseRemote(initialRemotePath || '~');
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      browseLocal(initialLocalPath || '');
+      browseRemote(initialRemotePath || '~');
+    });
+    return () => {
+      active = false;
+    };
+    // The modal is remounted for every transfer session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

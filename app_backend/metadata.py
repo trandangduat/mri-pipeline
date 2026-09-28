@@ -85,7 +85,7 @@ def get_app_metadata() -> dict[str, JsonValue]:
 
     return {
         "version": 1,
-        "project_root": str(paths.portable_root() or PROJECT_ROOT),
+        "project_root": str(paths.resource_root()),
         "pipeline_modes": [
             {
                 "id": mode,

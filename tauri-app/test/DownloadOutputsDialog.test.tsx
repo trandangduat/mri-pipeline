@@ -6,9 +6,7 @@ import {DownloadOutputsDialog} from '../src/components/DownloadOutputsDialog';
 const baseProps = {
   open: true,
   jobId: 'remote_job_123',
-  remotePath: '/workspace/job_123/outputs',
   localDir: '',
-  onLocalDirChange: vi.fn(),
   phase: 'select' as const,
   steps: [],
   logs: [],

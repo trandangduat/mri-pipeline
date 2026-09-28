@@ -7,6 +7,10 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: (...args: unknown[]) => saveDialogMock(...args),
 }));
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue('test-sidecar-token'),
+}));
+
 const fetchMock = vi.fn();
 const originalFetch = globalThis.fetch;
 

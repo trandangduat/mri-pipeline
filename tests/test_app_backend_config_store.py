@@ -18,6 +18,8 @@ def test_workspace_save_load_list_and_password_redaction(tmp_path: Path) -> None
             "remotePassword": "secret",
             "sshPassword": "secret",
             "keyPassword": "secret",
+            "apiToken": "api-secret",
+            "nested": {"clientSecret": "nested-secret", "preserve": "yes"},
         },
     )
 
@@ -28,7 +30,8 @@ def test_workspace_save_load_list_and_password_redaction(tmp_path: Path) -> None
     assert loaded["data"] == {
         "type": "mri-pipeline-workspace",
         "name": "research_workspace",
-        "remote": {"host": "server"},
+            "remote": {"host": "server"},
+            "nested": {"preserve": "yes"},
     }
     assert store.list_workspaces()["items"] == [{"name": "research_workspace", "path": str(tmp_path / "configs" / "workspaces" / "research_workspace.json")}]
     raw = json.loads((tmp_path / "configs" / "workspaces" / "research_workspace.json").read_text(encoding="utf-8"))
@@ -70,6 +73,7 @@ def test_export_json_writes_file_at_requested_path(tmp_path: Path) -> None:
             "empty_list": [],
             "stats_vectors": [{"atlas": "aparc", "password": "secret"}],
             "ssh_password": "secret",
+            "accessToken": "export-secret",
         },
     )
 
@@ -82,6 +86,7 @@ def test_export_json_writes_file_at_requested_path(tmp_path: Path) -> None:
         "stats_vectors": [{"atlas": "aparc"}],
     }
     assert "secret" not in json.dumps(raw)
+    assert "token" not in json.dumps(raw).lower()
 
 
 def test_export_json_requires_a_path(tmp_path: Path) -> None:

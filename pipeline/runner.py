@@ -144,8 +144,11 @@ def _build_execution_request(
         Path(host).mkdir(parents=True, exist_ok=True)
         mounts.append((host, container))
     norm_vol = PROJECT_ROOT / "normalize_volumes.py"
-    if norm_vol.exists():
-        mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
+    if not norm_vol.is_file():
+        raise RuntimeError(
+            "Required application resource normalize_volumes.py is missing. Repair the NeuroFlow installation."
+        )
+    mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
     selected_atlases = _selected_stats_atlases(config)
     needs_mni_atlas_assets = any(
         atlas in EXTERNAL_MNI_VOLUME_ATLASES and VECTOR_SPECS.get(atlas, {}).get("atlas_nifti")
@@ -153,12 +156,18 @@ def _build_execution_request(
     )
     if needs_mni_atlas_assets:
         atlas_dir = _resolve_mni_atlas_dir()
-        if atlas_dir.exists():
-            mounts.append((str(atlas_dir), "/atlases"))
+        if not atlas_dir.is_dir():
+            raise RuntimeError(
+                "The selected MNI atlas content is not installed. Install the required NeuroFlow content pack, then retry."
+            )
+        mounts.append((str(atlas_dir), "/atlases"))
     if any(thickness_atlas_needs_assets(atlas) for atlas in selected_atlases):
         surface_atlas_dir = _resolve_surface_atlas_dir()
-        if surface_atlas_dir.exists():
-            mounts.append((str(surface_atlas_dir), "/atlas-assets"))
+        if not surface_atlas_dir.is_dir():
+            raise RuntimeError(
+                "The selected surface atlas content is not installed. Install the required NeuroFlow content pack, then retry."
+            )
+        mounts.append((str(surface_atlas_dir), "/atlas-assets"))
 
     args = [
         "--input",

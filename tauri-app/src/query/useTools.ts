@@ -1,6 +1,7 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
+import {authenticatedBackendHeaders} from '../api/backendToken';
 import {useClient} from './useEnvironment';
 import type {RuntimeTarget, ToolImage} from '../types/backend';
 import {queryKeys} from './keys';
@@ -113,7 +114,7 @@ export function usePullImageStream() {
         try {
           const res = await fetch(`${DEFAULT_BACKEND_URL}/tools/server/pull/status`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: await authenticatedBackendHeaders({'Content-Type': 'application/json'}),
             body: JSON.stringify({image, remote, log_offset: offset}),
           });
           if (!res.ok) return;
@@ -167,7 +168,7 @@ export function usePullImageStream() {
       try {
         const response = await fetch(`${DEFAULT_BACKEND_URL}/tools/local/pull`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: await authenticatedBackendHeaders({'Content-Type': 'application/json'}),
           body: JSON.stringify({image, target, remote}),
           signal: controller.signal,
         });

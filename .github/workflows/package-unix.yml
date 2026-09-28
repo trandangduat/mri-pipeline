@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   package-unix:
-    name: Build ${{ matrix.label }} package
+    name: Build unsigned ${{ matrix.label }} package
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
@@ -20,11 +20,21 @@ jobs:
           - label: Linux
             os: ubuntu-latest
             platform: linux
-            artifact: NeuroFlow-Linux
-          - label: macOS
-            os: macos-latest
+            architecture: x64
+            bundle: appimage
+            artifact: NeuroFlow-Linux-x64
+          - label: macOS Intel
+            os: macos-13
             platform: macos
-            artifact: NeuroFlow-macOS
+            architecture: x64
+            bundle: dmg
+            artifact: NeuroFlow-macOS-x64
+          - label: macOS Apple Silicon
+            os: macos-14
+            platform: macos
+            architecture: arm64
+            bundle: dmg
+            artifact: NeuroFlow-macOS-arm64
 
     steps:
       - name: Checkout
@@ -67,47 +77,37 @@ jobs:
           ./.venv/bin/python -m pip install --upgrade pip
 
       - name: Build package
+        env:
+          CI: true
+          NEUROFLOW_TAURI_BUNDLES: ${{ matrix.bundle }}
         run: |
           chmod +x ./packaging/${{ matrix.platform }}/build-backend.sh ./packaging/${{ matrix.platform }}/build-app.sh
           ./packaging/${{ matrix.platform }}/build-app.sh "$PWD"
 
-      - name: Assemble portable package
+      - name: Stage native distribution file
         run: |
-          mkdir -p "dist-portable/${{ matrix.platform }}"
-          portable_dir="dist-portable/${{ matrix.platform }}/NeuroFlowPortable"
-          rm -rf "$portable_dir"
-          mkdir -p "$portable_dir/config" "$portable_dir/outputs/jobs" "$portable_dir/logs" "$portable_dir/licenses"
-
-          release_dir="tauri-app/src-tauri/target/release"
-          if [ -x "$release_dir/NeuroFlow" ]; then
-            app_exe="$release_dir/NeuroFlow"
-          elif [ -x "$release_dir/mri-pipeline-tauri" ]; then
-            app_exe="$release_dir/mri-pipeline-tauri"
+          mkdir -p dist-release
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            source_file="$(find tauri-app/src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+            extension="AppImage"
           else
-            echo "Could not find Tauri executable under $release_dir" >&2
-            find "$release_dir" -maxdepth 2 -type f -print >&2
+            source_file="$(find tauri-app/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+            extension="dmg"
+          fi
+          if [[ -z "$source_file" || ! -f "$source_file" ]]; then
+            echo "Expected ${{ matrix.bundle }} distribution was not produced." >&2
+            find tauri-app/src-tauri/target/release/bundle -maxdepth 3 -type f -print >&2 || true
             exit 1
           fi
+          output="dist-release/${{ matrix.artifact }}-${{ github.sha }}.$extension"
+          cp "$source_file" "$output"
+          shasum -a 256 "$output" > "$output.sha256"
+          ls -lh "$output" "$output.sha256"
 
-          cp "$app_exe" "$portable_dir/NeuroFlow"
-          chmod +x "$portable_dir/NeuroFlow"
-          cp -R "tauri-app/src-tauri/backend" "$portable_dir/backend"
-          chmod +x "$portable_dir/backend/neuroflow-backend"
-
-          bundle_dir="$release_dir/bundle"
-          if [ -d "$bundle_dir" ]; then
-            cp -R "$bundle_dir" "$portable_dir/bundle"
-          fi
-
-          tar -czf "dist-portable/${{ matrix.platform }}/${{ matrix.artifact }}-${{ github.sha }}.tar.gz" \
-            -C "dist-portable/${{ matrix.platform }}" \
-            NeuroFlowPortable
-          ls -lh "dist-portable/${{ matrix.platform }}"
-
-      - name: Upload package artifact
+      - name: Upload unsigned native test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-${{ github.sha }}
-          path: dist-portable/${{ matrix.platform }}/${{ matrix.artifact }}-${{ github.sha }}.tar.gz
+          name: ${{ matrix.artifact }}-unsigned-test-${{ github.sha }}
+          path: dist-release/${{ matrix.artifact }}-${{ github.sha }}.*
           if-no-files-found: error
           retention-days: 14

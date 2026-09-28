@@ -63,15 +63,13 @@ describe('ToolsPage server environment', () => {
         environment={completeEnvironment}
         error=""
         pending={false}
-        imageSummary={{available: 7, required: 9}}
       />,
     );
 
-    expect(screen.getByText('Server & Compute')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
     expect(screen.getByText('gpu-node-01')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Docker')).toBeInTheDocument();
-    expect(screen.getByText('7 of 9 images installed')).toBeInTheDocument();
     expect(screen.getByText('32 cores · 128 GiB RAM')).toBeInTheDocument();
     expect(screen.getAllByText('Ready')).toHaveLength(3);
   });
@@ -81,12 +79,11 @@ describe('ToolsPage server environment', () => {
       <ServerEnvironmentCards
         error=""
         pending
-        imageSummary={{available: 0, required: 0}}
       />,
     );
 
     expect(screen.getAllByText('Checking')).toHaveLength(3);
-    expect(screen.getByText('Server & Compute')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Docker')).toBeInTheDocument();
   });
@@ -101,13 +98,12 @@ describe('ToolsPage server environment', () => {
         }}
         error=""
         pending={false}
-        imageSummary={{available: 0, required: 9}}
       />,
     );
 
     expect(screen.getByText('32 cores · 128 GiB RAM')).toBeInTheDocument();
     expect(screen.getAllByText('Not Ready').length).toBeGreaterThan(0);
-    expect(screen.getByText('Docker daemon is unavailable')).toBeInTheDocument();
+    expect(screen.getAllByText('Docker daemon is unavailable')).not.toHaveLength(0);
   });
 
   it('keeps connect-first guidance when the server is disconnected', () => {
@@ -138,24 +134,22 @@ describe('ToolsPage server environment', () => {
       <LocalEnvironmentCards
         environment={localEnv}
         pending={false}
-        imageSummary={{available: 6, required: 10}}
       />,
     );
 
-    expect(screen.getByText('Local & Compute')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
     expect(screen.getByText('neuroflow-dev-box')).toBeInTheDocument();
     expect(screen.getByText('16 cores · 64 GiB RAM')).toBeInTheDocument();
     expect(screen.getByText('GPU: NVIDIA RTX 4080')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
     expect(screen.getByText('Python 3.12.10')).toBeInTheDocument();
     expect(screen.getByText('Docker')).toBeInTheDocument();
-    expect(screen.getByText('6 of 10 images installed')).toBeInTheDocument();
     expect(screen.getAllByText('Ready')).toHaveLength(3);
   });
 
   it('renders local environment cards in ToolsPage when runtimeTarget is Local', () => {
     usePipelineFormStore.setState({formValues: {...DEFAULT_FORM_VALUES, runtimeTarget: 'Local'}});
     render(<ToolsPage />);
-    expect(screen.getByText('Local & Compute')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
   });
 });

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hmac
+import ipaddress
 import os
 import json
+import secrets
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TypeAlias
@@ -24,6 +27,12 @@ from app_backend.tools import LocalToolService
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
 MAX_REQUEST_BYTES = 1_000_000
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://127.0.0.1:1420",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+)
 
 
 class AppBackendHTTPServer(ThreadingHTTPServer):
@@ -40,8 +49,14 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         local_tool_service: LocalToolService | None = None,
         local_environment_service: LocalEnvironmentService | None = None,
         license_store: LicenseStore | None = None,
+        api_token: str | None = None,
+        allowed_origins: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__(server_address, AppBackendRequestHandler)
+        # A loopback port is still reachable by any local browser process. Every
+        # privileged request must prove it was launched by this app instance.
+        self.api_token = api_token or secrets.token_urlsafe(32)
+        self.allowed_origins = allowed_origins or _allowed_origins_from_environment()
         self.local_job_service = local_job_service or LocalJobService()
         self.local_progress_service = local_progress_service or LocalJobProgressService(self.local_job_service.jobs_root)
         self.config_store = config_store or ConfigStore()
@@ -58,12 +73,16 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
+            if not self._authorize_request():
+                return
             self._handle_get()
         except Exception as exc:
             self._write_exception(exc)
 
     def do_POST(self) -> None:
         try:
+            if not self._authorize_request():
+                return
             self._handle_post()
         except Exception as exc:
             self._write_exception(exc)
@@ -151,7 +170,17 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(request, dict):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "run_request must be an object"})
                 return
-            self._write_json(HTTPStatus.OK, self._local_jobs().start_local_job(request))
+            # Do not accept the historical pre-shaped worker payload. It
+            # bypassed all input, tool, and path validation before reaching
+            # Docker command builders.
+            prepared = prepare_run_request(request)
+            if not prepared.get("ok") or not isinstance(prepared.get("request"), dict):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"ok": False, "error": "Invalid run request", "errors": prepared.get("errors", [])},
+                )
+                return
+            self._write_json(HTTPStatus.OK, self._local_jobs().start_local_job(prepared["request"]))
             return
         if self.path == "/jobs/local/stop":
             job_id = str(payload.get("job_id", "") or "")
@@ -217,6 +246,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/remote/validate":
             self._write_json(HTTPStatus.OK, self._remote_jobs().validate_config(payload))
+            return
+        if self.path == "/remote/trust-host":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().approve_host_key(payload))
             return
         if self.path == "/remote/environment":
             self._write_json(HTTPStatus.OK, self._remote_jobs().inspect_environment(payload))
@@ -325,6 +357,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         self._method_not_allowed()
 
     def do_OPTIONS(self) -> None:
+        if not self._is_loopback_peer():
+            self._write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Loopback access only"})
+            return
+        if not self._origin_is_allowed():
+            self._write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Origin is not allowed"})
+            return
         self.send_response(int(HTTPStatus.NO_CONTENT))
         self._write_cors_headers()
         self.send_header("Content-Length", "0")
@@ -342,6 +380,42 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
 
     def _method_not_allowed(self) -> None:
         self._write_json(HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "Method not allowed"})
+
+    def _authorize_request(self) -> bool:
+        if not self._is_loopback_peer():
+            self._write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Loopback access only"})
+            return False
+        if not self._origin_is_allowed():
+            self._write_json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "Origin is not allowed"})
+            return False
+        # Readiness is intentionally unauthenticated so the shell can wait for
+        # the freshly spawned child before it exposes the launch token to UI.
+        if urlparse(self.path).path == "/health":
+            return True
+        server = self.server
+        if not isinstance(server, AppBackendHTTPServer):
+            self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "Unexpected server type"})
+            return False
+        provided = self.headers.get("Authorization", "")
+        expected = f"Bearer {server.api_token}"
+        if not hmac.compare_digest(provided, expected):
+            self._write_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Backend authorization required"})
+            return False
+        return True
+
+    def _is_loopback_peer(self) -> bool:
+        try:
+            return ipaddress.ip_address(str(self.client_address[0])).is_loopback
+        except ValueError:
+            return False
+
+    def _origin_is_allowed(self) -> bool:
+        origin = self.headers.get("Origin", "").strip()
+        if not origin:
+            # Native health checks and the Rust shell are not browser requests.
+            return True
+        server = self.server
+        return isinstance(server, AppBackendHTTPServer) and origin in server.allowed_origins
 
     def _write_exception(self, exc: Exception) -> None:
         try:
@@ -547,9 +621,13 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def _write_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "").strip() if getattr(self, "headers", None) else ""
+        server = self.server
+        if origin and isinstance(server, AppBackendHTTPServer) and origin in server.allowed_origins:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 
 def make_server(
@@ -562,6 +640,8 @@ def make_server(
     local_tool_service: LocalToolService | None = None,
     local_environment_service: LocalEnvironmentService | None = None,
     license_store: LicenseStore | None = None,
+    api_token: str | None = None,
+    allowed_origins: tuple[str, ...] | None = None,
 ) -> AppBackendHTTPServer:
     return AppBackendHTTPServer(
         (host, port),
@@ -572,7 +652,16 @@ def make_server(
         local_tool_service,
         local_environment_service,
         license_store,
+        api_token,
+        allowed_origins,
     )
+
+
+def _allowed_origins_from_environment() -> tuple[str, ...]:
+    raw = os.environ.get("NEUROFLOW_ALLOWED_ORIGINS", "")
+    if not raw.strip():
+        return DEFAULT_ALLOWED_ORIGINS
+    return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
 
 
 def _query_string(query: dict[str, list[str]], key: str) -> str:
@@ -591,9 +680,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the MRI Pipeline backend sidecar.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--api-token", default=os.environ.get("NEUROFLOW_API_TOKEN", ""))
     args = parser.parse_args(argv)
 
-    server = make_server(args.host, args.port)
+    server = make_server(args.host, args.port, api_token=args.api_token or None)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -255,11 +255,11 @@ class _FakeBrowseRemoteService(RemoteJobService):
         }
 
 
-def _post_json_url(url: str, payload: dict[str, object]) -> dict[str, object]:
+def _post_json_url(url: str, payload: dict[str, object], *, api_token: str) -> dict[str, object]:
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_token}"},
         method="POST",
     )
     with urlopen(request, timeout=5) as response:
@@ -281,7 +281,7 @@ def test_remote_browse_route_delegates_to_service() -> None:
             "remote_python": "python3",
             "path": "/home/user/mri-data",
         }
-        result = _post_json_url(f"{base_url}/remote/browse", payload)
+        result = _post_json_url(f"{base_url}/remote/browse", payload, api_token=server.api_token)
         assert result["ok"] is True
         assert result["path"] == "/home/user/mri-data"
         assert result["image_count"] == 1

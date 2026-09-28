@@ -11,7 +11,6 @@ import {
   Eraser,
   Eye,
   EyeOff,
-  FileCheck,
   HardDrive,
   ImageIcon,
   Layers,
@@ -30,7 +29,6 @@ import {
 import {Card, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Skeleton} from '@/components/ui/skeleton';
 import {toast} from 'sonner';
 import {
   REMOTE_DETAIL_TIMEOUT_MS,
@@ -39,17 +37,17 @@ import {
   isBackendUnreachableMessage,
   isSshConnectionMessage,
 } from '../lib/connection';
-import {StatusPill, StatusDotLarge, statusDotClasses} from '../components/ui';
+import {StatusDotLarge} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
   deriveBatchImages,
-  reduceBatchImages,
   compareBatchImagesByStartTime,
   deriveBatchSummary,
   deriveImageSteps,
   deriveJobDisplayMetadata,
   deriveMetricsSeries,
   deriveSubjectStageInfo,
+  reduceBatchImages,
   displayJobState,
   filterLogLines,
   type BatchSummary,
@@ -70,12 +68,13 @@ import {
   useReadRemoteMetricsMutation,
 } from '../query/useRemote';
 import {useMetadata} from '../query/useEnvironment';
-import {useJobsStore, capLogLines} from '../stores/jobsStore';
+import {appendBoundedEvents, useJobsStore, capLogLines} from '../stores/jobsStore';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {buildRemotePayload} from '../api/runConfig';
 import type {PipelineEvent} from '../types/backend';
+import type {BatchImageItem} from '../lib/jobs';
 import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {LazyUploadProgress} from '../components/LazyUploadProgress';
@@ -86,6 +85,9 @@ function selectedDialogPath(selected: unknown) {
   if (Array.isArray(selected)) return selected[0] || '';
   return (selected as string) || '';
 }
+
+const EVENT_PAGE_SIZE = 10_000;
+const MAX_MODAL_METRICS_EVENTS = 1_200;
 
 export function canonicalJobId(id: string | null | undefined): string {
   if (!id) return '';
@@ -628,8 +630,7 @@ function shortCopyDetail(raw: string): string {
 }
 
 export function JobsPage() {
-  const storeLatestJobs = useJobsStore((s) => s.latestJobs);
-  const latestJobs = React.useMemo(() => storeLatestJobs || [], [storeLatestJobs]);
+  const latestJobs = useJobsStore((s) => s.latestJobs);
   const hasLoadedInitialJobs = useJobsStore((s) => s.hasLoadedInitialJobs);
   const setHasLoadedInitialJobs = useJobsStore((s) => s.setHasLoadedInitialJobs);
 
@@ -637,12 +638,20 @@ export function JobsPage() {
   const lastDetailRefreshAt = useJobsStore((s) => s.lastDetailRefreshAt);
   const selectedJobId = useJobsStore((s) => s.selectedJobId);
   const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
-  const jobEvents = useJobsStore((s) => s.jobEvents) || [];
+  // Select a primitive snapshot so derived-data memoization is insulated from
+  // mutable records supplied by the external job store.
+  const selectedJobSnapshot = useJobsStore((s) => {
+    const selected = s.latestJobs.find((candidate) =>
+      candidate && matchesJobId((candidate as {job_id?: string}).job_id, selectedJobId),
+    );
+    return JSON.stringify(selected ?? {});
+  });
+  const jobEvents = useJobsStore((s) => s.jobEvents);
   const setJobEvents = useJobsStore((s) => s.setJobEvents);
   const appendJobEvents = useJobsStore((s) => s.appendJobEvents);
-  const jobLogSearch = useJobsStore((s) => s.jobLogSearch) || '';
+  const jobLogSearch = useJobsStore((s) => s.jobLogSearch);
   const setJobLogSearch = useJobsStore((s) => s.setJobLogSearch);
-  const outputText = useJobsStore((s) => s.outputText) || '';
+  const outputText = useJobsStore((s) => s.outputText);
   const setOutputText = useJobsStore((s) => s.setOutputText);
   const appendOutputText = useJobsStore((s) => s.appendOutputText);
   const clearJobLog = useJobsStore((s) => s.clearJobLog);
@@ -671,12 +680,16 @@ export function JobsPage() {
   const [isLogExpanded, setIsLogExpanded] = useState<boolean>(false);
 
   const isLogExpandedRef = useRef<boolean>(false);
-  isLogExpandedRef.current = isLogExpanded;
   const activeModalSubjectFileRef = useRef<string | null>(null);
-  activeModalSubjectFileRef.current = activeModalSubjectFile;
   const [modalMetricsEvents, setModalMetricsEvents] = useState<PipelineEvent[]>([]);
+  const [reducedBatchImages, setReducedBatchImages] = useState<BatchImageItem[]>([]);
   const modalMetricsOffsetRef = useRef<number>(0);
   const prevModalSubjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    isLogExpandedRef.current = isLogExpanded;
+    activeModalSubjectFileRef.current = activeModalSubjectFile;
+  }, [isLogExpanded, activeModalSubjectFile]);
 
   // Reset accumulated telemetry whenever the modal subject changes (including
   // close). Byte offsets are per-file; reusing a stale offset from another
@@ -710,7 +723,7 @@ export function JobsPage() {
   const prevSelectedJobIdRef = useRef<string | null | undefined>(undefined);
   const eventsOffsetRef = useRef<number>(0);
   const logOffsetRef = useRef<number>(0);
-  const lastSyncedAtRef = useRef<number>(Date.now());
+  const [lastSyncedAt, setLastSyncedAt] = useState(() => Date.now());
   const currentJobIdRef = useRef<string | null>(null);
   const detailsAbortRef = useRef<AbortController | null>(null);
 
@@ -730,7 +743,6 @@ export function JobsPage() {
   }, []);
 
   const formValues = usePipelineFormStore((s) => s.formValues);
-  const remoteResult = useRemoteStore();
   const sshStatus = useRemoteStore((s) => s.sshStatus);
   const backendStatus = useRemoteStore((s) => s.backendStatus);
 
@@ -804,6 +816,7 @@ export function JobsPage() {
         logOffsetRef.current = 0;
         if (seq === reqSeqRef.current) {
           setJobEvents([]);
+          setReducedBatchImages([]);
           setOutputText('Log stream is idle.');
           setDetailsNotice(null);
           setActiveModalSubjectFile(null);
@@ -828,6 +841,7 @@ export function JobsPage() {
         logOffsetRef.current = 0;
         setIsLoadingDetails(true);
         setJobEvents([]);
+        setReducedBatchImages([]);
         setOutputText('');
         setDetailsNotice(null);
         setActiveModalSubjectFile(null);
@@ -905,7 +919,7 @@ export function JobsPage() {
               remote_job_dir: remoteJobDir,
               job_id: jobId,
               offset: eventOffset,
-              limit: 10000,
+              limit: EVENT_PAGE_SIZE,
               signal: controller.signal,
               timeoutMs: REMOTE_DETAIL_TIMEOUT_MS,
             })
@@ -948,7 +962,7 @@ export function JobsPage() {
           newLogText = logResult?.text || '';
           const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
           if (newMetrics.length > 0) {
-            setModalMetricsEvents((prev) => [...prev, ...newMetrics]);
+            setModalMetricsEvents((prev) => appendBoundedEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
           }
           if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
             modalMetricsOffsetRef.current = metRes.next_offset;
@@ -971,7 +985,7 @@ export function JobsPage() {
             notice = {type: 'info', message: 'No metric data recorded for this job (events.jsonl not found on the server).'};
           }
         } else {
-          const eventFetch = readEventsAsync({jobId, offset: eventOffset, limit: 100000, signal: controller.signal})
+          const eventFetch = readEventsAsync({jobId, offset: eventOffset, limit: EVENT_PAGE_SIZE, signal: controller.signal})
             .catch((err: unknown) =>
               isAbortError(err) && controller.signal.aborted
                 ? ({ok: false, aborted: true, events: []}) as EventsResult
@@ -998,7 +1012,7 @@ export function JobsPage() {
           newLogText = logResult?.text || '';
           const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
           if (newMetrics.length > 0) {
-            setModalMetricsEvents((prev) => [...prev, ...newMetrics]);
+            setModalMetricsEvents((prev) => appendBoundedEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
           }
           if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
             modalMetricsOffsetRef.current = metRes.next_offset;
@@ -1042,16 +1056,18 @@ export function JobsPage() {
       } finally {
         if (detailsAbortRef.current === controller) detailsAbortRef.current = null;
         if (seq === reqSeqRef.current) {
-          lastSyncedAtRef.current = Date.now();
+          setLastSyncedAt(Date.now());
           if (evRes && evRes.ok !== false && evRes.aborted !== true && !controller.signal.aborted) {
             useJobsStore.getState().setLastDetailRefreshAt(Date.now());
           }
           if (isInitial) {
             setJobEvents(newEvents);
+            setReducedBatchImages(deriveBatchImages(newEvents, targetJob || {}));
             setOutputText(newLogText ? capLogLines(newLogText) : '');
           } else {
             if (newEvents.length > 0) {
               appendJobEvents(newEvents);
+              setReducedBatchImages((previous) => reduceBatchImages(previous, newEvents, targetJob || {}));
             }
             if (newLogText) {
               appendOutputText(newLogText);
@@ -1370,7 +1386,8 @@ export function JobsPage() {
       });
     } else {
       queueMicrotask(() => {
-        setJobEvents([]);
+      setJobEvents([]);
+      setReducedBatchImages([]);
         setOutputText('Log stream is idle.');
         closeSubjectModal();
         setIsLoadingDetails(false);
@@ -1400,20 +1417,24 @@ export function JobsPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeSubjectModal]);
 
-  const jobsList = Array.isArray(latestJobs) ? latestJobs : [];
-  const rawJob = React.useMemo(
-    () => jobsList.find((j) => j && matchesJobId((j as {job_id?: string}).job_id, selectedJobId)) || null,
-    [jobsList, selectedJobId],
-  );
-  const job = rawJob as Record<string, unknown> | null;
+  const jobsList = latestJobs;
+  const jobSnapshot = selectedJobSnapshot;
+  const job = jobSnapshot === '{}' ? null : (JSON.parse(jobSnapshot) as Record<string, unknown>);
+  const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const stateStr = (job?.state as string) || 'unknown';
   const normState = normalizeJobState(stateStr);
   const isServerJob = String(job?.target || 'Local') === 'Server';
 
-  const safeEvents = Array.isArray(jobEvents) ? jobEvents : [];
-  const batchImages = React.useMemo(() => deriveBatchImages(safeEvents, job || {}), [safeEvents, job]);
+  const safeEvents = jobEvents;
+  const batchImages = React.useMemo(
+    () => reduceBatchImages(reducedBatchImages, [], JSON.parse(jobSnapshot) as Record<string, unknown>),
+    [reducedBatchImages, jobSnapshot],
+  );
   const batchSummary = React.useMemo(() => deriveBatchSummary(batchImages), [batchImages]);
-  const displayMeta = React.useMemo(() => deriveJobDisplayMetadata(job, safeEvents, batchImages), [job, safeEvents, batchImages]);
+  const displayMeta = React.useMemo(
+    () => deriveJobDisplayMetadata(JSON.parse(jobSnapshot) as Record<string, unknown>, safeEvents, batchImages),
+    [jobSnapshot, safeEvents, batchImages],
+  );
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
   useEffect(() => {
@@ -1445,10 +1466,11 @@ export function JobsPage() {
     return () => clearInterval(interval);
   }, [refreshJobs, selectedJobId, isTerminal, normState, backendDown]);
 
-  const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const selectedTools = React.useMemo(() => {
-    const fromJob = (reqSummary.selected_tools as Record<string, string>) || {};
-    const mode = String(reqSummary.pipeline_mode || job?.pipeline_mode || '');
+    const snapshot = JSON.parse(jobSnapshot) as Record<string, unknown>;
+    const summary = (snapshot.run_request_summary as Record<string, unknown>) || {};
+    const fromJob = (summary.selected_tools as Record<string, string>) || {};
+    const mode = String(summary.pipeline_mode || snapshot.pipeline_mode || '');
     const presets = (metadata?.presets || {}) as Record<string, {tools?: Record<string, string>}>;
 
     const presetMode = presets[mode]
@@ -1462,11 +1484,9 @@ export function JobsPage() {
 
     return fromJob;
   }, [
-    job?.pipeline_mode,
+    jobSnapshot,
     metadata?.pipeline_modes,
     metadata?.presets,
-    reqSummary.pipeline_mode,
-    reqSummary.selected_tools,
   ]);
   const stageOrder = metadata?.stage_order || DEFAULT_STAGE_ORDER;
   const stageLabels = React.useMemo(() => {
@@ -1479,7 +1499,7 @@ export function JobsPage() {
       });
     }
     return labels;
-  }, [metadata?.stages]);
+  }, [metadata]);
 
   const toolDisplayNames = React.useMemo(() => {
     const tools = (metadata?.tools || {}) as Record<string, {display_name?: string}>;
@@ -1499,10 +1519,6 @@ export function JobsPage() {
         toast.error(blocked);
         return;
       }
-      const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
-      const rawOutputDir = String(job?.effective_output_dir || job?.output_dir || '');
-      const remotePath =
-        rawOutputDir && rawOutputDir !== 'N/A' ? rawOutputDir : remoteJobDir ? `${remoteJobDir}/outputs` : '';
       setDownloadDialogOpen(true);
       setDownloadPhase('select');
       setDownloadSteps([]);
@@ -2617,7 +2633,7 @@ export function JobsPage() {
                         step={step}
                         isLast={idx === modalImageSteps.length - 1}
                         toolDisplayNames={toolDisplayNames}
-                        lastSyncedAt={lastSyncedAtRef.current}
+                        lastSyncedAt={lastSyncedAt}
                       />
                     ))}
                   </div>
@@ -2734,14 +2750,7 @@ export function JobsPage() {
       <DownloadOutputsDialog
         open={downloadDialogOpen}
         jobId={String(job?.job_id || '')}
-        remotePath={(() => {
-          const rawOutputDir = String(job?.server_output_dir || job?.remote_output_dir || job?.effective_output_dir || job?.output_dir || '');
-          if (rawOutputDir && rawOutputDir !== 'N/A') return rawOutputDir;
-          const remoteJobDir = String(job?.remote_job_dir || job?.job_dir || '');
-          return remoteJobDir ? `${remoteJobDir}/outputs` : '';
-        })()}
         localDir={downloadLocalDir}
-        onLocalDirChange={setDownloadLocalDir}
         phase={downloadPhase}
         steps={downloadSteps}
         logs={downloadLogs}
@@ -2842,17 +2851,6 @@ function StageStatusPill({status}: {status: string}) {
       {label}
     </span>
   );
-}
-
-function subjectAccentClasses(status: string) {
-  if (status === 'success')
-    return 'text-cursor-semantic-success border-cursor-semantic-success/25 bg-cursor-semantic-success/5';
-  if (status === 'failed')
-    return 'text-cursor-semantic-error border-cursor-semantic-error/25 bg-cursor-semantic-error/5';
-  if (status === 'stopped' || status === 'interrupted')
-    return 'text-cursor-semantic-warn border-cursor-semantic-warn/25 bg-cursor-semantic-warn/5';
-  if (status === 'running') return 'text-cursor-primary border-cursor-primary/25 bg-cursor-primary/5';
-  return 'text-cursor-muted border-cursor-hairline bg-cursor-canvas-soft';
 }
 
 function StageMetric({label, value}: {label: string; value: string}) {

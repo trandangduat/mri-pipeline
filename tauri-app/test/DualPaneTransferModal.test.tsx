@@ -1,5 +1,5 @@
 import React from 'react';
-import {render, screen, fireEvent, waitFor} from '@testing-library/react';
+import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -94,7 +94,7 @@ describe('DualPaneTransferModal', () => {
     mockRemoteMkdir.mockReturnValue({ok: true, path: '/remote/workspace/new_sub'});
   });
 
-  it('renders both Local Computer and Remote Server panes with entries', () => {
+  it('renders both Local Computer and Remote Server panes with entries', async () => {
     renderWithClient(
       <DualPaneTransferModal
         onClose={vi.fn()}
@@ -106,8 +106,8 @@ describe('DualPaneTransferModal', () => {
 
     expect(screen.getByText('Local Computer')).toBeInTheDocument();
     expect(screen.getByText('Remote Server (SSH)')).toBeInTheDocument();
-    expect(screen.getByText('scan1.nii.gz')).toBeInTheDocument();
-    expect(screen.getByText('existing_dir')).toBeInTheDocument();
+    expect(await screen.findByText('scan1.nii.gz')).toBeInTheDocument();
+    expect(await screen.findByText('existing_dir')).toBeInTheDocument();
   });
 
   it('allows selecting items on the left and uploading to the right remote directory', async () => {
@@ -122,7 +122,7 @@ describe('DualPaneTransferModal', () => {
     );
 
     // Select scan1.nii.gz
-    const checkbox = screen.getByLabelText('Select scan1.nii.gz');
+    const checkbox = await screen.findByLabelText('Select scan1.nii.gz');
     await user.click(checkbox);
 
     expect(screen.getByText('1 selected')).toBeInTheDocument();

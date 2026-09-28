@@ -12,9 +12,7 @@ export interface DownloadStep {
 interface Props {
   open: boolean;
   jobId: string;
-  remotePath: string;
   localDir: string;
-  onLocalDirChange: (path: string) => void;
   phase: 'select' | 'running' | 'success' | 'failed';
   steps: DownloadStep[];
   logs: string[];
@@ -38,9 +36,7 @@ function StepIcon({status}: {status: DownloadStep['status']}) {
 export function DownloadOutputsDialog({
   open,
   jobId,
-  remotePath,
   localDir,
-  onLocalDirChange,
   phase,
   steps,
   logs,

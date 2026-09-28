@@ -20,7 +20,7 @@ export async function probeConnectionHealth(formValues?: PipelineFormValues): Pr
   const health = () => useRemoteStore.getState();
   const client = new BackendClient(DEFAULT_BACKEND_URL);
 
-  let backendOk = health().backendStatus !== 'down';
+  let backendOk: boolean;
   try {
     await client.listLocalJobs();
     // Any usable HTTP answer (even `{ok: false}`) proves the backend is up.

@@ -1,6 +1,3 @@
-const pillBase =
-  'inline-flex w-fit items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em]';
-
 export const BUTTON = {
   base: 'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium leading-none transition-colors [&_svg]:block',
   primary:

@@ -7,6 +7,23 @@ from pathlib import Path
 from pipeline.config import PROJECT_ROOT
 
 
+def resource_root() -> Path:
+    """Return immutable application resources.
+
+    Packaged launches set this to the sidecar's resource directory. Source
+    launches retain the repository root, which keeps developer workflows and
+    tests independent of an installer layout.
+    """
+    raw = os.environ.get("NEUROFLOW_RESOURCE_ROOT")
+    if raw:
+        return Path(raw).expanduser()
+    # Legacy portable launchers supplied one root for both code and mutable
+    # state. Preserve that source-compatible behaviour; packaged launches use
+    # the explicit immutable resource root above.
+    root = portable_root()
+    return root if root is not None else PROJECT_ROOT
+
+
 def portable_root() -> Path | None:
     raw = os.environ.get("NEUROFLOW_PORTABLE_ROOT")
     if raw:
@@ -14,34 +31,42 @@ def portable_root() -> Path | None:
     return None
 
 
+def data_root() -> Path:
+    """Return the writable per-user state root.
+
+    NEUROFLOW_PORTABLE_ROOT remains a compatibility alias for the opt-in
+    portable layout; installed applications always receive DATA_ROOT from the
+    native shell and never write into signed resources.
+    """
+    raw = os.environ.get("NEUROFLOW_DATA_ROOT")
+    if raw:
+        return Path(raw).expanduser()
+    root = portable_root()
+    if root is not None:
+        return root
+    return PROJECT_ROOT
+
+
 def config_root() -> Path:
     raw = os.environ.get("NEUROFLOW_CONFIG_ROOT")
     if raw:
         return Path(raw)
-    root = portable_root()
-    if root is not None:
-        return root / "config"
-    return PROJECT_ROOT / "configs"
+    root = data_root()
+    return root / ("config" if portable_root() is not None or os.environ.get("NEUROFLOW_DATA_ROOT") else "configs")
 
 
 def jobs_root() -> Path:
     raw = os.environ.get("NEUROFLOW_JOBS_ROOT")
     if raw:
         return Path(raw)
-    root = portable_root()
-    if root is not None:
-        return root / "outputs" / "jobs"
-    return PROJECT_ROOT / "outputs" / "jobs"
+    return data_root() / "outputs" / "jobs"
 
 
 def license_root() -> Path:
     raw = os.environ.get("NEUROFLOW_LICENSE_ROOT")
     if raw:
         return Path(raw)
-    root = portable_root()
-    if root is not None:
-        return root / "licenses"
-    return config_root() / "licenses"
+    return data_root() / "licenses"
 
 
 def is_frozen() -> bool:
@@ -55,8 +80,14 @@ def worker_command(job_config_path: str) -> list[str]:
 
 
 def backend_cwd() -> Path:
-    root = portable_root()
-    if root is not None:
+    # Portable launchers historically use their root as the working directory,
+    # even before it has been created.  Keep that contract ahead of the
+    # installed layout, where the native shell supplies RESOURCE_ROOT.
+    portable = portable_root()
+    if portable is not None:
+        return portable
+    root = resource_root()
+    if root.exists():
         return root
     if is_frozen():
         return Path(sys.executable).parent

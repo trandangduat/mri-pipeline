@@ -1,10 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
-import '@fontsource/geist-sans/400.css';
-import '@fontsource/geist-sans/500.css';
-import '@fontsource/geist-sans/600.css';
-import '@fontsource/geist-sans/700.css';
 import '@fontsource/jetbrains-mono/latin-400.css';
 import '@fontsource/jetbrains-mono/latin-500.css';
 import {App} from './App';
@@ -14,8 +10,10 @@ import {useToolsStore} from './stores/toolsStore';
 import {queryClient} from './query/queryClient';
 
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  (window as any).__stores = {usePipelineFormStore, useRemoteStore, useToolsStore};
-  (window as any).__queryClient = queryClient;
+  Object.assign(window, {
+    __stores: {usePipelineFormStore, useRemoteStore, useToolsStore},
+    __queryClient: queryClient,
+  });
 }
 
 const container = document.getElementById('root');

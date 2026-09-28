@@ -22,9 +22,11 @@ From the project root:
 This will:
 
 1. Build `neuroflow-backend` with PyInstaller one-dir mode.
-2. Copy it into `tauri-app/src-tauri/backend/` for Tauri bundling.
+2. Stage the complete one-directory backend at `build/tauri-resources/backend/` for Tauri bundling.
 3. Run `npm run tauri build`.
-4. Produce the Tauri macOS output under `tauri-app/src-tauri/target/release/bundle/`.
+4. Produce a single-download DMG under `tauri-app/src-tauri/target/release/bundle/dmg/`.
+
+Use a native Apple Silicon machine for arm64 and an Intel machine for x64. Each DMG contains a macOS application bundle with the native backend; macOS cannot use one executable that runs on both CPU architectures.
 
 ## End User Requirements
 

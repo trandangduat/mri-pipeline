@@ -163,9 +163,11 @@ def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path)
     code = job_worker._run_job(tmp_path, req)
     assert code == 0
 
-    events_file = tmp_path / "events.jsonl"
-    assert events_file.exists()
-    lines = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    # Metrics have a dedicated append-only stream so progress polling does
+    # not repeatedly transfer high-frequency telemetry with lifecycle events.
+    metrics_file = tmp_path / "metrics.jsonl"
+    assert metrics_file.exists()
+    lines = [json.loads(line) for line in metrics_file.read_text(encoding="utf-8").splitlines() if line.strip()]
     metrics_events = [ev for ev in lines if ev.get("kind") == "metrics"]
     assert len(metrics_events) == 1
     assert metrics_events[0]["subject_id"] == "sub-01"

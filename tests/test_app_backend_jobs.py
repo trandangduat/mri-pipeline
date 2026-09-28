@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from pathlib import Path
+
+import pytest
 
 from app_backend.jobs import LocalJobService, ProcessHandle
 from pipeline.jobs import read_json
@@ -179,7 +183,13 @@ def test_stop_local_job_rejects_symlink_stop_marker(tmp_path: Path) -> None:
     assert isinstance(job, dict)
     outside = tmp_path / "outside"
     outside.write_text("do not touch", encoding="utf-8")
-    Path(str(job["job_dir"]), "stop_requested").symlink_to(outside)
+    stop_marker = Path(str(job["job_dir"]), "stop_requested")
+    try:
+        stop_marker.symlink_to(outside)
+    except OSError as error:
+        if os.name == "nt":
+            pytest.skip(f"Windows symlink creation is unavailable: {error}")
+        raise
 
     result = service.stop_local_job(str(job["job_id"]))
 
@@ -216,3 +226,36 @@ def test_read_json_returns_default_for_malformed_registry(tmp_path: Path) -> Non
     path.write_text('{"jobs": [\n  {"job_id" "missing colon"}\n]}', encoding="utf-8")
 
     assert read_json(path, {"jobs": []}) == {"jobs": []}
+
+
+def test_concurrent_starts_keep_every_registry_entry_and_redact_ssh_passwords(tmp_path: Path) -> None:
+    service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 123.0)
+    barrier = threading.Barrier(20)
+    results: list[dict[str, object]] = []
+    result_lock = threading.Lock()
+
+    def start() -> None:
+        barrier.wait()
+        result = service.start_local_job(_request(tmp_path))
+        with result_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=start) for _ in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(results) == 20
+    registry = json.loads((tmp_path / "jobs" / "job_registry.json").read_text(encoding="utf-8"))
+    assert len(registry["jobs"]) == 20
+
+    service.upsert_remote_job(
+        "remote_1",
+        "/remote/job_1",
+        "running",
+        {"host": "server", "password": "secret"},
+        {"output_dir": "/outputs"},
+    )
+    raw = (tmp_path / "jobs" / "job_registry.json").read_text(encoding="utf-8")
+    assert "secret" not in raw

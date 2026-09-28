@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   package-windows:
-    name: Build Windows portable package
+    name: Build unsigned Windows NSIS test installer
     runs-on: windows-latest
     timeout-minutes: 90
 
@@ -39,26 +39,32 @@ jobs:
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
 
-      - name: Build portable package
+      - name: Build Windows package
         shell: pwsh
+        env:
+          CI: true
+          NEUROFLOW_TAURI_BUNDLES: nsis
         run: |
-          powershell -ExecutionPolicy Bypass -File .\packaging\windows\build-portable.ps1 -ProjectRoot $PWD
+          powershell -ExecutionPolicy Bypass -File .\packaging\windows\build-app.ps1 -ProjectRoot $PWD
 
-      - name: Compress portable package
+      - name: Stage NSIS installer
         shell: pwsh
         run: |
-          $portableDir = Join-Path $PWD "dist-portable\windows\NeuroFlowPortable"
-          $zipPath = Join-Path $PWD "dist-portable\windows\NeuroFlowPortable-${{ github.sha }}.zip"
-          if (-not (Test-Path $portableDir)) {
-            throw "Portable output not found: $portableDir"
+          $installer = Get-ChildItem -Path "tauri-app\src-tauri\target\release\bundle\nsis" -Filter "*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "NSIS installer not found under tauri-app\src-tauri\target\release\bundle\nsis"
           }
-          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $zipPath -Force
-          Write-Host "Created $zipPath"
+          New-Item -ItemType Directory -Path "dist-release" -Force | Out-Null
+          $output = Join-Path $PWD "dist-release\NeuroFlow-Windows-x64-${{ github.sha }}.exe"
+          Copy-Item $installer.FullName $output -Force
+          (Get-FileHash -Algorithm SHA256 $output).Hash.ToLowerInvariant() + "  " + [System.IO.Path]::GetFileName($output) | Set-Content -NoNewline "$output.sha256"
 
-      - name: Upload portable artifact
+      - name: Upload unsigned NSIS test installer
         uses: actions/upload-artifact@v4
         with:
-          name: NeuroFlowPortable-Windows-${{ github.sha }}
-          path: dist-portable/windows/NeuroFlowPortable-${{ github.sha }}.zip
+          name: NeuroFlow-Windows-x64-unsigned-test-${{ github.sha }}
+          path: |
+            dist-release/NeuroFlow-Windows-x64-${{ github.sha }}.exe
+            dist-release/NeuroFlow-Windows-x64-${{ github.sha }}.exe.sha256
           if-no-files-found: error
           retention-days: 14

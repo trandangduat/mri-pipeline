@@ -24,6 +24,20 @@ interface JobsState {
 }
 
 const MAX_LOG_LINES = 5000;
+export const MAX_JOB_EVENTS = 4000;
+
+/**
+ * Append a bounded event tail without retaining the full history in memory.
+ * The returned array is always chronological. Callers that need durable
+ * summaries should reduce their incoming events before using this helper.
+ */
+export function appendBoundedEvents<T>(current: readonly T[], incoming: readonly T[], limit: number): T[] {
+  if (limit <= 0) return [];
+  if (incoming.length >= limit) return Array.from(incoming.slice(-limit));
+  const overflow = current.length + incoming.length - limit;
+  if (overflow <= 0) return [...current, ...incoming];
+  return [...current.slice(overflow), ...incoming];
+}
 
 export function capLogLines(text: string, maxLines: number = MAX_LOG_LINES): string {
   if (!text) return '';
@@ -55,7 +69,11 @@ export const useJobsStore = create<JobsState>((set) => ({
     })),
   setJobEvents: (jobEvents) =>
     set((state) => ({
-      jobEvents: typeof jobEvents === 'function' ? jobEvents(state.jobEvents) : jobEvents,
+      jobEvents: appendBoundedEvents(
+        [],
+        typeof jobEvents === 'function' ? jobEvents(state.jobEvents) : jobEvents,
+        MAX_JOB_EVENTS,
+      ),
     })),
   setJobLogSearch: (jobLogSearch) => set({jobLogSearch}),
   setOutputText: (outputText) =>
@@ -65,7 +83,7 @@ export const useJobsStore = create<JobsState>((set) => ({
     }),
   appendJobEvents: (events) =>
     set((state) => ({
-      jobEvents: [...state.jobEvents, ...events],
+      jobEvents: appendBoundedEvents(state.jobEvents, events, MAX_JOB_EVENTS),
     })),
   appendOutputText: (text) =>
     set((state) => {

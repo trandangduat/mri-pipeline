@@ -27,15 +27,16 @@
   "bundle": {
     "icon": [
       "icons/icon.ico",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.icns"
     ],
-    "resources": [
-      "../../app_backend",
-      "../../pipeline",
-      "../../remote",
-      "../../configs/neuroflow",
-      "../../pipeline_runner.py",
-      "../../requirements.txt"
-    ]
+    "resources": {
+      "../../build/tauri-resources/backend": "backend"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
   }
 }

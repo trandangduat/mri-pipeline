@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, State, WindowEvent};
 
 struct BackendSidecar {
     child: Mutex<Option<Child>>,
+    api_token: String,
 }
 
 #[derive(Debug)]
@@ -22,11 +23,13 @@ impl BackendSidecar {
     fn start(
         resource_dir: Option<PathBuf>,
         app_dir: Option<PathBuf>,
+        api_token: String,
     ) -> Result<(Self, String), std::io::Error> {
-        let (child, runtime) = spawn_backend(resource_dir, app_dir)?;
+        let (child, runtime) = spawn_backend(resource_dir, app_dir, &api_token)?;
         Ok((
             Self {
                 child: Mutex::new(Some(child)),
+                api_token,
             },
             runtime,
         ))
@@ -56,15 +59,16 @@ fn sidecar_owns_backend(is_development: bool) -> bool {
     !is_development
 }
 
-fn portable_root_for_backend(exe_path: &Path, app_dir: Option<&Path>) -> PathBuf {
+fn data_root_for_backend(exe_path: &Path, app_dir: Option<&Path>) -> PathBuf {
     if let Ok(root) = std::env::var("NEUROFLOW_PORTABLE_ROOT") {
         return PathBuf::from(root);
     }
-    if let Some(exe_dir) = exe_path.parent() {
-        if exe_dir.file_name().and_then(|name| name.to_str()) == Some("backend") {
-            if let Some(portable_dir) = exe_dir.parent() {
-                return portable_dir.to_path_buf();
-            }
+    if let (Ok(main_exe), Some(backend_dir)) = (std::env::current_exe(), exe_path.parent()) {
+        // Only the opt-in portable layout keeps the desktop executable beside
+        // backend/. Installed bundles keep the executable and resource folder
+        // separate, so their mutable data stays in app-data.
+        if main_exe.parent() == backend_dir.parent() {
+            return backend_dir.parent().unwrap_or(backend_dir).to_path_buf();
         }
     }
     app_dir
@@ -112,10 +116,14 @@ fn backend_executable_name() -> &'static str {
     }
 }
 
-fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Result<(Child, String), std::io::Error> {
+fn spawn_backend(
+    resource_dir: Option<PathBuf>,
+    app_dir: Option<PathBuf>,
+    api_token: &str,
+) -> Result<(Child, String), std::io::Error> {
     if let Some(ref resources) = resource_dir {
         if let Some(exe_path) = find_backend_exe(resources) {
-            return spawn_frozen_backend(exe_path, app_dir.as_deref());
+            return spawn_frozen_backend(exe_path, app_dir.as_deref(), api_token);
         }
     }
     Err(std::io::Error::new(
@@ -124,20 +132,30 @@ fn spawn_backend(resource_dir: Option<PathBuf>, app_dir: Option<PathBuf>) -> Res
     ))
 }
 
-fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<(Child, String), std::io::Error> {
-    let portable_root = portable_root_for_backend(&exe_path, app_dir);
+fn spawn_frozen_backend(
+    exe_path: PathBuf,
+    app_dir: Option<&Path>,
+    api_token: &str,
+) -> Result<(Child, String), std::io::Error> {
+    let data_root = data_root_for_backend(&exe_path, app_dir);
+    let resource_root = pyinstaller_resource_root(&exe_path)?;
 
-    let config_root = portable_root.join("config");
-    let jobs_root = portable_root.join("outputs").join("jobs");
-    let license_root = portable_root.join("licenses");
-    let (stdout, stderr) = backend_log_stdio(&portable_root);
+    let config_root = data_root.join("config");
+    let jobs_root = data_root.join("outputs").join("jobs");
+    let license_root = data_root.join("licenses");
+    let (stdout, stderr) = backend_log_stdio(&data_root);
 
     let mut cmd = Command::new(&exe_path);
     cmd.args(["server", "--host", "127.0.0.1", "--port", "8765"])
-        .env("NEUROFLOW_PORTABLE_ROOT", &portable_root)
+        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONPATH")
+        .env_remove("NEUROFLOW_PORTABLE_ROOT")
+        .env("NEUROFLOW_RESOURCE_ROOT", &resource_root)
+        .env("NEUROFLOW_DATA_ROOT", &data_root)
         .env("NEUROFLOW_CONFIG_ROOT", &config_root)
         .env("NEUROFLOW_JOBS_ROOT", &jobs_root)
         .env("NEUROFLOW_LICENSE_ROOT", &license_root)
+        .env("NEUROFLOW_API_TOKEN", api_token)
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
@@ -146,10 +164,35 @@ fn spawn_frozen_backend(exe_path: PathBuf, app_dir: Option<&Path>) -> Result<(Ch
     cmd.spawn().map(|child| (child, runtime))
 }
 
-fn wait_for_backend_capabilities() -> Result<(), (Vec<String>, String)> {
+/// PyInstaller 6 one-directory bundles put all collected data below
+/// ``_internal``.  The sidecar must use that directory as its immutable
+/// resource root; using the executable's parent works in source-like folders
+/// but loses every packaged atlas/configuration at runtime.
+fn pyinstaller_resource_root(exe_path: &Path) -> Result<PathBuf, std::io::Error> {
+    let backend_root = exe_path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Bundled NeuroFlow backend has no parent directory.",
+        )
+    })?;
+    let resource_root = backend_root.join("_internal");
+    if resource_root.is_dir() {
+        Ok(resource_root)
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "Bundled NeuroFlow resources are missing: {}",
+                resource_root.display()
+            ),
+        ))
+    }
+}
+
+fn wait_for_backend_capabilities(api_token: &str) -> Result<(), (Vec<String>, String)> {
     let mut last_error = "The application backend did not answer its health check.".to_string();
     for attempt in 0..20 {
-        match backend_capabilities() {
+        match backend_capabilities(api_token) {
             Ok(()) => return Ok(()),
             Err((missing, detail)) if !missing.is_empty() => return Err((missing, detail)),
             Err((_, detail)) => last_error = detail,
@@ -161,12 +204,16 @@ fn wait_for_backend_capabilities() -> Result<(), (Vec<String>, String)> {
     Err((Vec::new(), last_error))
 }
 
-fn backend_capabilities() -> Result<(), (Vec<String>, String)> {
+fn backend_capabilities(api_token: &str) -> Result<(), (Vec<String>, String)> {
     let health = backend_json("/health").map_err(|error| (Vec::new(), error))?;
     if health.get("ok").and_then(|value| value.as_bool()) != Some(true) {
-        return Err((Vec::new(), "The application backend health check did not succeed.".to_string()));
+        return Err((
+            Vec::new(),
+            "The application backend health check did not succeed.".to_string(),
+        ));
     }
-    let capabilities = backend_json("/capabilities/runtime").map_err(|error| (Vec::new(), error))?;
+    let capabilities = backend_json_with_token("/capabilities/runtime", api_token)
+        .map_err(|error| (Vec::new(), error))?;
     if capabilities.get("ok").and_then(|value| value.as_bool()) == Some(true) {
         return Ok(());
     }
@@ -176,16 +223,29 @@ fn backend_capabilities() -> Result<(), (Vec<String>, String)> {
         .map(|components| {
             components
                 .iter()
-                .filter(|component| component.get("ok").and_then(|value| value.as_bool()) != Some(true))
+                .filter(|component| {
+                    component.get("ok").and_then(|value| value.as_bool()) != Some(true)
+                })
                 .filter_map(|component| component.get("label").and_then(|value| value.as_str()))
                 .map(str::to_string)
                 .collect()
         })
         .unwrap_or_default();
-    Err((missing, "Required application backend components are unavailable.".to_string()))
+    Err((
+        missing,
+        "Required application backend components are unavailable.".to_string(),
+    ))
 }
 
 fn backend_json(path: &str) -> Result<serde_json::Value, String> {
+    backend_json_request(path, None)
+}
+
+fn backend_json_with_token(path: &str, api_token: &str) -> Result<serde_json::Value, String> {
+    backend_json_request(path, Some(api_token))
+}
+
+fn backend_json_request(path: &str, api_token: Option<&str>) -> Result<serde_json::Value, String> {
     let address = "127.0.0.1:8765".parse().expect("valid loopback address");
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(300))
         .map_err(|error| format!("Cannot reach the application backend: {error}"))?;
@@ -193,7 +253,15 @@ fn backend_json(path: &str) -> Result<serde_json::Value, String> {
         .set_read_timeout(Some(Duration::from_millis(500)))
         .map_err(|error| format!("Cannot configure the application backend connection: {error}"))?;
     stream
-        .write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").as_bytes())
+        .write_all(
+            format!(
+                "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{}Connection: close\r\n\r\n",
+                api_token
+                    .map(|token| format!("Authorization: Bearer {token}\r\n"))
+                    .unwrap_or_default(),
+            )
+            .as_bytes(),
+        )
         .map_err(|error| format!("Cannot request application backend status: {error}"))?;
     let mut response = String::new();
     stream
@@ -203,9 +271,25 @@ fn backend_json(path: &str) -> Result<serde_json::Value, String> {
         .split_once("\r\n\r\n")
         .ok_or_else(|| "The application backend returned an invalid response.".to_string())?;
     if !headers.starts_with("HTTP/1.1 200") {
-        return Err(format!("The application backend returned {}.", headers.lines().next().unwrap_or("an invalid status")));
+        return Err(format!(
+            "The application backend returned {}.",
+            headers.lines().next().unwrap_or("an invalid status")
+        ));
     }
-    serde_json::from_str(body).map_err(|error| format!("The application backend returned invalid status data: {error}"))
+    serde_json::from_str(body)
+        .map_err(|error| format!("The application backend returned invalid status data: {error}"))
+}
+
+fn generate_api_token() -> Result<String, std::io::Error> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[tauri::command]
+fn backend_token(sidecar: State<'_, BackendSidecar>) -> String {
+    sidecar.api_token.clone()
 }
 
 fn startup_failure_message(failure: &StartupFailure) -> (String, String) {
@@ -217,7 +301,10 @@ fn startup_failure_message(failure: &StartupFailure) -> (String, String) {
     let components = if failure.missing_components.is_empty() {
         String::new()
     } else {
-        format!("\n\nMissing components: {}", failure.missing_components.join(", "))
+        format!(
+            "\n\nMissing components: {}",
+            failure.missing_components.join(", ")
+        )
     };
     let remediation = "\n\nRepair or reinstall NeuroFlow, then start the application again.";
     (
@@ -283,19 +370,17 @@ pub fn run() {
             if !sidecar_owns_backend(is_development_build()) {
                 app.manage(BackendSidecar {
                     child: Mutex::new(None),
+                    api_token: String::new(),
                 });
                 return Ok(());
             }
             let resource_dir = app.path().resource_dir().ok();
-            let app_dir = app
-                .path()
-                .app_data_dir()
-                .ok()
-                .and_then(|d| d.parent().map(PathBuf::from));
-            let (sidecar, runtime) = match BackendSidecar::start(
-                resource_dir,
-                app_dir,
-            ) {
+            let app_dir = app.path().app_data_dir().ok();
+            let api_token = match generate_api_token() {
+                Ok(token) => token,
+                Err(error) => return Err(error.into()),
+            };
+            let (sidecar, runtime) = match BackendSidecar::start(resource_dir, app_dir, api_token) {
                 Ok(started) => started,
                 Err(error) => {
                     let failure = StartupFailure {
@@ -307,7 +392,9 @@ pub fn run() {
                     return Err(error.into());
                 }
             };
-            if let Err((missing_components, detail)) = wait_for_backend_capabilities() {
+            if let Err((missing_components, detail)) =
+                wait_for_backend_capabilities(&sidecar.api_token)
+            {
                 let failure = StartupFailure {
                     runtime,
                     missing_components,
@@ -320,6 +407,7 @@ pub fn run() {
             app.manage(sidecar);
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![backend_token])
         .run(tauri::generate_context!())
         .expect("error while running MRI Pipeline Tauri application");
 }
@@ -327,8 +415,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        backend_executable_name, find_backend_exe, find_resource_backend_root,
-        portable_root_for_backend, sidecar_owns_backend, startup_failure_message, StartupFailure,
+        backend_executable_name, data_root_for_backend, find_backend_exe,
+        find_resource_backend_root, pyinstaller_resource_root, sidecar_owns_backend,
+        startup_failure_message, StartupFailure,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -388,14 +477,43 @@ mod tests {
     }
 
     #[test]
-    fn portable_root_uses_parent_of_backend_dir() {
+    fn portable_layout_uses_sibling_data_directory() {
         let portable = test_dir("portable-root");
         let exe_path = portable.join("backend").join(backend_executable_name());
         fs::create_dir_all(exe_path.parent().unwrap()).unwrap();
 
-        let root = portable_root_for_backend(&exe_path, Some(Path::new("/tmp/app-data")));
+        let root = data_root_for_backend(&exe_path, Some(&portable));
 
+        // The test process itself is not inside the portable directory, so an
+        // installed layout must still prefer its application-data directory.
         assert_eq!(root, portable);
+    }
+
+    #[test]
+    fn uses_pyinstaller_internal_directory_for_immutable_resources() {
+        let backend_root = test_dir("pyinstaller-internal-root");
+        let executable = backend_root.join(backend_executable_name());
+        fs::write(&executable, b"fake").unwrap();
+        let internal = backend_root.join("_internal");
+        fs::create_dir_all(&internal).unwrap();
+        fs::write(internal.join("normalize_volumes.py"), b"# bundled").unwrap();
+
+        let root = pyinstaller_resource_root(&executable).unwrap();
+
+        assert_eq!(root, internal);
+        assert!(root.join("normalize_volumes.py").is_file());
+    }
+
+    #[test]
+    fn rejects_backend_layout_without_pyinstaller_internal_resources() {
+        let backend_root = test_dir("missing-pyinstaller-internal-root");
+        let executable = backend_root.join(backend_executable_name());
+        fs::write(&executable, b"fake").unwrap();
+
+        let error = pyinstaller_resource_root(&executable).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("_internal"));
     }
 
     #[test]
@@ -420,10 +538,8 @@ mod tests {
     }
 
     fn test_dir(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "mri-pipeline-tauri-{name}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("mri-pipeline-tauri-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("failed to create temp test dir");
         path

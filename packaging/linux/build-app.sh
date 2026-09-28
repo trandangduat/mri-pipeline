@@ -14,7 +14,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 1
 fi
 
-echo "[1/5] Checking prerequisites..."
+echo "[1/6] Checking prerequisites..."
 for cmd in node npm cargo python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "$cmd is required but not found." >&2
@@ -24,57 +24,41 @@ for cmd in node npm cargo python3; do
 done
 echo ""
 
-echo "[2/5] Building backend executable..."
+echo "[2/6] Building backend executable..."
 "$SCRIPT_DIR/build-backend.sh" "$PROJECT_ROOT"
 echo ""
 
-echo "[3/5] Preparing Tauri backend resources..."
+echo "[3/6] Preparing Tauri backend resources..."
 TAURI_APP_DIR="$PROJECT_ROOT/tauri-app"
 TAURI_SRC_DIR="$TAURI_APP_DIR/src-tauri"
-BACKEND_RESOURCE_DIR="$TAURI_SRC_DIR/backend"
+BACKEND_RESOURCE_DIR="$PROJECT_ROOT/build/tauri-resources/backend"
 rm -rf "$BACKEND_RESOURCE_DIR"
+mkdir -p "$(dirname "$BACKEND_RESOURCE_DIR")"
 cp -R "$PROJECT_ROOT/dist/neuroflow-backend" "$BACKEND_RESOURCE_DIR"
 chmod +x "$BACKEND_RESOURCE_DIR/neuroflow-backend"
 echo "  Copied backend to: $BACKEND_RESOURCE_DIR"
 echo ""
 
-echo "[4/5] Installing frontend dependencies..."
-if [[ ! -d "$TAURI_APP_DIR/node_modules" ]]; then
-  (cd "$TAURI_APP_DIR" && npm install)
+echo "[4/6] Installing frontend dependencies..."
+if [[ "${CI:-}" == "true" || ! -d "$TAURI_APP_DIR/node_modules" ]]; then
+  (cd "$TAURI_APP_DIR" && npm ci)
 else
   echo "  node_modules exists, skipping install."
 fi
 echo ""
 
-echo "[5/6] Preparing app icon..."
+echo "[5/6] Checking app icon..."
 ICON_PNG="$TAURI_SRC_DIR/icons/icon.png"
-ICON_ICO="$TAURI_SRC_DIR/icons/icon.ico"
-if [[ ! -f "$ICON_ICO" ]]; then
-  if [[ ! -f "$ICON_PNG" ]]; then
-    echo "Missing icon source: $ICON_PNG" >&2
-    exit 1
-  fi
-  if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
-    ICON_PYTHON="$PROJECT_ROOT/.venv/bin/python"
-  else
-    ICON_PYTHON="python3"
-  fi
-  "$ICON_PYTHON" - "$ICON_PNG" "$ICON_ICO" <<'PY'
-from PIL import Image
-import sys
-
-src, dst = sys.argv[1], sys.argv[2]
-img = Image.open(src).convert("RGBA")
-img.save(dst, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-PY
-  echo "  Generated icon.ico"
-else
-  echo "  icon.ico exists"
+if [[ ! -f "$ICON_PNG" ]]; then
+  echo "Missing Linux application icon: $ICON_PNG" >&2
+  exit 1
 fi
+echo "  icon.png exists"
 echo ""
 
 echo "[6/6] Building Tauri app..."
-(cd "$TAURI_APP_DIR" && npm run tauri build)
+TAURI_BUNDLES="${NEUROFLOW_TAURI_BUNDLES:-appimage}"
+(cd "$TAURI_APP_DIR" && npm run tauri build -- --bundles "$TAURI_BUNDLES")
 echo ""
 
 BUNDLE_DIR="$TAURI_SRC_DIR/target/release/bundle"

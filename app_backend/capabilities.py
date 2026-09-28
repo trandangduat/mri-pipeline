@@ -7,10 +7,7 @@ from typing import Any
 
 
 REQUIRED_DEPENDENCIES = (
-    ("pandas", "Pandas"),
-    ("PIL", "Pillow"),
     ("paramiko", "Paramiko"),
-    ("psutil", "Psutil"),
     ("yaml", "PyYAML"),
 )
 

@@ -19,6 +19,8 @@ from app_backend.remote import RemoteJobService
 from app_backend.server import make_server
 from app_backend.tools import LocalToolService
 
+TEST_API_TOKEN = "test-sidecar-token"
+
 
 class FakeProcessRunner:
     def __init__(self, pid: int = 2468) -> None:
@@ -45,6 +47,7 @@ def _serve_in_thread(
         local_tool_service=local_tool_service,
         local_environment_service=local_environment_service,
         license_store=license_store,
+        api_token=TEST_API_TOKEN,
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -52,13 +55,13 @@ def _serve_in_thread(
 
 
 def _get_json(url: str) -> dict[str, object]:
-    with urlopen(url, timeout=5) as response:
+    with urlopen(Request(url, headers={"Authorization": f"Bearer {TEST_API_TOKEN}"}), timeout=5) as response:
         assert response.headers["Content-Type"].startswith("application/json")
         return json.loads(response.read().decode("utf-8"))
 
 
 def _get_with_origin(url: str) -> tuple[int, str | None, dict[str, object]]:
-    request = Request(url, headers={"Origin": "http://127.0.0.1:1420"})
+    request = Request(url, headers={"Origin": "http://127.0.0.1:1420", "Authorization": f"Bearer {TEST_API_TOKEN}"})
     with urlopen(request, timeout=5) as response:
         return response.status, response.headers.get("Access-Control-Allow-Origin"), json.loads(response.read().decode("utf-8"))
 
@@ -67,7 +70,7 @@ def _post_json(url: str, payload: dict[str, object]) -> dict[str, object]:
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {TEST_API_TOKEN}"},
         method="POST",
     )
     with urlopen(request, timeout=5) as response:
@@ -79,7 +82,7 @@ def _post_raw(url: str, body: bytes, content_type: str) -> tuple[int, dict[str, 
     request = Request(
         url,
         data=body,
-        headers={"Content-Type": content_type},
+        headers={"Content-Type": content_type, "Authorization": f"Bearer {TEST_API_TOKEN}"},
         method="POST",
     )
     try:
@@ -95,6 +98,7 @@ def _post_declared_oversized_json(url: str) -> tuple[int, dict[str, object]]:
     try:
         connection.putrequest("POST", parsed.path)
         connection.putheader("Content-Type", "application/json")
+        connection.putheader("Authorization", f"Bearer {TEST_API_TOKEN}")
         connection.putheader("Content-Length", "1000001")
         connection.endheaders()
         response = connection.getresponse()
@@ -107,7 +111,7 @@ def _request_without_body(method: str, url: str) -> tuple[int, str, dict[str, ob
     parsed = urlparse(url)
     connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
     try:
-        connection.request(method, parsed.path)
+        connection.request(method, parsed.path, headers={"Authorization": f"Bearer {TEST_API_TOKEN}"})
         response = connection.getresponse()
         return response.status, response.getheader("Content-Type", ""), json.loads(response.read().decode("utf-8"))
     finally:
@@ -166,16 +170,44 @@ def test_sidecar_allows_tauri_dev_origin_and_json_preflight() -> None:
     try:
         status, origin, payload = _get_with_origin(f"{base_url}/health")
         assert status == 200
-        assert origin == "*"
+        assert origin == "http://127.0.0.1:1420"
         assert payload["ok"] is True
         assert payload["service"] == "mri-pipeline-backend"
         assert isinstance(payload["pid"], int)
 
         options_status, options_origin, options_headers = _options(f"{base_url}/run-request/prepare")
         assert options_status == 204
-        assert options_origin == "*"
+        assert options_origin == "http://127.0.0.1:1420"
         assert options_headers is not None
         assert "Content-Type" in options_headers
+        assert "Authorization" in options_headers
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_sidecar_rejects_privileged_requests_without_a_token_or_from_an_untrusted_origin() -> None:
+    server, thread, base_url = _serve_in_thread()
+    try:
+        try:
+            urlopen(f"{base_url}/metadata", timeout=5)
+        except HTTPError as exc:
+            assert exc.code == 401
+            assert json.loads(exc.read().decode("utf-8")) == {"ok": False, "error": "Backend authorization required"}
+        else:
+            raise AssertionError("Expected unauthenticated metadata request to fail")
+
+        request = Request(
+            f"{base_url}/metadata",
+            headers={"Authorization": f"Bearer {TEST_API_TOKEN}", "Origin": "https://attacker.example"},
+        )
+        try:
+            urlopen(request, timeout=5)
+        except HTTPError as exc:
+            assert exc.code == 403
+            assert json.loads(exc.read().decode("utf-8")) == {"ok": False, "error": "Origin is not allowed"}
+        else:
+            raise AssertionError("Expected untrusted browser origin to fail")
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -229,7 +261,9 @@ def test_sidecar_uploads_license_file_to_backend_store(tmp_path: Path) -> None:
 
 def test_sidecar_local_job_start_list_and_stop_endpoints(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
+    license_file = tmp_path / "license.txt"
     image.write_text("fake", encoding="utf-8")
+    license_file.write_text("license", encoding="utf-8")
     service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=FakeProcessRunner(), clock=lambda: 456.0)
     server, thread, base_url = _serve_in_thread(service)
     try:
@@ -237,12 +271,13 @@ def test_sidecar_local_job_start_list_and_stop_endpoints(tmp_path: Path) -> None
             f"{base_url}/jobs/local/start",
             {
                 "run_request": {
-                    "mode": "file",
-                    "input_file": str(image),
+                    "input_mode": "file",
+                    "input_path": str(image),
                     "output_dir": str(tmp_path / "outputs"),
                     "effective_output_dir": str(tmp_path / "outputs"),
                     "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
                     "pipeline_mode": "Custom",
+                    "license_dir": str(license_file),
                 }
             },
         )
@@ -504,6 +539,7 @@ def test_sidecar_remote_download_stream_endpoint() -> None:
             }).encode("utf-8")
             conn.putrequest("POST", parsed.path)
             conn.putheader("Content-Type", "application/json")
+            conn.putheader("Authorization", f"Bearer {TEST_API_TOKEN}")
             conn.putheader("Content-Length", str(len(body)))
             conn.endheaders()
             conn.send(body)
@@ -543,6 +579,7 @@ def test_sidecar_remote_download_stream_missing_local_target() -> None:
             }).encode("utf-8")
             conn.putrequest("POST", parsed.path)
             conn.putheader("Content-Type", "application/json")
+            conn.putheader("Authorization", f"Bearer {TEST_API_TOKEN}")
             conn.putheader("Content-Length", str(len(body)))
             conn.endheaders()
             conn.send(body)
@@ -574,6 +611,7 @@ def test_sidecar_local_start_stream_endpoint() -> None:
             body = json.dumps({"input_path": "/fake/input.nii.gz"}).encode("utf-8")
             conn.putrequest("POST", parsed.path)
             conn.putheader("Content-Type", "application/json")
+            conn.putheader("Authorization", f"Bearer {TEST_API_TOKEN}")
             conn.putheader("Content-Length", str(len(body)))
             conn.endheaders()
             conn.send(body)
@@ -613,6 +651,7 @@ def test_sidecar_remote_start_stream_endpoint() -> None:
             }).encode("utf-8")
             conn.putrequest("POST", parsed.path)
             conn.putheader("Content-Type", "application/json")
+            conn.putheader("Authorization", f"Bearer {TEST_API_TOKEN}")
             conn.putheader("Content-Length", str(len(body)))
             conn.endheaders()
             conn.send(body)

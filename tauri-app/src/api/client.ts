@@ -39,6 +39,7 @@ import {
   toolsImageResponseSchema,
 } from './schemas';
 import type {RemotePayload} from './runConfig';
+import {authenticatedBackendHeaders} from './backendToken';
 
 export const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8765';
 
@@ -277,7 +278,7 @@ export class BackendClient {
   ): Promise<void> {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: await this.requestHeaders({'Content-Type': 'application/json'}),
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -378,7 +379,7 @@ export class BackendClient {
       timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     }
     try {
-      return await this.performRequest(url, options);
+      return await this.performRequest(url, {...options, headers: await this.requestHeaders(options.headers)});
     } finally {
       if (timeoutId !== null) clearTimeout(timeoutId);
     }
@@ -391,7 +392,10 @@ export class BackendClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const timedOut = error instanceof DOMException && error.name === 'AbortError';
-      throw new Error(`Cannot reach NeuroFlow backend at ${url}: ${message}${timedOut ? ' (request timed out)' : ''}`);
+      throw new Error(
+        `Cannot reach NeuroFlow backend at ${url}: ${message}${timedOut ? ' (request timed out)' : ''}`,
+        {cause: error},
+      );
     }
     const payload: unknown = await response.json();
     if (!response.ok) {
@@ -400,6 +404,10 @@ export class BackendClient {
       throw new Error(message);
     }
     return payload;
+  }
+
+  private async requestHeaders(headers?: HeadersInit): Promise<Headers> {
+    return authenticatedBackendHeaders(headers);
   }
 }
 

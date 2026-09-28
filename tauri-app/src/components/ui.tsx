@@ -1,5 +1,4 @@
 import React, {type ReactNode, type ButtonHTMLAttributes} from 'react';
-import {AlertTriangle, AlertCircle, CheckCircle2, Info} from 'lucide-react';
 import {ALERT, BUTTON, BADGE, inputCls, labelCls, statusPillClasses, statusDotClasses, type AlertSeverity} from '../lib/uiTokens';
 
 export {ALERT, BUTTON, BADGE, inputCls, labelCls, statusPillClasses, statusDotClasses};

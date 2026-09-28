@@ -34,14 +34,50 @@ fi
 
 echo "Build succeeded: $OUTPUT_EXE"
 
+INTERNAL_ROOT="$PROJECT_ROOT/dist/neuroflow-backend/_internal"
+for required_resource in \
+  "$INTERNAL_ROOT/normalize_volumes.py" \
+  "$INTERNAL_ROOT/pipeline/job_worker.py" \
+  "$INTERNAL_ROOT/info/subcortical_volume_feats.txt" \
+  "$INTERNAL_ROOT/configs/neuroflow"; do
+  if [[ ! -e "$required_resource" ]]; then
+    echo "Bundled backend is missing required _internal resource: $required_resource" >&2
+    exit 1
+  fi
+done
+
 SMOKE_PORT=18765
-"$OUTPUT_EXE" server --host 127.0.0.1 --port "$SMOKE_PORT" >/tmp/neuroflow-backend-smoke.log 2>&1 &
+SMOKE_TOKEN="$($PYTHON -c 'import secrets; print(secrets.token_urlsafe(32))')"
+SMOKE_LOG="$(mktemp "${TMPDIR:-/tmp}/neuroflow-backend-smoke.XXXXXX.log")"
+SMOKE_CAPABILITIES="$(mktemp "${TMPDIR:-/tmp}/neuroflow-capabilities.XXXXXX.json")"
+NEUROFLOW_API_TOKEN="$SMOKE_TOKEN" "$OUTPUT_EXE" server --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
 BACKEND_PID=$!
-cleanup_smoke() { kill "$BACKEND_PID" 2>/dev/null || true; }
+cleanup_smoke() {
+  kill "$BACKEND_PID" 2>/dev/null || true
+  rm -f "$SMOKE_LOG" "$SMOKE_CAPABILITIES"
+}
 trap cleanup_smoke EXIT
+ready=false
 for _ in $(seq 1 20); do
-  if curl -fsS "http://127.0.0.1:$SMOKE_PORT/capabilities/runtime" >/tmp/neuroflow-capabilities.json; then break; fi
+  if curl -fsS -H "Authorization: Bearer $SMOKE_TOKEN" "http://127.0.0.1:$SMOKE_PORT/capabilities/runtime" >"$SMOKE_CAPABILITIES"; then
+    ready=true
+    break
+  fi
   sleep 0.25
 done
-grep -q '"id": "paramiko"' /tmp/neuroflow-capabilities.json
-grep -A3 '"id": "paramiko"' /tmp/neuroflow-capabilities.json | grep -q '"ok": true'
+if [[ "$ready" != true ]]; then
+  cat "$SMOKE_LOG" >&2 || true
+  echo "Bundled backend did not provide authenticated capabilities." >&2
+  exit 1
+fi
+if ! curl -fsS -H "Authorization: Bearer $SMOKE_TOKEN" "http://127.0.0.1:$SMOKE_PORT/metadata" \
+  | grep -Eq '"project_root"[[:space:]]*:[[:space:]]*".*_internal"'; then
+  echo "Bundled backend did not resolve the PyInstaller _internal resource root." >&2
+  exit 1
+fi
+if [[ "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/capabilities/runtime")" != "401" ]]; then
+  echo "Bundled backend accepted an unauthenticated capabilities request." >&2
+  exit 1
+fi
+grep -q '"id": "paramiko"' "$SMOKE_CAPABILITIES"
+grep -A3 '"id": "paramiko"' "$SMOKE_CAPABILITIES" | grep -q '"ok": true'

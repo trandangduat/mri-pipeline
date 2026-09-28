@@ -12,6 +12,10 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: (...args: unknown[]) => saveDialogMock(...args),
 }));
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue('test-sidecar-token'),
+}));
+
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,

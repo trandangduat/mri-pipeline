@@ -301,7 +301,7 @@ describe('JobsPage connection state', () => {
     expect(screen.queryByText('Lagging')).toBeNull();
   });
 
-  it('shows no inline banner (warning lives in the global footer line) but marks stale and blocks server delete when SSH is down', () => {
+  it('shows no inline connection banner and blocks server delete when SSH is down', () => {
     useRemoteStore.setState({
       connected: true,
       sshStatus: 'disconnected',
@@ -311,9 +311,8 @@ describe('JobsPage connection state', () => {
     });
     renderJobsPage('/jobs');
 
-    // Big inline banners are gone; only the compact Stale chip remains.
+    // Connection health is presented in the global footer line, not per-page.
     expect(screen.queryByText(/Lost SSH connection/)).toBeNull();
-    expect(screen.getByText('Stale')).toBeInTheDocument();
 
     // Server delete blocked with a reason, local delete unaffected.
     const serverDelete = screen.getByRole('button', {name: /Delete job_server_01/i});
@@ -345,7 +344,7 @@ describe('JobsPage connection state', () => {
     });
     renderJobsPage('/jobs');
 
-    expect(screen.getByText('Stale')).toBeInTheDocument();
+    expect(screen.queryByText('Stale')).toBeNull();
     expect(screen.getByRole('button', {name: /Delete job_server_01/i })).toBeDisabled();
   });
 });

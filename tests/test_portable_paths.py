@@ -26,6 +26,13 @@ class TestPortablePathsModule:
             result = paths.portable_root()
             assert result == tmp_path / "portable"
 
+    def test_resource_root_uses_the_frozen_pyinstaller_internal_directory(self, tmp_path: Path) -> None:
+        internal = tmp_path / "backend" / "_internal"
+        internal.mkdir(parents=True)
+        with patch.dict("os.environ", {"NEUROFLOW_RESOURCE_ROOT": str(internal)}, clear=False):
+            assert paths.resource_root() == internal
+            assert paths.backend_cwd() == internal
+
     def test_config_root_from_env(self, tmp_path: Path) -> None:
         with patch.dict("os.environ", {"NEUROFLOW_CONFIG_ROOT": str(tmp_path / "my-config")}, clear=False):
             assert paths.config_root() == tmp_path / "my-config"

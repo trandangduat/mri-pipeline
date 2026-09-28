@@ -2,7 +2,7 @@ import React from 'react';
 import {Download, Loader2, Trash2, HardDrive, Package, Container, RefreshCw} from 'lucide-react';
 import {Button} from './ui';
 import type {ToolImage} from '../types/backend';
-import {isImageDownloading, isImageFailed} from '../lib/tools';
+import {isImageFailed} from '../lib/tools';
 
 interface InstalledCardProps {
   image: ToolImage;

@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,12 +50,15 @@ function freePort(port) {
     } else {
       spawnSync("fuser", ["-k", `${port}/tcp`], { stdio: "ignore" });
     }
-  } catch (_) {}
+  } catch {
+    // Port cleanup is best-effort.
+  }
 }
 
 const pythonExe = getPythonPath();
+const backendToken = crypto.randomBytes(32).toString('hex');
 const viteJs = path.join(tauriAppDir, "node_modules", "vite", "bin", "vite.js");
-const backendDir = path.join(tauriAppDir, "src-tauri", "backend");
+const backendDir = path.join(rootDir, "build", "tauri-resources", "backend");
 const iconPng = path.join(tauriAppDir, "src-tauri", "icons", "icon.png");
 const iconIco = path.join(tauriAppDir, "src-tauri", "icons", "icon.ico");
 
@@ -72,7 +76,9 @@ if (!fs.existsSync(iconIco) && fs.existsSync(iconPng)) {
       ],
       { stdio: "ignore" }
     );
-  } catch (_) {}
+  } catch {
+    // A stale backend process is already gone.
+  }
 }
 
 console.log(`[Dev] Using Python: ${pythonExe}`);
@@ -100,10 +106,10 @@ console.log("[Dev] Starting NeuroFlow Backend at http://127.0.0.1:8765...");
 const backend = spawn(
   pythonExe,
   ["-m", "app_backend.server", "--host", "127.0.0.1", "--port", "8765"],
-  { cwd: rootDir, stdio: "inherit" }
+  { cwd: rootDir, stdio: "inherit", env: {...process.env, NEUROFLOW_API_TOKEN: backendToken} }
 );
 
-const readiness = await waitForBackendReadiness();
+const readiness = await waitForBackendReadiness({token: backendToken});
 if (!readiness.ok) {
   const probe = readiness.missing.length > 0
     ? {...pythonProbe, kind: 'missing-imports', details: {...pythonProbe.details, missing: readiness.missing}}
@@ -124,7 +130,9 @@ if (!readiness.ok) {
   try {
     if (isWin && backend.pid) spawnSync('taskkill', ['/pid', backend.pid.toString(), '/f', '/t']);
     else backend.kill('SIGTERM');
-  } catch (_) {}
+  } catch {
+    // The failed child process may already have exited.
+  }
   process.exit(1);
 }
 
@@ -135,6 +143,7 @@ const vite = spawn(
   {
     cwd: tauriAppDir,
     stdio: "inherit",
+    env: {...process.env, VITE_NEUROFLOW_API_TOKEN: backendToken},
   }
 );
 
@@ -148,7 +157,9 @@ function cleanup() {
         backend.kill("SIGTERM");
       }
     }
-  } catch (e) {}
+  } catch {
+    // Shutdown continues when a child process has already exited.
+  }
 
   try {
     if (vite && !vite.killed && vite.pid) {
@@ -158,7 +169,9 @@ function cleanup() {
         vite.kill("SIGTERM");
       }
     }
-  } catch (e) {}
+  } catch {
+    // Shutdown continues when a child process has already exited.
+  }
 }
 
 process.on("SIGINT", () => {

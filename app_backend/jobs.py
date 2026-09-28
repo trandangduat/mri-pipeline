@@ -4,12 +4,14 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, TypeAlias
 
 from app_backend import paths
+from app_backend.redaction import redact_secrets
 from app_backend.sse_utils import step_event, complete_event, SSEEvent
 from pipeline.docker_ops import check_freesurfer_license
 from pipeline.config import PROJECT_ROOT
@@ -38,6 +40,7 @@ class LocalJobService:
         self.registry_path = self.jobs_root / "job_registry.json"
         self.process_runner = process_runner or _default_process_runner
         self.clock = clock or time.time
+        self._registry_lock = threading.RLock()
 
     def start_local_job(self, run_request: dict[str, object]) -> dict[str, JsonValue]:
         job_dir = self._create_job_dir()
@@ -67,21 +70,22 @@ class LocalJobService:
         return {"ok": True, "job": _job_summary(entry)}
 
     def list_local_jobs(self) -> dict[str, JsonValue]:
-        registry = self._load_registry()
-        changed = False
-        local_jobs: list[dict[str, JsonValue]] = []
-        for entry in registry:
-            if entry.get("target") == "Local":
-                refreshed = self._refresh_local_job(entry)
-                if (
-                    refreshed.get("state") != entry.get("state")
-                    or refreshed.get("exit_code") != entry.get("exit_code")
-                ):
-                    changed = True
-                local_jobs.append(refreshed)
-        if changed:
-            other_jobs = [entry for entry in registry if entry.get("target") != "Local"]
-            self._save_registry([*local_jobs, *other_jobs])
+        with self._registry_lock:
+            registry = self._load_registry()
+            changed = False
+            local_jobs: list[dict[str, JsonValue]] = []
+            for entry in registry:
+                if entry.get("target") == "Local":
+                    refreshed = self._refresh_local_job(entry)
+                    if (
+                        refreshed.get("state") != entry.get("state")
+                        or refreshed.get("exit_code") != entry.get("exit_code")
+                    ):
+                        changed = True
+                    local_jobs.append(refreshed)
+            if changed:
+                other_jobs = [entry for entry in registry if entry.get("target") != "Local"]
+                self._save_registry([*local_jobs, *other_jobs])
         return {"ok": True, "jobs": [_job_summary(job) for job in local_jobs]}
 
     def stop_local_job(self, job_id: str) -> dict[str, JsonValue]:
@@ -97,22 +101,23 @@ class LocalJobService:
         return {"ok": True, "accepted": True, "job": _job_summary(entry)}
 
     def delete_local_job(self, job_id: str) -> dict[str, JsonValue]:
-        jobs = self._load_registry()
-        entry = next((job for job in jobs if job.get("target") == "Local" and job.get("job_id") == job_id), None)
-        if entry is None:
-            return {"ok": False, "error": "Local job not found"}
-        if str(entry.get("state", "")).lower() == "running":
-            return {"ok": False, "error": "Stop the job before deleting it"}
+        with self._registry_lock:
+            jobs = self._load_registry()
+            entry = next((job for job in jobs if job.get("target") == "Local" and job.get("job_id") == job_id), None)
+            if entry is None:
+                return {"ok": False, "error": "Local job not found"}
+            if str(entry.get("state", "")).lower() == "running":
+                return {"ok": False, "error": "Stop the job before deleting it"}
 
-        job_dir = Path(str(entry.get("job_dir", ""))).resolve()
-        if not _is_relative_to(job_dir, self.jobs_root.resolve()):
-            return {"ok": False, "error": "Local job path is not safe"}
-        if job_dir.exists():
-            if not job_dir.is_dir() or job_dir.is_symlink():
+            job_dir = Path(str(entry.get("job_dir", ""))).resolve()
+            if not _is_relative_to(job_dir, self.jobs_root.resolve()):
                 return {"ok": False, "error": "Local job path is not safe"}
-            shutil.rmtree(job_dir)
+            if job_dir.exists():
+                if not job_dir.is_dir() or job_dir.is_symlink():
+                    return {"ok": False, "error": "Local job path is not safe"}
+                shutil.rmtree(job_dir)
 
-        self._save_registry([job for job in jobs if job is not entry])
+            self._save_registry([job for job in jobs if job is not entry])
         return {"ok": True, "job_id": job_id}
 
     def stream_start_job(self, payload: dict[str, object]) -> Iterator[SSEEvent]:
@@ -179,8 +184,8 @@ class LocalJobService:
             "effective_output_dir": str(run_request.get("effective_output_dir", run_request.get("output_dir", ""))),
             "download_subdir": str(run_request.get("batch_output_name", "")) if run_request.get("is_batch") else "",
             "input_files": _input_files_for_request(run_request),
-            "run_request": run_request,
-            "ssh_config": ssh_config,
+            "run_request": redact_secrets(run_request),
+            "ssh_config": redact_secrets(ssh_config),
         }
         self._upsert_registry(entry)
         return _job_summary(entry)
@@ -257,25 +262,30 @@ class LocalJobService:
         jobs = data.get("jobs", [])
         if not isinstance(jobs, list):
             return []
-        return [_json_dict(job) for job in jobs if isinstance(job, dict)]
+        normalized = [_json_dict(job) for job in jobs if isinstance(job, dict)]
+        migrated = [_redact_registry_entry(entry) for entry in normalized]
+        if migrated != normalized:
+            self._save_registry(migrated)
+        return migrated
 
     def _save_registry(self, jobs: list[dict[str, JsonValue]]) -> None:
         jobs.sort(key=lambda item: float(item.get("updated_at") or item.get("started_at") or 0), reverse=True)
         write_json(self.registry_path, {"version": 1, "jobs": jobs})
 
     def _upsert_registry(self, entry: dict[str, JsonValue]) -> None:
-        jobs = self._load_registry()
-        entry_id = entry.get("job_id") or entry.get("job_dir")
-        for idx, existing in enumerate(jobs):
-            existing_id = existing.get("job_id") or existing.get("job_dir")
-            if existing_id == entry_id:
-                merged = dict(existing)
-                merged.update(entry)
-                jobs[idx] = merged
-                self._save_registry(jobs)
-                return
-        jobs.append(entry)
-        self._save_registry(jobs)
+        with self._registry_lock:
+            jobs = self._load_registry()
+            entry_id = entry.get("job_id") or entry.get("job_dir")
+            for idx, existing in enumerate(jobs):
+                existing_id = existing.get("job_id") or existing.get("job_dir")
+                if existing_id == entry_id:
+                    merged = dict(existing)
+                    merged.update(entry)
+                    jobs[idx] = merged
+                    self._save_registry(jobs)
+                    return
+            jobs.append(entry)
+            self._save_registry(jobs)
 
 
 def _default_process_runner(command: list[str]) -> ProcessHandle:
@@ -542,3 +552,7 @@ def _json_value(value: object) -> JsonValue:
     if isinstance(value, dict):
         return {str(key): _json_value(item) for key, item in value.items()}
     return str(value)
+
+
+def _redact_registry_entry(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    return _json_dict(redact_secrets(entry))

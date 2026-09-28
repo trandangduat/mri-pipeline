@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Container, Loader2, RefreshCw, CheckCircle2, XCircle, Cpu, AlertCircle, Server} from 'lucide-react';
+import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
@@ -48,20 +48,14 @@ export function ToolsPage() {
   const [removingImage, setRemovingImage] = useState<string | null>(null);
   const [imageToRemove, setImageToRemove] = useState<string | null>(null);
 
-  const selectedRuntimeTarget = () => (formValues.runtimeTarget === 'Server' ? 'Server' : 'Local');
-
-  const python = ((environment as Record<string, unknown> | undefined)?.python as
-    {ok?: boolean; path?: string; version?: string} | undefined) || {ok: false, path: '', version: ''};
-  const docker = ((environment as Record<string, unknown> | undefined)?.docker as
-    {ok?: boolean; path?: string} | undefined) || {ok: false, path: ''};
+  const target = isServerTarget ? 'Server' : 'Local';
 
   const images = (latestImages || []) as ToolImage[];
   const installedImages = images.filter(isImageInstalled);
   const missingImages = images.filter((img) => !isImageInstalled(img));
   const hasDownloading = images.some(isImageDownloading);
 
-  const refreshTools = useCallback(async ({manual = true}: {manual?: boolean} = {}) => {
-    const target = selectedRuntimeTarget();
+  const refreshTools = useCallback(async () => {
     if (target === 'Server' && !remoteResult.connected) {
       return;
     }
@@ -75,7 +69,7 @@ export function ToolsPage() {
         selectedTools,
         options: {
           target,
-          remote: target === 'Server' ? buildRemotePayload(formValues) : null,
+          remote: target === 'Server' ? remotePayload : null,
         },
       });
       if (!result.ok) {
@@ -83,17 +77,16 @@ export function ToolsPage() {
       }
       const imgs = Array.isArray(result.images) ? result.images : [];
       setLatestImages(imgs, cacheKey);
-    } catch (error: unknown) {
+    } catch {
       // Keep existing cached data
     } finally {
       setBusyKey('refreshTools', false);
     }
-  }, [formValues, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, localImageStatusMutation, setBusyKey, setLatestImages]);
+  }, [target, remotePayload, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, localImageStatusMutation, setBusyKey, setLatestImages]);
 
   const autoCheckKeyRef = useRef<string>('');
 
   useEffect(() => {
-    const target = selectedRuntimeTarget();
     const key = target === 'Server'
       ? `Server:${remoteResult.config?.host || ''}:${remoteResult.config?.port || ''}:${remoteResult.config?.username || ''}`
       : 'Local';
@@ -110,13 +103,13 @@ export function ToolsPage() {
     if (target === 'Server' && !remoteResult.connected) {
       return;
     }
-    void refreshTools({manual: false});
-  }, [formValues.runtimeTarget, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, cachedImagesByKey, refreshTools, setLatestImages]);
+    void refreshTools();
+  }, [target, remoteResult.connected, remoteResult.config?.host, remoteResult.config?.port, remoteResult.config?.username, cachedImagesByKey, refreshTools, setLatestImages]);
 
   useEffect(() => {
     if (!hasDownloading) return;
     const interval = setInterval(() => {
-      void refreshTools({manual: false});
+      void refreshTools();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [hasDownloading, refreshTools]);
@@ -143,7 +136,7 @@ export function ToolsPage() {
   };
 
   const refreshAll = async () => {
-    await Promise.all([refreshEnvironment(), refreshTools({manual: true})]);
+    await Promise.all([refreshEnvironment(), refreshTools()]);
   };
 
   const handleRequestRemove = (image: string) => {
@@ -153,17 +146,16 @@ export function ToolsPage() {
   const handleConfirmRemove = async () => {
     if (!imageToRemove) return;
     const image = imageToRemove;
-    const target = selectedRuntimeTarget();
     setRemovingImage(image);
     try {
       const result = await removeImageMutation.mutateAsync({
         image,
         target,
-        remote: target === 'Server' ? buildRemotePayload(formValues) : null,
+        remote: target === 'Server' ? remotePayload : null,
       });
       if (result.ok) {
         setImageToRemove(null);
-        await refreshTools({manual: false});
+        await refreshTools();
       }
     } finally {
       setRemovingImage(null);
@@ -171,17 +163,14 @@ export function ToolsPage() {
   };
 
   const handleDownload = (image: string) => {
-    const target = selectedRuntimeTarget();
     if (target === 'Server' && !remoteResult.connected) {
       return;
     }
     void pullStream.pull(image, {
       target,
-      remote: target === 'Server' ? buildRemotePayload(formValues) : null,
+      remote: target === 'Server' ? remotePayload : null,
     });
   };
-
-  const target = selectedRuntimeTarget();
 
   return (
     <div className="h-full w-full overflow-y-auto p-4">

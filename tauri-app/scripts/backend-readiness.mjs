@@ -3,6 +3,7 @@ export async function waitForBackendReadiness({
   attempts = 20,
   delayMs = 250,
   sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
+  token = '',
 } = {}) {
   let lastError = 'The application backend did not become ready.';
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -11,7 +12,9 @@ export async function waitForBackendReadiness({
       const health = await healthResponse.json();
       if (!healthResponse.ok || health.ok !== true) throw new Error('The backend health check did not succeed.');
 
-      const capabilitiesResponse = await fetchImpl('http://127.0.0.1:8765/capabilities/runtime');
+      const capabilitiesResponse = await fetchImpl('http://127.0.0.1:8765/capabilities/runtime', {
+        headers: token ? {Authorization: `Bearer ${token}`} : {},
+      });
       const capabilities = await capabilitiesResponse.json();
       if (!capabilitiesResponse.ok) throw new Error('The backend capability check did not succeed.');
       if (capabilities.ok === true) return {ok: true, missing: []};

@@ -1,7 +1,8 @@
-import {expect, test} from 'vitest';
+import {afterEach, expect, test, vi} from 'vitest';
 import {BackendClient, normalizeBaseUrl} from '../src/api/client';
 import {buildRunConfig} from '../src/api/runConfig';
 import type {PipelineMetadata} from '../src/types/backend';
+import {authenticatedBackendHeaders, resetBackendTokenForTests} from '../src/api/backendToken';
 
 const validHealth = {ok: true, service: 'mri-pipeline-backend', pid: 1234};
 const validEnv = {
@@ -11,6 +12,47 @@ const validEnv = {
   ssh: {ok: true, path: '/usr/bin/ssh'},
   hardware: {hostname: 'host', logical_cores: 8, physical_cores: 8, total_ram_bytes: 17179869184},
 };
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  resetBackendTokenForTests();
+});
+
+test('sidecar token helper preserves request headers', async () => {
+  vi.stubEnv('VITE_NEUROFLOW_API_TOKEN', 'frontend-regression-token');
+
+  const headers = await authenticatedBackendHeaders({'Content-Type': 'application/json'});
+
+  expect(headers.get('Content-Type')).toBe('application/json');
+  expect(headers.get('Authorization')).toBe('Bearer frontend-regression-token');
+});
+
+test('BackendClient attaches the sidecar token to normal and streaming requests', async () => {
+  vi.stubEnv('VITE_NEUROFLOW_API_TOKEN', 'frontend-regression-token');
+  const calls: Array<{url: string; options: RequestInit}> = [];
+  const client = new BackendClient('http://backend', async (url: RequestInfo | URL, options?: RequestInit) => {
+    calls.push({url: String(url), options: options || {}});
+    if (String(url).endsWith('/health')) {
+      return {ok: true, json: async () => validHealth} as Response;
+    }
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: complete\ndata: {"ok": true}\n\n'));
+        controller.close();
+      },
+    });
+    return {ok: true, body} as unknown as Response;
+  });
+
+  await client.health();
+  await client.startPipelineStream('/jobs/local/start/stream', {}, () => {}, () => {});
+
+  expect(calls).toHaveLength(2);
+  for (const call of calls) {
+    expect(new Headers(call.options.headers).get('Authorization')).toBe('Bearer frontend-regression-token');
+  }
+});
 
 test('normalizeBaseUrl removes trailing slash', () => {
   expect(normalizeBaseUrl('http://127.0.0.1:8765/')).toBe('http://127.0.0.1:8765');
@@ -28,7 +70,7 @@ test('BackendClient sends JSON POST requests', async () => {
   expect(result).toEqual({});
   expect(calls[0]?.url).toBe('http://backend/run-request/prepare');
   expect(calls[0]?.options.method).toBe('POST');
-  expect((calls[0]?.options.headers as Record<string, string>)?.['Content-Type']).toBe('application/json');
+  expect(new Headers(calls[0]?.options.headers).get('Content-Type')).toBe('application/json');
   expect(calls[0]?.options.body).toBe(JSON.stringify({input_path: '/tmp/image.nii.gz'}));
 });
 

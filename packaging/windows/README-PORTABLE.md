@@ -21,7 +21,7 @@ powershell -ExecutionPolicy Bypass -File packaging/windows/build-portable.ps1
 This will:
 
 1. Build `neuroflow-backend.exe` (PyInstaller one-dir mode) into `dist/neuroflow-backend/`.
-2. Copy the backend into `tauri-app/src-tauri/backend/` for Tauri bundling.
+2. Stage the complete backend directory at `build/tauri-resources/backend/` for Tauri bundling.
 3. Build the Tauri desktop app (`npm run tauri build`).
 4. Assemble the portable folder at `dist-portable/windows/NeuroFlowPortable/`.
 
@@ -45,7 +45,7 @@ NeuroFlowPortable/
 
 ## How It Works
 
-- **Tauri** starts `neuroflow-backend.exe server --host 127.0.0.1 --port 8765` from the bundled `backend/` directory.
+- **Tauri** starts `neuroflow-backend.exe server --host 127.0.0.1 --port 8765` from the bundled `backend/` directory. Its immutable files are kept in PyInstaller's `_internal/` directory; portable data remains beside the app.
 - Environment variables (`NEUROFLOW_PORTABLE_ROOT`, etc.) are set so all app data is written inside the portable folder.
 - When a job is launched, the backend runs `neuroflow-backend.exe worker --job-config <path>` (frozen mode) instead of `python -m pipeline.job_worker`.
 - Closing the Tauri window kills the backend process.

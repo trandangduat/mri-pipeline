@@ -1,30 +1,26 @@
 import React, {useRef} from 'react';
 import {toast} from 'sonner';
 import {
-  Workflow, FolderInput, FolderOpen, Folder, FolderUp, FolderPlus, Save, Play, Square, Loader2, FileKey, Upload,
-  SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, Zap, RefreshCw, Gauge,
-  HardDrive, Cpu, Info, ListOrdered, ChevronDown, FileText, Server, ArrowRight, ArrowUp, ArrowDown, ArrowUpDown
+  Workflow, FolderInput, FolderOpen, Folder, FolderPlus, Save, Loader2, Upload,
+  SlidersHorizontal, Eye, EyeOff, Layers, Plus, Check, X, Search, BarChart3, RefreshCw,
+  Info, FileText, Server, ArrowRight, ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import {open} from '@tauri-apps/plugin-dialog';
-import {useNavigate} from 'react-router';
 import {Panel, Button, Alert, CustomSelect, BADGE, inputCls, labelCls} from '../components/ui';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
-import {StartPipelineDialog} from '../components/StartPipelineDialog';
 import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
-import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
 import {useRemoteBrowseMutation, useLocalBrowseMutation, useRemoteMkdirMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {buildRunConfig, buildRemotePayload, NEUROFLOW_PIPELINE_CONFIGS, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
+import {buildRemotePayload, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
 import {presetDefaultAtlases} from '../lib/pipelinePresets';
 import {buildPresetPayload, defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {currentTargetHardware} from '../lib/runtime';
-import {normalizeJob, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 
 
@@ -39,7 +35,6 @@ function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
 
 export function PipelineStepsSection() {
   const {data: metadata, isLoading: metaLoading, isError: metaError} = useMetadata();
-  const client = useClient();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
@@ -48,13 +43,6 @@ export function PipelineStepsSection() {
   const licensePath = usePipelineFormStore((s) => s.formValues.licensePath as string | undefined);
   const [showTools, setShowTools] = React.useState(formValues.pipelineMode === 'Custom');
   const [presetInvalid, setPresetInvalid] = React.useState(false);
-
-  // Automatically show tools when switching to Custom mode
-  React.useEffect(() => {
-    if (formValues.pipelineMode === 'Custom') {
-      setShowTools(true);
-    }
-  }, [formValues.pipelineMode]);
 
   const needsLicense = React.useMemo(() => {
     if (!metadata?.tools) return false;
@@ -712,7 +700,6 @@ export function AdvancedSettingsSection() {
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [presetInvalid, setPresetInvalid] = React.useState(false);
   const [profileInvalid, setProfileInvalid] = React.useState(false);
-  const neuroflowPresetId = NEUROFLOW_PIPELINE_CONFIGS[formValues.pipelineMode];
   const canShowAdvanced = isCustomMode || (neuroflowEnabled && neuroflowAvailable);
 
   const browseNeuroflowConfig = async (
@@ -937,25 +924,6 @@ export function AdvancedSettingsSection() {
   );
 }
 
-function BarChartIcon() {
-  return (
-    <svg
-      className="h-5 w-5 text-cursor-primary"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 3v18h18" />
-      <path d="M18 17V9" />
-      <path d="M13 17V5" />
-      <path d="M8 17v-3" />
-    </svg>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Shared small components for Input & Output section
 // ---------------------------------------------------------------------------
@@ -981,10 +949,6 @@ function ModalOverlay({
       </div>
     </div>
   );
-}
-
-function ModalTitle({children}: {children: React.ReactNode}) {
-  return <h3 className="m-0 mb-3 text-sm font-semibold leading-[1.3] text-cursor-ink">{children}</h3>;
 }
 
 function remoteBrowseErrorMessage(message: string | undefined): string {
@@ -1102,8 +1066,14 @@ function ServerBrowserModal({
   );
 
   React.useEffect(() => {
-    doBrowse(initialPath || '~');
-    // only run once on mount
+    let active = true;
+    queueMicrotask(() => {
+      if (active) doBrowse(initialPath || '~');
+    });
+    return () => {
+      active = false;
+    };
+    // This picker is intentionally initialized only when it opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1154,8 +1124,10 @@ function ServerBrowserModal({
     return list.filter((e) => e.name.toLowerCase().includes(q));
   }, [entries, searchQuery, foldersOnly]);
 
-  const dirs = filteredEntries.filter((e) => e.kind === 'directory');
-  const files = foldersOnly ? [] : filteredEntries.filter((e) => e.kind === 'file');
+  const {dirs, files} = React.useMemo(() => ({
+    dirs: filteredEntries.filter((entry) => entry.kind === 'directory'),
+    files: foldersOnly ? [] : filteredEntries.filter((entry) => entry.kind === 'file'),
+  }), [filteredEntries, foldersOnly]);
   const isLoading = browseMutation.isPending;
 
   // Selected item name for footer context
@@ -1599,10 +1571,8 @@ function BatchConfigModal({
       ? new Set(batchScanCache!.selectedPaths)
       : new Set(initialSelectedPaths ?? []),
   );
-  const [scanStatus, setScanStatus] = React.useState(cacheMatches ? batchScanCache!.status : '');
   const [scanMode, setScanMode] = React.useState<ScanMode>(cacheMatches ? batchScanCache!.scanMode : 'recursive');
   const [scanned, setScanned] = React.useState(cacheMatches ? batchScanCache!.scanned : false);
-  const [hasConflict, setHasConflict] = React.useState(cacheMatches ? batchScanCache!.hasConflict : false);
   const [searchQuery, setSearchQuery] = React.useState('');
 
   const [colWidths, setColWidths] = React.useState<BatchColWidths>({
@@ -1653,26 +1623,22 @@ function BatchConfigModal({
   const doScan = React.useCallback(
     (mode: ScanMode, force = false) => {
       if (!inputPath) {
-        setScanStatus('Set an input location first.');
         return;
       }
       if (!force && batchScanCache?.cacheKey === cacheKey && batchScanCache?.scanned && batchScanCache?.scanMode === mode) {
         return;
       }
       const modeOpt = SCAN_MODE_OPTIONS.find((o) => o.value === mode)!;
-      setScanStatus('Scanning...');
       setServerEntries([]);
       setSelectedPaths(new Set());
       setScanned(false);
 
       const handleSuccess = (res: RemoteBrowseResponse) => {
         if (!res.ok) {
-          setScanStatus(remoteBrowseErrorMessage(res.error));
           return;
         }
         const candidates = (res.entries ?? []).filter((e) => e.kind === 'file' && e.selectable);
         setServerEntries(candidates);
-        setHasConflict(res.has_multi_subject_conflict ?? false);
 
         // Auto-select: prioritize initialSelectedPaths if provided, otherwise select all candidate subjects
         const initialSet = new Set(initialSelectedPaths?.map((p) => p.trim()).filter(Boolean) ?? []);
@@ -1697,7 +1663,6 @@ function BatchConfigModal({
         const statusText = candidates.length === 0
           ? 'No image files found in this directory.'
           : `Found ${candidates.length} subject${candidates.length !== 1 ? 's' : ''}.`;
-        setScanStatus(statusText);
         setScanned(true);
         setBatchScanCache({
           cacheKey,
@@ -1722,7 +1687,7 @@ function BatchConfigModal({
           } as Parameters<typeof remoteBrowseMutation.mutate>[0],
           {
             onSuccess: handleSuccess,
-            onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
+            onError: () => undefined,
           },
         );
       } else {
@@ -1730,7 +1695,7 @@ function BatchConfigModal({
           {path: inputPath, max_depth: modeOpt.maxDepth},
           {
             onSuccess: handleSuccess,
-            onError: (err: unknown) => setScanStatus(remoteBrowseErrorMessage((err as Error).message)),
+            onError: () => undefined,
           },
         );
       }
@@ -1741,9 +1706,16 @@ function BatchConfigModal({
 
   // Hydrate from cache or scan on first open
   React.useEffect(() => {
-    if (canScan && inputPath && !cacheMatches) {
-      doScan(scanMode, true);
-    }
+    let active = true;
+    queueMicrotask(() => {
+      if (active && canScan && inputPath && !cacheMatches) {
+        doScan(scanMode, true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+    // This modal is mounted for a single input/cache key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2371,11 +2343,6 @@ export function InputOutputSection() {
   // Batch scan cache — persists across modal open/close
   const [batchScanCache, setBatchScanCache] = React.useState<BatchScanCache | null>(null);
   const batchCacheKey = `${inputSource}|${formValues.inputPath}|${formValues.inputServerDir || ''}|${JSON.stringify(remotePayload)}`;
-
-  // Invalidate cache when inputs change
-  React.useEffect(() => {
-    setBatchScanCache((prev) => (prev && prev.cacheKey !== batchCacheKey ? null : prev));
-  }, [batchCacheKey]);
 
   // When runtime is Local or remote is disconnected, force source to Local
   React.useEffect(() => {
