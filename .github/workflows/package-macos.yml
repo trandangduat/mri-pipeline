@@ -50,7 +50,7 @@ jobs:
           chmod +x ./packaging/macos/build-backend.sh ./packaging/macos/build-app.sh
           ./packaging/macos/build-app.sh "$PWD"
 
-      - name: Stage DMG and app archive
+      - name: Stage DMG, app archive, and OPEN-ON-MAC.md
         run: |
           mkdir -p dist-release
           dmg_file="$(find tauri-app/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit 2>/dev/null || true)"
@@ -62,15 +62,21 @@ jobs:
             exit 1
           fi
 
+          if [[ ! -d "$app_path" ]]; then
+            echo "Expected NeuroFlow.app was not produced at: $app_path" >&2
+            find tauri-app/src-tauri/target/release/bundle -maxdepth 3 -print >&2 || true
+            exit 1
+          fi
+
           dmg_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.dmg"
           cp "$dmg_file" "$dmg_out"
           shasum -a 256 "$dmg_out" > "$dmg_out.sha256"
 
-          if [[ -d "$app_path" ]]; then
-            app_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.app.tar.gz"
-            tar -C "$(dirname "$app_path")" -czf "$app_out" "$(basename "$app_path")"
-            shasum -a 256 "$app_out" > "$app_out.sha256"
-          fi
+          app_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.app.tar.gz"
+          tar -C "$(dirname "$app_path")" -czf "$app_out" "$(basename "$app_path")"
+          shasum -a 256 "$app_out" > "$app_out.sha256"
+
+          cp packaging/macos/OPEN-ON-MAC.md dist-release/OPEN-ON-MAC.md
 
           ls -lh dist-release/
 
@@ -79,13 +85,17 @@ jobs:
           {
             echo "## macOS package (unsigned internal test)"
             echo ""
-            echo "This workflow intentionally produces an **unsigned** macOS build."
+            echo "This workflow intentionally produces an **unsigned** macOS build"
+            echo "(optional ad-hoc \`codesign -s -\` only — **not** Developer ID / notarized)."
             echo "Apple signing and notarization secrets are not required or used."
-            echo "Suitable for internal testing only; Gatekeeper will warn for distribution outside your machine."
+            echo ""
+            echo "Gatekeeper may say the app is **damaged** after a browser download"
+            echo "(quarantine + unsigned). That is expected — see \`OPEN-ON-MAC.md\` in the"
+            echo "artifact (\`xattr -cr\` on the .app after copying out of the DMG)."
             echo ""
             echo "- Runner: \`macos-14\` (Apple Silicon / arm64)"
             echo "- Build scripts: \`packaging/macos/build-backend.sh\` + \`packaging/macos/build-app.sh\`"
-            echo "- Bundle: DMG via \`NEUROFLOW_TAURI_BUNDLES=dmg\`"
+            echo "- Bundle: DMG via \`NEUROFLOW_TAURI_BUNDLES=dmg\` + ad-hoc codesign + DMG rebuild"
             echo "- Commit: \`${{ github.sha }}\`"
             echo ""
             echo "### Artifacts"
@@ -96,6 +106,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NeuroFlow-macOS-arm64-unsigned-test-${{ github.sha }}
-          path: dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.*
+          path: dist-release/
           if-no-files-found: error
           retention-days: 14

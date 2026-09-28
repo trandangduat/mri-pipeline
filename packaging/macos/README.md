@@ -24,9 +24,20 @@ This will:
 1. Build `neuroflow-backend` with PyInstaller one-dir mode.
 2. Stage the complete one-directory backend at `build/tauri-resources/backend/` for Tauri bundling.
 3. Run `npm run tauri build`.
-4. Produce a single-download DMG under `tauri-app/src-tauri/target/release/bundle/dmg/`.
+4. Ad-hoc `codesign --force --deep --sign -` on `NeuroFlow.app` (local unsigned convenience only; **not** notarization).
+5. Rebuild the DMG from that ad-hoc-signed `.app` under `tauri-app/src-tauri/target/release/bundle/dmg/`.
 
 Use a native Apple Silicon machine for arm64 and an Intel machine for x64. Each DMG contains a macOS application bundle with the native backend; macOS cannot use one executable that runs on both CPU architectures.
+
+## Opening a downloaded unsigned build (Gatekeeper)
+
+Browsers (Firefox included) attach `com.apple.quarantine`. Combined with no Developer ID + notarization, macOS often shows:
+
+> "NeuroFlow is damaged and can't be opened. You should move it to the Trash."
+
+That is **not** a corrupt DMG. Full Vietnamese + English steps: **[OPEN-ON-MAC.md](./OPEN-ON-MAC.md)** (`xattr -cr` after copying the `.app` out of the DMG, Privacy & Security fallback). The real public-distribution fix remains Developer ID + notarize.
+
+CI uploads `OPEN-ON-MAC.md` inside the macOS artifact zip alongside the DMG / `.app.tar.gz`.
 
 ## Resource-root contract
 
@@ -45,4 +56,5 @@ before packaging continues.
 
 ## Signing
 
-Unsigned builds are suitable for internal testing. For smooth distribution outside your machine, sign and notarize with an Apple Developer certificate.
+- **Internal test / GHA artifact:** unsigned + optional ad-hoc identity (`codesign -s -`). No Apple certs. Expect quarantine on download → use `OPEN-ON-MAC.md`.
+- **Public distribution:** Developer ID Application certificate, notarize, and staple. Do not pretend ad-hoc signing replaces that.
