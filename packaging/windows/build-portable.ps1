@@ -208,6 +208,36 @@ if ($exePath -and (Test-Path $exePath)) {
     exit 1
 }
 
+# Guard: plain cargo build --release leaves cfg(dev) on, so the shell navigates
+# to http://127.0.0.1:1420 (Vite) and shows ERR_CONNECTION_REFUSED when Vite is
+# not running. npm run tauri build clears that and embeds frontendDist. Fail the
+# portable assemble if the JS/CSS chunks are missing from the shell binary.
+$portableExe = Join-Path $portableDir "NeuroFlow.exe"
+$frontendDist = Join-Path $tauriAppDir "dist"
+$assetNames = @()
+if (Test-Path (Join-Path $frontendDist "assets")) {
+    $assetNames = Get-ChildItem (Join-Path $frontendDist "assets") -File |
+        Where-Object { $_.Extension -in ".js", ".css" } |
+        Select-Object -ExpandProperty Name
+}
+if (-not $assetNames -or $assetNames.Count -eq 0) {
+    Write-Error "No frontend JS/CSS under $frontendDist\assets. Run the Vite build (or npm run tauri build) before assembling the portable folder."
+    exit 1
+}
+$exeBytes = [System.IO.File]::ReadAllBytes($portableExe)
+$exeAscii = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+$missingAssets = @()
+foreach ($name in $assetNames) {
+    if ($exeAscii.IndexOf($name) -lt 0) {
+        $missingAssets += $name
+    }
+}
+if ($missingAssets.Count -gt 0) {
+    Write-Error ("Portable NeuroFlow.exe is missing embedded frontend assets: {0}. This usually means the shell was built with cargo build --release instead of npm run tauri build (Tauri keeps cfg(dev) and does not embed frontendDist). Rebuild with the Tauri CLI and re-run this script." -f ($missingAssets -join ", "))
+    exit 1
+}
+Write-Host "  Verified embedded frontend assets ($($assetNames.Count) JS/CSS chunk names present in NeuroFlow.exe)"
+
 # Copy Tauri runtime files (WebView2 loader, etc.)
 $tauriRuntimeFiles = @("WebView2Loader.dll", "neuroflow.pdb")
 foreach ($file in $tauriRuntimeFiles) {

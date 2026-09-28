@@ -62,6 +62,21 @@ NeuroFlowPortable/
 - SSH client (included in Windows 10/11)
 - FreeSurfer license (if using FreeSurfer-based tools)
 
+
+## Important: always build the shell with the Tauri CLI
+
+Do **not** ship a shell produced by bare `cargo build --release` in `tauri-app/src-tauri`.
+
+That path keeps Tauri's `cfg(dev)` enabled, so the WebView navigates to
+`http://127.0.0.1:1420` (the Vite `devUrl`) instead of embedding `frontendDist`.
+With no Vite server running, the window shows Microsoft Edge's
+**ERR_CONNECTION_REFUSED** / "127.0.0.1 refused to connect" page even though
+`neuroflow-backend.exe` is healthy on `127.0.0.1:8765`.
+
+Use `npm run tauri build` (as `build-portable.ps1` does). After copying the
+exe, the portable script verifies that the current Vite JS/CSS chunk names from
+`tauri-app/dist/assets` appear inside `NeuroFlow.exe`.
+
 ## Development Workflow
 
 The portable build does not affect the existing development flow:
