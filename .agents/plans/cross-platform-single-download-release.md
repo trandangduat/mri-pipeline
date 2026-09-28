@@ -170,8 +170,19 @@ Implement this plan in ordered phases. Do not build or publish release artifacts
 
 ## Current Verification Snapshot (2026-09-28)
 
-- The current working tree contains an in-progress native sidecar/Tauri assembly, token-protected loopback API, atomic job-state changes, and first-use SSH host-key backend handling. These are implementation changes, not release proof.
-- The SSH backend exposes structured `trust_required` data and a protected approval endpoint, but there is not yet a corresponding user-facing fingerprint-review flow. Do not treat remote SSH as release-ready until that flow and its regression tests exist.
-- The core packaging selector intentionally fails when requested Kong 100/300/400 feature lists or matching atlas data are absent. Those assets are currently absent. They must be supplied with redistribution evidence or every affected option must be removed consistently before a package can be built.
-- The surface atlas pack, signature verifier, content-pack installer, and missing-MNI-asset resolution remain unimplemented. The current primary package must not advertise offline support for these features.
-- Native Windows/Linux/macOS packages, signing/notarization, clean-machine launch tests, resource-size measurements, and baseline performance comparisons remain unverified. Workflows currently produce unsigned internal-test artifacts only.
+### Done on this Windows checkout (`packaging/release-hardening-wip`)
+
+- SSH host-key **UI** fingerprint review before Connect is in place (`5d58991`), with backend `trust_required` + protected approval from the release-hardening foundation (`1914a1f`).
+- PyInstaller resource root is pinned to `_internal` across specs and the Tauri shell (`28f688d`); frozen metadata smoke resolves `project_root` under `_internal`.
+- Kong 100/300/400 options stay gated out of the core picker until a pack provides files (`fe56afa`); they are advertised as pack-backed and flip to available when a signed `surface-atlases` pack is activated (`5d4fcc9`).
+- **Content-pack machinery implemented** (`5d4fcc9`): Ed25519-pinned verifier, `surface-atlases` manifest/archive format, install/remove API + Tools UI import hook, synthetic signed fixtures (verify/install/activate/reject-tamper). `cryptography` is an explicit runtime dependency. **Redistribution rights are still required before shipping real proprietary atlas binaries.**
+- **Windows unsigned internal-test backend freeze**: `packaging/windows/build-backend.ps1` produced `dist/neuroflow-backend/` (copied to `dist-portable/backend/`). Smoke green: token auth (401 without bearer), capabilities SSH ok, metadata `_internal` root, content-packs list, process cleanup. Artifacts marked `UNSIGNED-INTERNAL-TEST.txt`.
+
+### Remaining external / unfinished blockers (honest)
+
+- **Authenticode signing + timestamp** for Windows NSIS/embedded exes — no signing identity on this machine; do not publish as a public release.
+- **macOS signing/notarization** and **native macOS/Linux CI runners** — not available here; AppImage/DMG public artifacts cannot be produced or verified on this Windows host.
+- Full **Tauri NSIS / portable shell** assembly may still be blocked by WebView2 bootstrapper download time or related host setup; backend one-dir freeze is the supported internal-test path until that is unblocked.
+- **Missing MNI NIfTI assets** still need their own verified pack or explicit UI unavailability (separate from surface-atlases).
+- Clean-machine install tests, SBOM/provenance upload of signed primary artifacts, size/performance baselines, and offline OCI image packs remain unverified.
+- Workflows must continue to label outputs as **unsigned-test** until the blockers above are cleared.
