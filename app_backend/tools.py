@@ -14,6 +14,7 @@ from pipeline.registry import TOOL_DEFS, tool_display_name
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
 from app_backend.remote import parse_remote_config
+from pipeline.win_process import no_window_kwargs
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -187,6 +188,7 @@ class LocalToolService:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                **no_window_kwargs(),
             )
             logs: list[str] = []
             for line in proc.stdout:
@@ -302,7 +304,7 @@ class LocalToolService:
 
 
 def _default_command_runner(command: list[str]) -> CommandResult:
-    result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, **no_window_kwargs())
     return CommandResult(returncode=int(result.returncode))
 
 
@@ -320,6 +322,7 @@ def _default_image_info_provider(image: str) -> ImageInfo:
             capture_output=True,
             text=True,
             timeout=10,
+            **no_window_kwargs(),
         )
         sizes = proc.stdout.strip().splitlines() if proc.returncode == 0 else []
         disk_usage = sizes[0].strip() if sizes and sizes[0].strip() else None
@@ -331,6 +334,7 @@ def _default_image_info_provider(image: str) -> ImageInfo:
             capture_output=True,
             text=True,
             timeout=10,
+            **no_window_kwargs(),
         )
         raw_id = proc.stdout.strip() if proc.returncode == 0 else ""
         image_id = raw_id[:19] if raw_id else None

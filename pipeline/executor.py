@@ -10,6 +10,7 @@ from typing import Callable
 from abc import ABC, abstractmethod
 
 from .utils import _parse_docker_stats_line
+from pipeline.win_process import no_window_kwargs
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ class LocalDockerExecutor(BaseExecutor):
                 return
             while not stop_monitor.is_set():
                 try:
-                    stats = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", req.container_name], capture_output=True, text=True, timeout=5)
+                    stats = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", req.container_name], capture_output=True, text=True, timeout=5, **no_window_kwargs())
                     if stats.returncode == 0 and stats.stdout.strip():
                         cpu, current = _parse_docker_stats_line(stats.stdout.strip().splitlines()[0])
                         if current is not None:
@@ -132,7 +133,7 @@ class LocalDockerExecutor(BaseExecutor):
                 stop_monitor.wait(2.0)
 
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **no_window_kwargs())
             monitor = threading.Thread(target=monitor_resources, daemon=True)
             monitor.start()
             stopped = False
@@ -147,7 +148,7 @@ class LocalDockerExecutor(BaseExecutor):
                         if req.should_stop and req.should_stop():
                             stopped = True
                             if req.container_name:
-                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
+                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30, **no_window_kwargs())
                             else:
                                 proc.kill()
                             output, _ = proc.communicate(timeout=30)
@@ -156,7 +157,7 @@ class LocalDockerExecutor(BaseExecutor):
                         if time.time() >= deadline:
                             proc.kill()
                             if req.container_name:
-                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30)
+                                subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30, **no_window_kwargs())
                             output, _ = proc.communicate()
                             output = f"{output or ''}\nDocker timed out after {req.timeout}s"
                             return_code = -1

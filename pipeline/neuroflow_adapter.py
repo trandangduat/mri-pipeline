@@ -22,6 +22,7 @@ from .reports import BatchReportContext, write_batch_reports
 from .runner import run_pipeline_stage
 from .state import PipelineTracker
 from .stats import StatsGenerator
+from pipeline.win_process import no_window_kwargs
 
 
 NEUROFLOW_STAGE_TO_LOCAL_STAGE = {
@@ -176,6 +177,7 @@ def _gpu_resources(device: str) -> tuple[object, ...]:
             capture_output=True,
             text=True,
             timeout=5,
+            **no_window_kwargs(),
         )
     except (FileNotFoundError, subprocess.SubprocessError):
         return ()

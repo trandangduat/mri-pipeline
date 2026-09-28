@@ -15,6 +15,7 @@ from typing import Callable
 
 from .config import BuildLogCallback, PROJECT_ROOT, ProgressCallback
 from .registry import TOOL_DEFS, is_tool_enabled, tool_display_name
+from pipeline.win_process import no_window_kwargs
 
 
 log = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ def check_freesurfer_license(selected_tools: object, license_path: str) -> tuple
             capture_output=True,
             text=True,
             timeout=LICENSE_CHECK_TIMEOUT_SEC,
+            **no_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return False, f"FreeSurfer license check timed out after {LICENSE_CHECK_TIMEOUT_SEC} seconds ({tool_key})."
@@ -100,7 +102,7 @@ def check_freesurfer_license(selected_tools: object, license_path: str) -> tuple
 def image_exists(image: str) -> bool:
     for attempt in range(3):
         try:
-            proc = subprocess.run(["docker", "image", "inspect", image], capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(["docker", "image", "inspect", image], capture_output=True, text=True, timeout=30, **no_window_kwargs())
             return proc.returncode == 0
         except Exception:
             if attempt == 2:
@@ -116,6 +118,7 @@ def image_size_bytes(image: str) -> int | None:
             capture_output=True,
             text=True,
             timeout=10,
+            **no_window_kwargs(),
         )
         if proc.returncode != 0:
             return None
@@ -132,6 +135,7 @@ def manifest_download_size_bytes(image: str) -> int | None:
             capture_output=True,
             text=True,
             timeout=MANIFEST_INSPECT_TIMEOUT_SEC,
+            **no_window_kwargs(),
         )
         if proc.returncode != 0:
             return None
@@ -242,7 +246,7 @@ def format_image_size(size: int | None) -> str:
 
 def remove_image(image: str) -> tuple[bool, str]:
     try:
-        proc = subprocess.run(["docker", "image", "rm", image], capture_output=True, text=True, timeout=300)
+        proc = subprocess.run(["docker", "image", "rm", image], capture_output=True, text=True, timeout=300, **no_window_kwargs())
         if proc.returncode == 0:
             return True, ""
         return False, (proc.stderr or proc.stdout).strip()
@@ -261,7 +265,7 @@ def build_image(image: str, context_dir: str, on_progress: ProgressCallback | No
     if on_build_log:
         on_build_log(f">>> docker build -t {image} {ctx}")
     try:
-        proc = subprocess.Popen(["docker", "build", "-t", image, str(ctx)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(["docker", "build", "-t", image, str(ctx)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, **no_window_kwargs())
         last_progress: dict[str, str] = {}
         raw = ""
 
@@ -330,7 +334,7 @@ def _try_pull(image: str, on_progress: ProgressCallback | None = None, on_build_
     if on_build_log:
         on_build_log(f">>> docker pull {image}")
     try:
-        proc = subprocess.Popen(["docker", "pull", image], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(["docker", "pull", image], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, **no_window_kwargs())
         for line in proc.stdout:
             line = line.strip()
             if line and on_build_log:

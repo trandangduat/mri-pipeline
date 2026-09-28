@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Iterator
 from typing import Any, Callable
+from pipeline.win_process import no_window_kwargs
 
 DEFAULT_STALL_TIMEOUT_S: int | None = None
 PROGRESS_EMIT_INTERVAL_S = 0.2
@@ -74,6 +75,7 @@ def pull_image_events(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
+            **(no_window_kwargs() if popen_fn is subprocess.Popen else {}),
         )
     except Exception as exc:
         yield {"event": "step", "data": {"step": "pull", "status": "failed", "detail": str(exc)}}

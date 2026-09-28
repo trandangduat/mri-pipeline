@@ -55,6 +55,18 @@ NeuroFlowPortable/
 - When a job is launched, the backend runs `neuroflow-backend.exe worker --job-config <path>` (frozen mode) instead of `python -m pipeline.job_worker`.
 - Closing the Tauri window kills the backend process.
 
+## Windows console-window policy
+
+The packaged `neuroflow-backend.exe` is built with PyInstaller `console=False`
+(Windows PE subsystem), and the Tauri shell uses `windows_subsystem = "windows"`.
+Short-lived console tools spawned from the backend (`docker`, `nvidia-smi`, …)
+must pass Win32 `CREATE_NO_WINDOW` via `pipeline.win_process.no_window_kwargs()`
+so GUI use does not flash a terminal. Worker spawns use
+`detached_worker_flags()` (`CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP`) —
+do **not** combine `CREATE_NO_WINDOW` with `DETACHED_PROCESS` (MSDN ignores the
+former when paired with the latter). The Tauri sidecar spawn also sets
+`creation_flags(CREATE_NO_WINDOW)` on Windows.
+
 ## Host Requirements (End User)
 
 - Docker Desktop installed and running

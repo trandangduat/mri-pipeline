@@ -92,3 +92,19 @@ def test_native_shell_sets_resource_root_to_pyinstaller_internal() -> None:
     for platform in ("linux", "macos", "windows"):
         spec = Path("packaging") / platform / "neuroflow-backend.spec"
         assert 'contents_directory="_internal"' in spec.read_text(encoding="utf-8")
+
+def test_windows_backend_is_windowed_and_shell_hides_console_children() -> None:
+    """GUI hosts must not flash console windows for docker/nvidia-smi children."""
+    windows_spec = Path("packaging/windows/neuroflow-backend.spec").read_text(encoding="utf-8")
+    assert "console=False" in windows_spec
+
+    lib = Path("tauri-app/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    assert "CREATE_NO_WINDOW" in lib
+    assert "creation_flags(CREATE_NO_WINDOW)" in lib
+
+    main = Path("tauri-app/src-tauri/src/main.rs").read_text(encoding="utf-8")
+    assert 'windows_subsystem = "windows"' in main
+
+    win_process = Path("pipeline/win_process.py").read_text(encoding="utf-8")
+    assert "CREATE_NO_WINDOW" in win_process
+    assert "DETACHED_PROCESS" in win_process  # documented as incompatible

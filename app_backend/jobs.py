@@ -16,6 +16,7 @@ from app_backend.sse_utils import step_event, complete_event, SSEEvent
 from pipeline.docker_ops import check_freesurfer_license
 from pipeline.config import PROJECT_ROOT
 from pipeline.jobs import read_json, write_json
+from pipeline.win_process import detached_worker_flags
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -296,7 +297,9 @@ def _default_process_runner(command: list[str]) -> ProcessHandle:
         "stderr": subprocess.DEVNULL,
     }
     if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        # CREATE_NO_WINDOW (not DETACHED_PROCESS): MSDN ignores CREATE_NO_WINDOW
+        # when combined with DETACHED_PROCESS, which lets console children flash.
+        kwargs["creationflags"] = detached_worker_flags()
     else:
         kwargs["start_new_session"] = True
     process = subprocess.Popen(command, **kwargs)

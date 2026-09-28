@@ -7,6 +7,7 @@ import subprocess
 from typing import Callable, TypeAlias
 
 from pipeline.hardware import _host_info
+from pipeline.win_process import no_window_kwargs
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 CommandLocator = Callable[[str], str | None]
@@ -17,7 +18,7 @@ def _docker_version(docker_path: str) -> str:
     if not docker_path:
         return ""
     try:
-        res = subprocess.run([docker_path, "--version"], capture_output=True, text=True, timeout=3)
+        res = subprocess.run([docker_path, "--version"], capture_output=True, text=True, timeout=3, **no_window_kwargs())
         if res.returncode == 0 and res.stdout:
             m = re.search(r"version\s+([0-9]+(?:\.[0-9]+)+)", res.stdout.strip(), re.IGNORECASE)
             return m.group(1) if m else res.stdout.strip()

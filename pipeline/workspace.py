@@ -1,8 +1,12 @@
 from __future__ import annotations
+
 import os
 import shutil
 import subprocess
 from pathlib import Path
+
+from pipeline.win_process import no_window_kwargs
+
 from .registry import STAGE_LABELS, tool_display_name
 from .reports import _format_bytes
 
@@ -73,6 +77,7 @@ def _repair_host_permissions(path: str, image: str | None = None) -> None:
         subprocess.run(
             ["docker", "run", "--rm", "--entrypoint", "sh", "-v", f"{target.resolve()}:/hostdir", image, "-c", helper_cmd],
             capture_output=True, text=True, timeout=120,
+            **no_window_kwargs(),
         )
     except Exception:
         return

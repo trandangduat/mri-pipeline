@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from datetime import datetime
+from pipeline.win_process import no_window_kwargs
 
 def _read_cpuinfo() -> dict[str, str | int | None]:
     info: dict[str, str | int | None] = {
@@ -98,6 +99,7 @@ def _gpu_info() -> list[dict]:
             capture_output=True,
             text=True,
             timeout=5,
+            **no_window_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return []

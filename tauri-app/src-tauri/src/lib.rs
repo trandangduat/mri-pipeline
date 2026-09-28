@@ -159,6 +159,13 @@ fn spawn_frozen_backend(
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
+    // Hide any console flash if a console-subsystem binary is ever shipped.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     let runtime = exe_path.display().to_string();
     cmd.spawn().map(|child| (child, runtime))
