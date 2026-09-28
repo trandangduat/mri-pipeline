@@ -529,6 +529,57 @@ class RemoteJobService:
             yield complete_event(False, error=_safe_error_message(exc))
             return
 
+        # Step: Check server resources (RAM peak vs allocated RAM)
+        yield step_event("resources", "running", "Checking server resources...")
+        try:
+            from pipeline.profile_memory import (
+                format_gib,
+                format_resource_check_failure,
+                get_profile_peak_ram_mib,
+            )
+
+            hardware = test_runner.remote_hardware_info() if hasattr(test_runner, "remote_hardware_info") else {}
+            total_ram_bytes = hardware.get("total_ram_bytes") if isinstance(hardware, dict) else None
+
+            if total_ram_bytes and isinstance(total_ram_bytes, (int, float)) and total_ram_bytes > 0:
+                ram_percent = int(raw_run_request.get("ram_percent", 100) or 100)
+                total_ram_mib = int(total_ram_bytes // (1024 * 1024))
+                allocated_ram_mib = int((total_ram_mib * ram_percent) // 100)
+
+                required_peak_mib = get_profile_peak_ram_mib(raw_run_request)
+
+                if required_peak_mib > 0 and allocated_ram_mib < required_peak_mib:
+                    mode_name = str(raw_run_request.get("pipeline_mode") or "Current profile")
+                    err_msg = format_resource_check_failure(
+                        allocated_ram_mib=allocated_ram_mib,
+                        required_peak_mib=required_peak_mib,
+                        mode_name=mode_name,
+                        total_ram_mib=total_ram_mib,
+                        ram_percent=ram_percent,
+                    )
+                    yield step_event("resources", "failed", err_msg)
+                    yield complete_event(False, error=err_msg)
+                    return
+                elif required_peak_mib > 0:
+                    yield step_event(
+                        "resources",
+                        "done",
+                        f"Allocated: {format_gib(allocated_ram_mib)} RAM ({ram_percent}% of {format_gib(total_ram_mib)}) — Peak required: {format_gib(required_peak_mib)} (OK)",
+                    )
+                else:
+                    yield step_event(
+                        "resources",
+                        "done",
+                        f"Server RAM: {format_gib(total_ram_mib)} (allocated {ram_percent}%)",
+                    )
+            else:
+                yield step_event("resources", "done", "Server resources checked")
+        except Exception as exc:
+            detail = _safe_preflight_error(exc, base_config)
+            yield step_event("resources", "failed", detail)
+            yield complete_event(False, error=detail)
+            return
+
         # Step 2: Validate and normalize run request (maps input_path → input_dir/file/files)
         yield step_event("validate", "running", "Validating configuration...")
         from app_backend.run_request import prepare_run_request

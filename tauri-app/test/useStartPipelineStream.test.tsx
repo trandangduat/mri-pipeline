@@ -21,6 +21,7 @@ function Harness() {
 test('remote preflight lists license before config and keeps later steps pending on failure', async () => {
   expect(REMOTE_STEPS.map((step) => step.id)).toEqual([
     'ssh',
+    'resources',
     'validate',
     'paths',
     'images',
@@ -53,5 +54,30 @@ test('remote preflight lists license before config and keeps later steps pending
   expect(steps.find((step) => step.id === 'config')?.status).toBe('pending');
   expect(steps.find((step) => step.id === 'start')?.status).toBe('pending');
   expect(stream).toHaveBeenCalledOnce();
+  stream.mockRestore();
+});
+
+test('remote preflight fails at resources step and keeps later steps pending', async () => {
+  const stream = vi
+    .spyOn(BackendClient.prototype, 'startPipelineStream')
+    .mockImplementation(async (_path, _payload, onEvent) => {
+      onEvent('step', {step: 'resources', status: 'running'});
+      onEvent('step', {step: 'resources', status: 'failed', detail: 'Insufficient RAM allocated'});
+      onEvent('complete', {ok: false, error: 'Insufficient RAM allocated'});
+    });
+
+  render(<Harness />);
+  screen.getByRole('button', {name: 'Start'}).click();
+
+  expect(await screen.findByTestId('complete')).toHaveTextContent('true');
+  expect(screen.getByTestId('success')).toHaveTextContent('false');
+  expect(screen.getByTestId('error')).toHaveTextContent('Insufficient RAM allocated');
+  const steps = JSON.parse(screen.getByTestId('steps').textContent || '[]') as Array<{
+    id: string;
+    status: string;
+  }>;
+  expect(steps.find((step) => step.id === 'resources')?.status).toBe('failed');
+  expect(steps.find((step) => step.id === 'validate')?.status).toBe('pending');
+  expect(steps.find((step) => step.id === 'config')?.status).toBe('pending');
   stream.mockRestore();
 });

@@ -985,3 +985,96 @@ def test_remote_mkdir(monkeypatch) -> None:
     assert "/home/alice/data/new_folder" in created_dirs
 
 
+def test_stream_start_job_blocks_when_allocated_ram_insufficient() -> None:
+    class FakeLowRamRunner(FakeRunner):
+        def remote_hardware_info(self) -> dict[str, object]:
+            # 8 GB server RAM
+            return {
+                "hostname": "server",
+                "logical_cores": 4,
+                "total_ram_bytes": 8 * 1024 * 1024 * 1024,
+            }
+
+    service = RemoteJobService(runner_factory=lambda _config: FakeLowRamRunner([]))
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
+                    "ram_percent": 100,
+                },
+            }
+        )
+    )
+
+    step_events = [e for e in events if e.get("event") == "step"]
+    resources_steps = [e for e in step_events if e["data"].get("step") == "resources"]
+    assert len(resources_steps) >= 2
+    assert resources_steps[0]["data"]["status"] == "running"
+    failed_step = resources_steps[1]["data"]
+    assert failed_step["status"] == "failed"
+    assert "Insufficient RAM allocated" in failed_step["detail"]
+    assert "Compatible pipelines runnable with 8.0 GiB RAM:" in failed_step["detail"]
+    assert "FreeSurfer 7 + Volume" in failed_step["detail"]
+    assert "FastSurfer + Volume" in failed_step["detail"]
+
+    complete_events = [e for e in events if e.get("event") == "complete"]
+    assert len(complete_events) == 1
+    assert complete_events[0]["data"]["ok"] is False
+
+    # Later steps must not have run
+    validate_steps = [e for e in step_events if e["data"].get("step") == "validate"]
+    assert len(validate_steps) == 0
+
+
+def test_stream_start_job_passes_when_allocated_ram_sufficient(tmp_path) -> None:
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license-content", encoding="utf-8")
+
+    class FakeHighRamRunner(FakeRunner):
+        def remote_hardware_info(self) -> dict[str, object]:
+            # 32 GB server RAM
+            return {
+                "hostname": "server",
+                "logical_cores": 16,
+                "total_ram_bytes": 32 * 1024 * 1024 * 1024,
+            }
+
+    fake = FakeHighRamRunner([])
+    service = RemoteJobService(runner_factory=lambda _config: fake)
+    events = list(
+        service.stream_start_job(
+            {
+                "host": "server",
+                "username": "alice",
+                "password": "secret",
+                "run_request": {
+                    "input_source": "Server",
+                    "run_target": "Server",
+                    "input_mode": "file",
+                    "input_path": "/data/image.nii.gz",
+                    "output_dir": "/out",
+                    "pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness",
+                    "ram_percent": 80,
+                    "license_dir": str(tmp_path),
+                },
+            }
+        )
+    )
+
+    step_events = [e for e in events if e.get("event") == "step"]
+    resources_done = [e for e in step_events if e["data"].get("step") == "resources" and e["data"].get("status") == "done"]
+    assert len(resources_done) == 1
+    assert "Allocated: 25.6 GiB RAM (80% of 32.0 GiB)" in resources_done[0]["data"]["detail"]
+    assert "Peak required: 14.6 GiB (OK)" in resources_done[0]["data"]["detail"]
+
+
+

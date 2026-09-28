@@ -44,7 +44,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
         if (e.target === e.currentTarget && complete) onClose();
       }}
     >
-      <div className="relative w-full max-w-[26rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <h3 className="m-0 mb-3 text-base font-semibold leading-[1.3] text-cursor-ink">
           {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
         </h3>
@@ -66,7 +66,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
                 {step.detail && (
                   <p
                     className={cn(
-                      'm-0 mt-0.5 text-xs leading-[1.3]',
+                      'm-0 mt-0.5 text-xs leading-[1.3] whitespace-pre-line',
                       step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
                     )}
                   >
@@ -78,7 +78,7 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
           ))}
         </div>
         {errorMessage && !isDuplicateError && (
-          <p className="mt-2.5 text-xs text-cursor-semantic-error">{errorMessage}</p>
+          <p className="mt-2.5 text-xs text-cursor-semantic-error whitespace-pre-line">{errorMessage}</p>
         )}
         {complete && (
           <div className="mt-3.5 flex justify-end">

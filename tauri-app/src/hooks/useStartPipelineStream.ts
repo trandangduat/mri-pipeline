@@ -4,6 +4,7 @@ import type {PipelineStep} from '../components/StartPipelineDialog';
 
 export const REMOTE_STEPS: PipelineStep[] = [
   {id: 'ssh', label: 'Checking SSH connection', status: 'pending'},
+  {id: 'resources', label: 'Checking server resources', status: 'pending'},
   {id: 'validate', label: 'Validating configuration', status: 'pending'},
   {id: 'paths', label: 'Validating input/output paths', status: 'pending'},
   {id: 'images', label: 'Checking Docker images', status: 'pending'},
