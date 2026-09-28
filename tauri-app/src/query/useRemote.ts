@@ -39,6 +39,16 @@ export function useRemoteValidateMutation() {
   });
 }
 
+export function useApproveRemoteHostKeyMutation() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (payload: RemotePayload & {fingerprint: string; timeoutMs?: number}) => {
+      const {timeoutMs, ...requestPayload} = payload;
+      return client.approveRemoteHostKey(requestPayload, timeoutMs);
+    },
+  });
+}
+
 export function useListRemoteJobsMutation() {
   const client = useClient();
   return useMutation({

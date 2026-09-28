@@ -13,6 +13,7 @@ import type {
   RemoteBrowseResponse,
   RemoteEnvironmentResponse,
   RemoteJobsResponse,
+  RemoteTrustHostResponse,
   RemoteValidateResponse,
   RemoveImageResponse,
   StartJobResponse,
@@ -33,6 +34,7 @@ import {
   remoteBrowseResponseSchema,
   remoteEnvironmentResponseSchema,
   remoteJobsResponseSchema,
+  remoteTrustHostResponseSchema,
   remoteValidateResponseSchema,
   removeImageResponseSchema,
   startJobResponseSchema,
@@ -143,6 +145,13 @@ export class BackendClient {
 
   async validateRemoteConfig(payload: RemotePayload, timeoutMs = 30_000): Promise<RemoteValidateResponse> {
     return remoteValidateResponseSchema.parse(await this.post('/remote/validate', {...payload}, timeoutMs));
+  }
+
+  async approveRemoteHostKey(
+    payload: RemotePayload & {fingerprint: string},
+    timeoutMs = 30_000,
+  ): Promise<RemoteTrustHostResponse> {
+    return remoteTrustHostResponseSchema.parse(await this.post('/remote/trust-host', {...payload}, timeoutMs));
   }
 
   async inspectRemoteEnvironment(payload: RemotePayload, timeoutMs = 30_000): Promise<RemoteEnvironmentResponse> {

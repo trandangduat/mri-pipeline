@@ -3,7 +3,7 @@ import os
 from app_backend.remote import RemoteJobService, VALIDATE_SSH_TIMEOUT_S
 from pipeline.presets import PRESET_CONFIGS
 from remote.remote_runner import RemoteRunConfig, parse_remote_python_command
-from remote.ssh_client import HostKeyChangedError, HostKeyOffer, UnknownHostKeyError
+from remote.ssh_client import HostKeyChangedError, HostKeyFingerprintMismatchError, HostKeyOffer, UnknownHostKeyError
 
 
 class FakeRunner:
@@ -277,6 +277,53 @@ def test_host_key_approval_returns_refetched_fingerprint(monkeypatch) -> None:
             "key_type": "ssh-ed25519",
             "fingerprint": "SHA256:approved",
         },
+    }
+
+
+def test_host_key_approval_rejects_fingerprint_mismatch(monkeypatch) -> None:
+    def _raise_mismatch(_config, _fingerprint):
+        raise HostKeyFingerprintMismatchError("server", 22)
+
+    monkeypatch.setattr("app_backend.remote.approve_host_key", _raise_mismatch)
+    service = RemoteJobService()
+
+    result = service.approve_host_key(
+        {"host": "server", "username": "alice", "password": "secret", "fingerprint": "SHA256:stale"}
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "SSH host key changed while awaiting approval. Connection refused.",
+        "config": {
+            "host": "server",
+            "port": 22,
+            "username": "alice",
+            "auth_method": "password",
+            "workspace": "~/mri-remote-jobs",
+            "python": "python3",
+        },
+    }
+
+
+def test_host_key_approval_hard_fails_when_existing_key_changed(monkeypatch) -> None:
+    def _raise_changed(_config, _fingerprint):
+        raise HostKeyChangedError("server", 22, "ssh-ed25519", "SHA256:new", "SHA256:old")
+
+    monkeypatch.setattr("app_backend.remote.approve_host_key", _raise_changed)
+    service = RemoteJobService()
+
+    result = service.approve_host_key(
+        {"host": "server", "username": "alice", "password": "secret", "fingerprint": "SHA256:new"}
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "SSH host key changed. Connection refused."
+    assert result["host_key_changed"] == {
+        "host": "server",
+        "port": 22,
+        "key_type": "ssh-ed25519",
+        "fingerprint": "SHA256:new",
+        "expected_fingerprint": "SHA256:old",
     }
 
 

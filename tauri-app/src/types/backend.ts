@@ -27,8 +27,10 @@ import type {
   remoteHardwareSchema,
   remoteJobSummarySchema,
   remoteJobsResponseSchema,
+  remoteTrustHostResponseSchema,
   remoteValidateResponseSchema,
   removeImageResponseSchema,
+  sshHostKeyInfoSchema,
   startJobResponseSchema,
   toolDetailSchema,
   toolImageSchema,
@@ -56,6 +58,8 @@ export type ToolsImageResponse = z.infer<typeof toolsImageResponseSchema>;
 export type RemoteConfigSummary = z.infer<typeof remoteConfigSummarySchema>;
 export type RemoteHardware = z.infer<typeof remoteHardwareSchema>;
 export type RemoteValidateResponse = z.infer<typeof remoteValidateResponseSchema>;
+export type SshHostKeyInfo = z.infer<typeof sshHostKeyInfoSchema>;
+export type RemoteTrustHostResponse = z.infer<typeof remoteTrustHostResponseSchema>;
 export type RemoteEnvironmentServer = z.infer<typeof remoteEnvironmentServerSchema>;
 export type RemoteEnvironmentPython = z.infer<typeof remoteEnvironmentPythonSchema>;
 export type RemoteEnvironmentVenv = z.infer<typeof remoteEnvironmentVenvSchema>;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {
   FolderOpen,
   Cpu,
@@ -9,6 +9,7 @@ import {
 import {open} from '@tauri-apps/plugin-dialog';
 import {toast} from 'sonner';
 import {Panel, Button, Alert, CustomSelect, inputCls, labelCls} from './ui';
+import {ConfirmDialog} from './ConfirmDialog';
 import {formatBytes} from '../lib/format';
 import {runtimeWarnings, runtimeLimitErrors, currentTargetHardware, sanitizeBoundedIntText, clampBoundedIntValue, safeLimitMark, cpuThreadCapForTarget, reclampCpuThreadsForTarget, reclampRamPercentForTarget, RAM_PERCENT_MAX, RAM_PERCENT_MIN, DEFAULT_CPU_THREADS} from '../lib/runtime';
 import {useEnvironment} from '../query/useEnvironment';
@@ -17,9 +18,24 @@ import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {buildRemotePayload} from '../api/runConfig';
-import {useRemoteValidateMutation} from '../query/useRemote';
+import {useApproveRemoteHostKeyMutation, useRemoteValidateMutation} from '../query/useRemote';
 import {shortConnectionError} from '../lib/connection';
-import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary} from '../types/backend';
+import type {RuntimeTarget, RemoteConfigSummary, RemoteHardware, RemoteJobSummary, RemoteValidateResponse, SshHostKeyInfo} from '../types/backend';
+
+
+function formatHostKeyChangedMessage(info: SshHostKeyInfo, fallback?: string): string {
+  const lines = [
+    fallback || 'SSH host key changed. Connection refused.',
+    `Host: ${info.host}:${info.port}`,
+    `Key type: ${info.key_type}`,
+    `Presented fingerprint: ${info.fingerprint}`,
+  ];
+  if (info.expected_fingerprint) {
+    lines.push(`Previously trusted fingerprint: ${info.expected_fingerprint}`);
+  }
+  lines.push('Do not trust this host until you verify the key change out-of-band. Automatic trust is not available.');
+  return lines.join(' ');
+}
 
 function selectedDialogPath(selected: Awaited<ReturnType<typeof open>>) {
   if (Array.isArray(selected)) return selected[0] || '';
@@ -54,6 +70,9 @@ export function RuntimeSection() {
 
   const remotePayload = () => buildRemotePayload(formValues);
 
+  const [hostKeyApproval, setHostKeyApproval] = useState<SshHostKeyInfo | null>(null);
+  const [trustingHostKey, setTrustingHostKey] = useState(false);
+
   function renderRemoteResult(result: {
     ok?: boolean | undefined;
     connected?: boolean | undefined;
@@ -63,8 +82,37 @@ export function RuntimeSection() {
     errors?: string[] | undefined;
     jobs?: RemoteJobSummary[] | undefined;
     warnings?: string[] | undefined;
+    trust_required?: SshHostKeyInfo | undefined;
+    host_key_changed?: SshHostKeyInfo | undefined;
   }) {
+    if (result.host_key_changed) {
+      setHostKeyApproval(null);
+      setRemoteResult({
+        ok: false,
+        connected: false,
+        config: null,
+        hardware: null,
+        error: formatHostKeyChangedMessage(result.host_key_changed, result.error),
+        jobs: [],
+        warnings: [],
+      });
+      return;
+    }
+    if (result.trust_required) {
+      setHostKeyApproval(result.trust_required);
+      setRemoteResult({
+        ok: false,
+        connected: false,
+        config: null,
+        hardware: null,
+        error: result.error || 'SSH host-key approval is required before connecting.',
+        jobs: [],
+        warnings: [],
+      });
+      return;
+    }
     if (!result.ok) {
+      setHostKeyApproval(null);
       const error = result.error || (result.errors || []).join(' ') || 'SSH connection failed.';
       setRemoteResult({
         ok: false,
@@ -81,6 +129,7 @@ export function RuntimeSection() {
       return;
     }
     if (result.connected !== true) {
+      setHostKeyApproval(null);
       const error =
         'SSH connection was not confirmed. Restart NeuroFlow so the updated backend is used, then press Connect again.';
       setRemoteResult({
@@ -94,6 +143,7 @@ export function RuntimeSection() {
       });
       return;
     }
+    setHostKeyApproval(null);
     setRemoteResult({
       ok: true,
       connected: true,
@@ -107,8 +157,10 @@ export function RuntimeSection() {
   }
 
   const validateRemoteMutation = useRemoteValidateMutation();
+  const approveHostKeyMutation = useApproveRemoteHostKeyMutation();
 
   const connectRemote = async () => {
+    setHostKeyApproval(null);
     setRemoteResult({ok: false, connected: false, error: '', jobs: [], hardware: null});
     setBusyKey('connect', true);
     try {
@@ -118,6 +170,63 @@ export function RuntimeSection() {
       renderRemoteResult({ok: false, connected: false, error: (error as Error).message || 'SSH connection failed.'});
       print('Remote connect failed', {error: (error as Error).message});
     } finally {
+      setBusyKey('connect', false);
+    }
+  };
+
+  const cancelHostKeyApproval = () => {
+    setHostKeyApproval(null);
+    setRemoteResult({
+      ok: false,
+      connected: false,
+      config: null,
+      hardware: null,
+      error: 'SSH host-key approval cancelled. Connection was not established.',
+      jobs: [],
+      warnings: [],
+    });
+  };
+
+  const approveHostKeyAndReconnect = async () => {
+    if (!hostKeyApproval) return;
+    setTrustingHostKey(true);
+    setBusyKey('connect', true);
+    try {
+      const trustResult = await approveHostKeyMutation.mutateAsync({
+        ...remotePayload(),
+        fingerprint: hostKeyApproval.fingerprint,
+      });
+      if (!trustResult.ok) {
+        if (trustResult.host_key_changed) {
+          renderRemoteResult({
+            ok: false,
+            connected: false,
+            error: trustResult.error,
+            host_key_changed: trustResult.host_key_changed,
+          });
+        } else {
+          setHostKeyApproval(null);
+          setRemoteResult({
+            ok: false,
+            connected: false,
+            config: null,
+            hardware: null,
+            error: trustResult.error || (trustResult.errors || []).join(' ') || 'Failed to trust SSH host key.',
+            jobs: [],
+            warnings: [],
+          });
+        }
+        return;
+      }
+      setHostKeyApproval(null);
+      const result: RemoteValidateResponse = await validateRemoteMutation.mutateAsync(remotePayload());
+      renderRemoteResult(result);
+    } catch (error: unknown) {
+      setHostKeyApproval(null);
+      renderRemoteResult({ok: false, connected: false, error: (error as Error).message || 'Failed to trust SSH host key.'});
+      print('Remote host-key trust failed', {error: (error as Error).message});
+    } finally {
+      setTrustingHostKey(false);
       setBusyKey('connect', false);
     }
   };
@@ -462,6 +571,35 @@ export function RuntimeSection() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={hostKeyApproval != null}
+        title="Trust SSH host key?"
+        entityName={hostKeyApproval ? `${hostKeyApproval.host}:${hostKeyApproval.port}` : undefined}
+        description={
+          hostKeyApproval ? (
+            <div className="space-y-2">
+              <p className="m-0">
+                This server has not been trusted before. Verify the fingerprint out-of-band (for example with your
+                administrator or a known-good source) before continuing. NeuroFlow will not connect until you approve.
+              </p>
+              <p className="m-0">
+                Key type: <span className="font-mono text-cursor-ink">{hostKeyApproval.key_type}</span>
+              </p>
+              <p className="m-0">Fingerprint (SHA-256):</p>
+              <pre className="m-0 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded border border-cursor-hairline-soft bg-cursor-canvas-soft px-2 py-1.5 font-mono text-2xs text-cursor-ink select-all">
+                {hostKeyApproval.fingerprint}
+              </pre>
+            </div>
+          ) : null
+        }
+        confirmLabel="Trust and Connect"
+        confirmLoadingLabel="Trusting..."
+        cancelLabel="Cancel"
+        isLoading={trustingHostKey}
+        onConfirm={approveHostKeyAndReconnect}
+        onClose={cancelHostKeyApproval}
+      />
     </Panel>
   );
 }

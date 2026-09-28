@@ -157,6 +157,14 @@ export const remoteHardwareSchema = z.object({
   gpus: z.array(gpuInfoSchema).optional(),
 });
 
+export const sshHostKeyInfoSchema = z.object({
+  host: z.string(),
+  port: z.number(),
+  key_type: z.string(),
+  fingerprint: z.string(),
+  expected_fingerprint: z.string().optional(),
+});
+
 export const remoteValidateResponseSchema = z.object({
   ok: z.boolean(),
   connected: z.boolean().optional(),
@@ -165,6 +173,18 @@ export const remoteValidateResponseSchema = z.object({
   warnings: z.array(z.string()).optional(),
   errors: z.array(z.string()).optional(),
   error: z.string().optional(),
+  trust_required: sshHostKeyInfoSchema.optional(),
+  host_key_changed: sshHostKeyInfoSchema.optional(),
+});
+
+export const remoteTrustHostResponseSchema = z.object({
+  ok: z.boolean(),
+  trusted: z.boolean().optional(),
+  host_key: sshHostKeyInfoSchema.optional(),
+  error: z.string().optional(),
+  errors: z.array(z.string()).optional(),
+  host_key_changed: sshHostKeyInfoSchema.optional(),
+  config: remoteConfigSummarySchema.optional(),
 });
 
 export const remoteEnvironmentServerSchema = remoteHardwareSchema.extend({

@@ -183,6 +183,68 @@ test('BackendClient uses expected endpoint paths', async () => {
   expect(calls[9]?.url).toBe('http://backend/remote/jobs');
 });
 
+test('BackendClient approveRemoteHostKey posts fingerprint to /remote/trust-host', async () => {
+  const calls: Array<{url: string; options: RequestInit}> = [];
+  const client = new BackendClient('http://backend', async (url: RequestInfo | URL, options?: RequestInit) => {
+    calls.push({url: String(url), options: options || {}});
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        trusted: true,
+        host_key: {host: 'server', port: 22, key_type: 'ssh-ed25519', fingerprint: 'SHA256:approved'},
+      }),
+    } as Response;
+  });
+
+  const result = await client.approveRemoteHostKey({
+    host: 'server',
+    port: 22,
+    username: 'u',
+    password: '',
+    remote_python: 'python3',
+    workspace: '~/mri-remote-jobs',
+    key_path: '',
+    fingerprint: 'SHA256:approved',
+  });
+
+  expect(result).toEqual({
+    ok: true,
+    trusted: true,
+    host_key: {host: 'server', port: 22, key_type: 'ssh-ed25519', fingerprint: 'SHA256:approved'},
+  });
+  expect(calls[0]?.url).toBe('http://backend/remote/trust-host');
+  expect(calls[0]?.options.method).toBe('POST');
+  expect(calls[0]?.options.body).toBe(
+    JSON.stringify({
+      host: 'server',
+      port: 22,
+      username: 'u',
+      password: '',
+      remote_python: 'python3',
+      workspace: '~/mri-remote-jobs',
+      key_path: '',
+      fingerprint: 'SHA256:approved',
+    }),
+  );
+});
+
+test('remoteValidateResponseSchema preserves trust_required instead of stripping it', async () => {
+  const {remoteValidateResponseSchema} = await import('../src/api/schemas');
+  const parsed = remoteValidateResponseSchema.parse({
+    ok: false,
+    connected: false,
+    error: 'SSH host-key approval is required before connecting.',
+    trust_required: {
+      host: 'server',
+      port: 22,
+      key_type: 'ssh-ed25519',
+      fingerprint: 'SHA256:keep-me',
+    },
+  });
+  expect(parsed.trust_required?.fingerprint).toBe('SHA256:keep-me');
+});
+
 test('BackendClient raises backend JSON errors', async () => {
   const client = new BackendClient(
     'http://backend',
