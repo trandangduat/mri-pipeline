@@ -440,59 +440,76 @@ export function RuntimeSection() {
 
           <div className="grid gap-2.5 grid-cols-2">
             <label className={labelCls}>
-              Host
+              <span className="flex h-4 items-center gap-1">
+                <span>Host</span>
+                <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+              </span>
               <input
                 name="host"
                 placeholder="10.8.0.1 or server.domain"
-                value={formValues.host}
+                value={formValues.host || ''}
                 onChange={(e) => setFormField('host', e.target.value)}
-                className={inputCls}
+                className={`${inputCls} ${!formValues.host?.trim() ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''}`}
               />
             </label>
             <label className={labelCls}>
-              Port
+              <span className="flex h-4 items-center gap-1">
+                <span>Port</span>
+                <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+              </span>
               <input
                 name="port"
                 type="number"
                 min="1"
                 max="65535"
-                value={formValues.port}
+                value={formValues.port ?? ''}
                 onChange={(e) => setFormField('port', e.target.value)}
-                className={inputCls}
+                className={`${inputCls} ${!formValues.port ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''}`}
               />
             </label>
             <label className={labelCls}>
-              Username
+              <span className="flex h-4 items-center gap-1">
+                <span>Username</span>
+                <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+              </span>
               <input
                 name="username"
                 placeholder="username"
-                value={formValues.username}
+                value={formValues.username || ''}
                 onChange={(e) => setFormField('username', e.target.value)}
-                className={inputCls}
+                className={`${inputCls} ${!formValues.username?.trim() ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''}`}
               />
             </label>
             <label className={labelCls}>
-              Remote Python
+              <span className="flex h-4 items-center gap-1">
+                <span>Remote Python</span>
+                <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+              </span>
               <input
                 name="remote_python"
                 placeholder="python3"
-                value={formValues.remote_python}
+                value={formValues.remote_python || ''}
                 onChange={(e) => setFormField('remote_python', e.target.value)}
-                className={inputCls}
+                className={`${inputCls} ${!formValues.remote_python?.trim() ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''}`}
               />
             </label>
             <label className={labelCls}>
-              Workspace directory
+              <span className="flex h-4 items-center gap-1">
+                <span>Workspace directory</span>
+                <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+              </span>
               <input
                 name="workspace"
                 placeholder="~/neuroflow-workspace"
-                value={formValues.workspace}
+                value={formValues.workspace || ''}
                 onChange={(e) => setFormField('workspace', e.target.value)}
-                className={inputCls}
+                className={`${inputCls} ${!formValues.workspace?.trim() ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''}`}
               />
             </label>
             <label className={labelCls}>
-              SSH key path
+              <span className="flex h-4 items-center gap-1">
+                <span>SSH key path</span>
+              </span>
               <div className="flex items-center gap-1.5">
                 <input
                   name="key_path"
@@ -512,7 +529,9 @@ export function RuntimeSection() {
               </div>
             </label>
             <label className={`${labelCls} col-span-2`}>
-              Password (optional)
+              <span className="flex h-4 items-center gap-1">
+                <span>Password (optional)</span>
+              </span>
               <input
                 name="password"
                 type="password"

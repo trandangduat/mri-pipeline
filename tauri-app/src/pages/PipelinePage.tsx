@@ -281,7 +281,10 @@ export function PipelineStepsSection() {
       {needsLicense && (
         <div className="mt-2.5 flex flex-wrap items-end gap-2">
           <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
-            FreeSurfer license (license.txt)
+            <span className="flex h-4 items-center gap-1">
+              <span>FreeSurfer license (license.txt)</span>
+              <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+            </span>
             <input
               id="licensePath"
               name="licensePath"
@@ -289,7 +292,9 @@ export function PipelineStepsSection() {
               value={licensePath || ''}
               readOnly
               placeholder="Select license.txt via Browse"
-              className={`${inputCls} bg-cursor-canvas-soft text-cursor-muted`}
+              className={`${inputCls} bg-cursor-canvas-soft text-cursor-muted ${
+                !licensePath ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''
+              }`}
             />
           </label>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -2229,20 +2234,30 @@ function PathField({
   disabled?: boolean;
   readOnly?: boolean;
 }) {
+  const isRequired = Boolean(required && !disabled);
+  const isMissing = isRequired && !value;
+
   return (
     <label className={`${labelCls} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-      {label}
+      <span className="flex h-4 items-center gap-1">
+        <span>{label}</span>
+        {isRequired && (
+          <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
+        )}
+      </span>
       <div className="flex gap-1.5">
         <input
           id={id}
           name={id}
           value={value}
           placeholder={disabled ? 'Connect to server first' : placeholder}
-          required={required && !disabled}
+          required={isRequired}
           disabled={disabled}
           readOnly={readOnly}
           onChange={(e) => onChange?.(e.target.value)}
-          className={`${inputCls} flex-1 ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''} ${readOnly ? 'bg-cursor-canvas-soft text-cursor-muted' : ''}`}
+          className={`${inputCls} flex-1 ${
+            isMissing ? 'border-cursor-semantic-error focus:border-cursor-semantic-error' : ''
+          } ${disabled ? 'cursor-not-allowed bg-cursor-canvas-soft text-cursor-muted border-cursor-hairline-soft' : ''} ${readOnly ? 'bg-cursor-canvas-soft text-cursor-muted' : ''}`}
         />
         <Button
           variant="ghost"

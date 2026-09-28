@@ -17,6 +17,7 @@ import {FontScaleToggle} from './FontScaleToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useEnvironment} from '../query/useEnvironment';
+import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
 import {currentTargetHardware, runtimeLimitErrors} from '../lib/runtime';
 import {defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
@@ -267,15 +268,21 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
     (needsLicense && !formValues.licensePath) ||
     stageViolations.length > 0;
 
-  const startButtonText = starting
-    ? 'Starting...'
-    : formValues.runtimeTarget === 'Server' && !remoteResult.connected
-      ? 'Connect SSH first'
-      : needsLicense && !formValues.licensePath
-        ? 'License required'
-        : stageViolations.length > 0
-          ? 'Fix tool combination'
-          : 'Start Pipeline';
+  const startDisabledReason = useMemo(() => {
+    if (starting) return null;
+    if (formValues.runtimeTarget === 'Server' && !remoteResult.connected) {
+      return 'Connect SSH to server before starting pipeline';
+    }
+    if (needsLicense && !formValues.licensePath) {
+      return 'FreeSurfer license required (select license.txt in Pipeline Configuration)';
+    }
+    if (stageViolations.length > 0) {
+      return 'Fix conflicting tool combinations in Pipeline Configuration';
+    }
+    return null;
+  }, [starting, formValues.runtimeTarget, remoteResult.connected, needsLicense, formValues.licensePath, stageViolations.length]);
+
+  const startButtonText = starting ? 'Starting...' : 'Start Pipeline';
 
   return (
     <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card [--font-scale:1]">
@@ -324,15 +331,29 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
             }}
           />
 
-          <Button
-            id="headerStartButton"
-            variant="primary"
-            icon={starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            onClick={handleStartPipeline}
-            disabled={startDisabled}
-          >
-            {startButtonText}
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={<span className="inline-flex" tabIndex={startDisabled ? 0 : undefined} />}
+              >
+                <Button
+                  id="headerStartButton"
+                  variant="primary"
+                  icon={starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  onClick={handleStartPipeline}
+                  disabled={startDisabled}
+                  title={startDisabledReason || undefined}
+                >
+                  {startButtonText}
+                </Button>
+              </TooltipTrigger>
+              {startDisabledReason && (
+                <TooltipContent side="bottom" align="end" className="text-xs">
+                  {startDisabledReason}
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 

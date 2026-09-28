@@ -36,10 +36,14 @@ function renderHeader(props: {
   activeTab?: 'pipeline' | 'tools' | 'jobs';
   onSelectTab?: (tab: 'pipeline' | 'tools' | 'jobs') => void;
   jobsCount?: number;
+  metadata?: unknown;
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {queries: {retry: false}},
   });
+  if (props.metadata) {
+    queryClient.setQueryData(['metadata'], props.metadata);
+  }
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -183,4 +187,30 @@ test('shows warning modal when an active job is running on the target machine', 
   // Clicking Cancel dismisses modal
   await user.click(screen.getByText('Cancel'));
   expect(screen.queryByText('Job Already Running')).not.toBeInTheDocument();
+});
+
+test('keeps Start Pipeline text and disables button when required license is missing', () => {
+  usePipelineFormStore.setState({
+    formValues: {
+      ...usePipelineFormStore.getState().formValues,
+      licensePath: '',
+      stage_recon: 'freesurfer',
+    },
+  });
+
+  renderHeader({
+    metadata: {
+      stage_order: ['recon'],
+      tools: {
+        freesurfer: {
+          needs_license: true,
+        },
+      },
+    },
+  });
+
+  const startBtn = screen.getByRole('button', {name: /Start Pipeline/i});
+  expect(startBtn).toBeInTheDocument();
+  expect(startBtn).toBeDisabled();
+  expect(startBtn).toHaveAttribute('title', expect.stringContaining('FreeSurfer license required'));
 });
