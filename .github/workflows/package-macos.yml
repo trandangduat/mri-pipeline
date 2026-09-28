@@ -1,0 +1,101 @@
+name: Package macOS
+
+# Unsigned internal-test macOS build only (no Apple signing/notarization).
+# Restricted to the packaging WIP branch so main CI is unchanged.
+on:
+  push:
+    branches:
+      - packaging/release-hardening-wip
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-macos:
+    name: Build unsigned macOS Apple Silicon package
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tauri-app/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Create Python virtual environment
+        run: |
+          python3 -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+
+      - name: Build macOS package
+        env:
+          CI: true
+          NEUROFLOW_TAURI_BUNDLES: dmg
+        run: |
+          chmod +x ./packaging/macos/build-backend.sh ./packaging/macos/build-app.sh
+          ./packaging/macos/build-app.sh "$PWD"
+
+      - name: Stage DMG and app archive
+        run: |
+          mkdir -p dist-release
+          dmg_file="$(find tauri-app/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit 2>/dev/null || true)"
+          app_path="tauri-app/src-tauri/target/release/bundle/macos/NeuroFlow.app"
+
+          if [[ -z "$dmg_file" || ! -f "$dmg_file" ]]; then
+            echo "Expected DMG was not produced." >&2
+            find tauri-app/src-tauri/target/release/bundle -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          dmg_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.dmg"
+          cp "$dmg_file" "$dmg_out"
+          shasum -a 256 "$dmg_out" > "$dmg_out.sha256"
+
+          if [[ -d "$app_path" ]]; then
+            app_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.app.tar.gz"
+            tar -C "$(dirname "$app_path")" -czf "$app_out" "$(basename "$app_path")"
+            shasum -a 256 "$app_out" > "$app_out.sha256"
+          fi
+
+          ls -lh dist-release/
+
+      - name: Job summary (unsigned internal test)
+        run: |
+          {
+            echo "## macOS package (unsigned internal test)"
+            echo ""
+            echo "This workflow intentionally produces an **unsigned** macOS build."
+            echo "Apple signing and notarization secrets are not required or used."
+            echo "Suitable for internal testing only; Gatekeeper will warn for distribution outside your machine."
+            echo ""
+            echo "- Runner: \`macos-14\` (Apple Silicon / arm64)"
+            echo "- Build scripts: \`packaging/macos/build-backend.sh\` + \`packaging/macos/build-app.sh\`"
+            echo "- Bundle: DMG via \`NEUROFLOW_TAURI_BUNDLES=dmg\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "### Artifacts"
+            ls -lh dist-release/ | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unsigned macOS test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeuroFlow-macOS-arm64-unsigned-test-${{ github.sha }}
+          path: dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.*
+          if-no-files-found: error
+          retention-days: 14

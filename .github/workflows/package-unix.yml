@@ -2,6 +2,8 @@ name: Package Linux and macOS
 
 on:
   push:
+    branches-ignore:
+      - packaging/release-hardening-wip
   workflow_dispatch:
 
 permissions:
