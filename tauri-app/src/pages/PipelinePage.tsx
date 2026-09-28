@@ -496,6 +496,8 @@ export function StatsAtlasSection() {
             .join(' ');
         const filteredAtlasKeys = pickerAtlasKeys.filter((atlasKey) => {
           const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
+          // Backend already omits missing content from stats_vectors; keep UI fail-closed too.
+          if (atlas.available === false) return false;
           const query = atlasSearch.trim().toLowerCase();
           if (!query) return true;
           return `${atlas.label || ''} ${atlas.key || atlasKey}`.toLowerCase().includes(query);
@@ -558,15 +560,23 @@ export function StatsAtlasSection() {
                   filteredAtlasKeys.map((atlasKey) => {
                     const atlas = metadata?.atlases?.[atlasKey] || {key: atlasKey, label: atlasKey};
                     const isSelected = pickerSelectedAtlases.includes(atlasKey);
+                    const isUnavailable = atlas.available === false;
                     return (
                       <button
                         key={atlasKey}
                         type="button"
-                        onClick={() => toggleAtlas(atlasPickerStatKey, atlasKey)}
-                        className={`group flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
-                          isSelected
-                            ? 'border-cursor-primary/50 bg-cursor-primary/[0.04] text-cursor-ink hover:bg-cursor-primary/[0.08]'
-                            : 'border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
+                        disabled={isUnavailable}
+                        title={isUnavailable ? atlas.unavailable_reason || 'Atlas content is not installed' : undefined}
+                        onClick={() => {
+                          if (isUnavailable) return;
+                          toggleAtlas(atlasPickerStatKey, atlasKey);
+                        }}
+                        className={`group flex w-full items-center justify-between gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
+                          isUnavailable
+                            ? 'cursor-not-allowed border-cursor-hairline bg-cursor-canvas-soft/70 text-cursor-muted opacity-70'
+                            : isSelected
+                              ? 'cursor-pointer border-cursor-primary/50 bg-cursor-primary/[0.04] text-cursor-ink hover:bg-cursor-primary/[0.08]'
+                              : 'cursor-pointer border-cursor-hairline bg-cursor-surface-card text-cursor-ink hover:border-cursor-hairline-strong hover:bg-cursor-canvas-soft'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">

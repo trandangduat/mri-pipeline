@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
+from pipeline.atlas_content import atlas_selection_errors
 from pipeline.config import PROJECT_ROOT, ExportConfig, StatsVectorConfig
 from pipeline.discovery import _is_dicom_file, _is_dicom_series_dir, _is_supported_mri_input
 from pipeline.presets import (
@@ -205,6 +206,10 @@ def validate_run_request_input(config: RunRequestInput, *, validate_license: boo
     neuroflow_error = _neuroflow_error(config)
     if neuroflow_error:
         return [neuroflow_error]
+
+    atlas_errors = atlas_selection_errors(config.stats_vector_config)
+    if atlas_errors:
+        return atlas_errors
 
     if config.neuroflow_enabled:
         for label, raw_path in (

@@ -298,7 +298,15 @@ export const appMetadataSchema = z.object({
     z.string(),
     z.object({key: z.string(), label: z.string(), value_column: z.string(), atlases: z.array(z.string())}),
   ),
-  atlases: z.record(z.string(), z.object({key: z.string(), label: z.string()})),
+  atlases: z.record(
+    z.string(),
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      available: z.boolean().optional(),
+      unavailable_reason: z.string().optional(),
+    }),
+  ),
   vector_specs: z.record(z.string(), z.record(z.string(), z.string())),
 });
 

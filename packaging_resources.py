@@ -19,8 +19,8 @@ def collect_core_info_datas(project_root: Path) -> list[tuple[str, str]]:
     must not be copied into every desktop installer.  Select the runtime
     contract, rather than the directory contents, so a feature list that is
     temporarily absent from a checkout cannot silently disappear from an
-    installer.  PyInstaller will report a missing declared resource during a
-    release build.
+    installer.  Missing declared files raise here so release builds fail closed
+    with an actionable message instead of a cryptic PyInstaller path error.
     """
     info_root = project_root / "info"
     feature_names = sorted(
@@ -30,10 +30,19 @@ def collect_core_info_datas(project_root: Path) -> list[tuple[str, str]]:
             if isinstance(spec.get("features"), str)
         }
     )
-    return [
+    datas = [
         (str(info_root / feature_name), "info")
         for feature_name in feature_names
     ]
+    missing = [source for source, _destination in datas if not Path(source).is_file()]
+    if missing:
+        names = ", ".join(Path(path).name for path in missing)
+        raise FileNotFoundError(
+            "Core packaging requires feature lists that are absent: "
+            f"{names}. Supply redistribution-approved atlas assets or remove "
+            "the affected options from VECTOR_SPECS / KONG2022_ATLAS_VARIANTS."
+        )
+    return datas
 
 
 def collect_python_source_datas(source_root: Path, destination_root: str) -> list[tuple[str, str]]:

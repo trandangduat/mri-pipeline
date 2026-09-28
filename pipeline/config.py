@@ -78,6 +78,11 @@ SCHAEFER2018_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
     for networks in (7, 17)
 )
 
+# Only Kong parcel counts that ship with redistributable assets in this tree.
+# 100/300/400 require a future signed content pack (no redistribution approval yet).
+KONG2022_SHIPPED_PARCELS: tuple[int, ...] = (200,)
+KONG2022_CONTENT_PACK_PARCELS: tuple[int, ...] = (100, 300, 400)
+
 KONG2022_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
     (
         "kong" if parcels == 200 else f"kong2022_{parcels}parcels_17networks",
@@ -85,7 +90,7 @@ KONG2022_ATLAS_VARIANTS: tuple[tuple[str, int, int, str], ...] = tuple(
         17,
         f"{parcels}Parcels_Kong2022_17Networks",
     )
-    for parcels in (100, 200, 300, 400)
+    for parcels in KONG2022_SHIPPED_PARCELS
 )
 
 SURFACE_ATLAS_STEMS: tuple[str, ...] = (

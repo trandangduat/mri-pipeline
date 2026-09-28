@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TypeAlias
 
 from app_backend import paths
+from pipeline.atlas_content import is_atlas_content_available, unavailable_atlas_message
 from pipeline.config import ATLAS_DEFS, EXTERNAL_MNI_VOLUME_ATLASES, EXPORT_OUTPUT_ITEMS, PROJECT_ROOT, STAT_VECTOR_DEFS, ExportConfig
 from pipeline.presets import PIPELINE_MODE_ALIASES, PIPELINE_MODES, PRESET_CONFIGS
 from pipeline.registry import (
@@ -72,6 +73,8 @@ def _mni_atlas_metadata() -> dict[str, JsonValue]:
             "label": ATLAS_DEFS.get(atlas, atlas),
             "type": atlas_types.get(atlas, ""),
             "source": "MNI",
+            "available": is_atlas_content_available(atlas),
+            "unavailable_reason": unavailable_atlas_message(atlas),
             "atlas_nifti": str(VECTOR_SPECS.get(atlas, {}).get("atlas_nifti", "")),
             "atlas_lut": str(VECTOR_SPECS.get(atlas, {}).get("atlas_lut", "")),
             "stats_basename": str(VECTOR_SPECS.get(atlas, {}).get("stats_basename", f"{atlas}.stats")),
@@ -116,11 +119,24 @@ def get_app_metadata() -> dict[str, JsonValue]:
                 "key": stat,
                 "label": str(stat_def.get("label", stat)),
                 "value_column": str(stat_def.get("value_column", "")),
-                "atlases": [str(atlas) for atlas in stat_def.get("atlases", ())],
+                # Only ready-to-use atlases: missing Kong/content-pack options stay out of the picker.
+                "atlases": [
+                    str(atlas)
+                    for atlas in stat_def.get("atlases", ())
+                    if is_atlas_content_available(str(atlas))
+                ],
             }
             for stat, stat_def in STAT_VECTOR_DEFS.items()
         },
-        "atlases": {atlas: {"key": atlas, "label": label} for atlas, label in ATLAS_DEFS.items()},
+        "atlases": {
+            atlas: {
+                "key": atlas,
+                "label": label,
+                "available": is_atlas_content_available(atlas),
+                "unavailable_reason": unavailable_atlas_message(atlas),
+            }
+            for atlas, label in ATLAS_DEFS.items()
+        },
         "mni_atlases": _mni_atlas_metadata(),
         "vector_specs": {
             key: {spec_key: str(spec_value) for spec_key, spec_value in spec.items()}

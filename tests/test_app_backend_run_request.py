@@ -554,6 +554,55 @@ def test_normalize_stats_vector_config_preserves_custom_config() -> None:
     assert normalize_stats_vector_config_for_pipeline_mode("Custom", custom) == custom
 
 
+
+
+def test_prepare_run_request_rejects_unavailable_kong_content_pack_atlases(tmp_path: Path) -> None:
+    from pipeline.atlas_content import kong2022_content_pack_atlas_keys
+
+    input_file = tmp_path / "subject.nii.gz"
+    input_file.write_bytes(b"nifti")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    kong_key = kong2022_content_pack_atlas_keys()[0]
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_path=str(input_file),
+            output_dir=str(output_dir),
+            stats_vector_config={
+                "enabled_stats": {"cortical_thickness": True},
+                "atlases": {"cortical_thickness": [kong_key]},
+            },
+        ),
+        validate_license=False,
+    )
+    assert result["ok"] is False
+    assert result["errors"]
+    assert kong_key in result["errors"][0]
+    assert "content pack" in result["errors"][0].lower()
+
+
+def test_prepare_run_request_accepts_present_kong_200(tmp_path: Path) -> None:
+    input_file = tmp_path / "subject.nii.gz"
+    input_file.write_bytes(b"nifti")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_path=str(input_file),
+            output_dir=str(output_dir),
+            stats_vector_config={
+                "enabled_stats": {"cortical_thickness": True},
+                "atlases": {"cortical_thickness": ["aparc", "kong"]},
+            },
+        ),
+        validate_license=False,
+    )
+    assert result["ok"] is True
+    assert "kong" in result["request"]["stats_vector_config"]["atlases"]["cortical_thickness"]
+
+
 def test_normalize_stats_vector_config_ignores_missing_config_for_preset() -> None:
     normalized = normalize_stats_vector_config_for_pipeline_mode("FreeSurfer 7 + Volume", None)
 

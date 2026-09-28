@@ -97,3 +97,21 @@ def test_app_metadata_exposes_tool_contracts() -> None:
     assert set(metadata["tool_contracts"]) == set(TOOL_CONTRACTS)
     entry = metadata["tool_contracts"]["fastsurfer_reorientation"]
     assert entry == {"requires": [], "produces": ["orig_mgz"]}
+
+
+def test_app_metadata_marks_atlas_availability_and_hides_missing_kong_options() -> None:
+    from pipeline.atlas_content import kong2022_content_pack_atlas_keys
+
+    metadata = _get_app_metadata()
+    atlases = metadata["atlases"]
+    assert atlases["aparc"]["available"] is True
+    assert atlases["kong"]["available"] is True
+    for key in kong2022_content_pack_atlas_keys():
+        assert key not in atlases
+
+    thickness = metadata["stats_vectors"]["cortical_thickness"]["atlases"]
+    assert "aparc" in thickness
+    assert "kong" in thickness
+    for key in kong2022_content_pack_atlas_keys():
+        assert key not in thickness
+
