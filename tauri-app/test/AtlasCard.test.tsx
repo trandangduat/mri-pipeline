@@ -89,5 +89,8 @@ describe('AtlasCard', () => {
     );
 
     expect(screen.getByText('Connection timed out')).toBeInTheDocument();
+    const retryBtn = screen.getByRole('button', {name: /retry/i});
+    expect(retryBtn).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /downloading/i})).not.toBeInTheDocument();
   });
 });

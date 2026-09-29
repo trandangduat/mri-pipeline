@@ -110,7 +110,7 @@ export function useDownloadAtlasStream() {
               ...prev,
               status: 'failed',
               error: String(data.error || 'Download failed'),
-              message: 'Download failed',
+              message: '',
             }));
           }
         },
@@ -119,7 +119,7 @@ export function useDownloadAtlasStream() {
             ...prev,
             status: 'failed',
             error: errMsg,
-            message: 'Download failed',
+            message: '',
           }));
         },
       );

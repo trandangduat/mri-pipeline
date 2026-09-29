@@ -418,7 +418,10 @@ export function ToolsPage() {
                   key={pack.id}
                   pack={pack}
                   onDownload={(id) => atlasDownloadStream.download(id)}
-                  isDownloading={atlasDownloadStream.packId === pack.id}
+                  isDownloading={
+                    atlasDownloadStream.packId === pack.id &&
+                    ['connecting', 'downloading', 'extracting'].includes(atlasDownloadStream.status)
+                  }
                   downloadState={
                     atlasDownloadStream.packId === pack.id
                       ? {

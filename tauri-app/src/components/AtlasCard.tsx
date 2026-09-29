@@ -25,12 +25,13 @@ function formatBytes(bytes: number): string {
 
 export function AtlasCard({pack, onDownload, isDownloading, downloadState}: AtlasCardProps) {
   const isInstalled = pack.installed;
-  const isCurrentDownloading = Boolean(
-    isDownloading ||
-      (downloadState &&
-        ['connecting', 'downloading', 'extracting'].includes(downloadState.status)),
-  );
   const isFailed = downloadState?.status === 'failed';
+  const isCurrentDownloading = Boolean(
+    !isFailed &&
+      (isDownloading ||
+        (downloadState &&
+          ['connecting', 'downloading', 'extracting'].includes(downloadState.status))),
+  );
 
   return (
     <div className="flex flex-col justify-between rounded-lg border border-cursor-hairline bg-cursor-surface-card p-3 transition-all hover:border-cursor-hairline-strong hover:shadow-xs min-h-[170px]">
@@ -130,6 +131,15 @@ export function AtlasCard({pack, onDownload, isDownloading, downloadState}: Atla
               <Button variant="ghost" disabled className="h-7 px-2.5 text-xs">
                 <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                 Downloading
+              </Button>
+            ) : isFailed ? (
+              <Button
+                variant="base"
+                className="h-7 px-2.5 text-xs text-cursor-semantic-error border border-cursor-semantic-error/30 hover:bg-cursor-semantic-error/10"
+                onClick={() => onDownload(pack.id)}
+              >
+                <RotateCw className="mr-1 h-3 w-3" />
+                Retry
               </Button>
             ) : isInstalled ? (
               <Button
