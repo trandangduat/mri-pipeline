@@ -23,6 +23,7 @@ from app_backend.progress import LocalJobProgressService
 from app_backend.remote import RemoteJobService
 from app_backend.run_request import prepare_run_request
 from app_backend.tools import LocalToolService
+from app_backend.atlases import AtlasService
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -49,6 +50,7 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         local_tool_service: LocalToolService | None = None,
         local_environment_service: LocalEnvironmentService | None = None,
         license_store: LicenseStore | None = None,
+        atlas_service: AtlasService | None = None,
         api_token: str | None = None,
         allowed_origins: tuple[str, ...] | None = None,
     ) -> None:
@@ -66,6 +68,7 @@ class AppBackendHTTPServer(ThreadingHTTPServer):
         self.local_tool_service = local_tool_service or LocalToolService()
         self.local_environment_service = local_environment_service or LocalEnvironmentService()
         self.license_store = license_store or LicenseStore()
+        self.atlas_service = atlas_service or AtlasService()
 
 
 class AppBackendRequestHandler(BaseHTTPRequestHandler):
@@ -155,6 +158,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/config/presets/load":
             self._write_json(HTTPStatus.OK, self._configs().load_preset(_query_string(query, "name")))
+            return
+        if path == "/atlases/status":
+            self._write_json(HTTPStatus.OK, {"ok": True, "packs": self._atlases().list_packs()})
             return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
@@ -348,6 +354,21 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             result = self._local_tools().remove_image(image, target=target, remote=remote if isinstance(remote, dict) else None)
             self._write_json(HTTPStatus.OK, result)
             return
+        if self.path == "/atlases/download/stream":
+            pack_id = str(payload.get("pack_id", "") or "")
+            if not pack_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "pack_id is required"})
+                return
+            self._handle_atlas_download_stream(pack_id)
+            return
+        if self.path == "/atlases/import":
+            source_path = str(payload.get("path", "") or "")
+            if not source_path:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "path is required"})
+                return
+            result = self._atlases().import_local_folder(source_path)
+            self._write_json(HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST, result)
+            return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
     def do_PUT(self) -> None:
@@ -467,6 +488,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(server, AppBackendHTTPServer):
             raise RuntimeError("Unexpected server type")
         return server.license_store
+
+    def _atlases(self) -> AtlasService:
+        server = self.server
+        if not isinstance(server, AppBackendHTTPServer):
+            raise RuntimeError("Unexpected server type")
+        return server.atlas_service
 
     def _read_json_body(self) -> dict[str, object] | None:
         content_type = self.headers.get("Content-Type", "")
@@ -623,6 +650,16 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         finally:
             self.close_connection = True
 
+    def _handle_atlas_download_stream(self, pack_id: str) -> None:
+        self._write_sse_headers()
+        try:
+            for event in self._atlases().download_pack_stream(pack_id):
+                self._send_sse_event(str(event.get("step", "progress")), event)
+        except Exception as exc:
+            self._send_sse_event("error", {"step": "error", "error": str(exc)})
+        finally:
+            self.close_connection = True
+
     def _write_cors_headers(self) -> None:
         origin = self.headers.get("Origin", "").strip() if getattr(self, "headers", None) else ""
         server = self.server
@@ -643,6 +680,7 @@ def make_server(
     local_tool_service: LocalToolService | None = None,
     local_environment_service: LocalEnvironmentService | None = None,
     license_store: LicenseStore | None = None,
+    atlas_service: AtlasService | None = None,
     api_token: str | None = None,
     allowed_origins: tuple[str, ...] | None = None,
 ) -> AppBackendHTTPServer:
@@ -655,6 +693,7 @@ def make_server(
         local_tool_service,
         local_environment_service,
         license_store,
+        atlas_service,
         api_token,
         allowed_origins,
     )

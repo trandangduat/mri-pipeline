@@ -388,3 +388,34 @@ export const neuroflowValidationResponseSchema = z.object({
 
 export type NeuroflowValidationResponse = z.infer<typeof neuroflowValidationResponseSchema>;
 
+export const atlasPackSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  category: z.string(),
+  is_default: z.boolean(),
+  asset_filename: z.string(),
+  compressed_size_bytes: z.number(),
+  uncompressed_size_bytes: z.number(),
+  files: z.array(z.string()),
+  installed: z.boolean(),
+  missing_files: z.array(z.string()),
+  installed_files_count: z.number(),
+  total_files_count: z.number(),
+  download_url: z.string(),
+});
+
+export const atlasStatusResponseSchema = z.object({
+  ok: z.boolean(),
+  packs: z.array(atlasPackSchema),
+});
+
+export const atlasImportResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+  imported_count: z.number().optional(),
+  target_dir: z.string().optional(),
+  packs: z.array(atlasPackSchema).optional(),
+});
+
+

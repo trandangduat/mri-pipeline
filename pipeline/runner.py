@@ -78,6 +78,10 @@ def _resolve_mni_atlas_dir() -> Path:
 
 
 def _resolve_surface_atlas_dir() -> Path:
+    from app_backend.atlases import candidate_surface_atlas_dirs
+    for cand in candidate_surface_atlas_dirs():
+        if cand.is_dir() and any(cand.iterdir()):
+            return cand
     return Path(os.environ.get("MRI_PIPELINE_SURFACE_ATLAS_DIR", str(SURFACE_ATLAS_DIR))).expanduser()
 
 

@@ -1589,15 +1589,16 @@ class RemoteRunner:
                 allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
                 skip_existing_matching_size=True,
             )
-        surface_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "surface"
-        if surface_atlas_dir.exists():
-            ssh.upload_dir(
-                surface_atlas_dir,
-                posixpath.join(remote_code, "assets", "atlases", "surface"),
-                skip_dirs={"__pycache__"},
-                allowed_extensions={".gcs", ".annot"},
-                skip_existing_matching_size=True,
-            )
+        from app_backend.atlases import candidate_surface_atlas_dirs
+        for surface_atlas_dir in candidate_surface_atlas_dirs():
+            if surface_atlas_dir.exists() and surface_atlas_dir.is_dir():
+                ssh.upload_dir(
+                    surface_atlas_dir,
+                    posixpath.join(remote_code, "assets", "atlases", "surface"),
+                    skip_dirs={"__pycache__"},
+                    allowed_extensions={".gcs", ".annot"},
+                    skip_existing_matching_size=True,
+                )
         neuroflow = _neuroflow_source_dir()
         if neuroflow and neuroflow.exists():
             remote_neuroflow = posixpath.join(remote_code, "NeuroFLOW-private")

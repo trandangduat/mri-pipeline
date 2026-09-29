@@ -1,6 +1,7 @@
 import React from 'react';
-import {CheckCircle2, XCircle, Circle, Loader2} from 'lucide-react';
+import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle} from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {useDownloadAtlasStream} from '../query/useAtlases';
 
 export interface PipelineStep {
   id: string;
@@ -25,8 +26,23 @@ function StepIcon({status}: {status: PipelineStep['status']}) {
   return <Circle className="h-4 w-4 flex-none text-cursor-muted-soft" />;
 }
 
+function resolveAtlasPackId(key: string): string {
+  const norm = key.toLowerCase();
+  if (norm.includes('schaefer')) return 'schaefer2018_400parcels_17networks';
+  if (norm.includes('destrieux')) return 'destrieux';
+  if (norm.includes('kong')) return 'kong2022';
+  if (norm.includes('yale')) return 'yale';
+  return key;
+}
+
 export function StartPipelineDialog({open, onClose, steps, complete, success, errorMessage}: Props) {
+  const atlasStream = useDownloadAtlasStream();
   if (!open) return null;
+
+  const rawAtlasError = errorMessage || steps.find((s) => s.status === 'failed')?.detail || '';
+  const atlasMatch = rawAtlasError.match(/Atlas ['"]([^'"]+)['"] content is not installed/i);
+  const missingAtlasKey = atlasMatch ? atlasMatch[1] : null;
+  const missingPackId = missingAtlasKey ? resolveAtlasPackId(missingAtlasKey) : null;
 
   const isDuplicateError =
     Boolean(errorMessage) &&
@@ -79,6 +95,73 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
         </div>
         {errorMessage && !isDuplicateError && (
           <p className="mt-2.5 text-xs text-cursor-semantic-error whitespace-pre-line">{errorMessage}</p>
+        )}
+        {missingAtlasKey && missingPackId && (
+          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-medium text-cursor-ink">
+                  Missing Atlas: <span className="font-mono text-amber-600 dark:text-amber-400">{missingAtlasKey}</span>
+                </p>
+                <p className="mt-0.5 text-2xs text-cursor-muted">
+                  Download the required surface atlas assets to run this pipeline.
+                </p>
+              </div>
+              {atlasStream.status === 'idle' && (
+                <button
+                  type="button"
+                  onClick={() => atlasStream.download(missingPackId)}
+                  className="shrink-0 flex items-center gap-1 rounded bg-cursor-primary px-2.5 py-1 text-2xs font-medium text-white hover:bg-cursor-primary/90 transition-colors cursor-pointer"
+                >
+                  <Download className="h-3 w-3" />
+                  Download
+                </button>
+              )}
+            </div>
+            {atlasStream.status !== 'idle' && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between text-2xs text-cursor-muted">
+                  <span className="flex items-center gap-1">
+                    {['connecting', 'downloading', 'extracting'].includes(atlasStream.status) && (
+                      <Loader2 className="h-3 w-3 animate-spin text-cursor-primary" />
+                    )}
+                    {atlasStream.message}
+                  </span>
+                  {atlasStream.status === 'downloading' && <span>{atlasStream.percent}%</span>}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-cursor-canvas-soft">
+                  <div
+                    className={cn(
+                      'h-full transition-all duration-300',
+                      atlasStream.status === 'failed'
+                        ? 'bg-cursor-semantic-error'
+                        : atlasStream.status === 'success'
+                        ? 'bg-cursor-semantic-success'
+                        : 'bg-cursor-primary',
+                    )}
+                    style={{width: `${atlasStream.percent}%`}}
+                  />
+                </div>
+                {atlasStream.status === 'success' && (
+                  <p className="text-2xs text-cursor-semantic-success font-medium">
+                    Installed! Close this dialog and retry starting the pipeline.
+                  </p>
+                )}
+                {atlasStream.status === 'failed' && (
+                  <div className="flex items-center justify-between gap-1 text-2xs text-cursor-semantic-error">
+                    <span className="line-clamp-1">{atlasStream.error || 'Download failed.'}</span>
+                    <button
+                      type="button"
+                      onClick={() => atlasStream.download(missingPackId)}
+                      className="underline hover:text-cursor-semantic-error/80 cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
         {complete && (
           <div className="mt-3.5 flex justify-end">

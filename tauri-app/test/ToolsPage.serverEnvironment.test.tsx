@@ -21,6 +21,22 @@ vi.mock('../src/query/useTools', () => ({
   usePullImageStream: () => ({status: 'idle', logs: [], error: null, image: null, target: 'Local', pull: vi.fn(), reset: vi.fn()}),
 }));
 
+vi.mock('../src/query/useAtlases', () => ({
+  useAtlasStatus: () => ({packs: [], isPending: false, isFetching: false, error: null, refetch: vi.fn()}),
+  useImportAtlas: () => ({mutateAsync: vi.fn().mockResolvedValue({ok: true, imported_count: 0})}),
+  useDownloadAtlasStream: () => ({
+    status: 'idle',
+    packId: null,
+    percent: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    message: '',
+    error: null,
+    download: vi.fn(),
+    reset: vi.fn(),
+  }),
+}));
+
 const completeEnvironment = {
   ok: true,
   connected: true,

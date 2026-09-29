@@ -18,6 +18,8 @@ import type {
   RemoveImageResponse,
   StartJobResponse,
   ToolsImageResponse,
+  AtlasStatusResponse,
+  AtlasImportResponse,
 } from '../types/backend';
 import {
   appMetadataSchema,
@@ -39,6 +41,8 @@ import {
   removeImageResponseSchema,
   startJobResponseSchema,
   toolsImageResponseSchema,
+  atlasStatusResponseSchema,
+  atlasImportResponseSchema,
 } from './schemas';
 import type {RemotePayload} from './runConfig';
 import {authenticatedBackendHeaders} from './backendToken';
@@ -350,6 +354,28 @@ export class BackendClient {
     onError: (error: string) => void,
   ): Promise<void> {
     return this.startPipelineStream('/remote/jobs/download/stream', payload, onEvent, onError);
+  }
+
+  async getAtlasStatus(): Promise<AtlasStatusResponse> {
+    const payload = await this.request('/atlases/status', {method: 'GET'});
+    return atlasStatusResponseSchema.parse(payload);
+  }
+
+  async importAtlas(path: string): Promise<AtlasImportResponse> {
+    const payload = await this.request('/atlases/import', {
+      method: 'POST',
+      body: JSON.stringify({path}),
+      headers: {'Content-Type': 'application/json'},
+    });
+    return atlasImportResponseSchema.parse(payload);
+  }
+
+  async startAtlasDownloadStream(
+    packId: string,
+    onEvent: (event: string, data: Record<string, unknown>) => void,
+    onError: (error: string) => void,
+  ): Promise<void> {
+    return this.startPipelineStream('/atlases/download/stream', {pack_id: packId}, onEvent, onError);
   }
 
   async get(path: string): Promise<unknown> {

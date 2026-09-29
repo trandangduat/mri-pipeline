@@ -116,8 +116,8 @@ def surface_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = No
         files = optional.get("files")
         if not isinstance(files, dict):
             return []
-        surface_root = _project_surface_atlas_dir(resource_root)
-        return [surface_root / str(rel) for rel in files.values()]
+        from app_backend.atlases import find_surface_atlas_file
+        return [find_surface_atlas_file(str(rel), resource_root) for rel in files.values()]
 
     from pipeline.registry import THICKNESS_ATLAS_DEFS
 
@@ -130,8 +130,8 @@ def surface_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = No
     files = defn.get("files")
     if not isinstance(files, dict):
         return []
-    surface_root = _project_surface_atlas_dir(resource_root)
-    return [surface_root / str(rel) for rel in files.values()]
+    from app_backend.atlases import find_surface_atlas_file
+    return [find_surface_atlas_file(str(rel), resource_root) for rel in files.values()]
 
 
 def mni_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = None) -> list[Path]:

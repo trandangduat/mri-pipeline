@@ -29,6 +29,7 @@ a = Analysis(
     hiddenimports=[
         "app_backend",
         "app_backend.server",
+        "app_backend.atlases",
         "app_backend.config_store",
         "app_backend.capabilities",
         "app_backend.environment",

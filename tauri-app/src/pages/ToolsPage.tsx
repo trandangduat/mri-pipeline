@@ -1,12 +1,14 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server} from 'lucide-react';
+import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server, Layers, FolderInput} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
+import {AtlasCard} from '../components/AtlasCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
 import type {EnvironmentResponse, RemoteEnvironmentResponse, ToolImage} from '../types/backend';
 import {useEnvironment, useRemoteEnvironment} from '../query/useEnvironment';
 import {useLocalImageStatusMutation, useRemoveImage, usePullImageStream} from '../query/useTools';
+import {useAtlasStatus, useImportAtlas, useDownloadAtlasStream} from '../query/useAtlases';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useToolsStore} from '../stores/toolsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -44,6 +46,12 @@ export function ToolsPage() {
   const removeImageMutation = useRemoveImage();
   const pullStream = usePullImageStream();
   const localImageStatusMutation = useLocalImageStatusMutation();
+
+  const {packs: atlasPacks, isPending: isAtlasesPending, refetch: refetchAtlases} = useAtlasStatus();
+  const importAtlasMutation = useImportAtlas();
+  const atlasDownloadStream = useDownloadAtlasStream();
+  const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
+  const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
 
   const [removingImage, setRemovingImage] = useState<string | null>(null);
   const [imageToRemove, setImageToRemove] = useState<string | null>(null);
@@ -136,8 +144,55 @@ export function ToolsPage() {
   };
 
   const refreshAll = async () => {
-    await Promise.all([refreshEnvironment(), refreshTools()]);
+    await Promise.all([refreshEnvironment(), refreshTools(), refetchAtlases()]);
   };
+
+  const handleImportAtlas = useCallback(async () => {
+    try {
+      const {open} = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: 'Select Atlas Archive (.zip)',
+        filters: [{name: 'Atlas Archive', extensions: ['zip']}],
+      });
+      if (!selected || typeof selected !== 'string') return;
+      setImportErrorMessage(null);
+      setImportStatusMessage('Importing atlas files...');
+      const res = await importAtlasMutation.mutateAsync(selected);
+      if (res.ok) {
+        setImportStatusMessage(`Successfully imported ${res.imported_count || 0} atlas file(s).`);
+        setTimeout(() => setImportStatusMessage(null), 5000);
+      } else {
+        setImportErrorMessage(res.error || 'Import failed.');
+      }
+    } catch (err) {
+      setImportErrorMessage((err as Error).message || 'Failed to open file picker.');
+    }
+  }, [importAtlasMutation]);
+
+  const handleImportAtlasFolder = useCallback(async () => {
+    try {
+      const {open} = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Atlas Folder',
+      });
+      if (!selected || typeof selected !== 'string') return;
+      setImportErrorMessage(null);
+      setImportStatusMessage('Importing atlas files from directory...');
+      const res = await importAtlasMutation.mutateAsync(selected);
+      if (res.ok) {
+        setImportStatusMessage(`Successfully imported ${res.imported_count || 0} atlas file(s).`);
+        setTimeout(() => setImportStatusMessage(null), 5000);
+      } else {
+        setImportErrorMessage(res.error || 'Import failed.');
+      }
+    } catch (err) {
+      setImportErrorMessage((err as Error).message || 'Failed to open directory picker.');
+    }
+  }, [importAtlasMutation]);
 
   const handleRequestRemove = (image: string) => {
     setImageToRemove(image);
@@ -300,6 +355,90 @@ export function ToolsPage() {
             </div>
           )}
         </section>
+
+        {/* Section 4: Surface Atlases */}
+        <section>
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+              <Layers className="h-4 w-4 text-cursor-primary" />
+              Surface Atlases ({atlasPacks.filter((p) => p.installed).length}/{atlasPacks.length})
+            </h2>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="base"
+                className="h-7 px-2.5 text-xs"
+                onClick={handleImportAtlasFolder}
+                title="Import atlas files from an existing directory"
+              >
+                <FolderInput className="mr-1 h-3.5 w-3.5" />
+                Import Folder
+              </Button>
+              <Button
+                variant="base"
+                className="h-7 px-2.5 text-xs"
+                onClick={handleImportAtlas}
+                title="Import atlas files from a .zip archive"
+              >
+                <FolderInput className="mr-1 h-3.5 w-3.5" />
+                Import .zip
+              </Button>
+            </div>
+          </div>
+
+          {importStatusMessage && (
+            <div className="mb-3 rounded-md bg-cursor-semantic-success/10 border border-cursor-semantic-success/30 px-3 py-2 text-xs text-cursor-semantic-success flex items-center justify-between">
+              <span>{importStatusMessage}</span>
+              <button
+                type="button"
+                className="cursor-pointer text-2xs underline"
+                onClick={() => setImportStatusMessage(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {importErrorMessage && (
+            <div className="mb-3 rounded-md bg-cursor-semantic-error/10 border border-cursor-semantic-error/30 px-3 py-2 text-xs text-cursor-semantic-error flex items-center justify-between">
+              <span>{importErrorMessage}</span>
+              <button
+                type="button"
+                className="cursor-pointer text-2xs underline"
+                onClick={() => setImportErrorMessage(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {atlasPacks.length > 0 ? (
+            <div className={GRID_CLASSES}>
+              {atlasPacks.map((pack) => (
+                <AtlasCard
+                  key={pack.id}
+                  pack={pack}
+                  onDownload={(id) => atlasDownloadStream.download(id)}
+                  isDownloading={atlasDownloadStream.packId === pack.id}
+                  downloadState={
+                    atlasDownloadStream.packId === pack.id
+                      ? {
+                          status: atlasDownloadStream.status,
+                          percent: atlasDownloadStream.percent,
+                          message: atlasDownloadStream.message,
+                          error: atlasDownloadStream.error,
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          ) : isAtlasesPending ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-cursor-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
+              <span>Loading atlases...</span>
+            </div>
+          ) : null}
+        </section>
       </div>
 
       {/* Remove Image Confirm Dialog */}
@@ -414,7 +553,7 @@ export function ServerEnvironmentCards({
           <div className="mt-2 space-y-1 text-xs text-cursor-muted">
             {computeReady ? (
               <>
-                <div>{server?.logical_cores ?? 'Unknown'} cores Â· {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
+                <div>{server?.logical_cores ?? 'Unknown'} cores · {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
                 {gpuSummary ? (
                   <div className="truncate" title={gpuSummary}>{gpuSummary}</div>
                 ) : (
@@ -644,7 +783,7 @@ export function LocalEnvironmentCards({
           <div className="mt-2 space-y-1 text-xs text-cursor-muted">
             {computeReady ? (
               <>
-                <div>{hardware?.logical_cores ?? 'Unknown'} cores Â· {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
+                <div>{hardware?.logical_cores ?? 'Unknown'} cores · {ramText ? `${ramText} RAM` : 'RAM unknown'}</div>
                 {gpuSummary ? (
                   <div className="truncate" title={gpuSummary}>{gpuSummary}</div>
                 ) : (

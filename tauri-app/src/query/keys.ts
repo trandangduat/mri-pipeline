@@ -18,4 +18,7 @@ export const queryKeys = {
     validate: () => ['remote', 'validate'] as const,
     environment: (fingerprint: string) => ['remote', 'environment', fingerprint] as const,
   },
+  atlases: {
+    status: () => ['atlases', 'status'] as const,
+  },
 } as const;
