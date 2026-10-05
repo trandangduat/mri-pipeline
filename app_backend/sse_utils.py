@@ -7,10 +7,11 @@ JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dic
 SSEEvent = dict[str, JsonValue]
 
 
-def step_event(step: str, status: str, detail: str = "") -> SSEEvent:
+def step_event(step: str, status: str, detail: str = "", **extra: JsonValue) -> SSEEvent:
     data: dict[str, JsonValue] = {"step": step, "status": status}
     if detail:
         data["detail"] = detail
+    data.update(extra)
     return {"event": "step", "data": data}
 
 

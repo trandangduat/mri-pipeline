@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -127,36 +128,40 @@ def format_gib(mib: int) -> str:
     return f"{mib / 1024:.1f} GiB"
 
 
-def format_resource_check_failure(
+def recommended_ram_percent(
+    total_ram_mib: int,
+    required_peak_mib: int,
+    current_percent: int,
+) -> int | None:
+    """Smallest RAM percent that covers the peak, or None when that is not an increase."""
+    if total_ram_mib <= 0 or required_peak_mib <= 0:
+        return None
+    percent = max(1, math.ceil(required_peak_mib * 100 / total_ram_mib))
+    while percent <= 100 and (total_ram_mib * percent) // 100 < required_peak_mib:
+        percent += 1
+    if percent > 100 or percent <= current_percent:
+        return None
+    return percent
+
+
+def build_resource_shortage(
     allocated_ram_mib: int,
     required_peak_mib: int,
-    mode_name: str,
     total_ram_mib: int,
     ram_percent: int,
     profile_dir: Path | str | None = None,
-) -> str:
-    """Build a detailed failure message listing compatible FreeSurfer 7, 8, and FastSurfer profiles."""
-    alloc_str = format_gib(allocated_ram_mib)
-    req_str = format_gib(required_peak_mib)
-    total_str = format_gib(total_ram_mib)
-
-    lines = [
-        f"Insufficient RAM allocated: {alloc_str} allocated ({ram_percent}% of {total_str} server RAM), "
-        f"but \"{mode_name}\" requires {req_str} peak RAM."
+) -> dict[str, Any]:
+    """Short resource failure plus clickable RAM and preset actions."""
+    summary = (
+        f"Insufficient resources ({format_gib(allocated_ram_mib)} allocated, "
+        f"{format_gib(required_peak_mib)} required)"
+    )
+    presets = [
+        mode
+        for mode, _peak in get_runnable_profiles(allocated_ram_mib, profile_dir=profile_dir)
     ]
-
-    runnable = get_runnable_profiles(allocated_ram_mib, profile_dir=profile_dir)
-    if runnable:
-        lines.append(f"\nCompatible pipelines runnable with {alloc_str} RAM:")
-        for mode, peak in runnable:
-            lines.append(f"  • {mode} (Peak: {format_gib(peak)})")
-        lines.append("\nTip: Increase RAM % in Runtime Settings or select one of the compatible pipelines above.")
-    else:
-        min_peak = min(STANDARD_PROFILE_PEAKS.values())
-        lines.append(
-            f"\nNo standard pipeline profiles can run with {alloc_str} RAM "
-            f"(minimum requirement is {format_gib(min_peak)} for FreeSurfer 7 + Volume)."
-        )
-        lines.append("Tip: Increase RAM % in Runtime Settings or allocate more memory to the server.")
-
-    return "\n".join(lines)
+    return {
+        "summary": summary,
+        "increase_ram_percent": recommended_ram_percent(total_ram_mib, required_peak_mib, ram_percent),
+        "presets": presets,
+    }

@@ -1,12 +1,12 @@
 import pytest
 from pipeline.profile_memory import (
     STANDARD_PROFILE_PEAKS,
-    format_gib,
-    format_resource_check_failure,
+    build_resource_shortage,
     get_all_standard_profile_peaks,
     get_profile_peak_ram_mib,
     get_runnable_profiles,
     load_profile_peak_mib,
+    recommended_ram_percent,
 )
 
 
@@ -72,30 +72,39 @@ def test_get_runnable_profiles() -> None:
     assert len(runnable_20g) == 9
 
 
-def test_format_resource_check_failure_with_alternatives() -> None:
-    msg = format_resource_check_failure(
+def test_recommended_ram_percent_is_the_smallest_increase_that_covers_the_peak() -> None:
+    assert recommended_ram_percent(16384, 14900, 50) == 91
+    assert (16384 * 91) // 100 >= 14900
+    assert (16384 * 90) // 100 < 14900
+
+
+def test_recommended_ram_percent_is_hidden_when_it_is_not_an_increase() -> None:
+    assert recommended_ram_percent(8192, 14900, 100) is None
+    assert recommended_ram_percent(16384, 14900, 91) is None
+    assert recommended_ram_percent(16384, 14900, 95) is None
+
+
+def test_build_resource_shortage_lists_compatible_presets_and_ram_increase() -> None:
+    shortage = build_resource_shortage(
         allocated_ram_mib=8192,
         required_peak_mib=14900,
-        mode_name="FreeSurfer 8 + Volume + Cortical Thickness",
         total_ram_mib=16384,
         ram_percent=50,
     )
-    assert "Insufficient RAM allocated" in msg
-    assert "8.0 GiB allocated (50% of 16.0 GiB server RAM)" in msg
-    assert '"FreeSurfer 8 + Volume + Cortical Thickness" requires 14.6 GiB peak RAM' in msg
-    assert "Compatible pipelines runnable with 8.0 GiB RAM:" in msg
-    assert "• FreeSurfer 7 + Volume" in msg
-    assert "• FastSurfer + Volume" in msg
-    assert "Tip: Increase RAM %" in msg
+    assert shortage["summary"] == "Insufficient resources (8.0 GiB allocated, 14.6 GiB required)"
+    assert shortage["increase_ram_percent"] == 91
+    assert shortage["presets"][0] == "FreeSurfer 7 + Volume"
+    assert "FastSurfer + Volume" in shortage["presets"]
+    assert all("FreeSurfer 8" not in mode for mode in shortage["presets"])
 
 
-def test_format_resource_check_failure_no_alternatives() -> None:
-    msg = format_resource_check_failure(
+def test_build_resource_shortage_without_actions_when_nothing_fits() -> None:
+    shortage = build_resource_shortage(
         allocated_ram_mib=1024,
         required_peak_mib=14900,
-        mode_name="FreeSurfer 8 + Volume + Cortical Thickness",
         total_ram_mib=2048,
         ram_percent=50,
     )
-    assert "No standard pipeline profiles can run with 1.0 GiB RAM" in msg
-    assert "minimum requirement is 2.0 GiB for FreeSurfer 7 + Volume" in msg
+    assert shortage["summary"] == "Insufficient resources (1.0 GiB allocated, 14.6 GiB required)"
+    assert shortage["increase_ram_percent"] is None
+    assert shortage["presets"] == []

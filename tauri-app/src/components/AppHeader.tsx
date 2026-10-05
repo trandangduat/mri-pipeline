@@ -19,7 +19,8 @@ import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useEnvironment} from '../query/useEnvironment';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation';
-import {currentTargetHardware, runtimeLimitErrors} from '../lib/runtime';
+import {namedPipelineModePatch} from '../lib/pipelinePresets';
+import {RAM_PERCENT_MAX, RAM_PERCENT_MIN, clampBoundedIntValue, currentTargetHardware, runtimeLimitErrors} from '../lib/runtime';
 import {defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
@@ -40,6 +41,9 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
   const {data: environment} = useEnvironment();
 
   const formValues = usePipelineFormStore((s) => s.formValues);
+  const setFormField = usePipelineFormStore((s) => s.setFormField);
+  const setFormFields = usePipelineFormStore((s) => s.setFormFields);
+  const setSelectedStatsAtlases = usePipelineFormStore((s) => s.setSelectedStatsAtlases);
   const applyWorkspaceConfig = usePipelineFormStore((s) => s.applyWorkspaceConfig);
   const setLatestJobs = useJobsStore((s) => s.setLatestJobs);
   const setSelectedJobId = useJobsStore((s) => s.setSelectedJobId);
@@ -410,6 +414,16 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
         complete={dialogComplete}
         success={dialogSuccess}
         errorMessage={dialogError}
+        onApplyRamPercent={(percent) => {
+          setFormField('ramPercent', clampBoundedIntValue(percent, RAM_PERCENT_MIN, RAM_PERCENT_MAX));
+          onSelectTab('pipeline');
+        }}
+        onApplyPreset={(mode) => {
+          const patch = namedPipelineModePatch(metadata, mode);
+          setFormFields(patch.formFields);
+          if (patch.atlases) setSelectedStatsAtlases(patch.atlases);
+          onSelectTab('pipeline');
+        }}
       />
 
       {/* Invalid Workspace File Popup */}

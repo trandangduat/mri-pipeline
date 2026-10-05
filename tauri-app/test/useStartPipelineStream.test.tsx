@@ -2,7 +2,7 @@ import React from 'react';
 import {render, screen} from '@testing-library/react';
 import {expect, test, vi} from 'vitest';
 import {BackendClient} from '../src/api/client';
-import {REMOTE_STEPS, useStartPipelineStream} from '../src/hooks/useStartPipelineStream';
+import {REMOTE_STEPS, parseResourceSolutions, useStartPipelineStream} from '../src/hooks/useStartPipelineStream';
 
 function Harness() {
   const {start, steps, complete, success, errorMessage} = useStartPipelineStream();
@@ -80,4 +80,53 @@ test('remote preflight fails at resources step and keeps later steps pending', a
   expect(steps.find((step) => step.id === 'validate')?.status).toBe('pending');
   expect(steps.find((step) => step.id === 'config')?.status).toBe('pending');
   stream.mockRestore();
+});
+
+test('resource failure keeps the short solutions payload on the resources step', async () => {
+  const stream = vi
+    .spyOn(BackendClient.prototype, 'startPipelineStream')
+    .mockImplementation(async (_path, _payload, onEvent) => {
+      onEvent('step', {
+        step: 'resources',
+        status: 'failed',
+        detail: 'Insufficient resources (8.0 GiB allocated, 14.6 GiB required)',
+        solutions: {
+          summary: 'Insufficient resources (8.0 GiB allocated, 14.6 GiB required)',
+          increase_ram_percent: 91,
+          presets: ['FreeSurfer 7 + Volume', 'FastSurfer + Volume'],
+        },
+      });
+      onEvent('complete', {ok: false, error: 'Insufficient resources (8.0 GiB allocated, 14.6 GiB required)'});
+    });
+
+  render(<Harness />);
+  screen.getByRole('button', {name: 'Start'}).click();
+
+  expect(await screen.findByTestId('complete')).toHaveTextContent('true');
+  const steps = JSON.parse(screen.getByTestId('steps').textContent || '[]') as Array<{
+    id: string;
+    solutions?: {increaseRamPercent: number | null; presets: string[]};
+  }>;
+  expect(steps.find((step) => step.id === 'resources')?.solutions).toEqual({
+    summary: 'Insufficient resources (8.0 GiB allocated, 14.6 GiB required)',
+    increaseRamPercent: 91,
+    presets: ['FreeSurfer 7 + Volume', 'FastSurfer + Volume'],
+  });
+  expect(stream).toHaveBeenCalledOnce();
+  stream.mockRestore();
+});
+
+test('parseResourceSolutions drops an increase that is not a RAM percent', () => {
+  expect(
+    parseResourceSolutions({
+      summary: 'Insufficient resources (1.0 GiB allocated, 14.6 GiB required)',
+      increase_ram_percent: null,
+      presets: ['FreeSurfer 7 + Volume', 3],
+    }),
+  ).toEqual({
+    summary: 'Insufficient resources (1.0 GiB allocated, 14.6 GiB required)',
+    increaseRamPercent: null,
+    presets: ['FreeSurfer 7 + Volume'],
+  });
+  expect(parseResourceSolutions(null)).toBeUndefined();
 });

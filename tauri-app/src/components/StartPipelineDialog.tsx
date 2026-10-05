@@ -3,11 +3,18 @@ import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle} from 'luc
 import {cn} from '@/lib/utils';
 import {useDownloadAtlasStream} from '../query/useAtlases';
 
+export interface ResourceSolutions {
+  summary: string;
+  increaseRamPercent: number | null;
+  presets: string[];
+}
+
 export interface PipelineStep {
   id: string;
   label: string;
   status: 'pending' | 'running' | 'done' | 'failed';
   detail?: string;
+  solutions?: ResourceSolutions;
 }
 
 interface Props {
@@ -17,6 +24,8 @@ interface Props {
   complete: boolean;
   success: boolean;
   errorMessage?: string;
+  onApplyRamPercent?: (percent: number) => void;
+  onApplyPreset?: (mode: string) => void;
 }
 
 function StepIcon({status}: {status: PipelineStep['status']}) {
@@ -35,7 +44,85 @@ function resolveAtlasPackId(key: string): string {
   return key;
 }
 
-export function StartPipelineDialog({open, onClose, steps, complete, success, errorMessage}: Props) {
+function SolutionButton({label, onClick}: {label: string; onClick: () => void}) {
+  return (
+    <button
+      type="button"
+      className="cursor-pointer border-0 bg-transparent p-0 text-left text-xs font-medium text-cursor-primary underline-offset-2 hover:underline"
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ResourceSolutionsList({
+  solutions,
+  onApplyRamPercent,
+  onApplyPreset,
+  onClose,
+}: {
+  solutions: ResourceSolutions;
+  onApplyRamPercent?: (percent: number) => void;
+  onApplyPreset?: (mode: string) => void;
+  onClose: () => void;
+}) {
+  const showIncrease = typeof solutions.increaseRamPercent === 'number';
+  const showPresets = solutions.presets.length > 0;
+
+  return (
+    <div className="mt-0.5">
+      <p className="m-0 text-xs leading-[1.35] text-cursor-semantic-error">{solutions.summary}</p>
+      {(showIncrease || showPresets) && (
+        <div className="mt-1.5 text-xs leading-[1.35] text-cursor-ink">
+          <p className="m-0 font-medium">Solutions:</p>
+          <ul className="m-0 mt-0.5 list-disc space-y-0.5 pl-4">
+            {showIncrease && (
+              <li>
+                <SolutionButton
+                  label={`Increase RAM allocation to ${solutions.increaseRamPercent}%`}
+                  onClick={() => {
+                    onApplyRamPercent?.(solutions.increaseRamPercent as number);
+                    onClose();
+                  }}
+                />
+              </li>
+            )}
+            {showPresets && (
+              <li>
+                <span>Use compatible presets:</span>
+                <ul className="m-0 mt-0.5 list-disc space-y-0.5 pl-4">
+                  {solutions.presets.map((preset) => (
+                    <li key={preset}>
+                      <SolutionButton
+                        label={preset}
+                        onClick={() => {
+                          onApplyPreset?.(preset);
+                          onClose();
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function StartPipelineDialog({
+  open,
+  onClose,
+  steps,
+  complete,
+  success,
+  errorMessage,
+  onApplyRamPercent,
+  onApplyPreset,
+}: Props) {
   const atlasStream = useDownloadAtlasStream();
   if (!open) return null;
 
@@ -79,15 +166,24 @@ export function StartPipelineDialog({open, onClose, steps, complete, success, er
                 >
                   {step.label}
                 </p>
-                {step.detail && (
-                  <p
-                    className={cn(
-                      'm-0 mt-0.5 text-xs leading-[1.3] whitespace-pre-line',
-                      step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
-                    )}
-                  >
-                    {step.detail}
-                  </p>
+                {step.solutions ? (
+                  <ResourceSolutionsList
+                    solutions={step.solutions}
+                    onApplyRamPercent={onApplyRamPercent}
+                    onApplyPreset={onApplyPreset}
+                    onClose={onClose}
+                  />
+                ) : (
+                  step.detail && (
+                    <p
+                      className={cn(
+                        'm-0 mt-0.5 text-xs leading-[1.3] whitespace-pre-line',
+                        step.status === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted',
+                      )}
+                    >
+                      {step.detail}
+                    </p>
+                  )
                 )}
               </div>
             </div>

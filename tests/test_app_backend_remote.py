@@ -1021,14 +1021,16 @@ def test_stream_start_job_blocks_when_allocated_ram_insufficient() -> None:
     assert resources_steps[0]["data"]["status"] == "running"
     failed_step = resources_steps[1]["data"]
     assert failed_step["status"] == "failed"
-    assert "Insufficient RAM allocated" in failed_step["detail"]
-    assert "Compatible pipelines runnable with 8.0 GiB RAM:" in failed_step["detail"]
-    assert "FreeSurfer 7 + Volume" in failed_step["detail"]
-    assert "FastSurfer + Volume" in failed_step["detail"]
+    assert failed_step["detail"] == "Insufficient resources (8.0 GiB allocated, 14.6 GiB required)"
+    solutions = failed_step["solutions"]
+    assert solutions["summary"] == failed_step["detail"]
+    assert solutions["increase_ram_percent"] is None
+    assert solutions["presets"] == ["FreeSurfer 7 + Volume", "FastSurfer + Volume"]
 
     complete_events = [e for e in events if e.get("event") == "complete"]
     assert len(complete_events) == 1
     assert complete_events[0]["data"]["ok"] is False
+    assert complete_events[0]["data"]["error"] == failed_step["detail"]
 
     # Later steps must not have run
     validate_steps = [e for e in step_events if e["data"].get("step") == "validate"]
@@ -1073,8 +1075,7 @@ def test_stream_start_job_passes_when_allocated_ram_sufficient(tmp_path) -> None
     step_events = [e for e in events if e.get("event") == "step"]
     resources_done = [e for e in step_events if e["data"].get("step") == "resources" and e["data"].get("status") == "done"]
     assert len(resources_done) == 1
-    assert "Allocated: 25.6 GiB RAM (80% of 32.0 GiB)" in resources_done[0]["data"]["detail"]
-    assert "Peak required: 14.6 GiB (OK)" in resources_done[0]["data"]["detail"]
+    assert resources_done[0]["data"]["detail"] == "Sufficient resources"
 
 
 

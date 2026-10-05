@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {
   isPresetDefaultAtlas,
   isPresetMode,
+  namedPipelineModePatch,
   presetDefaultAtlases,
   presetHandlesStat,
 } from '../src/lib/pipelinePresets';
@@ -94,5 +95,27 @@ describe('pipelinePresets helpers', () => {
     expect(isPresetDefaultAtlas(mockMetadata, 'FreeSurfer 8 + Volume', 'subcortical_volume', 'freesurfer_aseg')).toBe(true);
     expect(isPresetDefaultAtlas(mockMetadata, 'FreeSurfer 8 + Volume', 'subcortical_volume', 'cat12_neuromorphometrics')).toBe(false);
     expect(isPresetDefaultAtlas(mockMetadata, 'FreeSurfer 8 + Volume', 'cortical_thickness', 'aparc')).toBe(false);
+  });
+
+  it('namedPipelineModePatch applies preset tools, atlases, and NeuroFlow files', () => {
+    const patch = namedPipelineModePatch(mockMetadata, 'FreeSurfer 8 + Volume');
+    expect(patch.formFields).toEqual({
+      pipelineMode: 'FreeSurfer 8 + Volume',
+      neuroflowPresetFile: 'configs/neuroflow/presets/freesurfer8_volumetrics.yaml',
+      neuroflowProfileFile: 'configs/neuroflow/profiles/freesurfer8_volumetrics_default.yaml',
+      stage_segmentation: 'synthseg_freesurfer_fs8',
+      stage_stats_extraction: '',
+    });
+    expect(patch.atlases).toEqual(presetDefaultAtlases(mockMetadata, 'FreeSurfer 8 + Volume'));
+  });
+
+  it('namedPipelineModePatch clears NeuroFlow files for Custom', () => {
+    const patch = namedPipelineModePatch(mockMetadata, 'Custom');
+    expect(patch.formFields).toEqual({
+      pipelineMode: 'Custom',
+      neuroflowPresetFile: '',
+      neuroflowProfileFile: '',
+    });
+    expect(patch.atlases).toBeNull();
   });
 });

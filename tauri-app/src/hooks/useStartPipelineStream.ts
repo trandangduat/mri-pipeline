@@ -1,6 +1,22 @@
 import React from 'react';
 import {BackendClient, DEFAULT_BACKEND_URL} from '../api/client';
-import type {PipelineStep} from '../components/StartPipelineDialog';
+import type {PipelineStep, ResourceSolutions} from '../components/StartPipelineDialog';
+
+export function parseResourceSolutions(value: unknown): ResourceSolutions | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const summary = typeof record.summary === 'string' ? record.summary.trim() : '';
+  if (!summary) return undefined;
+  const increase = record.increase_ram_percent;
+  const presets = Array.isArray(record.presets)
+    ? record.presets.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const increaseRamPercent =
+    typeof increase === 'number' && Number.isInteger(increase) && increase >= 1 && increase <= 100
+      ? increase
+      : null;
+  return {summary, increaseRamPercent, presets};
+}
 
 export const REMOTE_STEPS: PipelineStep[] = [
   {id: 'ssh', label: 'Checking SSH connection', status: 'pending'},
@@ -48,7 +64,8 @@ export function useStartPipelineStream() {
           const stepId = data.step as string;
           const status = data.status as PipelineStep['status'];
           const detail = (data.detail as string) || '';
-          setSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail} : s)));
+          const solutions = parseResourceSolutions(data.solutions);
+          setSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail, solutions} : s)));
         } else if (event === 'complete') {
           const ok = data.ok as boolean;
           setComplete(true);

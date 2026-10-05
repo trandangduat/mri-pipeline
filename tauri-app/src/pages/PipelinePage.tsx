@@ -17,8 +17,8 @@ import {useRemoteBrowseMutation, useLocalBrowseMutation, useRemoteMkdirMutation}
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {buildRemotePayload, neuroflowConfigFilesForMode, type RemotePayload} from '../api/runConfig';
-import {presetDefaultAtlases} from '../lib/pipelinePresets';
+import {buildRemotePayload, type RemotePayload} from '../api/runConfig';
+import {namedPipelineModePatch} from '../lib/pipelinePresets';
 import {buildPresetPayload, defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {currentTargetHardware} from '../lib/runtime';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
@@ -90,24 +90,10 @@ export function PipelineStepsSection() {
     if (mode === 'Custom') {
       setShowTools(true);
     }
-    const preset = metadata?.presets?.[mode];
-    if (preset) {
-      const neuroflowFiles = neuroflowConfigFilesForMode(mode);
-      const formFields: Record<string, string> = {
-        pipelineMode: mode,
-        neuroflowPresetFile: neuroflowFiles.preset,
-        neuroflowProfileFile: neuroflowFiles.profile,
-      };
-      for (const stageKey of metadata?.stage_order || []) {
-        formFields[`stage_${stageKey}`] = '';
-      }
-      for (const [stageKey, toolKey] of Object.entries(preset.tools || {})) {
-        formFields[`stage_${stageKey}`] = toolKey;
-      }
-      setFormFields(formFields);
-      setSelectedStatsAtlases(presetDefaultAtlases(metadata, mode));
-    } else {
-      setFormFields({pipelineMode: mode, neuroflowPresetFile: '', neuroflowProfileFile: ''});
+    const patch = namedPipelineModePatch(metadata, mode);
+    setFormFields(patch.formFields);
+    if (patch.atlases) {
+      setSelectedStatsAtlases(patch.atlases);
     }
   };
 

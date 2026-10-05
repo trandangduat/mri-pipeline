@@ -533,8 +533,7 @@ class RemoteJobService:
         yield step_event("resources", "running", "Checking server resources...")
         try:
             from pipeline.profile_memory import (
-                format_gib,
-                format_resource_check_failure,
+                build_resource_shortage,
                 get_profile_peak_ram_mib,
             )
 
@@ -549,31 +548,30 @@ class RemoteJobService:
                 required_peak_mib = get_profile_peak_ram_mib(raw_run_request)
 
                 if required_peak_mib > 0 and allocated_ram_mib < required_peak_mib:
-                    mode_name = str(raw_run_request.get("pipeline_mode") or "Current profile")
-                    err_msg = format_resource_check_failure(
+                    shortage = build_resource_shortage(
                         allocated_ram_mib=allocated_ram_mib,
                         required_peak_mib=required_peak_mib,
-                        mode_name=mode_name,
                         total_ram_mib=total_ram_mib,
                         ram_percent=ram_percent,
                     )
-                    yield step_event("resources", "failed", err_msg)
-                    yield complete_event(False, error=err_msg)
+                    summary = str(shortage["summary"])
+                    increase = shortage["increase_ram_percent"]
+                    preset_names = [str(mode) for mode in shortage["presets"]]
+                    yield step_event(
+                        "resources",
+                        "failed",
+                        summary,
+                        solutions={
+                            "summary": summary,
+                            "increase_ram_percent": increase if isinstance(increase, int) else None,
+                            "presets": preset_names,
+                        },
+                    )
+                    yield complete_event(False, error=summary)
                     return
-                elif required_peak_mib > 0:
-                    yield step_event(
-                        "resources",
-                        "done",
-                        f"Allocated: {format_gib(allocated_ram_mib)} RAM ({ram_percent}% of {format_gib(total_ram_mib)}) — Peak required: {format_gib(required_peak_mib)} (OK)",
-                    )
-                else:
-                    yield step_event(
-                        "resources",
-                        "done",
-                        f"Server RAM: {format_gib(total_ram_mib)} (allocated {ram_percent}%)",
-                    )
+                yield step_event("resources", "done", "Sufficient resources")
             else:
-                yield step_event("resources", "done", "Server resources checked")
+                yield step_event("resources", "done", "Sufficient resources")
         except Exception as exc:
             detail = _safe_preflight_error(exc, base_config)
             yield step_event("resources", "failed", detail)
