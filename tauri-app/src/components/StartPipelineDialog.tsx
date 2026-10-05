@@ -1,6 +1,7 @@
 import React from 'react';
 import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle} from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {resolveSurfaceAtlasPackId} from '../lib/atlasPacks';
 import {useDownloadAtlasStream} from '../query/useAtlases';
 
 export interface ResourceSolutions {
@@ -37,7 +38,8 @@ function StepIcon({status}: {status: PipelineStep['status']}) {
 
 function resolveAtlasPackId(key: string): string {
   const norm = key.toLowerCase();
-  if (norm.includes('schaefer')) return 'schaefer2018_400parcels_17networks';
+  const schaeferPack = resolveSurfaceAtlasPackId(key);
+  if (schaeferPack) return schaeferPack;
   if (norm.includes('destrieux')) return 'destrieux';
   if (norm.includes('kong')) return 'kong2022';
   if (norm.includes('yale')) return 'yale';

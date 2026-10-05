@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Generator
 
 from app_backend.paths import data_root, resource_root
-from pipeline.config import PROJECT_ROOT, SURFACE_ATLAS_DIR
+from pipeline.config import PROJECT_ROOT, SCHAEFER2018_ATLAS_VARIANTS, SURFACE_ATLAS_DIR
 
 DEFAULT_RELEASE_BASE_URL = os.environ.get(
     "NEUROFLOW_ATLAS_RELEASE_URL",
@@ -72,28 +72,58 @@ class AtlasPackDef:
     files: list[str]
 
 
-ALL_SCHAEFER_FILES = [
-    f"schaefer/{hemi}.Schaefer2018_{parcels}Parcels_{networks}Networks.gcs"
-    for parcels in [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-    for networks in [7, 17]
-    for hemi in ["lh", "rh"]
-]
+def _schaefer_pack_files(parcels: int, networks: int) -> list[str]:
+    return [
+        f"schaefer/{hemi}.Schaefer2018_{parcels}Parcels_{networks}Networks.gcs"
+        for hemi in ("lh", "rh")
+    ]
+
+
+def _schaefer_size_estimates(parcels: int) -> tuple[int, int]:
+    """Rough download sizes from the shipped 400-parcel reference pack."""
+    scale = (parcels / 400) ** 0.75
+    compressed = max(500_000, int(8_150_000 * scale))
+    uncompressed = max(1_000_000, int(27_232_092 * scale))
+    return compressed, uncompressed
+
+
+def _build_schaefer_packs() -> list[AtlasPackDef]:
+    packs: list[AtlasPackDef] = []
+    for atlas_key, parcels, networks, _stem in SCHAEFER2018_ATLAS_VARIANTS:
+        is_default = atlas_key == "schaefer2018_400parcels_17networks"
+        if is_default:
+            compressed, uncompressed = 8_150_000, 27_232_092
+        else:
+            compressed, uncompressed = _schaefer_size_estimates(parcels)
+        packs.append(
+            AtlasPackDef(
+                id=atlas_key,
+                label=f"Schaefer 2018 ({parcels} Parcels, {networks} Networks)",
+                description=(
+                    "Default cortical thickness atlas for FreeSurfer pipelines."
+                    if is_default
+                    else f"Schaefer 2018 cortical parcellation ({parcels} parcels, {networks} Yeo networks)."
+                ),
+                category="schaefer",
+                is_default=is_default,
+                asset_filename=f"atlas-schaefer2018-{parcels}-{networks}.zip",
+                compressed_size_bytes=compressed,
+                uncompressed_size_bytes=uncompressed,
+                files=_schaefer_pack_files(parcels, networks),
+            )
+        )
+    packs.sort(
+        key=lambda pack: (
+            0 if pack.is_default else 1,
+            next(p for key, p, _n, _s in SCHAEFER2018_ATLAS_VARIANTS if key == pack.id),
+            next(n for key, _p, n, _s in SCHAEFER2018_ATLAS_VARIANTS if key == pack.id),
+        )
+    )
+    return packs
+
 
 ATLAS_PACKS: list[AtlasPackDef] = [
-    AtlasPackDef(
-        id="schaefer2018_400parcels_17networks",
-        label="Schaefer 2018 (400 Parcels, 17 Networks)",
-        description="Default cortical thickness atlas for FreeSurfer pipelines.",
-        category="schaefer",
-        is_default=True,
-        asset_filename="atlas-schaefer2018-400-17.zip",
-        compressed_size_bytes=8150000,
-        uncompressed_size_bytes=27232092,
-        files=[
-            "schaefer/lh.Schaefer2018_400Parcels_17Networks.gcs",
-            "schaefer/rh.Schaefer2018_400Parcels_17Networks.gcs",
-        ],
-    ),
+    *_build_schaefer_packs(),
     AtlasPackDef(
         id="destrieux",
         label="Destrieux (aparc.a2009s)",
@@ -138,17 +168,6 @@ ATLAS_PACKS: list[AtlasPackDef] = [
             "yale/YBA_696_RH_fsaverage_new.annot",
         ],
     ),
-    AtlasPackDef(
-        id="schaefer2018_all",
-        label="Schaefer 2018 (All 100-1000 Parcels)",
-        description="Complete multi-resolution Schaefer 2018 parcellations (40 files).",
-        category="schaefer",
-        is_default=False,
-        asset_filename="atlas-schaefer2018-all.zip",
-        compressed_size_bytes=171500000,
-        uncompressed_size_bytes=555848880,
-        files=ALL_SCHAEFER_FILES,
-    ),
 ]
 
 
@@ -188,9 +207,8 @@ class AtlasService:
             return next((p for p in ATLAS_PACKS if p.id == "kong2022"), None)
         if "yale" in norm:
             return next((p for p in ATLAS_PACKS if p.id == "yale"), None)
-        if "schaefer" in norm:
-            # Fallback to all schaefer if not 400
-            return next((p for p in ATLAS_PACKS if p.id == "schaefer2018_all"), None)
+        if "schaefer" in norm and "cat12" not in norm:
+            return next((p for p in ATLAS_PACKS if p.id == norm), None)
         return None
 
     def download_pack_stream(self, pack_id: str) -> Generator[dict[str, Any], None, None]:

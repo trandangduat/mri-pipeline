@@ -2,26 +2,34 @@
 """Build compressed Atlas Release Assets for GitHub Releases.
 
 Creates:
-  - atlas-schaefer2018-400-17.zip (Schaefer 2018 400 parcels 17 networks - default)
+  - atlas-schaefer2018-{parcels}-{networks}.zip for each Schaefer 2018 variant
   - atlas-destrieux.zip           (Destrieux simple 2009)
   - atlas-kong2022.zip            (Kong 2022 200 parcels 17 networks)
   - atlas-yale.zip                (Yale Brain Atlas)
-  - atlas-schaefer2018-all.zip    (All Schaefer 2018 100-1000 parcels, 7 & 17 networks)
 """
 
 import os
+import sys
 import zipfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from pipeline.config import SCHAEFER2018_ATLAS_VARIANTS
+
 SURFACE_DIR = PROJECT_ROOT / "assets" / "atlases" / "surface"
 OUTPUT_DIR = PROJECT_ROOT / "dist" / "atlas-assets"
 
 PACKS = {
-    "atlas-schaefer2018-400-17.zip": [
-        "schaefer/lh.Schaefer2018_400Parcels_17Networks.gcs",
-        "schaefer/rh.Schaefer2018_400Parcels_17Networks.gcs",
-    ],
+    **{
+        f"atlas-schaefer2018-{parcels}-{networks}.zip": [
+            f"schaefer/{hemi}.Schaefer2018_{parcels}Parcels_{networks}Networks.gcs"
+            for hemi in ("lh", "rh")
+        ]
+        for _key, parcels, networks, _stem in SCHAEFER2018_ATLAS_VARIANTS
+    },
     "atlas-destrieux.zip": [
         "destrieux/lh.destrieux.simple.2009-07-29.gcs",
         "destrieux/rh.destrieux.simple.2009-07-29.gcs",
@@ -37,12 +45,6 @@ PACKS = {
         "yale/YBA_696_RH_fsaverage_new.annot",
     ],
 }
-
-def build_all_schaefer_list():
-    schaefer_dir = SURFACE_DIR / "schaefer"
-    if not schaefer_dir.is_dir():
-        return []
-    return [f"schaefer/{f.name}" for f in schaefer_dir.glob("*.gcs")]
 
 def create_pack(zip_name: str, rel_files: list[str]):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -66,10 +68,6 @@ def main():
 
     for zip_name, files in PACKS.items():
         create_pack(zip_name, files)
-
-    all_schaefer = build_all_schaefer_list()
-    if all_schaefer:
-        create_pack("atlas-schaefer2018-all.zip", all_schaefer)
 
     print(f"\nDone! Assets created in {OUTPUT_DIR}")
 

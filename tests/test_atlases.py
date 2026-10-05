@@ -14,6 +14,7 @@ from app_backend.atlases import (
     find_surface_atlas_file,
     surface_atlases_data_dir,
 )
+from pipeline.config import SCHAEFER2018_ATLAS_VARIANTS
 
 
 def test_surface_atlases_data_dir_respects_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -56,8 +57,22 @@ def test_atlas_service_get_pack_for_atlas_key() -> None:
     p4 = service.get_pack_for_atlas_key("yale")
     assert p4 is not None and p4.id == "yale"
 
+    p5 = service.get_pack_for_atlas_key("schaefer2018_600parcels_17networks")
+    assert p5 is not None and p5.id == "schaefer2018_600parcels_17networks"
+
+    p6 = service.get_pack_for_atlas_key("schaefer2018")
+    assert p6 is not None and p6.id == "schaefer2018"
+
     p_none = service.get_pack_for_atlas_key("unknown_atlas_xyz")
     assert p_none is None
+
+
+def test_atlas_packs_list_each_schaefer_variant_separately() -> None:
+    schaefer_ids = {p.id for p in ATLAS_PACKS if p.category == "schaefer"}
+    expected = {key for key, _p, _n, _s in SCHAEFER2018_ATLAS_VARIANTS}
+    assert schaefer_ids == expected
+    assert "schaefer2018_all" not in schaefer_ids
+    assert len(ATLAS_PACKS) == len(SCHAEFER2018_ATLAS_VARIANTS) + 3
 
 
 def test_atlas_service_import_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
