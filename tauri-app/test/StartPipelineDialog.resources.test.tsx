@@ -62,10 +62,11 @@ describe('StartPipelineDialog resource solutions', () => {
     renderFailure();
 
     expect(screen.getByText(summary)).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Increase RAM allocation to 91%'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'FreeSurfer 7 + Volume'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'FastSurfer + Volume'})).toBeInTheDocument();
-    expect(screen.getByText('Use compatible presets:')).toBeInTheDocument();
+    expect(screen.getByText('Increase RAM allocation to 91%')).toBeInTheDocument();
+    expect(screen.getByText('Use preset: FreeSurfer 7 + Volume')).toBeInTheDocument();
+    expect(screen.getByText('Use preset: FastSurfer + Volume')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', {name: /Apply/})).toHaveLength(3);
+    expect(screen.queryByText('Use compatible presets:')).not.toBeInTheDocument();
     expect(screen.queryByText(/Compatible pipelines runnable/)).not.toBeInTheDocument();
     expect(screen.getAllByText(summary)).toHaveLength(1);
   });
@@ -73,8 +74,8 @@ describe('StartPipelineDialog resource solutions', () => {
   it('hides the RAM action when a higher percent still cannot cover the peak', () => {
     renderFailure({increaseRamPercent: null, presets: ['FreeSurfer 7 + Volume']});
 
-    expect(screen.queryByRole('button', {name: /Increase RAM allocation/})).not.toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'FreeSurfer 7 + Volume'})).toBeInTheDocument();
+    expect(screen.queryByText(/Increase RAM allocation/)).not.toBeInTheDocument();
+    expect(screen.getByText('Use preset: FreeSurfer 7 + Volume')).toBeInTheDocument();
   });
 
   it('hides Solutions when neither action is available', () => {
@@ -90,7 +91,7 @@ describe('StartPipelineDialog resource solutions', () => {
     const onClose = vi.fn();
     renderFailure({onApplyRamPercent, onApplyPreset, onClose});
 
-    fireEvent.click(screen.getByRole('button', {name: 'Increase RAM allocation to 91%'}));
+    fireEvent.click(screen.getByText(/Increase RAM allocation/).closest('tr')!.querySelector('button')!);
 
     expect(onApplyRamPercent).toHaveBeenCalledWith(91);
     expect(onApplyPreset).not.toHaveBeenCalled();
@@ -103,7 +104,7 @@ describe('StartPipelineDialog resource solutions', () => {
     const onClose = vi.fn();
     renderFailure({onApplyRamPercent, onApplyPreset, onClose});
 
-    fireEvent.click(screen.getByRole('button', {name: 'FastSurfer + Volume'}));
+    fireEvent.click(screen.getByText('Use preset: FastSurfer + Volume').closest('tr')!.querySelector('button')!);
 
     expect(onApplyPreset).toHaveBeenCalledWith('FastSurfer + Volume');
     expect(onApplyRamPercent).not.toHaveBeenCalled();

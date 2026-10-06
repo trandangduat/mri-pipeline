@@ -1,5 +1,5 @@
 import React from 'react';
-import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle} from 'lucide-react';
+import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle, ArrowRight} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {resolveSurfaceAtlasPackId} from '../lib/atlasPacks';
 import {useDownloadAtlasStream} from '../query/useAtlases';
@@ -46,14 +46,15 @@ function resolveAtlasPackId(key: string): string {
   return key;
 }
 
-function SolutionButton({label, onClick}: {label: string; onClick: () => void}) {
+function SolutionApplyButton({onClick}: {onClick: () => void}) {
   return (
     <button
       type="button"
-      className="cursor-pointer border-0 bg-transparent p-0 text-left text-xs font-medium text-cursor-primary underline-offset-2 hover:underline"
+      className="flex h-full w-full cursor-pointer items-center justify-center gap-1 border-0 bg-cursor-primary/10 px-3 py-1.5 text-xs font-medium text-cursor-primary transition-colors hover:bg-cursor-primary/20"
       onClick={onClick}
     >
-      {label}
+      <ArrowRight className="h-3 w-3" />
+      Apply
     </button>
   );
 }
@@ -78,37 +79,38 @@ function ResourceSolutionsList({
       {(showIncrease || showPresets) && (
         <div className="mt-1.5 text-xs leading-[1.35] text-cursor-ink">
           <p className="m-0 font-medium">Solutions:</p>
-          <ul className="m-0 mt-0.5 list-disc space-y-0.5 pl-4">
-            {showIncrease && (
-              <li>
-                <SolutionButton
-                  label={`Increase RAM allocation to ${solutions.increaseRamPercent}%`}
-                  onClick={() => {
-                    onApplyRamPercent?.(solutions.increaseRamPercent as number);
-                    onClose();
-                  }}
-                />
-              </li>
-            )}
-            {showPresets && (
-              <li>
-                <span>Use compatible presets:</span>
-                <ul className="m-0 mt-0.5 list-disc space-y-0.5 pl-4">
-                  {solutions.presets.map((preset) => (
-                    <li key={preset}>
-                      <SolutionButton
-                        label={preset}
-                        onClick={() => {
-                          onApplyPreset?.(preset);
-                          onClose();
-                        }}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            )}
-          </ul>
+          <div className="mt-1 overflow-hidden rounded-lg border border-cursor-hairline">
+          <table className="w-full border-separate border-spacing-0 [&>tbody>tr:not(:last-child)>td]:border-b [&_td]:border-cursor-hairline">
+            <tbody>
+              {showIncrease && (
+                <tr>
+                  <td className="border-r border-cursor-hairline px-2 py-1 align-middle">Increase RAM allocation to {solutions.increaseRamPercent}%</td>
+                  <td className="w-[1%] p-0 text-center align-middle whitespace-nowrap">
+                    <SolutionApplyButton
+                      onClick={() => {
+                        onApplyRamPercent?.(solutions.increaseRamPercent as number);
+                        onClose();
+                      }}
+                    />
+                  </td>
+                </tr>
+              )}
+              {solutions.presets.map((preset) => (
+                <tr key={preset}>
+                  <td className="border-r border-cursor-hairline px-2 py-1 align-middle">Use preset: {preset}</td>
+                  <td className="w-[1%] p-0 text-center align-middle whitespace-nowrap">
+                    <SolutionApplyButton
+                      onClick={() => {
+                        onApplyPreset?.(preset);
+                        onClose();
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
         </div>
       )}
     </div>
