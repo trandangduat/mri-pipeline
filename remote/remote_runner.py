@@ -1578,27 +1578,81 @@ class RemoteRunner:
         if norm_vol.exists():
             ssh.upload_file(norm_vol, posixpath.join(remote_code, "normalize_volumes.py"))
         info_dir = PROJECT_ROOT / "info"
-        if info_dir.exists():
-            ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
         mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
-        if mni_atlas_dir.exists():
-            ssh.upload_dir(
-                mni_atlas_dir,
-                posixpath.join(remote_code, "assets", "atlases", "mni"),
-                skip_dirs={"__pycache__"},
-                allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
-                skip_existing_matching_size=True,
+        surface_base_dirs: list[Path] = []
+        try:
+            from app_backend.atlases import candidate_surface_atlas_dirs
+
+            surface_base_dirs = candidate_surface_atlas_dirs()
+        except Exception:
+            surface_base_dirs = []
+
+        def _upload_atlas(local_path: Path, remote_rel: str) -> None:
+            if not local_path.is_file():
+                return
+            remote_path = posixpath.join(remote_code, remote_rel)
+            ssh.mkdir_p(posixpath.dirname(remote_path))
+            try:
+                remote_stat = ssh.sftp.stat(remote_path)
+                if remote_stat.st_size == local_path.stat().st_size:
+                    return
+            except (OSError, IOError):
+                pass
+            ssh.upload_file(local_path, remote_path)
+
+        required_atlas_keys: list[str] = []
+        _raw_atlases = (self.config.stats_vector_config or {}).get("atlases", {})
+        if isinstance(_raw_atlases, dict):
+            for _stat_atlases in _raw_atlases.values():
+                if isinstance(_stat_atlases, (list, tuple)):
+                    required_atlas_keys.extend(str(a) for a in _stat_atlases)
+        required_atlas_keys = sorted(set(required_atlas_keys))
+
+        try:
+            from pipeline.atlas_content import (
+                feature_list_path,
+                mni_atlas_asset_paths,
+                surface_atlas_asset_paths,
             )
-        from app_backend.atlases import candidate_surface_atlas_dirs
-        for surface_atlas_dir in candidate_surface_atlas_dirs():
-            if surface_atlas_dir.exists() and surface_atlas_dir.is_dir():
+        except Exception:
+            feature_list_path = mni_atlas_asset_paths = surface_atlas_asset_paths = None  # type: ignore[assignment]
+
+        if required_atlas_keys and feature_list_path is not None:
+            for key in required_atlas_keys:
+                feature_path = feature_list_path(key)
+                if feature_path is not None:
+                    _upload_atlas(Path(feature_path), posixpath.join("info", Path(feature_path).name))
+                for asset_path in surface_atlas_asset_paths(key):
+                    rel = None
+                    for base in surface_base_dirs:
+                        try:
+                            rel = Path(asset_path).relative_to(base)
+                            break
+                        except ValueError:
+                            continue
+                    if rel is not None:
+                        _upload_atlas(Path(asset_path), posixpath.join("assets", "atlases", "surface", rel.as_posix()))
+                for mni_path in mni_atlas_asset_paths(key):
+                    _upload_atlas(Path(mni_path), posixpath.join("assets", "atlases", "mni", Path(mni_path).name))
+        elif info_dir.exists():
+            ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
+            if mni_atlas_dir.exists():
                 ssh.upload_dir(
-                    surface_atlas_dir,
-                    posixpath.join(remote_code, "assets", "atlases", "surface"),
+                    mni_atlas_dir,
+                    posixpath.join(remote_code, "assets", "atlases", "mni"),
                     skip_dirs={"__pycache__"},
-                    allowed_extensions={".gcs", ".annot"},
+                    allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
                     skip_existing_matching_size=True,
                 )
+            for surface_atlas_dir in surface_base_dirs:
+                if surface_atlas_dir.exists() and surface_atlas_dir.is_dir():
+                    ssh.upload_dir(
+                        surface_atlas_dir,
+                        posixpath.join(remote_code, "assets", "atlases", "surface"),
+                        skip_dirs={"__pycache__"},
+                        allowed_extensions={".gcs", ".annot"},
+                        skip_existing_matching_size=True,
+                    )
         neuroflow = _neuroflow_source_dir()
         if neuroflow and neuroflow.exists():
             remote_neuroflow = posixpath.join(remote_code, "NeuroFLOW-private")
