@@ -1,5 +1,5 @@
-import React from 'react';
-import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle, ArrowRight} from 'lucide-react';
+import React, {useEffect, useState} from 'react';
+import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle, ArrowRight, Check} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {resolveSurfaceAtlasPackId} from '../lib/atlasPacks';
 import {useDownloadAtlasStream} from '../query/useAtlases';
@@ -128,12 +128,23 @@ export function StartPipelineDialog({
   onApplyPreset,
 }: Props) {
   const atlasStream = useDownloadAtlasStream();
+  const [donePacks, setDonePacks] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (atlasStream.status === 'success' && atlasStream.packId) {
+      setDonePacks((prev) => new Set(prev).add(atlasStream.packId as string));
+    }
+  }, [atlasStream.status, atlasStream.packId]);
   if (!open) return null;
 
   const rawAtlasError = errorMessage || steps.find((s) => s.status === 'failed')?.detail || '';
-  const atlasMatch = rawAtlasError.match(/Atlas ['"]([^'"]+)['"] content is not installed/i);
-  const missingAtlasKey = atlasMatch ? atlasMatch[1] : null;
-  const missingPackId = missingAtlasKey ? resolveAtlasPackId(missingAtlasKey) : null;
+   const missingAtlasKeys = Array.from(
+     rawAtlasError.matchAll(/Atlas ['"]([^'"]+)['"] content is not installed/gi),
+     (m) => m[1] as string,
+   );
+
+
+  const missingPackIds = new Set(missingAtlasKeys.map((key) => resolveAtlasPackId(key)));
+  const allInstalled = missingPackIds.size > 0 && Array.from(missingPackIds).every((id) => donePacks.has(id));
 
   const isDuplicateError =
     Boolean(errorMessage) &&
@@ -151,7 +162,7 @@ export function StartPipelineDialog({
         if (e.target === e.currentTarget && complete) onClose();
       }}
     >
-      <div className="relative w-full max-w-[28rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
+      <div className="relative w-full max-w-[36rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <h3 className="m-0 mb-3 text-base font-semibold leading-[1.3] text-cursor-ink">
           {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
         </h3>
@@ -177,6 +188,67 @@ export function StartPipelineDialog({
                     onApplyPreset={onApplyPreset}
                     onClose={onClose}
                   />
+                ) : step.status === 'failed' && missingAtlasKeys.length > 0 ? (
+                  <div className="mt-1.5">
+                    <p className="m-0 text-xs font-medium text-cursor-ink">Missing atlases ({missingAtlasKeys.length}):</p>
+                    <div className="mt-1 overflow-hidden rounded-lg border border-cursor-hairline">
+                      <table className="w-full border-separate border-spacing-0 [&>tbody>tr:not(:last-child)>td]:border-b [&_td]:border-cursor-hairline">
+                        <tbody>
+                          {missingAtlasKeys.map((atlasKey) => {
+                            const packId = resolveAtlasPackId(atlasKey);
+                            const isActive = atlasStream.packId === packId;
+                            const isDownloading = isActive && ['connecting', 'downloading', 'extracting'].includes(atlasStream.status);
+                            return (
+                              <tr key={atlasKey}>
+                                <td className="border-r border-cursor-hairline px-2 py-1 align-middle text-xs text-cursor-ink">{atlasKey}</td>
+                                <td className="w-28 p-0 align-middle whitespace-nowrap">
+                                  {isDownloading ? (
+                                    <div className="relative w-28 overflow-hidden bg-cursor-primary/10 px-3 py-1.5 text-center text-xs font-medium text-cursor-primary">
+                                      <div
+                                        className="absolute inset-y-0 left-0 bg-cursor-primary/25 transition-all duration-300"
+                                        style={{width: `${atlasStream.percent}%`}}
+                                      />
+                                      <span className="relative">{atlasStream.percent}%</span>
+                                    </div>
+                                  ) : donePacks.has(packId) ? (
+                                    <span className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-cursor-semantic-success">
+                                      <Check className="h-3 w-3" />
+                                      Installed
+                                    </span>
+                                  ) : isActive && atlasStream.status === 'failed' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => atlasStream.download(packId)}
+                                      className="flex w-28 cursor-pointer items-center justify-center gap-1 border-0 bg-cursor-semantic-error/10 px-3 py-1.5 text-xs font-medium text-cursor-semantic-error transition-colors hover:bg-cursor-semantic-error/20"
+                                    >
+                                      Retry
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => atlasStream.download(packId)}
+                                      className="flex w-28 cursor-pointer items-center justify-center gap-1 border-0 bg-cursor-primary/10 px-3 py-1.5 text-xs font-medium text-cursor-primary transition-colors hover:bg-cursor-primary/20"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      Download
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {allInstalled && (
+                      <p className="mt-1.5 text-2xs font-medium text-cursor-semantic-success">
+                        Installed! Close this dialog and retry starting the pipeline.
+                      </p>
+                    )}
+                    {atlasStream.status === 'failed' && atlasStream.error && (
+                      <p className="mt-1.5 text-2xs text-cursor-semantic-error">{atlasStream.error}</p>
+                    )}
+                  </div>
                 ) : (
                   step.detail && (
                     <p
@@ -195,73 +267,6 @@ export function StartPipelineDialog({
         </div>
         {errorMessage && !isDuplicateError && (
           <p className="mt-2.5 text-xs text-cursor-semantic-error whitespace-pre-line">{errorMessage}</p>
-        )}
-        {missingAtlasKey && missingPackId && (
-          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-medium text-cursor-ink">
-                  Missing Atlas: <span className="font-mono text-amber-600 dark:text-amber-400">{missingAtlasKey}</span>
-                </p>
-                <p className="mt-0.5 text-2xs text-cursor-muted">
-                  Download the required surface atlas assets to run this pipeline.
-                </p>
-              </div>
-              {atlasStream.status === 'idle' && (
-                <button
-                  type="button"
-                  onClick={() => atlasStream.download(missingPackId)}
-                  className="shrink-0 flex items-center gap-1 rounded bg-cursor-primary px-2.5 py-1 text-2xs font-medium text-white hover:bg-cursor-primary/90 transition-colors cursor-pointer"
-                >
-                  <Download className="h-3 w-3" />
-                  Download
-                </button>
-              )}
-            </div>
-            {atlasStream.status !== 'idle' && (
-              <div className="mt-2 space-y-1">
-                <div className="flex items-center justify-between text-2xs text-cursor-muted">
-                  <span className="flex items-center gap-1">
-                    {['connecting', 'downloading', 'extracting'].includes(atlasStream.status) && (
-                      <Loader2 className="h-3 w-3 animate-spin text-cursor-primary" />
-                    )}
-                    {atlasStream.message}
-                  </span>
-                  {atlasStream.status === 'downloading' && <span>{atlasStream.percent}%</span>}
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-cursor-canvas-soft">
-                  <div
-                    className={cn(
-                      'h-full transition-all duration-300',
-                      atlasStream.status === 'failed'
-                        ? 'bg-cursor-semantic-error'
-                        : atlasStream.status === 'success'
-                        ? 'bg-cursor-semantic-success'
-                        : 'bg-cursor-primary',
-                    )}
-                    style={{width: `${atlasStream.percent}%`}}
-                  />
-                </div>
-                {atlasStream.status === 'success' && (
-                  <p className="text-2xs text-cursor-semantic-success font-medium">
-                    Installed! Close this dialog and retry starting the pipeline.
-                  </p>
-                )}
-                {atlasStream.status === 'failed' && (
-                  <div className="flex items-center justify-between gap-1 text-2xs text-cursor-semantic-error">
-                    <span className="line-clamp-1">{atlasStream.error || 'Download failed.'}</span>
-                    <button
-                      type="button"
-                      onClick={() => atlasStream.download(missingPackId)}
-                      className="underline hover:text-cursor-semantic-error/80 cursor-pointer"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         )}
         {complete && (
           <div className="mt-3.5 flex justify-end">
