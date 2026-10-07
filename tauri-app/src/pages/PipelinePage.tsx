@@ -509,7 +509,7 @@ export function StatsAtlasSection() {
                   </h3>
                 </div>
                 <div className="flex items-center gap-1.5 flex-none">
-                  <span className="inline-flex items-center rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2 py-0.25 text-2xs font-semibold text-cursor-primary">
+                  <span className="text-base font-semibold text-cursor-ink">
                     {pickerSelectedAtlases.length} selected
                   </span>
                   <button
@@ -563,7 +563,7 @@ export function StatsAtlasSection() {
                           if (isUnavailable) return;
                           toggleAtlas(atlasPickerStatKey, atlasKey);
                         }}
-                        className={`group flex w-full items-center justify-between gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
+                        className={`flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-all ${
                           isUnavailable
                             ? 'cursor-not-allowed border-cursor-hairline bg-cursor-canvas-soft/70 text-cursor-muted opacity-70'
                             : isSelected
@@ -582,25 +582,15 @@ export function StatsAtlasSection() {
                             {isSelected ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-cursor-ink">
+                            <span
+                              className={`block truncate text-sm font-semibold ${
+                                isSelected ? 'text-cursor-primary' : 'text-cursor-ink'
+                              }`}
+                            >
                               {atlas.label || atlas.key}
                             </span>
-                            <span className="block truncate font-mono text-2xs text-cursor-muted">
-                              {atlas.key}
-                            </span>
+                            <span className="block truncate text-xs text-cursor-muted">{atlas.key}</span>
                           </div>
-                        </div>
-
-                        <div className="flex-none">
-                          {isSelected ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-cursor-primary/10 border border-cursor-primary/20 px-2 py-0.25 text-2xs font-semibold text-cursor-primary">
-                              Selected
-                            </span>
-                          ) : (
-                            <span className="opacity-0 group-hover:opacity-100 inline-flex items-center rounded-full border border-cursor-hairline bg-cursor-surface-card px-2 py-0.25 text-2xs font-medium text-cursor-body transition-opacity">
-                              + Select
-                            </span>
-                          )}
                         </div>
                       </button>
                     );
@@ -613,7 +603,7 @@ export function StatsAtlasSection() {
               </div>
 
               {/* Modal Footer */}
-              <div className="mt-3 pt-2.5 border-t border-cursor-hairline-soft flex items-center justify-end flex-none">
+              <div className="mt-3 flex items-center justify-end flex-none">
                 <button
                   type="button"
                   onClick={() => { setAtlasPickerStatKey(null); setAtlasSearch(''); }}
