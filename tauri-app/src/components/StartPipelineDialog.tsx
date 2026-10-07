@@ -307,8 +307,7 @@ export function StartPipelineDialog({
           </div>
         )}
         {!complete && onCancel && (
-          <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-cursor-hairline-soft pt-3">
-            <p className="m-0 text-xs text-cursor-muted">You can cancel now to change inputs — nothing has started yet.</p>
+          <div className="mt-3.5 flex items-center justify-end gap-2 pt-3">
             <button
               type="button"
               className="rounded-md border border-cursor-semantic-error/40 bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-semantic-error hover:bg-cursor-semantic-error/10 transition-colors cursor-pointer flex-none"

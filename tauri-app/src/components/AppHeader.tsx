@@ -76,6 +76,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
     start: startStream,
     cancel: cancelStream,
     close: closeDialog,
+    runId: preflightRunId,
   } = useStartPipelineStream();
 
   const print = (label: string, payload: unknown) => {
@@ -419,6 +420,10 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
 
       {/* Start Pipeline Stream Dialog */}
       <StartPipelineDialog
+        // Remount per preflight run so in-dialog atlas marks ("Installed")
+        // never leak into the next run. The backend re-validates from disk
+        // on every run, so stale marks would lie after external deletion.
+        key={preflightRunId}
         open={dialogOpen}
         onClose={handleDialogClose}
         onCancel={handleCancelPreflight}

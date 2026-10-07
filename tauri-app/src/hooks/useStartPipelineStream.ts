@@ -45,12 +45,14 @@ export function useStartPipelineStream() {
   const [success, setSuccess] = React.useState(false);
   const [job, setJob] = React.useState<Record<string, unknown> | null>(null);
   const [errorMessage, setErrorMessage] = React.useState('');
+  const [runId, setRunId] = React.useState(0);
   const abortRef = React.useRef<AbortController | null>(null);
 
   const start = React.useCallback(async (path: string, payload: Record<string, unknown>, isRemote: boolean) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setRunId((n) => n + 1);
     const initialSteps = isRemote ? [...REMOTE_STEPS] : [...LOCAL_STEPS];
     setSteps(initialSteps);
     setComplete(false);
@@ -135,5 +137,5 @@ export function useStartPipelineStream() {
     [],
   );
 
-  return {open, steps, complete, success, job, errorMessage, start, cancel, close};
+  return {open, steps, complete, success, job, errorMessage, runId, start, cancel, close};
 }
