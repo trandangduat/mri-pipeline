@@ -15,6 +15,7 @@ import {Button} from './ui';
 import {ThemeToggle} from './ThemeToggle';
 import {FontScaleToggle} from './FontScaleToggle';
 import {StartPipelineDialog} from './StartPipelineDialog';
+import {ModalPortal} from './ModalPortal';
 import {useStartPipelineStream} from '../hooks/useStartPipelineStream';
 import {useMetadata, useEnvironment} from '../query/useEnvironment';
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
@@ -439,6 +440,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
 
       {/* Invalid Workspace File Popup */}
       {workspaceInvalid && (
+        <ModalPortal>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
           onMouseDown={(e) => {
@@ -459,9 +461,11 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
       {/* Active Running Job Warning Modal */}
       {runningJobsWarning && (
+        <ModalPortal>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
           onMouseDown={(e) => {
@@ -494,6 +498,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </header>
   );

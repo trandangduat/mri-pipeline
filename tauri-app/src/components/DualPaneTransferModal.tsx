@@ -18,6 +18,7 @@ import {
 import {open as openDialog} from '@tauri-apps/plugin-dialog';
 import {useLocalBrowseMutation, useRemoteBrowseMutation, useUploadStageMutation, useRemoteMkdirMutation} from '../query/useRemote';
 import {Button, Alert, inputCls} from './ui';
+import {ModalPortal} from './ModalPortal';
 import type {RemoteBrowseEntry, RemoteBrowseResponse} from '../types/backend';
 import type {RemotePayload} from '../api/runConfig';
 
@@ -328,6 +329,7 @@ export function DualPaneTransferModal({
   const rightFiles = useMemo(() => rightEntries.filter((e) => e.kind === 'file'), [rightEntries]);
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/40 backdrop-blur-xs p-4"
       onMouseDown={(e) => {
@@ -875,5 +877,6 @@ export function DualPaneTransferModal({
         </div>
       )}
     </div>
+    </ModalPortal>
   );
 }

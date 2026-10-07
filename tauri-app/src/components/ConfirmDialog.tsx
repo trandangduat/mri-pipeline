@@ -1,6 +1,7 @@
 import React, {useEffect, type ReactNode} from 'react';
 import {AlertTriangle, Loader2, X} from 'lucide-react';
 import {Button} from './ui';
+import {ModalPortal} from './ModalPortal';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -41,6 +42,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
+    <ModalPortal>
     <div
       role="dialog"
       aria-modal="true"
@@ -111,5 +113,6 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

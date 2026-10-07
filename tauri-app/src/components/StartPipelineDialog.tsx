@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {CheckCircle2, XCircle, Circle, Loader2, Download, AlertCircle, ArrowRight, Check} from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {ModalPortal} from './ModalPortal';
 import {resolveSurfaceAtlasPackId} from '../lib/atlasPacks';
 import {useDownloadAtlasStream} from '../query/useAtlases';
 
@@ -169,6 +170,7 @@ export function StartPipelineDialog({
     );
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
       onMouseDown={(e) => {
@@ -318,5 +320,6 @@ export function StartPipelineDialog({
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 }

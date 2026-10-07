@@ -76,6 +76,7 @@ import {buildRemotePayload} from '../api/runConfig';
 import type {PipelineEvent} from '../types/backend';
 import type {BatchImageItem} from '../lib/jobs';
 import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
+import {ModalPortal} from '../components/ModalPortal';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {LazyUploadProgress} from '../components/LazyUploadProgress';
 import type {DownloadStep} from '../components/DownloadOutputsDialog';
@@ -2633,6 +2634,7 @@ export function JobsPage() {
 
       {/* 3. Subject Detail Modal Overlay */}
       {modalSubject && (
+        <ModalPortal>
         <div
           className="fixed inset-0 z-50 bg-cursor-ink/35 backdrop-blur-[2px] flex items-center justify-center p-3"
           onClick={closeSubjectModal}
@@ -2814,6 +2816,7 @@ export function JobsPage() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* 4. Download Outputs Dialog */}

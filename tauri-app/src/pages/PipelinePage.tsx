@@ -12,6 +12,7 @@ import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/compon
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
 import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
+import {ModalPortal} from '../components/ModalPortal';
 import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
 import {useRemoteBrowseMutation, useLocalBrowseMutation, useRemoteMkdirMutation} from '../query/useRemote';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
@@ -939,6 +940,7 @@ function ModalOverlay({
   className?: string;
 }) {
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/35 p-3"
       onMouseDown={(e) => {
@@ -949,6 +951,7 @@ function ModalOverlay({
         {children}
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -977,6 +980,7 @@ function fmtBytes(bytes: number | null | undefined): string {
 // ModalOverlay for wide modals (browser popup)
 function WideModalOverlay({onClose, children}: {onClose: () => void; children: React.ReactNode}) {
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-cursor-ink/30 p-4"
       onMouseDown={(e) => {
@@ -987,6 +991,7 @@ function WideModalOverlay({onClose, children}: {onClose: () => void; children: R
         {children}
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -2670,6 +2675,7 @@ export function InputOutputSection() {
             onClose={() => setServerStagingModal(false)}
           />
         ) : (
+          <ModalPortal>
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerStagingModal(false)}
@@ -2682,6 +2688,7 @@ export function InputOutputSection() {
               </div>
             </div>
           </div>
+          </ModalPortal>
         )
       )}
 
@@ -2701,6 +2708,7 @@ export function InputOutputSection() {
             onClose={() => setServerInputModal(false)}
           />
         ) : (
+          <ModalPortal>
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerInputModal(false)}
@@ -2713,6 +2721,7 @@ export function InputOutputSection() {
               </div>
             </div>
           </div>
+          </ModalPortal>
         )
       )}
 
@@ -2731,6 +2740,7 @@ export function InputOutputSection() {
             onClose={() => setServerOutputModal(false)}
           />
         ) : (
+          <ModalPortal>
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
             onMouseDown={() => setServerOutputModal(false)}
@@ -2743,6 +2753,7 @@ export function InputOutputSection() {
               </div>
             </div>
           </div>
+          </ModalPortal>
         )
       )}
 

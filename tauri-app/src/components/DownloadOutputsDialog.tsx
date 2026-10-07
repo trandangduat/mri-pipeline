@@ -14,6 +14,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {ModalPortal} from './ModalPortal';
 import {formatEta, formatFilesPerSec} from '../lib/format';
 
 export interface DownloadStep {
@@ -129,6 +130,7 @@ export function DownloadOutputsDialog({
   const pathCopied = copiedPath != null && copiedPath === finalPath;
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-cursor-ink/30 p-3"
       onMouseDown={(e) => {
@@ -368,5 +370,6 @@ export function DownloadOutputsDialog({
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 }
