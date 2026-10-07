@@ -21,6 +21,7 @@ export interface PipelineStep {
 interface Props {
   open: boolean;
   onClose: () => void;
+  onCancel?: () => void;
   steps: PipelineStep[];
   complete: boolean;
   success: boolean;
@@ -66,8 +67,8 @@ function ResourceSolutionsList({
   onClose,
 }: {
   solutions: ResourceSolutions;
-  onApplyRamPercent?: (percent: number) => void;
-  onApplyPreset?: (mode: string) => void;
+  onApplyRamPercent?: ((percent: number) => void) | undefined;
+  onApplyPreset?: ((mode: string) => void) | undefined;
   onClose: () => void;
 }) {
   const showIncrease = typeof solutions.increaseRamPercent === 'number';
@@ -120,6 +121,7 @@ function ResourceSolutionsList({
 export function StartPipelineDialog({
   open,
   onClose,
+  onCancel,
   steps,
   complete,
   success,
@@ -134,6 +136,17 @@ export function StartPipelineDialog({
       setDonePacks((prev) => new Set(prev).add(atlasStream.packId as string));
     }
   }, [atlasStream.status, atlasStream.packId]);
+  // Allow Esc to cancel an in-flight preflight, or close when finished.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (complete) onClose();
+      else onCancel?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, complete, onClose, onCancel]);
   if (!open) return null;
 
   const rawAtlasError = errorMessage || steps.find((s) => s.status === 'failed')?.detail || '';
@@ -163,9 +176,22 @@ export function StartPipelineDialog({
       }}
     >
       <div className="relative w-full max-w-[36rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
-        <h3 className="m-0 mb-3 text-base font-semibold leading-[1.3] text-cursor-ink">
-          {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
-        </h3>
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">
+            {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
+          </h3>
+          {onCancel && !complete && (
+            <button
+              type="button"
+              onClick={onCancel}
+              title="Cancel preflight (Esc)"
+              className="flex h-6 w-6 flex-none items-center justify-center rounded-md text-cursor-muted hover:bg-cursor-canvas hover:text-cursor-ink transition-colors cursor-pointer"
+              aria-label="Cancel preflight"
+            >
+              ✕
+            </button>
+          )}
+        </div>
         <div className="flex flex-col gap-2">
           {steps.map((step) => (
             <div key={step.id} className="flex items-start gap-2.5">
@@ -275,6 +301,18 @@ export function StartPipelineDialog({
               onClick={onClose}
             >
               {success ? 'View Jobs' : 'Close'}
+            </button>
+          </div>
+        )}
+        {!complete && onCancel && (
+          <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-cursor-hairline-soft pt-3">
+            <p className="m-0 text-xs text-cursor-muted">You can cancel now to change inputs — nothing has started yet.</p>
+            <button
+              type="button"
+              className="rounded-md border border-cursor-semantic-error/40 bg-cursor-surface-card px-3 py-1.5 text-xs font-medium text-cursor-semantic-error hover:bg-cursor-semantic-error/10 transition-colors cursor-pointer flex-none"
+              onClick={onCancel}
+            >
+              Cancel preflight
             </button>
           </div>
         )}

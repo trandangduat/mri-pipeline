@@ -73,6 +73,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
     job: dialogJob,
     errorMessage: dialogError,
     start: startStream,
+    cancel: cancelStream,
     close: closeDialog,
   } = useStartPipelineStream();
 
@@ -137,6 +138,15 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
     }
 
     await executeStartPipeline();
+  };
+
+  const handleCancelPreflight = () => {
+    // Abort the SSE stream first so late server events can't flip the dialog
+    // back to success / navigate away after the user already cancelled.
+    cancelStream();
+    setStarting(false);
+    closeDialog();
+    print('Start pipeline cancelled', {cancelled: true});
   };
 
   const handleDialogClose = () => {
@@ -410,6 +420,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
       <StartPipelineDialog
         open={dialogOpen}
         onClose={handleDialogClose}
+        onCancel={handleCancelPreflight}
         steps={dialogSteps}
         complete={dialogComplete}
         success={dialogSuccess}

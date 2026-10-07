@@ -36,6 +36,10 @@ DEFAULT_ALLOWED_ORIGINS = (
 )
 
 
+class ClientDisconnectedError(OSError):
+    """Raised when the SSE client went away (user pressed Cancel/Stop)."""
+
+
 class AppBackendHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -295,6 +299,9 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/jobs/download/stream":
             self._handle_remote_download_stream(payload)
             return
+        if self.path == "/remote/jobs/download/cancel":
+            self._write_json(HTTPStatus.OK, self._remote_jobs().download_cancel(payload))
+            return
         if self.path == "/jobs/local/start/stream":
             self._handle_local_start_stream(payload)
             return
@@ -553,17 +560,30 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
     def _send_sse_event(self, event: str, data: dict[str, JsonValue]) -> None:
         payload = json.dumps(data, ensure_ascii=False)
         frame = f"event: {event}\ndata: {payload}\n\n"
-        self.wfile.write(frame.encode("utf-8"))
-        self.wfile.flush()
+        try:
+            self.wfile.write(frame.encode("utf-8"))
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError) as exc:
+            # Client cancelled (preflight Cancel / Stop Download). Propagate so
+            # the stream handler stops promptly instead of doing more work
+            # (e.g. starting a job the user no longer wants).
+            raise ClientDisconnectedError(str(exc)) from exc
 
     def _handle_remote_start_stream(self, payload: dict[str, JsonValue]) -> None:
         self._write_sse_headers()
         try:
             for sse_event in self._remote_jobs().stream_start_job(payload):
                 self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except ClientDisconnectedError:
+            pass
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
         except Exception as exc:
-            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
-            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            try:
+                self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+                self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            except (ClientDisconnectedError, BrokenPipeError, ConnectionResetError, OSError):
+                pass
         finally:
             self.close_connection = True
 
@@ -572,9 +592,16 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         try:
             for sse_event in self._remote_jobs().stream_download_outputs(payload):  # type: ignore[arg-type]
                 self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except ClientDisconnectedError:
+            pass
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
         except Exception as exc:
-            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
-            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            try:
+                self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+                self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            except (ClientDisconnectedError, BrokenPipeError, ConnectionResetError, OSError):
+                pass
         finally:
             self.close_connection = True
 
@@ -583,9 +610,16 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         try:
             for sse_event in self._local_jobs().stream_start_job(payload):
                 self._send_sse_event(str(sse_event["event"]), sse_event["data"])  # type: ignore[arg-type]
+        except ClientDisconnectedError:
+            pass
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
         except Exception as exc:
-            self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
-            self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            try:
+                self._send_sse_event("step", {"step": "error", "status": "failed", "detail": str(exc)})
+                self._send_sse_event("complete", {"ok": False, "error": str(exc)})
+            except (ClientDisconnectedError, BrokenPipeError, ConnectionResetError, OSError):
+                pass
         finally:
             self.close_connection = True
 

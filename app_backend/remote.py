@@ -27,6 +27,10 @@ JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dic
 VALIDATE_SSH_TIMEOUT_S = 10
 
 
+class DownloadCancelledError(RuntimeError):
+    """Raised when the user stops an in-flight outputs download."""
+
+
 class RemoteJobLister(Protocol):
     def list_background_jobs(self) -> list[dict[str, object]]:
         ...
@@ -52,6 +56,29 @@ class RemoteJobService:
         self.runner_factory = runner_factory or _default_runner_factory
         self.register_remote_job = register_remote_job
         self._lazy_uploads: dict[str, object] = {}
+        self._download_cancels: dict[str, threading.Event] = {}
+        self._download_cancels_lock = threading.Lock()
+
+    def _download_cancel_key(self, data: dict[str, object]) -> str:
+        job_id = str(data.get("job_id", "") or "").strip()
+        if job_id:
+            return job_id
+        remote_job_dir = str(data.get("remote_job_dir", "") or "").strip().rstrip("/")
+        if remote_job_dir:
+            return remote_job_dir.split("/")[-1] or remote_job_dir
+        return ""
+
+    def download_cancel(self, data: dict[str, object]) -> dict[str, JsonValue]:
+        key = self._download_cancel_key(data)
+        if not key:
+            return {"ok": False, "error": "job_id or remote_job_dir is required"}
+        with self._download_cancels_lock:
+            event = self._download_cancels.get(key)
+            if event is None:
+                event = threading.Event()
+                self._download_cancels[key] = event
+            event.set()
+        return {"ok": True, "cancelled": True}
 
     # ------------------------------------------------------------- lazy upload
     def upload_state(self, data: dict[str, object]) -> dict[str, JsonValue]:
@@ -875,9 +902,19 @@ class RemoteJobService:
         copied_files = 0
         progress_queue: Queue[dict[str, object]] = Queue()
         download_error: list[Exception | None] = [None]
+        cancel_key = self._download_cancel_key(data)
+        with self._download_cancels_lock:
+            cancel_event = self._download_cancels.get(cancel_key)
+            if cancel_event is None:
+                cancel_event = threading.Event()
+                self._download_cancels[cancel_key] = cancel_event
+            else:
+                cancel_event.clear()
 
         def on_log(line: str) -> None:
             nonlocal copied_files
+            if cancel_event.is_set():
+                raise DownloadCancelledError("Download stopped by user.")
             if line.startswith("Downloading file:") or line.startswith("Skipping existing file:"):
                 copied_files += 1
                 pct = round(copied_files / total_files * 100) if total_files > 0 else 0
@@ -905,14 +942,20 @@ class RemoteJobService:
 
         yield {"event": "step", "data": {"step": "copy", "status": "running", "detail": "Copying outputs...", "copied_files": 0, "total_files": total_files, "pct": 0}}
 
-        while True:
-            try:
-                event_data = progress_queue.get(timeout=0.5)
-            except Empty:
-                continue
-            if event_data is None:
-                break
-            yield {"event": "step", "data": event_data}  # type: ignore[dict-item]
+        try:
+            while True:
+                if cancel_event.is_set():
+                    break
+                try:
+                    event_data = progress_queue.get(timeout=0.5)
+                except Empty:
+                    continue
+                if event_data is None:
+                    break
+                yield {"event": "step", "data": event_data}  # type: ignore[dict-item]
+        finally:
+            with self._download_cancels_lock:
+                self._download_cancels.pop(cancel_key, None)
 
         download_thread.join(timeout=5)
 
@@ -925,9 +968,13 @@ class RemoteJobService:
             if event_data is not None:
                 yield {"event": "step", "data": event_data}  # type: ignore[dict-item]
 
-        if download_error[0] is not None:
-            yield step_event("copy", "failed", _safe_error_message(download_error[0], config))
-            yield complete_event(False, error=_safe_error_message(download_error[0], config))
+        err = download_error[0]
+        if isinstance(err, DownloadCancelledError) or cancel_event.is_set():
+            yield step_event("copy", "failed", "Download stopped by user. Partial files are kept — run again to resume.")
+            yield complete_event(False, error="Download stopped by user. Partial files are kept — run again to resume.")
+        elif err is not None:
+            yield step_event("copy", "failed", _safe_error_message(err, config))
+            yield complete_event(False, error=_safe_error_message(err, config))
         else:
             pct = round(copied_files / total_files * 100) if total_files > 0 else 100
             yield {"event": "step", "data": {"step": "copy", "status": "done", "detail": f"Copied {copied_files} file(s)", "copied_files": copied_files, "total_files": total_files, "pct": pct}}

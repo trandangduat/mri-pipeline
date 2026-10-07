@@ -45,8 +45,12 @@ export function useStartPipelineStream() {
   const [success, setSuccess] = React.useState(false);
   const [job, setJob] = React.useState<Record<string, unknown> | null>(null);
   const [errorMessage, setErrorMessage] = React.useState('');
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const start = React.useCallback(async (path: string, payload: Record<string, unknown>, isRemote: boolean) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     const initialSteps = isRemote ? [...REMOTE_STEPS] : [...LOCAL_STEPS];
     setSteps(initialSteps);
     setComplete(false);
@@ -56,16 +60,26 @@ export function useStartPipelineStream() {
     setOpen(true);
 
     const client = new BackendClient(DEFAULT_BACKEND_URL);
-    await client.startPipelineStream(
-      path,
-      payload,
-      (event, data) => {
+    try {
+      await client.startPipelineStream(
+        path,
+        payload,
+        (event, data) => {
+          if (controller.signal.aborted) return;
         if (event === 'step') {
           const stepId = data.step as string;
           const status = data.status as PipelineStep['status'];
           const detail = (data.detail as string) || '';
           const solutions = parseResourceSolutions(data.solutions);
-          setSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail, solutions} : s)));
+          setSteps((prev) =>
+            prev.map((s): PipelineStep =>
+              s.id === stepId
+                ? solutions === undefined
+                  ? {...s, status, detail}
+                  : {...s, status, detail, solutions}
+                : s,
+            ),
+          );
         } else if (event === 'complete') {
           const ok = data.ok as boolean;
           setComplete(true);
@@ -81,16 +95,45 @@ export function useStartPipelineStream() {
         }
       },
       (error) => {
-        setComplete(true);
-        setSuccess(false);
-        setErrorMessage(error);
-      },
-    );
+          if (controller.signal.aborted) return;
+          setComplete(true);
+          setSuccess(false);
+          setErrorMessage(error);
+        },
+        controller.signal,
+      );
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setComplete(true);
+      setSuccess(false);
+      setErrorMessage((err as Error).message || 'Start failed');
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }, []);
+
+  const cancel = React.useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    // Mark cancelled so the dialog can close immediately; late SSE events
+    // are ignored via the aborted-signal guard above.
+    setComplete(true);
+    setSuccess(false);
+    setErrorMessage('Preflight cancelled by user.');
   }, []);
 
   const close = React.useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
     setOpen(false);
   }, []);
 
-  return {open, steps, complete, success, job, errorMessage, start, close};
+  React.useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
+  return {open, steps, complete, success, job, errorMessage, start, cancel, close};
 }

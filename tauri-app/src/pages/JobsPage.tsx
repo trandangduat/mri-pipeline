@@ -621,14 +621,6 @@ function JobsListView({
   );
 }
 
-function shortCopyDetail(raw: string): string {
-  if (!raw) return '';
-  const head = (raw.replace(/^Downloading file:\s*/i, '').split('→')[0] ?? raw).trim();
-  const parts = head.split('/').filter(Boolean);
-  const name = parts.length ? parts[parts.length - 1] || head : head;
-  return name || raw;
-}
-
 export function JobsPage() {
   const latestJobs = useJobsStore((s) => s.latestJobs);
   const hasLoadedInitialJobs = useJobsStore((s) => s.hasLoadedInitialJobs);
@@ -707,12 +699,20 @@ export function JobsPage() {
   const [downloadLocalDir, setDownloadLocalDir] = useState('');
   const [downloadPhase, setDownloadPhase] = useState<'select' | 'running' | 'success' | 'failed'>('select');
   const [downloadSteps, setDownloadSteps] = useState<DownloadStep[]>([]);
-  const [downloadLogs, setDownloadLogs] = useState<string[]>([]);
   const [downloadCopiedFiles, setDownloadCopiedFiles] = useState<number | undefined>(undefined);
   const [downloadTotalFiles, setDownloadTotalFiles] = useState<number | undefined>(undefined);
+  const [downloadSpeed, setDownloadSpeed] = useState<number | undefined>(undefined);
+  const [downloadEta, setDownloadEta] = useState<number | undefined>(undefined);
+  const [downloadCancelled, setDownloadCancelled] = useState(false);
   const [downloadFinalPath, setDownloadFinalPath] = useState<string | undefined>(undefined);
   const [downloadError, setDownloadError] = useState<string | undefined>(undefined);
   const [downloadRunning, setDownloadRunning] = useState(false);
+  const downloadAbortRef = useRef<AbortController | null>(null);
+  const downloadPayloadRef = useRef<Record<string, unknown> | null>(null);
+  // Sliding-window samples for files/sec + ETA (client-side; the stream only
+  // carries file counts, no bytes/timestamps).
+  const downloadSamplesRef = useRef<Array<{t: number; c: number}>>([]);
+  const downloadTotalRef = useRef<number | undefined>(undefined);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [jobToDelete, setJobToDelete] = useState<Record<string, unknown> | null>(null);
   const [stoppingJob, setStoppingJob] = useState(false);
@@ -726,6 +726,14 @@ export function JobsPage() {
   const [lastSyncedAt, setLastSyncedAt] = useState(() => Date.now());
   const currentJobIdRef = useRef<string | null>(null);
   const detailsAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      downloadAbortRef.current?.abort();
+      downloadAbortRef.current = null;
+    },
+    [],
+  );
 
   const closeSubjectModal = useCallback(() => {
     // Legacy jobs can have very large telemetry files. Abort detail reads as
@@ -1522,9 +1530,11 @@ export function JobsPage() {
       setDownloadDialogOpen(true);
       setDownloadPhase('select');
       setDownloadSteps([]);
-      setDownloadLogs([]);
       setDownloadCopiedFiles(undefined);
       setDownloadTotalFiles(undefined);
+      setDownloadSpeed(undefined);
+      setDownloadEta(undefined);
+      setDownloadCancelled(false);
       setDownloadFinalPath(undefined);
       setDownloadError(undefined);
       setDownloadRunning(false);
@@ -1564,8 +1574,13 @@ export function JobsPage() {
     ];
     setDownloadSteps(initialSteps);
     setDownloadPhase('running');
-    setDownloadLogs([]);
     setDownloadCopiedFiles(undefined);
+    setDownloadTotalFiles(undefined);
+    setDownloadSpeed(undefined);
+    setDownloadEta(undefined);
+    setDownloadCancelled(false);
+    downloadSamplesRef.current = [];
+    downloadTotalRef.current = undefined;
     setDownloadTotalFiles(undefined);
     setDownloadFinalPath(undefined);
     setDownloadError(undefined);
@@ -1584,24 +1599,53 @@ export function JobsPage() {
       local_target_dir: trimmedDir,
       download_subdir: String(job?.download_subdir || ''),
     };
+    downloadPayloadRef.current = payload;
+    downloadAbortRef.current?.abort();
+    const controller = new AbortController();
+    downloadAbortRef.current = controller;
 
     const client = new BackendClient(DEFAULT_BACKEND_URL);
     client.startRemoteDownloadStream(
       payload,
       (event, data) => {
+        if (controller.signal.aborted) return;
         if (event === 'step') {
           const stepId = data.step as string;
           const status = data.status as DownloadStep['status'];
           const rawDetail = (data.detail as string) || '';
-          const detail = stepId === 'copy' && status === 'running' ? shortCopyDetail(rawDetail) : rawDetail;
+          // Keep the full "remote → local" detail: the dialog splits it into
+          // a file-name line and a destination line.
+          const detail = rawDetail;
           setDownloadSteps((prev) => prev.map((s) => (s.id === stepId ? {...s, status, detail} : s)));
-          if (rawDetail && status === 'running') {
-            setDownloadLogs((prev) => [...prev, rawDetail]);
+          if (data.total_files != null) {
+            const total = data.total_files as number;
+            downloadTotalRef.current = total;
+            setDownloadTotalFiles(total);
           }
-          if (data.copied_files != null) setDownloadCopiedFiles(data.copied_files as number);
-          if (data.total_files != null) setDownloadTotalFiles(data.total_files as number);
+          if (stepId === 'copy' && status === 'running' && data.copied_files != null) {
+            const copied = data.copied_files as number;
+            setDownloadCopiedFiles(copied);
+            // Sliding 5s window; publish speed/ETA only with >= 2s of samples
+            // so the numbers don't jump on the first files.
+            const now = Date.now();
+            const samples = downloadSamplesRef.current;
+            samples.push({t: now, c: copied});
+            while (samples.length > 1 && now - (samples[0]?.t ?? now) > 5000) samples.shift();
+            const first = samples[0];
+            const dt = first != null ? (now - first.t) / 1000 : 0;
+            const dc = first != null ? copied - first.c : 0;
+            if (samples.length >= 2 && dt >= 2 && dc > 0) {
+              const speed = dc / dt;
+              setDownloadSpeed(speed);
+              const total = downloadTotalRef.current;
+              if (total != null && total > 0) setDownloadEta(Math.max(0, (total - copied) / speed));
+            }
+          } else {
+            if (data.copied_files != null) setDownloadCopiedFiles(data.copied_files as number);
+          }
         } else if (event === 'complete') {
           const ok = data.ok as boolean;
+          if (downloadAbortRef.current === controller) downloadAbortRef.current = null;
           setDownloadRunning(false);
           if (ok) {
             setDownloadPhase('success');
@@ -1610,17 +1654,43 @@ export function JobsPage() {
             setDownloadTotalFiles(data.total_files as number);
           } else {
             setDownloadPhase('failed');
-            setDownloadError((data.error as string) || 'Download failed');
+            const message = (data.error as string) || 'Download failed';
+            setDownloadError(message);
+            if (message.toLowerCase().includes('stopped by user')) setDownloadCancelled(true);
           }
         }
       },
       (error) => {
+        if (controller.signal.aborted) return;
+        if (downloadAbortRef.current === controller) downloadAbortRef.current = null;
         setDownloadRunning(false);
         setDownloadPhase('failed');
         setDownloadError(error);
       },
+      controller.signal,
     );
   };
+
+  const handleStopServerDownload = useCallback(() => {
+    const controller = downloadAbortRef.current;
+    const payload = downloadPayloadRef.current;
+    // Abort SSE first so late server events can't flip the dialog back to
+    // success after the user already stopped.
+    controller?.abort();
+    downloadAbortRef.current = null;
+    if (payload) {
+      // Best effort: tell the backend to stop copying between files.
+      const client = new BackendClient(DEFAULT_BACKEND_URL);
+      void client.cancelRemoteDownload(payload);
+    }
+    setDownloadRunning(false);
+    setDownloadSteps((prev) =>
+      prev.map((s) => (s.status === 'running' ? {...s, status: 'failed' as const, detail: 'Cancelled by user'} : s)),
+    );
+    setDownloadPhase('failed');
+    setDownloadCancelled(true);
+    setDownloadError('Download stopped. Resume to continue where it stopped.');
+  }, []);
 
   // Filter batch images by search query & status filter, then sort by
   // execution start time (default) or input order
@@ -2753,15 +2823,21 @@ export function JobsPage() {
         localDir={downloadLocalDir}
         phase={downloadPhase}
         steps={downloadSteps}
-        logs={downloadLogs}
         copiedFiles={downloadCopiedFiles}
         totalFiles={downloadTotalFiles}
+        speedFilesPerSec={downloadSpeed}
+        etaSeconds={downloadEta}
         finalPath={downloadFinalPath}
         errorMessage={downloadError}
+        cancelled={downloadCancelled}
         onBrowse={handleBrowseDownloadDir}
         onStart={handleStartServerDownload}
+        onResume={handleStartServerDownload}
         onClose={() => {
-          if (!downloadRunning) setDownloadDialogOpen(false);
+          setDownloadDialogOpen(false);
+        }}
+        onStop={() => {
+          if (downloadRunning) handleStopServerDownload();
         }}
         canClose={!downloadRunning}
       />

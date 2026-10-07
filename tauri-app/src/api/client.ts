@@ -290,11 +290,16 @@ export class BackendClient {
     payload: Record<string, unknown>,
     onEvent: (event: string, data: Record<string, unknown>) => void,
     onError: (error: string) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (signal?.aborted) {
+      return;
+    }
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: await this.requestHeaders({'Content-Type': 'application/json'}),
       body: JSON.stringify(payload),
+      signal: signal ?? null,
     });
     if (!response.ok) {
       onError(`HTTP ${response.status}`);
@@ -337,6 +342,13 @@ export class BackendClient {
         if (isComplete) break;
       }
     } catch (err) {
+      // User-initiated abort: the caller already handles UI state, stay silent.
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      if (signal?.aborted) {
+        return;
+      }
       onError((err as Error).message || 'Stream error');
     } finally {
       try {
@@ -352,8 +364,17 @@ export class BackendClient {
     payload: Record<string, unknown>,
     onEvent: (event: string, data: Record<string, unknown>) => void,
     onError: (error: string) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
-    return this.startPipelineStream('/remote/jobs/download/stream', payload, onEvent, onError);
+    return this.startPipelineStream('/remote/jobs/download/stream', payload, onEvent, onError, signal);
+  }
+
+  async cancelRemoteDownload(payload: Record<string, unknown>): Promise<void> {
+    try {
+      await this.post('/remote/jobs/download/cancel', payload, 10_000);
+    } catch {
+      // Best effort: the SSE abort alone already unblocks the UI.
+    }
   }
 
   async getAtlasStatus(): Promise<AtlasStatusResponse> {
@@ -374,8 +395,9 @@ export class BackendClient {
     packId: string,
     onEvent: (event: string, data: Record<string, unknown>) => void,
     onError: (error: string) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
-    return this.startPipelineStream('/atlases/download/stream', {pack_id: packId}, onEvent, onError);
+    return this.startPipelineStream('/atlases/download/stream', {pack_id: packId}, onEvent, onError, signal);
   }
 
   async get(path: string): Promise<unknown> {

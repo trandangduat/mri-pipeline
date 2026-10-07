@@ -1,6 +1,6 @@
 import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {expect, test, vi} from 'vitest';
+import {expect, test} from 'vitest';
 import {DownloadOutputsDialog} from '../src/components/DownloadOutputsDialog';
 
 const baseProps = {
@@ -9,48 +9,86 @@ const baseProps = {
   localDir: '',
   phase: 'select' as const,
   steps: [],
-  logs: [],
-  onBrowse: vi.fn(),
-  onStart: vi.fn(),
-  onClose: vi.fn(),
+  onBrowse: () => {},
+  onStart: () => {},
+  onResume: () => {},
+  onClose: () => {},
 };
+
+function runningProps(overrides: Record<string, unknown> = {}) {
+  return {
+    ...baseProps,
+    phase: 'running' as const,
+    steps: [
+      {id: 'connect', label: 'Connecting to server', status: 'done' as const},
+      {id: 'count', label: 'Counting remote files', status: 'done' as const},
+      {
+        id: 'copy',
+        label: 'Copying outputs',
+        status: 'running' as const,
+        detail: 'Downloading file: warp.to.mni152.1.0mm.inv.nii.gz → C:/Users/A/outputs/warp.to.mni152.1.0mm.inv.nii.gz',
+      },
+    ],
+    copiedFiles: 3,
+    totalFiles: 5,
+    ...overrides,
+  };
+}
 
 test('select phase renders destination input and Start button disabled without path', () => {
   render(<DownloadOutputsDialog {...baseProps} />);
   expect(screen.getByText('Download Server Outputs')).toBeTruthy();
-  expect(screen.getByText('Save outputs to')).toBeTruthy();
-  const input = screen.getByPlaceholderText('Select a destination folder with Browse...');
+  expect(screen.getByText('Destination')).toBeTruthy();
+  const input = screen.getByPlaceholderText('Choose a folder…');
   expect(input).toBeTruthy();
   expect(input).toHaveAttribute('readonly');
   expect(screen.getByText('Start Download')).toBeDisabled();
 });
 
-test('select phase enables Start button when localDir is set', () => {
-  render(<DownloadOutputsDialog {...baseProps} localDir="/tmp/outputs" />);
+test('select phase enables Start button when localDir is set and shows the full path in one box', () => {
+  render(<DownloadOutputsDialog {...baseProps} localDir="C:\base" />);
   expect(screen.getByText('Start Download')).not.toBeDisabled();
+  expect(screen.getByDisplayValue('C:\\base\\remote_job_123')).toBeTruthy();
 });
 
-test('running phase renders progress counts and disables close/start', () => {
-  render(
-    <DownloadOutputsDialog
-      {...baseProps}
-      phase="running"
-      steps={[
-        {id: 'connect', label: 'Connecting to server', status: 'done'},
-        {id: 'count', label: 'Counting remote files', status: 'done', detail: 'Found 5 file(s)'},
-        {id: 'copy', label: 'Copying outputs', status: 'running'},
-      ]}
-      copiedFiles={3}
-      totalFiles={5}
-    />,
-  );
-  expect(screen.getByText('Downloading Outputs...')).toBeTruthy();
-  expect(screen.getByText('3 of 5 files')).toBeTruthy();
+test('select phase shows no status badge', () => {
+  render(<DownloadOutputsDialog {...baseProps} localDir="C:\base" />);
+  expect(screen.queryByText('Ready')).toBeNull();
+  expect(screen.queryByText('Downloading')).toBeNull();
+  expect(screen.queryByText('Done')).toBeNull();
+});
+
+test('running phase renders hero percent, counts, speed and ETA', () => {
+  render(<DownloadOutputsDialog {...runningProps({speedFilesPerSec: 2.5, etaSeconds: 65})} />);
+  expect(screen.getByText('Downloading Outputs')).toBeTruthy();
+  expect(screen.queryByText('Downloading')).toBeNull();
   expect(screen.getByText('60%')).toBeTruthy();
-  expect(screen.getByText('Connecting to server')).toBeTruthy();
+  expect(screen.getByText('3 of 5 files')).toBeTruthy();
+  expect(screen.getByText('2.5 files/s')).toBeTruthy();
+  expect(screen.getByText('ETA 1m 05s')).toBeTruthy();
+  expect(screen.queryByText('Copying outputs…')).toBeNull();
+  expect(screen.getByText('warp.to.mni152.1.0mm.inv.nii.gz')).toBeTruthy();
+  expect(screen.getByText('C:/Users/A/outputs/warp.to.mni152.1.0mm.inv.nii.gz')).toBeTruthy();
 });
 
-test('success phase renders final path and file count', () => {
+test('running phase hides speed and ETA without enough samples', () => {
+  render(<DownloadOutputsDialog {...runningProps()} />);
+  expect(screen.queryByText(/files\/s/)).toBeNull();
+  expect(screen.queryByText(/ETA/)).toBeNull();
+});
+
+test('running phase uses text-sm or larger, never text-2xs', () => {
+  const {container} = render(<DownloadOutputsDialog {...runningProps({speedFilesPerSec: 1})} />);
+  expect(container.querySelector('.text-2xs')).toBeNull();
+});
+
+test('success phase renders file count and Copy Path', async () => {
+  const onClose = () => {};
+  let clipboard = '';
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {writeText: (t: string) => { clipboard = t; return Promise.resolve(); }},
+    configurable: true,
+  });
   render(
     <DownloadOutputsDialog
       {...baseProps}
@@ -58,59 +96,83 @@ test('success phase renders final path and file count', () => {
       copiedFiles={5}
       totalFiles={5}
       finalPath="/tmp/outputs/remote_job_123"
+      onClose={onClose}
     />,
   );
   expect(screen.getByText('Download Complete')).toBeTruthy();
-  expect(screen.getByText('Downloaded 5 files successfully')).toBeTruthy();
+  expect(screen.getByText('Downloaded 5 files')).toBeTruthy();
   expect(screen.getByText('/tmp/outputs/remote_job_123')).toBeTruthy();
-  expect(screen.getByText('Close')).toBeTruthy();
+  await userEvent.click(screen.getByText('Copy Path'));
+  expect(clipboard).toBe('/tmp/outputs/remote_job_123');
+  expect(screen.getByText('Copied')).toBeTruthy();
 });
 
-test('failed phase renders error message', () => {
+test('failed phase renders error message and Retry', () => {
+  let resumed = 0;
   render(
     <DownloadOutputsDialog
       {...baseProps}
       phase="failed"
       errorMessage="SSH connection failed"
+      onResume={() => { resumed += 1; }}
     />,
   );
   expect(screen.getByText('Download Failed')).toBeTruthy();
-  expect(screen.getByText('Download failed')).toBeTruthy();
   expect(screen.getByText('SSH connection failed')).toBeTruthy();
-  expect(screen.getByText('Close')).toBeTruthy();
+  return userEvent.click(screen.getByText('Retry')).then(() => {
+    expect(resumed).toBe(1);
+  });
+});
+
+test('cancelled failure renders Stopped state with Resume Download', async () => {
+  let resumed = 0;
+  render(
+    <DownloadOutputsDialog
+      {...baseProps}
+      phase="failed"
+      cancelled
+      errorMessage="Download stopped. Resume to continue where it stopped."
+      onResume={() => { resumed += 1; }}
+    />,
+  );
+  expect(screen.getByText('Download Stopped')).toBeTruthy();
+  await userEvent.click(screen.getByText('Resume Download'));
+  expect(resumed).toBe(1);
 });
 
 test('calls onStart when Start Download is clicked', async () => {
-  const onStart = vi.fn();
-  render(<DownloadOutputsDialog {...baseProps} localDir="/tmp/outputs" onStart={onStart} />);
+  let started = 0;
+  render(<DownloadOutputsDialog {...baseProps} localDir="/tmp/outputs" onStart={() => { started += 1; }} />);
   await userEvent.click(screen.getByText('Start Download'));
-  expect(onStart).toHaveBeenCalledOnce();
+  expect(started).toBe(1);
 });
 
 test('calls onClose when Cancel is clicked', async () => {
-  const onClose = vi.fn();
-  render(<DownloadOutputsDialog {...baseProps} onClose={onClose} />);
+  let closed = 0;
+  render(<DownloadOutputsDialog {...baseProps} onClose={() => { closed += 1; }} />);
   await userEvent.click(screen.getByText('Cancel'));
-  expect(onClose).toHaveBeenCalledOnce();
+  expect(closed).toBe(1);
+});
+
+test('running phase with onStop renders Stop Download and calls it', async () => {
+  let stopped = 0;
+  let closed = 0;
+  render(
+    <DownloadOutputsDialog
+      {...runningProps({onClose: () => { closed += 1; }, onStop: () => { stopped += 1; }, canClose: false})}
+    />,
+  );
+  await userEvent.click(screen.getByText('Stop Download'));
+  expect(stopped).toBe(1);
+  expect(closed).toBe(0);
+});
+
+test('running phase without onStop renders no Stop button', () => {
+  render(<DownloadOutputsDialog {...runningProps()} />);
+  expect(screen.queryByText('Stop Download')).toBeNull();
 });
 
 test('does not render when open is false', () => {
   render(<DownloadOutputsDialog {...baseProps} open={false} />);
   expect(screen.queryByText('Download Server Outputs')).toBeNull();
-});
-
-test('running phase renders logs with break-all and whitespace-pre-wrap classes', () => {
-  const longPath = 'Copying /very/long/nested/directory/structure/that/could/overflow/the/container/if/not/wrapped/output.nii.gz';
-  render(
-    <DownloadOutputsDialog
-      {...baseProps}
-      phase="running"
-      steps={[{id: 'copy', label: 'Copying outputs', status: 'running'}]}
-      logs={[longPath]}
-    />,
-  );
-  const logElement = screen.getByText(longPath);
-  expect(logElement).toBeTruthy();
-  expect(logElement.className).toContain('break-all');
-  expect(logElement.className).toContain('whitespace-pre-wrap');
 });
