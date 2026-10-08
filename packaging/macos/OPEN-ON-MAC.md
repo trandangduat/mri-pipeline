@@ -28,7 +28,7 @@ xattr -cr ~/Desktop/NeuroFlow.app
 
 ```bash
 cd ~/Downloads   # hoặc thư mục bạn giải nén artifact
-tar -xzf NeuroFlow-macOS-arm64-*.app.tar.gz
+tar -xzf NeuroFlow-macOS-*.app.tar.gz
 xattr -cr ./NeuroFlow.app
 open ./NeuroFlow.app
 ```
@@ -61,7 +61,7 @@ xattr -cr ~/Desktop/NeuroFlow.app
 
 ```bash
 cd ~/Downloads
-tar -xzf NeuroFlow-macOS-arm64-*.app.tar.gz
+tar -xzf NeuroFlow-macOS-*.app.tar.gz
 xattr -cr ./NeuroFlow.app
 open ./NeuroFlow.app
 ```
@@ -89,8 +89,8 @@ This is expected for the **unsigned GHA test DMG**. Do not Trash the app solely 
 
 ## Artifact contents (this zip)
 
-- `NeuroFlow-macOS-arm64-<sha>.dmg` — disk image (drag `.app` out, then `xattr -cr`)
-- `NeuroFlow-macOS-arm64-<sha>.app.tar.gz` — same `.app` archived (if present)
+- `NeuroFlow-macOS-{x64,arm64}-<sha>.dmg` — disk image (drag `.app` out, then `xattr -cr`)
+- `NeuroFlow-macOS-{x64,arm64}-<sha>.app.tar.gz` — same `.app` archived (if present)
 - `*.sha256` — checksums
 - `OPEN-ON-MAC.md` — this file
 

@@ -13,9 +13,20 @@ permissions:
 
 jobs:
   package-macos:
-    name: Build unsigned macOS Apple Silicon package
-    runs-on: macos-14
+    name: Build unsigned macOS ${{ matrix.label }} package
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Intel
+            os: macos-15-intel
+            arch: x64
+          - label: Apple Silicon
+            os: macos-14
+            arch: arm64
 
     steps:
       - name: Checkout
@@ -68,11 +79,11 @@ jobs:
             exit 1
           fi
 
-          dmg_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.dmg"
+          dmg_out="dist-release/NeuroFlow-macOS-${{ matrix.arch }}-${{ github.sha }}.dmg"
           cp "$dmg_file" "$dmg_out"
           shasum -a 256 "$dmg_out" > "$dmg_out.sha256"
 
-          app_out="dist-release/NeuroFlow-macOS-arm64-${{ github.sha }}.app.tar.gz"
+          app_out="dist-release/NeuroFlow-macOS-${{ matrix.arch }}-${{ github.sha }}.app.tar.gz"
           tar -C "$(dirname "$app_path")" -czf "$app_out" "$(basename "$app_path")"
           shasum -a 256 "$app_out" > "$app_out.sha256"
 
@@ -83,7 +94,7 @@ jobs:
       - name: Job summary (unsigned internal test)
         run: |
           {
-            echo "## macOS package (unsigned internal test)"
+            echo "## macOS ${{ matrix.label }} package (unsigned internal test)"
             echo ""
             echo "This workflow intentionally produces an **unsigned** macOS build"
             echo "(optional ad-hoc \`codesign -s -\` only — **not** Developer ID / notarized)."
@@ -93,7 +104,7 @@ jobs:
             echo "(quarantine + unsigned). That is expected — see \`OPEN-ON-MAC.md\` in the"
             echo "artifact (\`xattr -cr\` on the .app after copying out of the DMG)."
             echo ""
-            echo "- Runner: \`macos-14\` (Apple Silicon / arm64)"
+            echo "- Runner: \`${{ matrix.os }}\` (${{ matrix.label }} / ${{ matrix.arch }})"
             echo "- Build scripts: \`packaging/macos/build-backend.sh\` + \`packaging/macos/build-app.sh\`"
             echo "- Bundle: Tauri \`--bundles app\` + ad-hoc codesign + \`hdiutil\` DMG"
             echo "  (Tauri's own DMG step would delete \`NeuroFlow.app\`)"
@@ -106,7 +117,7 @@ jobs:
       - name: Upload unsigned macOS test artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: NeuroFlow-macOS-arm64-unsigned-test-${{ github.sha }}
+          name: NeuroFlow-macOS-${{ matrix.arch }}-unsigned-test-${{ github.sha }}
           path: dist-release/
           if-no-files-found: error
           retention-days: 14
