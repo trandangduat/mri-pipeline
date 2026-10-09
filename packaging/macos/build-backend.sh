@@ -57,11 +57,45 @@ if [[ -n "$OPENSSL_PREFIX" && -f "$OPENSSL_PREFIX/lib/libssl.3.dylib" ]]; then
   cp -fL "$OPENSSL_PREFIX/lib/libcrypto.3.dylib" "$INTERNAL_ROOT/libcrypto.3.dylib"
   chmod 755 "$INTERNAL_ROOT/libssl.3.dylib" "$INTERNAL_ROOT/libcrypto.3.dylib"
 
-  # Ensure libssl.3.dylib and libcrypto.3.dylib use @rpath for portability on Macs without Homebrew
+  # Ensure libssl.3.dylib and libcrypto.3.dylib use @rpath and search @loader_path
   install_name_tool -id "@rpath/libssl.3.dylib" "$INTERNAL_ROOT/libssl.3.dylib" 2>/dev/null || true
   install_name_tool -id "@rpath/libcrypto.3.dylib" "$INTERNAL_ROOT/libcrypto.3.dylib" 2>/dev/null || true
-  install_name_tool -change "$OPENSSL_PREFIX/lib/libcrypto.3.dylib" "@rpath/libcrypto.3.dylib" "$INTERNAL_ROOT/libssl.3.dylib" 2>/dev/null || true
+  install_name_tool -add_rpath "@loader_path" "$INTERNAL_ROOT/libssl.3.dylib" 2>/dev/null || true
+  install_name_tool -add_rpath "@loader_path" "$INTERNAL_ROOT/libcrypto.3.dylib" 2>/dev/null || true
 fi
+
+# Dynamically rewrite any OpenSSL library references across all bundled Mach-O binaries in _internal
+echo "Rewriting Mach-O dependency paths to be fully relocatable (@rpath)..."
+while IFS= read -r binary_file; do
+  otool -L "$binary_file" 2>/dev/null | awk '{print $1}' | while IFS= read -r dep; do
+    case "$dep" in
+      *libcrypto.3.dylib)
+        if [[ "$dep" != "@rpath/libcrypto.3.dylib" && "$dep" != "$binary_file" ]]; then
+          echo "Rewriting in $(basename "$binary_file"): $dep -> @rpath/libcrypto.3.dylib"
+          install_name_tool -change "$dep" "@rpath/libcrypto.3.dylib" "$binary_file" 2>/dev/null || true
+        fi
+        ;;
+      *libssl.3.dylib)
+        if [[ "$dep" != "@rpath/libssl.3.dylib" && "$dep" != "$binary_file" ]]; then
+          echo "Rewriting in $(basename "$binary_file"): $dep -> @rpath/libssl.3.dylib"
+          install_name_tool -change "$dep" "@rpath/libssl.3.dylib" "$binary_file" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  done
+done < <(find "$INTERNAL_ROOT" \( -name "*.dylib" -o -name "*.so" \))
+
+echo "Verifying no leaked Homebrew/Cellar references in _internal..."
+LEAKED_REFS=$(find "$INTERNAL_ROOT" \( -name "*.dylib" -o -name "*.so" \) -exec otool -L {} + 2>/dev/null | grep -E "(/Cellar/|/opt/homebrew|/usr/local/opt)" || true)
+if [[ -n "$LEAKED_REFS" ]]; then
+  echo "ERROR: Found leaked Homebrew references:" >&2
+  echo "$LEAKED_REFS" >&2
+  exit 1
+fi
+echo "Verified: Zero leaked Homebrew/Cellar paths in bundled binaries."
+
+# Re-sign modified binaries with ad-hoc signatures
+find "$INTERNAL_ROOT" \( -name "*.dylib" -o -name "*.so" \) -exec codesign --force --sign - {} + 2>/dev/null || true
 
 if [[ -f "$INTERNAL_ROOT/libssl.3.dylib" ]]; then
   if xcrun dyldinfo -exports "$INTERNAL_ROOT/libssl.3.dylib" 2>/dev/null | grep -q "SSL_get0_group_name"; then
