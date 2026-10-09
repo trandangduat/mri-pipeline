@@ -53,6 +53,10 @@ jobs:
           python3 -m venv .venv
           ./.venv/bin/python -m pip install --upgrade pip
 
+      - name: Ensure Homebrew OpenSSL 3
+        run: |
+          brew install openssl@3 || brew upgrade openssl@3 || true
+
       - name: Build macOS package
         env:
           CI: true

@@ -12,11 +12,20 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from packaging_resources import collect_core_info_datas, collect_python_source_datas
 
+extra_metadata = []
+for pkg in ["paramiko", "cryptography", "bcrypt", "pynacl", "invoke"]:
+    try:
+        from PyInstaller.utils.hooks import copy_metadata
+        extra_metadata.extend(copy_metadata(pkg))
+    except Exception:
+        pass
+
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "app_backend", "neuroflow_backend_cli.py")],
     pathex=[PROJECT_ROOT],
     binaries=[],
     datas=[
+        *extra_metadata,
         *collect_python_source_datas(Path(PROJECT_ROOT) / "pipeline", "pipeline"),
         (os.path.join(PROJECT_ROOT, "configs", "neuroflow"), "configs/neuroflow"),
         *collect_core_info_datas(Path(PROJECT_ROOT)),
@@ -67,6 +76,11 @@ a = Analysis(
         "paramiko.transport",
         "paramiko.ssh_gss",
         "cryptography",
+        "cryptography.hazmat.bindings._rust",
+        "bcrypt",
+        "nacl",
+        "nacl.bindings",
+        "invoke",
     ],
     hookspath=[],
     hooksconfig={},

@@ -224,7 +224,7 @@ fn backend_capabilities(api_token: &str) -> Result<(), (Vec<String>, String)> {
     if capabilities.get("ok").and_then(|value| value.as_bool()) == Some(true) {
         return Ok(());
     }
-    let missing = capabilities
+    let missing: Vec<String> = capabilities
         .get("components")
         .and_then(|value| value.as_array())
         .map(|components| {
@@ -238,10 +238,27 @@ fn backend_capabilities(api_token: &str) -> Result<(), (Vec<String>, String)> {
                 .collect()
         })
         .unwrap_or_default();
-    Err((
-        missing,
-        "Required application backend components are unavailable.".to_string(),
-    ))
+    let reasons: Vec<String> = capabilities
+        .get("components")
+        .and_then(|value| value.as_array())
+        .map(|components| {
+            components
+                .iter()
+                .filter(|component| {
+                    component.get("ok").and_then(|value| value.as_bool()) != Some(true)
+                })
+                .filter_map(|component| component.get("reason").and_then(|value| value.as_str()))
+                .filter(|reason| !reason.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let detail = if reasons.is_empty() {
+        "Required application backend components are unavailable.".to_string()
+    } else {
+        reasons.join("\n")
+    };
+    Err((missing, detail))
 }
 
 fn backend_json(path: &str) -> Result<serde_json::Value, String> {

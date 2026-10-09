@@ -35,6 +35,38 @@ fi
 echo "Build succeeded: $OUTPUT_EXE"
 
 INTERNAL_ROOT="$PROJECT_ROOT/dist/neuroflow-backend/_internal"
+
+# Modern cryptography (>=42) requires OpenSSL >=3.2 (specifically _SSL_get0_group_name).
+# On macOS runners, Python toolcache bundles OpenSSL 3.0.0 without this symbol.
+# Ensure Homebrew OpenSSL 3 (3.2+) dylibs are copied into _internal so cryptography works everywhere.
+OPENSSL_PREFIX=""
+if command -v brew >/dev/null 2>&1; then
+  OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || true)"
+fi
+if [[ -z "$OPENSSL_PREFIX" || ! -f "$OPENSSL_PREFIX/lib/libssl.3.dylib" ]]; then
+  if [[ -f "/usr/local/opt/openssl@3/lib/libssl.3.dylib" ]]; then
+    OPENSSL_PREFIX="/usr/local/opt/openssl@3"
+  elif [[ -f "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib" ]]; then
+    OPENSSL_PREFIX="/opt/homebrew/opt/openssl@3"
+  fi
+fi
+
+if [[ -n "$OPENSSL_PREFIX" && -f "$OPENSSL_PREFIX/lib/libssl.3.dylib" ]]; then
+  echo "Syncing OpenSSL 3 dylibs from $OPENSSL_PREFIX to $INTERNAL_ROOT..."
+  cp -f "$OPENSSL_PREFIX/lib/libssl.3.dylib" "$INTERNAL_ROOT/libssl.3.dylib"
+  cp -f "$OPENSSL_PREFIX/lib/libcrypto.3.dylib" "$INTERNAL_ROOT/libcrypto.3.dylib"
+  chmod 755 "$INTERNAL_ROOT/libssl.3.dylib" "$INTERNAL_ROOT/libcrypto.3.dylib"
+fi
+
+if [[ -f "$INTERNAL_ROOT/libssl.3.dylib" ]]; then
+  if strings "$INTERNAL_ROOT/libssl.3.dylib" | grep -q "SSL_get0_group_name"; then
+    echo "Verified: $INTERNAL_ROOT/libssl.3.dylib exports SSL_get0_group_name."
+  else
+    echo "ERROR: $INTERNAL_ROOT/libssl.3.dylib does NOT export SSL_get0_group_name!" >&2
+    exit 1
+  fi
+fi
+
 for required_resource in \
   "$INTERNAL_ROOT/normalize_volumes.py" \
   "$INTERNAL_ROOT/pipeline/job_worker.py" \
@@ -45,6 +77,9 @@ for required_resource in \
     exit 1
   fi
 done
+
+echo "Running standalone diagnostic check on bundled backend..."
+"$OUTPUT_EXE" check
 
 SMOKE_PORT=18765
 SMOKE_TOKEN="$($PYTHON -c 'import secrets; print(secrets.token_urlsafe(32))')"

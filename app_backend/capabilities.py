@@ -18,13 +18,15 @@ def runtime_capabilities(import_module: Callable[[str], Any] = importlib.import_
     for module, label in REQUIRED_DEPENDENCIES:
         try:
             import_module(module)
-        except Exception:
+        except Exception as exc:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             components.append(
                 {
                     "id": module,
                     "label": label,
                     "ok": False,
-                    "reason": f"{label} is unavailable in the application backend.",
+                    "reason": f"{label} is unavailable: {type(exc).__name__}: {exc}",
                 }
             )
         else:
