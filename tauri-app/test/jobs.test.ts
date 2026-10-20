@@ -12,6 +12,7 @@ import {
   deriveBatchSummary,
   deriveImageSteps,
   deriveMetricsSeries,
+  appendModalMetricsEvents,
   isEventForImage,
   deriveSubjectLabel,
   sanitizeTerminalLog,
@@ -461,6 +462,151 @@ test('deriveSubjectStageInfo shows first step as queued when subject status is p
   const info = deriveSubjectStageInfo(image, steps);
   expect(info.label).toBe('Reorientation, resize');
   expect(info.status).toBe('pending');
+});
+
+test('appendModalMetricsEvents preserves early stage peaks and subject telemetry peak when bounding >1200 metric events', () => {
+  const image = {
+    input_file: '/home/catcd1/neuroflow_experiments/B2_b6_batch1/I223766/001.mgz',
+    subject_id: 'I223766',
+    idx: 1,
+    total: 4,
+    status: 'success' as const,
+  };
+  const stageOrder = ['reorientation', 'segmentation', 'surface_reconstruction', 'surface_registration'];
+  const selectedTools = {
+    reorientation: 'fs8_reorientation',
+    segmentation: 'fs8_segmentation',
+    surface_reconstruction: 'fs8_surface_reconstruction',
+    surface_registration: 'fs8_surface_registration',
+  };
+
+  const incomingMetrics = [
+    // Early stages (will be evicted from raw 1200 window)
+    {
+      kind: 'metrics',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      stage: 'reorientation',
+      tool: 'fs8_reorientation',
+      cpu_pct: 100.0,
+      ram_bytes: 36_900_000,
+      elapsed: 6.2,
+    },
+    {
+      kind: 'metrics',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      stage: 'segmentation',
+      tool: 'fs8_segmentation',
+      cpu_pct: 428.8,
+      ram_bytes: 15_451_209_728, // ~14,735 MB (~14.4 GB)
+      elapsed: 374.1,
+    },
+    {
+      kind: 'metrics',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      stage: 'surface_reconstruction',
+      tool: 'fs8_surface_reconstruction',
+      cpu_pct: 2267.3,
+      ram_bytes: 2_049_802_240,
+      elapsed: 120.0,
+    },
+    // 1,300 tail samples in surface_registration with lower CPU and RAM
+    ...Array.from({length: 1300}, (_, idx) => ({
+      kind: 'metrics',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      stage: 'surface_registration',
+      tool: 'fs8_surface_registration',
+      cpu_pct: 350.0,
+      ram_bytes: 316_669_952, // ~302 MB
+      elapsed: idx + 1,
+    })),
+  ];
+
+  const boundedMetrics = appendModalMetricsEvents([], incomingMetrics, 1200);
+  const modalEvents = [
+    {kind: 'image_start', input_file: image.input_file, idx: 1, total: 4},
+    {
+      kind: 'image_done',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      success: true,
+      log_text:
+        '[reorientation] fs8_reorientation - SUCCESS (6.2s)\n' +
+        '[segmentation] fs8_segmentation - SUCCESS (374.1s)\n' +
+        '[surface_reconstruction] fs8_surface_reconstruction - SUCCESS (1338.8s)\n' +
+        '[surface_registration] fs8_surface_registration - SUCCESS (1428.8s)',
+    },
+    ...boundedMetrics,
+  ];
+
+  const steps = deriveImageSteps(modalEvents, image, selectedTools, stageOrder, {});
+  expect(steps[0].cpu_pct).toBe(100.0);
+  expect(steps[0].ram_bytes).toBe(36_900_000);
+  expect(steps[1].cpu_pct).toBe(428.8);
+  expect(steps[1].ram_bytes).toBe(15_451_209_728);
+  expect(steps[2].cpu_pct).toBe(2267.3);
+  expect(steps[2].ram_bytes).toBe(2_049_802_240);
+  expect(steps[3].cpu_pct).toBe(350.0);
+
+  const series = deriveMetricsSeries(modalEvents, image);
+  expect(series.cpuSeries).toHaveLength(180);
+  expect(series.ramSeries).toHaveLength(180);
+  expect(series.peakCpu).toBe(2267.3);
+  expect(series.peakRam).toBe(Math.round(15_451_209_728 / (1024 * 1024)));
+});
+
+test('deriveImageSteps and deriveMetricsSeries read structured step peaks from image_done events', () => {
+  const image = {
+    input_file: '/data/sub-01/001.mgz',
+    subject_id: 'sub-01',
+    idx: 1,
+    total: 1,
+    status: 'success' as const,
+  };
+  const stageOrder = ['reorientation', 'segmentation'];
+  const selectedTools = {reorientation: 'fs8_reorient', segmentation: 'fs8_seg'};
+  const events = [
+    {kind: 'image_start', input_file: image.input_file, idx: 1, total: 1},
+    {
+      kind: 'image_done',
+      input_file: image.input_file,
+      subject_id: image.subject_id,
+      success: true,
+      steps: [
+        {
+          stage: 'reorientation',
+          tool: 'fs8_reorient',
+          status: 'success',
+          duration_sec: 5.4,
+          peak_cpu_pct: 99.8,
+          peak_ram_bytes: 38_000_000,
+        },
+        {
+          stage: 'segmentation',
+          tool: 'fs8_seg',
+          status: 'success',
+          duration_sec: 320.5,
+          peak_cpu_pct: 412.6,
+          peak_ram_bytes: 16_106_127_360,
+        },
+      ],
+    },
+  ];
+
+  const steps = deriveImageSteps(events, image, selectedTools, stageOrder, {});
+  expect(steps[0].cpu_pct).toBe(99.8);
+  expect(steps[0].ram_bytes).toBe(38_000_000);
+  expect(steps[0].elapsed_sec).toBe(5.4);
+  expect(steps[1].cpu_pct).toBe(412.6);
+  expect(steps[1].ram_bytes).toBe(16_106_127_360);
+  expect(steps[1].elapsed_sec).toBe(320.5);
+
+  const series = deriveMetricsSeries(events, image);
+  expect(series.peakCpu).toBe(412.6);
+  expect(series.peakRam).toBe(15360);
 });
 
 

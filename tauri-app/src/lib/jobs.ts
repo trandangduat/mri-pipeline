@@ -59,6 +59,9 @@ export interface MetricsSeries {
   ramSeries: number[];
   gpuSeries: number[];
   latestContainer: string;
+  peakCpu?: number;
+  peakRam?: number;
+  peakGpu?: number;
 }
 
 export function deriveSubjectLabel(
@@ -679,7 +682,7 @@ export function deriveImageSteps(
           if (typeof event.cpu_pct === 'number') step.cpu_pct = Math.max(step.cpu_pct || 0, event.cpu_pct);
           if (typeof event.ram_bytes === 'number') step.ram_bytes = Math.max(step.ram_bytes || 0, event.ram_bytes);
           if (typeof event.gpu_pct === 'number') step.gpu_pct = Math.max(step.gpu_pct || 0, event.gpu_pct);
-          if (typeof event.elapsed === 'number') step.elapsed_sec = event.elapsed;
+          if (typeof event.elapsed === 'number') step.elapsed_sec = Math.max(step.elapsed_sec || 0, event.elapsed);
           if (event.container_name) step.container_name = String(event.container_name);
           if (step.status === 'pending' || step.status === 'not_scheduled') {
             markPriorActiveStagesSuccess(step.stage);
@@ -726,6 +729,45 @@ export function deriveImageSteps(
             }
           }
         }
+        if (Array.isArray(event.steps)) {
+          for (const rawStep of event.steps) {
+            if (!rawStep || typeof rawStep !== 'object') continue;
+            const s = rawStep as Record<string, unknown>;
+            const stg = String(s.stage || '').toLowerCase();
+            if (!stg) continue;
+            let step = stepMap.get(stg);
+            if (!step) {
+              for (const [stageKey, keywords] of Object.entries(STAGE_KEYWORD_MAP)) {
+                if (keywords.some((kw) => stg.includes(kw))) {
+                  step = stepMap.get(stageKey);
+                  if (step) break;
+                }
+              }
+            }
+            if (step) {
+              const toolName = String(s.tool || '').trim();
+              if (toolName) step.tool = toolName;
+              if (isUnscheduledStep(step) && !toolName) continue;
+              if (typeof s.duration_sec === 'number' && Number.isFinite(s.duration_sec)) {
+                step.elapsed_sec = Math.max(step.elapsed_sec || 0, s.duration_sec);
+              }
+              if (typeof s.peak_cpu_pct === 'number' && Number.isFinite(s.peak_cpu_pct) && s.peak_cpu_pct > 0) {
+                step.cpu_pct = Math.max(step.cpu_pct || 0, s.peak_cpu_pct);
+              }
+              if (typeof s.peak_ram_bytes === 'number' && Number.isFinite(s.peak_ram_bytes) && s.peak_ram_bytes > 0) {
+                step.ram_bytes = Math.max(step.ram_bytes || 0, s.peak_ram_bytes);
+              }
+              const res = String(s.status || '').toUpperCase();
+              if (res === 'OK' || res === 'SUCCESS') {
+                step.status = 'success';
+              } else if (res === 'STOPPED') {
+                step.status = 'stopped';
+              } else if (res === 'FAIL' || res === 'FAILED' || res === 'ERROR') {
+                step.status = 'failed';
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -754,10 +796,81 @@ export function deriveImageSteps(
   return Array.from(stepMap.values());
 }
 
+export function appendModalMetricsEvents(
+  current: readonly PipelineEvent[],
+  incoming: readonly PipelineEvent[],
+  limit: number,
+): PipelineEvent[] {
+  if (limit <= 0) return [];
+  const combined = [...current, ...incoming];
+  if (combined.length <= limit) return combined;
+
+  const compactedMap = new Map<string, PipelineEvent>();
+  const rawEvents: PipelineEvent[] = [];
+
+  const foldIntoCompacted = (ev: PipelineEvent) => {
+    const stageKey = String(ev.stage || ev.step || '').toLowerCase();
+    const key = `${String(ev.input_file || '')}::${String(ev.subject_id || '')}::${stageKey}`;
+    const prev = compactedMap.get(key);
+    const cpu = typeof ev.cpu_pct === 'number' && Number.isFinite(ev.cpu_pct) ? ev.cpu_pct : 0;
+    const ram = typeof ev.ram_bytes === 'number' && Number.isFinite(ev.ram_bytes) ? ev.ram_bytes : 0;
+    const gpu = typeof ev.gpu_pct === 'number' && Number.isFinite(ev.gpu_pct) ? ev.gpu_pct : 0;
+    const elapsed = typeof ev.elapsed === 'number' && Number.isFinite(ev.elapsed) ? ev.elapsed : undefined;
+
+    if (!prev) {
+      const summary: PipelineEvent = {
+        ...ev,
+        kind: 'metrics',
+        cpu_pct: cpu,
+        ram_bytes: ram,
+        gpu_pct: gpu,
+        compacted: true,
+      };
+      if (elapsed !== undefined) summary.elapsed = elapsed;
+      compactedMap.set(key, summary);
+      return;
+    }
+
+    prev.cpu_pct = Math.max(typeof prev.cpu_pct === 'number' ? prev.cpu_pct : 0, cpu);
+    prev.ram_bytes = Math.max(typeof prev.ram_bytes === 'number' ? prev.ram_bytes : 0, ram);
+    prev.gpu_pct = Math.max(typeof prev.gpu_pct === 'number' ? prev.gpu_pct : 0, gpu);
+    if (elapsed !== undefined) {
+      prev.elapsed = Math.max(typeof prev.elapsed === 'number' ? prev.elapsed : 0, elapsed);
+    }
+    if (ev.tool) prev.tool = ev.tool;
+    if (ev.container_name) prev.container_name = ev.container_name;
+    if (ev.subject_id) prev.subject_id = ev.subject_id;
+    if (ev.input_file) prev.input_file = ev.input_file;
+  };
+
+  for (const ev of combined) {
+    if (ev.compacted) {
+      foldIntoCompacted(ev);
+    } else {
+      rawEvents.push(ev);
+    }
+  }
+
+  if (rawEvents.length <= limit) {
+    return [...compactedMap.values(), ...rawEvents];
+  }
+
+  const evictedCount = rawEvents.length - limit;
+  for (let i = 0; i < evictedCount; i += 1) {
+    const ev = rawEvents[i];
+    if (ev) foldIntoCompacted(ev);
+  }
+
+  return [...compactedMap.values(), ...rawEvents.slice(evictedCount)];
+}
+
 export function deriveMetricsSeries(events: PipelineEvent[] = [], image: BatchImageItem | null = null): MetricsSeries {
   const cpuSeries: number[] = [];
   const ramSeries: number[] = [];
   const gpuSeries: number[] = [];
+  let peakCpu = 0;
+  let peakRam = 0;
+  let peakGpu = 0;
   let latestContainer = 'None';
   let currentActiveFile: string | null = null;
 
@@ -777,15 +890,37 @@ export function deriveMetricsSeries(events: PipelineEvent[] = [], image: BatchIm
         const cpu = typeof event.cpu_pct === 'number' ? event.cpu_pct : 0;
         const ram = typeof event.ram_bytes === 'number' ? Math.round(event.ram_bytes / (1024 * 1024)) : 0;
         const gpu = typeof event.gpu_pct === 'number' ? event.gpu_pct : 0;
-        cpuSeries.push(cpu);
-        ramSeries.push(ram);
-        gpuSeries.push(gpu);
+        peakCpu = Math.max(peakCpu, cpu);
+        peakRam = Math.max(peakRam, ram);
+        peakGpu = Math.max(peakGpu, gpu);
+        if (!event.compacted) {
+          cpuSeries.push(cpu);
+          ramSeries.push(ram);
+          gpuSeries.push(gpu);
+        }
         if (event.container_name) {
           latestContainer = String(event.container_name);
         }
       }
     } else if (kind === 'image_done') {
-      if (currentActiveFile === String(event.input_file || '')) {
+      const doneFile = String(event.input_file || '');
+      const match =
+        !image ||
+        doneFile === image.input_file ||
+        Boolean(event.subject_id && String(event.subject_id) === image.subject_id);
+      if (match && Array.isArray(event.steps)) {
+        for (const rawStep of event.steps) {
+          if (!rawStep || typeof rawStep !== 'object') continue;
+          const s = rawStep as Record<string, unknown>;
+          if (typeof s.peak_cpu_pct === 'number' && Number.isFinite(s.peak_cpu_pct)) {
+            peakCpu = Math.max(peakCpu, s.peak_cpu_pct);
+          }
+          if (typeof s.peak_ram_bytes === 'number' && Number.isFinite(s.peak_ram_bytes)) {
+            peakRam = Math.max(peakRam, Math.round(s.peak_ram_bytes / (1024 * 1024)));
+          }
+        }
+      }
+      if (currentActiveFile === doneFile) {
         currentActiveFile = null;
       }
     }
@@ -796,6 +931,9 @@ export function deriveMetricsSeries(events: PipelineEvent[] = [], image: BatchIm
     ramSeries: ramSeries.slice(-180),
     gpuSeries: gpuSeries.slice(-180),
     latestContainer,
+    peakCpu,
+    peakRam,
+    peakGpu,
   };
 }
 

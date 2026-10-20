@@ -40,6 +40,7 @@ import {
 import {StatusDotLarge} from '../components/ui';
 import {normalizeJob, normalizeJobState, sortJobsByStartedAtDesc, jobBasename} from '../jobFormatters';
 import {
+  appendModalMetricsEvents,
   deriveBatchImages,
   compareBatchImagesByStartTime,
   deriveBatchSummary,
@@ -68,7 +69,7 @@ import {
   useReadRemoteMetricsMutation,
 } from '../query/useRemote';
 import {useMetadata} from '../query/useEnvironment';
-import {appendBoundedEvents, useJobsStore, capLogLines} from '../stores/jobsStore';
+import {useJobsStore, capLogLines} from '../stores/jobsStore';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useRemoteStore} from '../stores/remoteStore';
 import {useUiStore} from '../stores/uiStore';
@@ -675,6 +676,7 @@ export function JobsPage() {
   const isLogExpandedRef = useRef<boolean>(false);
   const activeModalSubjectFileRef = useRef<string | null>(null);
   const [modalMetricsEvents, setModalMetricsEvents] = useState<PipelineEvent[]>([]);
+  const [isLoadingModalMetrics, setIsLoadingModalMetrics] = useState<boolean>(false);
   const [reducedBatchImages, setReducedBatchImages] = useState<BatchImageItem[]>([]);
   const modalMetricsOffsetRef = useRef<number>(0);
   const prevModalSubjectRef = useRef<string | null>(null);
@@ -692,6 +694,7 @@ export function JobsPage() {
       prevModalSubjectRef.current = activeModalSubjectFile;
       setModalMetricsEvents([]);
       modalMetricsOffsetRef.current = 0;
+      setIsLoadingModalMetrics(Boolean(activeModalSubjectFile));
     }
   }, [activeModalSubjectFile]);
 
@@ -749,6 +752,7 @@ export function JobsPage() {
     setModalMetricsEvents([]);
     setActiveModalSubjectFile(null);
     setIsLogExpanded(false);
+    setIsLoadingModalMetrics(false);
   }, []);
 
   const formValues = usePipelineFormStore((s) => s.formValues);
@@ -830,6 +834,7 @@ export function JobsPage() {
           setDetailsNotice(null);
           setActiveModalSubjectFile(null);
           setIsLoadingDetails(false);
+          setIsLoadingModalMetrics(false);
         }
         return;
       }
@@ -880,6 +885,7 @@ export function JobsPage() {
               message: 'Cannot load job details: the local backend is unreachable. Retry once it is running again.',
             });
             setIsLoadingDetails(false);
+            setIsLoadingModalMetrics(false);
           }
           return;
         }
@@ -895,6 +901,7 @@ export function JobsPage() {
                 'Cannot load server job details: the SSH connection is down. Reconnect from Pipeline Configuration, then retry.',
             });
             setIsLoadingDetails(false);
+            setIsLoadingModalMetrics(false);
           }
           return;
         }
@@ -906,6 +913,9 @@ export function JobsPage() {
         options.fetchLog || (isLogExpandedRef.current && activeModalSubjectFileRef.current),
       );
       const shouldFetchMetrics = Boolean(activeModalSubjectFileRef.current);
+      if (shouldFetchMetrics) {
+        setIsLoadingModalMetrics(true);
+      }
       const controller = new AbortController();
       detailsAbortRef.current?.abort();
       detailsAbortRef.current = controller;
@@ -971,7 +981,7 @@ export function JobsPage() {
           newLogText = logResult?.text || '';
           const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
           if (newMetrics.length > 0) {
-            setModalMetricsEvents((prev) => appendBoundedEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
+            setModalMetricsEvents((prev) => appendModalMetricsEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
           }
           if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
             modalMetricsOffsetRef.current = metRes.next_offset;
@@ -1021,7 +1031,7 @@ export function JobsPage() {
           newLogText = logResult?.text || '';
           const newMetrics = Array.isArray(metRes?.events) ? (metRes.events as PipelineEvent[]) : [];
           if (newMetrics.length > 0) {
-            setModalMetricsEvents((prev) => appendBoundedEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
+            setModalMetricsEvents((prev) => appendModalMetricsEvents(prev, newMetrics, MAX_MODAL_METRICS_EVENTS));
           }
           if (typeof metRes?.next_offset === 'number' && metRes.next_offset > 0) {
             modalMetricsOffsetRef.current = metRes.next_offset;
@@ -1084,6 +1094,7 @@ export function JobsPage() {
           }
           setDetailsNotice(notice);
           setIsLoadingDetails(false);
+          setIsLoadingModalMetrics(false);
         }
       }
     },
@@ -1746,7 +1757,7 @@ export function JobsPage() {
   const modalMetricsSeries = React.useMemo(() => {
     return modalSubject
       ? deriveMetricsSeries(modalEvents, modalSubject)
-      : {cpuSeries: [], ramSeries: [], latestContainer: ''};
+      : {cpuSeries: [], ramSeries: [], gpuSeries: [], latestContainer: '', peakCpu: 0, peakRam: 0, peakGpu: 0};
   }, [modalEvents, modalSubject]);
 
   const subjectStageInfoMap = React.useMemo(() => {
@@ -2706,6 +2717,7 @@ export function JobsPage() {
                         isLast={idx === modalImageSteps.length - 1}
                         toolDisplayNames={toolDisplayNames}
                         lastSyncedAt={lastSyncedAt}
+                        isLoadingMetrics={isLoadingModalMetrics}
                       />
                     ))}
                   </div>
@@ -2735,8 +2747,20 @@ export function JobsPage() {
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-2.5">
-                      <MetricSparkline label="CPU Usage" points={modalMetricsSeries.cpuSeries} unit="%" />
-                      <MetricSparkline label="RAM Usage" points={modalMetricsSeries.ramSeries} unit="MB" />
+                      <MetricSparkline
+                        label="CPU Usage"
+                        points={modalMetricsSeries.cpuSeries}
+                        peak={modalMetricsSeries.peakCpu}
+                        unit="%"
+                        isLoading={isLoadingModalMetrics}
+                      />
+                      <MetricSparkline
+                        label="RAM Usage"
+                        points={modalMetricsSeries.ramSeries}
+                        peak={modalMetricsSeries.peakRam}
+                        unit="MB"
+                        isLoading={isLoadingModalMetrics}
+                      />
                     </div>
                     {String(reqSummary.device || job?.device || '').toLowerCase().includes('gpu') && (
                       <div className="mt-2 text-xs text-cursor-muted rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft px-2.5 py-1.5 flex items-center justify-between">
@@ -2932,11 +2956,23 @@ function StageStatusPill({status}: {status: string}) {
   );
 }
 
-function StageMetric({label, value}: {label: string; value: string}) {
+function StageMetric({
+  label,
+  value,
+  isLoading = false,
+}: {
+  label: string;
+  value: string;
+  isLoading?: boolean;
+}) {
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-cursor-muted font-normal">{label}:</span>
-      <span className="font-semibold text-cursor-ink">{value}</span>
+      {isLoading ? (
+        <Loader2 className="h-3 w-3 animate-spin text-cursor-primary" />
+      ) : (
+        <span className="font-semibold text-cursor-ink">{value}</span>
+      )}
     </div>
   );
 }
@@ -2972,13 +3008,23 @@ function VerticalTimelineStepRow({
   isLast,
   toolDisplayNames,
   lastSyncedAt,
+  isLoadingMetrics = false,
 }: {
   step: StageStepDetail;
   isLast: boolean;
   toolDisplayNames: Record<string, string>;
   lastSyncedAt?: number;
+  isLoadingMetrics?: boolean;
 }) {
   const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
+  const isCpuLoading =
+    isLoadingMetrics &&
+    step?.status !== 'pending' &&
+    (typeof step?.cpu_pct !== 'number' || step.cpu_pct <= 0);
+  const isRamLoading =
+    isLoadingMetrics &&
+    step?.status !== 'pending' &&
+    (typeof step?.ram_bytes !== 'number' || step.ram_bytes <= 0);
 
   const rowClass =
     step?.status === 'running'
@@ -3038,9 +3084,17 @@ function VerticalTimelineStepRow({
                 lastSyncedAt={lastSyncedAt}
               />
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
-              <StageMetric label="CPU" value={formatMetricValue(step?.cpu_pct, '%', 1)} />
+              <StageMetric
+                label="CPU"
+                value={formatMetricValue(step?.cpu_pct, '%', 1)}
+                isLoading={isCpuLoading}
+              />
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
-              <StageMetric label="RAM" value={formatMemory(step?.ram_bytes)} />
+              <StageMetric
+                label="RAM"
+                value={formatMemory(step?.ram_bytes)}
+                isLoading={isRamLoading}
+              />
             </div>
           )}
         </div>
@@ -3049,7 +3103,19 @@ function VerticalTimelineStepRow({
   );
 }
 
-function MetricSparkline({label, points, unit = '%'}: {label: string; points: number[]; unit?: string}) {
+function MetricSparkline({
+  label,
+  points,
+  peak,
+  unit = '%',
+  isLoading = false,
+}: {
+  label: string;
+  points: number[];
+  peak?: number | undefined;
+  unit?: string;
+  isLoading?: boolean;
+}) {
   const safePoints = (Array.isArray(points) ? points : []).filter((v) => typeof v === 'number' && Number.isFinite(v));
 
   const formatValue = (v: number) => {
@@ -3065,10 +3131,14 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
       <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
         <div className="flex items-center justify-between text-xs">
           <span className="font-medium text-cursor-ink">{label}</span>
-          <span className="text-xs text-cursor-muted">Connecting...</span>
+          <span className="text-xs text-cursor-muted">{isLoading ? 'Connecting...' : 'Not reported'}</span>
         </div>
         <div className="flex items-center justify-center h-28 text-xs text-cursor-muted gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-cursor-primary" />
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-cursor-primary" />
+          ) : (
+            <span>No telemetry recorded for this subject</span>
+          )}
         </div>
       </div>
     );
@@ -3099,7 +3169,7 @@ function MetricSparkline({label, points, unit = '%'}: {label: string; points: nu
   const lastYPos = height - 6 - ((lastPoint - yMin) / range) * (height - 12);
 
   const currentVal = safePoints[safePoints.length - 1] ?? 0;
-  const peakVal = Math.max(...safePoints);
+  const peakVal = Math.max(typeof peak === 'number' && Number.isFinite(peak) ? peak : 0, ...safePoints);
 
   const gridLines = [0, 0.5, 1].map((pct) => {
     const y = height - 6 - pct * (height - 12);

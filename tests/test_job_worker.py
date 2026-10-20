@@ -146,7 +146,17 @@ def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path)
                 subject_id="sub-01",
                 input_file="/data/sub-01/001.mgz",
             )
-        return [StepResult("reorientation", "fs8_reduced54_reorientation", True, 2.5, "")]
+        return [
+            StepResult(
+                "reorientation",
+                "fs8_reduced54_reorientation",
+                True,
+                2.5,
+                "",
+                peak_cpu_pct=100.5,
+                peak_ram_bytes=52428800,
+            )
+        ]
 
     mocker.patch.object(job_worker, "run_pipeline", side_effect=fake_run_pipeline)
     mocker.patch.object(job_worker, "write_batch_reports")
@@ -174,5 +184,21 @@ def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path)
     assert metrics_events[0]["input_file"] == "/data/sub-01/001.mgz"
     assert metrics_events[0]["cpu_pct"] == 100.5
     assert metrics_events[0]["ram_bytes"] == 52428800
+
+    events_file = tmp_path / "events.jsonl"
+    assert events_file.exists()
+    lifecycle_events = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    done_events = [ev for ev in lifecycle_events if ev.get("kind") == "image_done"]
+    assert len(done_events) == 1
+    assert done_events[0]["steps"] == [
+        {
+            "stage": "reorientation",
+            "tool": "fs8_reduced54_reorientation",
+            "status": "success",
+            "duration_sec": 2.5,
+            "peak_cpu_pct": 100.5,
+            "peak_ram_bytes": 52428800,
+        }
+    ]
 
 

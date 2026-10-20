@@ -210,9 +210,22 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 return "STOPPED"
             return "FAIL"
 
+        steps_payload = [
+            {
+                "stage": step.stage,
+                "tool": step.tool,
+                "status": _step_tag(step).lower(),
+                "duration_sec": round(float(step.duration_sec or 0.0), 2),
+                **({"peak_cpu_pct": round(float(step.peak_cpu_pct), 2)} if step.peak_cpu_pct is not None else {}),
+                **({"peak_ram_bytes": int(step.peak_ram_bytes)} if step.peak_ram_bytes is not None else {}),
+            }
+            for step in result.steps
+        ]
+
         _emit_event(
             job_dir,
             "image_done",
+            steps=steps_payload,
             input_file=result.input_file,
             subject_id=result.subject_id,
             success=result.success,
