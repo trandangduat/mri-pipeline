@@ -64,6 +64,35 @@ export interface MetricsSeries {
   peakGpu?: number;
 }
 
+export function formatCpuMetric(value: number | undefined, fractionDigits = 1): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 'Not reported';
+  if (value > 100) {
+    const cores = (value / 100).toFixed(1);
+    return `${value.toFixed(fractionDigits)}% (${cores} cores)`;
+  }
+  return `${value.toFixed(fractionDigits)}%`;
+}
+
+export function downsampleSeries(points: number[], maxPoints = 180): number[] {
+  if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
+  const downsampled: number[] = [];
+  const bucketSize = points.length / maxPoints;
+
+  for (let i = 0; i < maxPoints; i++) {
+    const start = Math.floor(i * bucketSize);
+    const end = Math.min(points.length, Math.floor((i + 1) * bucketSize));
+    let peak = points[start] ?? 0;
+    for (let j = start + 1; j < end; j++) {
+      const val = points[j];
+      if (val !== undefined && val > peak) {
+        peak = val;
+      }
+    }
+    downsampled.push(peak);
+  }
+  return downsampled;
+}
+
 export function deriveSubjectLabel(
   filePath: string,
   idx = 1,
@@ -167,6 +196,47 @@ export function sidebarDotClass(job: AnyJob): string {
   return dotClassForState(job.state as string);
 }
 
+export function isStepListAllSucceeded(steps: unknown, minStageCount: number = 0): boolean {
+  if (!Array.isArray(steps) || steps.length === 0) return false;
+  const latestByStage = new Map<string, boolean>();
+  for (const raw of steps) {
+    if (!raw || typeof raw !== 'object') continue;
+    const s = raw as Record<string, unknown>;
+    const stg = String(s.stage || s.step || '').toLowerCase().trim();
+    if (!stg) continue;
+    const status = String(s.status || s.state || '').toUpperCase();
+    const isSuccess =
+      status === 'OK' || status === 'SUCCESS' || s.success === true || s.validation_passed === true;
+    latestByStage.set(stg, isSuccess);
+  }
+  if (latestByStage.size === 0) return false;
+  if (minStageCount > 0 && latestByStage.size < minStageCount) return false;
+  for (const ok of latestByStage.values()) {
+    if (!ok) return false;
+  }
+  return true;
+}
+
+export function isLogTextAllSucceeded(logText: string, minStageCount: number = 0): boolean {
+  if (!logText) return false;
+  const lines = logText.split('\n');
+  const latestByStage = new Map<string, boolean>();
+  for (const line of lines) {
+    const parsed = line.match(/^\[(.*?)\]\s*(.*?)\s*-\s*(OK|SUCCESS|FAIL|FAILED|STOPPED)/i);
+    if (parsed && parsed[1] && parsed[3]) {
+      const stg = parsed[1].toLowerCase().trim();
+      const res = parsed[3].toUpperCase();
+      latestByStage.set(stg, res === 'OK' || res === 'SUCCESS');
+    }
+  }
+  if (latestByStage.size === 0) return false;
+  if (minStageCount > 0 && latestByStage.size < minStageCount) return false;
+  for (const ok of latestByStage.values()) {
+    if (!ok) return false;
+  }
+  return true;
+}
+
 export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}): BatchImageItem[] {
   const reqSummary = (job.run_request_summary as Record<string, unknown>) || {};
   const req = (job.run_request as Record<string, unknown>) || {};
@@ -193,16 +263,24 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
     initialFiles = [String(job.input_file)];
   }
 
+  const batchSum = (job.batch_summary as Record<string, unknown>) || {};
+  const imageStates = ((batchSum.image_states || {}) as Record<string, string>);
+  const stateFiles = Object.keys(imageStates);
+  if (initialFiles.length === 0 && stateFiles.length > 0) {
+    initialFiles = stateFiles;
+  }
+
   const imagesMap = new Map<string, BatchImageItem>();
 
   initialFiles.forEach((file, idx) => {
     const {subject_id} = deriveSubjectLabel(file, idx + 1, datasetRoot);
+    const initialStatus = (imageStates[file] as BatchImageItem['status']) || 'pending';
     imagesMap.set(file, {
       input_file: file,
       subject_id,
       idx: idx + 1,
       total: initialFiles.length,
-      status: 'pending',
+      status: initialStatus,
     });
   });
 
@@ -257,18 +335,31 @@ export function deriveBatchImages(events: PipelineEvent[] = [], job: AnyJob = {}
       const existing = findMatchingImage(file, idx, subject_id || undefined);
       const computedSubj = subject_id || deriveSubjectLabel(file, idx, datasetRoot).subject_id;
       const logText = String(event.log_text || '');
+      const normJobState = normalizeJobState(job.state);
 
-      if (success && logText) {
-        const req = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
-        const tools = ((req.selected_tools || {}) as Record<string, string>) || {};
-        const isScheduledTool = (t: unknown) =>
-          Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
-        const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
+      const req = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
+      const tools = ((req.selected_tools || {}) as Record<string, string>) || {};
+      const isScheduledTool = (t: unknown) =>
+        Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
+      const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
+
+      let partialRunDetected = false;
+      if (success && logText && normJobState === 'failed') {
         if (scheduledCount > 0) {
           const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*(OK|SUCCESS)/gi) || []).length;
           if (okLines < scheduledCount) {
             success = false;
+            partialRunDetected = true;
           }
+        }
+      }
+
+      if (!success && !partialRunDetected) {
+        if (
+          isStepListAllSucceeded(event.steps, scheduledCount) ||
+          isLogTextAllSucceeded(logText, scheduledCount)
+        ) {
+          success = true;
         }
       }
 
@@ -408,18 +499,31 @@ export function reduceBatchImages(
       const existing = findMatchingImage(file, idx, subject_id || undefined);
       const computedSubj = subject_id || deriveSubjectLabel(file, idx, datasetRoot).subject_id;
       const logText = String(event.log_text || '');
+      const normJobState = normalizeJobState(job.state);
 
-      if (success && logText) {
-        const reqObj = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
-        const tools = ((reqObj.selected_tools || {}) as Record<string, string>) || {};
-        const isScheduledTool = (t: unknown) =>
-          Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
-        const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
+      const reqObj = ((job?.run_request || job?.run_request_summary || {}) as Record<string, unknown>) || {};
+      const tools = ((reqObj.selected_tools || {}) as Record<string, string>) || {};
+      const isScheduledTool = (t: unknown) =>
+        Boolean(t) && t !== 'none' && t !== 'null' && t !== 'undefined' && t !== 'disabled';
+      const scheduledCount = Object.values(tools).filter(isScheduledTool).length;
+
+      let partialRunDetected = false;
+      if (success && logText && normJobState === 'failed') {
         if (scheduledCount > 0) {
           const okLines = (logText.match(/\[.*?\]\s*.*?\s*-\s*(OK|SUCCESS)/gi) || []).length;
           if (okLines < scheduledCount) {
             success = false;
+            partialRunDetected = true;
           }
+        }
+      }
+
+      if (!success && !partialRunDetected) {
+        if (
+          isStepListAllSucceeded(event.steps, scheduledCount) ||
+          isLogTextAllSucceeded(logText, scheduledCount)
+        ) {
+          success = true;
         }
       }
 
@@ -927,9 +1031,9 @@ export function deriveMetricsSeries(events: PipelineEvent[] = [], image: BatchIm
   }
 
   return {
-    cpuSeries: cpuSeries.slice(-180),
-    ramSeries: ramSeries.slice(-180),
-    gpuSeries: gpuSeries.slice(-180),
+    cpuSeries: downsampleSeries(cpuSeries, 180),
+    ramSeries: downsampleSeries(ramSeries, 180),
+    gpuSeries: downsampleSeries(gpuSeries, 180),
     latestContainer,
     peakCpu,
     peakRam,
@@ -990,7 +1094,7 @@ export function deriveJobDisplayMetadata(
   if (normState === 'stopped') {
     status_reconciled = 'stopped';
   } else if (normState === 'failed') {
-    status_reconciled = 'failed';
+    status_reconciled = allImagesTerminal && !anyImageFailed ? 'completed' : 'failed';
   } else if (hasTerminalEvent) {
     status_reconciled = hasFailedEvent || anyImageFailed ? 'failed' : 'completed';
   } else if (allImagesTerminal) {

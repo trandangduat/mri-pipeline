@@ -18,6 +18,8 @@ import {
   sanitizeTerminalLog,
   deriveJobDisplayMetadata,
   deriveSubjectStageInfo,
+  formatCpuMetric,
+  downsampleSeries,
 } from '../src/lib/jobs';
 
 test('deriveSubjectLabel extracts parent folder for generic filenames like 001.mgz', () => {
@@ -608,6 +610,100 @@ test('deriveImageSteps and deriveMetricsSeries read structured step peaks from i
   expect(series.peakCpu).toBe(412.6);
   expect(series.peakRam).toBe(15360);
 });
+
+test('formatCpuMetric formats <=100% as percentage and >100% with core equivalent', () => {
+  expect(formatCpuMetric(undefined)).toBe('Not reported');
+  expect(formatCpuMetric(0)).toBe('Not reported');
+  expect(formatCpuMetric(-1)).toBe('Not reported');
+  expect(formatCpuMetric(88.7)).toBe('88.7%');
+  expect(formatCpuMetric(100.0)).toBe('100.0%');
+  expect(formatCpuMetric(1686.1)).toBe('1686.1% (16.9 cores)');
+  expect(formatCpuMetric(425.2)).toBe('425.2% (4.3 cores)');
+});
+
+test('downsampleSeries reduces sample count while preserving peaks across timeline', () => {
+  const points = new Array(1800).fill(10);
+  // Put a spike at index 300 (earlier stage) and index 1200 (later stage)
+  points[300] = 1686.1;
+  points[1200] = 2267.3;
+
+  const result = downsampleSeries(points, 180);
+  expect(result).toHaveLength(180);
+  expect(Math.max(...result)).toBe(2267.3);
+  expect(result.some((v) => v === 1686.1)).toBe(true);
+});
+
+test('deriveBatchImages trusts event.success when fewer stages than selected_tools were executed', () => {
+  const job = {
+    state: 'running',
+    run_request_summary: {
+      selected_tools: {
+        stage1: 'tool1',
+        stage2: 'tool2',
+        stage3: 'tool3',
+        stage4: 'tool4',
+        stage5: 'tool5',
+        stage6: 'tool6',
+        stage7: 'tool7',
+        stage8: 'tool8',
+      },
+    },
+  };
+  const events = [
+    {kind: 'image_start', input_file: '/data/sub-01.nii.gz', idx: 1, total: 1},
+    {
+      kind: 'image_done',
+      input_file: '/data/sub-01.nii.gz',
+      subject_id: 'sub-01',
+      success: true,
+      log_text:
+        '[stage1] tool1 - SUCCESS (10s)\n' +
+        '[stage2] tool2 - SUCCESS (20s)\n' +
+        '[stage3] tool3 - SUCCESS (30s)',
+    },
+  ];
+
+  const batchImages = deriveBatchImages(events as any, job as any);
+  expect(batchImages).toHaveLength(1);
+  expect(batchImages[0].status).toBe('success');
+});
+
+test('deriveBatchImages resolves retried stage as success when final attempt succeeded', () => {
+  const job = {
+    state: 'failed',
+    run_request_summary: {
+      selected_tools: {
+        reorientation: 'tool1',
+        template_registration: 'tool2',
+      },
+    },
+  };
+  const events = [
+    {kind: 'image_start', input_file: 'a.nii', idx: 1, total: 1},
+    {
+      kind: 'image_done',
+      input_file: 'a.nii',
+      success: false,
+      steps: [
+        {stage: 'reorientation', status: 'success'},
+        {stage: 'template_registration', status: 'fail'},
+        {stage: 'template_registration', status: 'success'},
+      ],
+      log_text:
+        '[reorientation] tool1 - SUCCESS (10s)\n' +
+        '[template_registration] tool2 - FAIL (50s)\n' +
+        '[template_registration] tool2 - SUCCESS (45s)',
+    },
+  ];
+
+  const images = deriveBatchImages(events as any, job as any);
+  expect(images).toHaveLength(1);
+  expect(images[0].status).toBe('success');
+
+  const meta = deriveJobDisplayMetadata(job as any, events as any, images);
+  expect(meta.status_reconciled).toBe('completed');
+});
+
 
 
 

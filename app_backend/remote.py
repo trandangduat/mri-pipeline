@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import posixpath
 import re
 import stat
 import threading
@@ -391,6 +392,13 @@ class RemoteJobService:
         except Exception:
             return {"ok": False, "error": "Remote job stop failed"}
 
+    @staticmethod
+    def _adapt_workspace_for_job(config: RemoteRunConfig, remote_job_dir: str) -> None:
+        if remote_job_dir.startswith("/") and posixpath.dirname(remote_job_dir) not in ("/", ""):
+            current_ws = str(config.remote_workspace or "").rstrip("/")
+            if not current_ws or not remote_job_dir.startswith(current_ws + "/"):
+                config.remote_workspace = posixpath.dirname(remote_job_dir)
+
     def read_job_events(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:
@@ -398,6 +406,7 @@ class RemoteJobService:
         config = parsed["config"]
         assert isinstance(config, RemoteRunConfig)
         remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        self._adapt_workspace_for_job(config, remote_job_dir)
         offset = _int_val(data.get("offset"), 0)
         limit = _int_val(data.get("limit"), 0)
         try:
@@ -423,6 +432,7 @@ class RemoteJobService:
         config = parsed["config"]
         assert isinstance(config, RemoteRunConfig)
         remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        self._adapt_workspace_for_job(config, remote_job_dir)
         offset = _int_val(data.get("offset"), 0)
         max_bytes = _int_val(data.get("max_bytes"), 65536)
         try:
@@ -449,6 +459,7 @@ class RemoteJobService:
         config = parsed["config"]
         assert isinstance(config, RemoteRunConfig)
         remote_job_dir = str(data.get("remote_job_dir") or data.get("job_id") or "").strip()
+        self._adapt_workspace_for_job(config, remote_job_dir)
         offset = _int_val(data.get("offset"), 0)
         limit = _int_val(data.get("limit"), 500)
         subject_id = str(data.get("subject_id") or "").strip()

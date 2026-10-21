@@ -55,6 +55,7 @@ import {
   StageStepDetail,
   DEFAULT_STAGE_ORDER,
   DEFAULT_STAGE_LABELS,
+  formatCpuMetric,
 } from '../lib/jobs';
 import {
   useListLocalJobsMutation,
@@ -89,7 +90,7 @@ function selectedDialogPath(selected: unknown) {
 }
 
 const EVENT_PAGE_SIZE = 10_000;
-const MAX_MODAL_METRICS_EVENTS = 1_200;
+const MAX_MODAL_METRICS_EVENTS = 10_000;
 
 export function canonicalJobId(id: string | null | undefined): string {
   if (!id) return '';
@@ -680,6 +681,7 @@ export function JobsPage() {
   const [reducedBatchImages, setReducedBatchImages] = useState<BatchImageItem[]>([]);
   const modalMetricsOffsetRef = useRef<number>(0);
   const prevModalSubjectRef = useRef<string | null>(null);
+  const activeModalSubjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     isLogExpandedRef.current = isLogExpanded;
@@ -692,6 +694,7 @@ export function JobsPage() {
   useEffect(() => {
     if (prevModalSubjectRef.current !== activeModalSubjectFile) {
       prevModalSubjectRef.current = activeModalSubjectFile;
+      activeModalSubjectFileRef.current = activeModalSubjectFile;
       setModalMetricsEvents([]);
       modalMetricsOffsetRef.current = 0;
       setIsLoadingModalMetrics(Boolean(activeModalSubjectFile));
@@ -930,9 +933,10 @@ export function JobsPage() {
       try {
         if (isRemote) {
           const remotePayload = buildRemotePayload(formValues);
-          const jobWorkspace = String(targetJob?.remote_workspace || '');
-          if (jobWorkspace) remotePayload.workspace = jobWorkspace;
           const remoteJobDir = String(targetJob?.remote_job_dir || targetJob?.job_dir || jobId);
+          const inferredWorkspace = remoteJobDir.startsWith('/') ? remoteJobDir.replace(/\/[^/]+$/, '') : '';
+          const jobWorkspace = String(targetJob?.remote_workspace || inferredWorkspace || '');
+          if (jobWorkspace) remotePayload.workspace = jobWorkspace;
           const eventFetch = readRemoteEventsAsync({
               ...remotePayload,
               remote_job_dir: remoteJobDir,
@@ -969,6 +973,7 @@ export function JobsPage() {
                   offset: modalMetricsOffsetRef.current,
                   limit: 5000,
                   input_file: activeModalSubjectFileRef.current || '',
+                  ...(activeModalSubjectIdRef.current ? { subject_id: activeModalSubjectIdRef.current } : {}),
                   signal: controller.signal,
                   timeoutMs: REMOTE_DETAIL_TIMEOUT_MS,
                 })
@@ -1020,6 +1025,7 @@ export function JobsPage() {
                   offset: modalMetricsOffsetRef.current,
                   limit: 5000,
                   inputFile: activeModalSubjectFileRef.current || '',
+                  ...(activeModalSubjectIdRef.current ? { subjectId: activeModalSubjectIdRef.current } : {}),
                   signal: controller.signal,
                 })
                 .catch(() => ({events: []})) as Promise<EventsResult>)
@@ -1124,7 +1130,7 @@ export function JobsPage() {
       const fetchKey = `${jId}::${activeModalSubjectFile}`;
       if (modalFetchKeyRef.current === fetchKey) return;
       modalFetchKeyRef.current = fetchKey;
-      void loadJobDetails(jId);
+      void loadJobDetails(jId, null, {resetUi: false});
     } else {
       modalFetchKeyRef.current = null;
     }
@@ -1463,6 +1469,7 @@ export function JobsPage() {
     }
   }, [isLogExpanded, selectedJobId, loadJobDetails]);
 
+
   // Adaptive polling:
   // - If looking at a running job: poll every 30s with lightweight delta fetch
   // - If looking at a terminal job: do not poll (paused)
@@ -1739,7 +1746,9 @@ export function JobsPage() {
 
   // Modal active subject
   const modalSubject = React.useMemo(() => {
-    return batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
+    const s = batchImages.find((img) => img.input_file === activeModalSubjectFile) || null;
+    activeModalSubjectIdRef.current = s?.subject_id || null;
+    return s;
   }, [batchImages, activeModalSubjectFile]);
 
   const modalEvents = React.useMemo(() => {
@@ -3086,7 +3095,7 @@ function VerticalTimelineStepRow({
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric
                 label="CPU"
-                value={formatMetricValue(step?.cpu_pct, '%', 1)}
+                value={formatCpuMetric(step?.cpu_pct, 1)}
                 isLoading={isCpuLoading}
               />
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
@@ -3120,6 +3129,7 @@ function MetricSparkline({
 
   const formatValue = (v: number) => {
     if (unit === 'MB' && v >= 1024) return `${(v / 1024).toFixed(1)} GB`;
+    if (unit === '%' && v > 100) return `${v.toFixed(1)}% (${(v / 100).toFixed(1)} cores)`;
     return `${v.toFixed(1)}${unit}`;
   };
 
@@ -3144,8 +3154,12 @@ function MetricSparkline({
     );
   }
 
+  const effectivePeak = typeof peak === 'number' && Number.isFinite(peak) ? peak : 0;
+  const currentVal = safePoints[safePoints.length - 1] ?? 0;
+  const peakVal = Math.max(effectivePeak, ...safePoints);
+
   const minPoint = Math.min(...safePoints);
-  const maxPoint = Math.max(...safePoints);
+  const maxPoint = Math.max(effectivePeak, ...safePoints);
   const padding = Math.max((maxPoint - minPoint) * 0.12, maxPoint === minPoint ? Math.max(maxPoint * 0.1, 1) : 1);
   const yMin = Math.max(0, minPoint - padding);
   const yMax = maxPoint + padding;
@@ -3167,9 +3181,6 @@ function MetricSparkline({
   const lastPoint = safePoints[safePoints.length - 1] ?? 0;
   const lastXPos = safePoints.length > 1 ? width : 0;
   const lastYPos = height - 6 - ((lastPoint - yMin) / range) * (height - 12);
-
-  const currentVal = safePoints[safePoints.length - 1] ?? 0;
-  const peakVal = Math.max(typeof peak === 'number' && Number.isFinite(peak) ? peak : 0, ...safePoints);
 
   const gridLines = [0, 0.5, 1].map((pct) => {
     const y = height - 6 - pct * (height - 12);

@@ -869,3 +869,101 @@ def test_neuroflow_batch_handles_stop_and_partial_stages(monkeypatch: pytest.Mon
     assert len(emitted_done) == 1
     assert emitted_done[0].success is False
 
+
+def test_neuroflow_retried_stage_succeeds_marks_image_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+
+    class RetryScheduler(_FakeAdaptiveScheduler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempt = 0
+
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            self.launch_requests.append(request)
+            self.attempt += 1
+            if self.attempt == 1:
+                launches = (
+                    _Record(
+                        image_id="subject-a",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-1",
+                        reservation_id="reservation-1",
+                        task_id="task-1",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-1",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="ready")
+            elif self.attempt == 2:
+                # NeuroFLOW scheduler retries the failed task
+                launches = (
+                    _Record(
+                        image_id="subject-a",
+                        stage_id="reorient_resize",
+                        attempt_id="attempt-2",
+                        reservation_id="reservation-2",
+                        task_id="task-1",
+                        execution_mode=SimpleNamespace(value="cpu"),
+                        cpu_threads=1,
+                        gpu_id=None,
+                        configuration_id="config-1",
+                    ),
+                )
+                return SimpleNamespace(terminal=False, launches=launches, reason="retrying")
+            return SimpleNamespace(terminal=True, launches=(), reason="done")
+
+    fake_neuroflow = sys.modules["neuroflow"]
+    fake_neuroflow.AdaptiveScheduler = RetryScheduler
+
+    calls = []
+
+    def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
+        calls.append(_stage)
+        if len(calls) == 1:
+            # First attempt fails (transient error / OOM)
+            return _FakeStep(success=False, error="OOM killed", return_code=137), str(tmp_path / config.subject_id / "out.mgz")
+        # Second attempt succeeds!
+        return _FakeStep(success=True, return_code=0), str(tmp_path / config.subject_id / "out.mgz")
+
+    class FakeStatsGenerator:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def generate(self, _subject_dir: object, _subject_id: object) -> SimpleNamespace:
+            return SimpleNamespace(files=[], warnings=[])
+
+    monkeypatch.setattr(neuroflow_adapter, "run_pipeline_stage", fake_run_pipeline_stage)
+    monkeypatch.setattr(neuroflow_adapter, "StatsGenerator", FakeStatsGenerator)
+    monkeypatch.setattr(neuroflow_adapter, "write_batch_reports", lambda _ctx: None)
+
+    emitted_done: list[BatchImageResult] = []
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / "job",
+        req={
+            "pipeline_mode": "FreeSurfer 8 + Volume",
+            "effective_output_dir": str(tmp_path / "out"),
+            "selected_tools": {"reorientation": "fake_tool"},
+            "threads": 2,
+            "neuroflow_max_concurrent_tasks": 2,
+        },
+        input_files=[str(tmp_path / "a.nii.gz")],
+        subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+        on_image_done=lambda res, idx, total: emitted_done.append(res),
+    )
+
+    assert len(calls) == 2
+    assert len(results) == 1
+    assert results[0].success is True
+    assert len(results[0].steps) == 1
+    assert results[0].steps[0].success is True
+    assert len(emitted_done) == 1
+    assert emitted_done[0].success is True
+
+

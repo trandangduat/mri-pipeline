@@ -207,6 +207,11 @@ class RemoteRunner:
         if not job_dir.startswith("/") and not job_dir.startswith("~"):
             workspace = self._remote_workspace(ssh)
             job_dir = posixpath.join(workspace, job_dir)
+        elif job_dir.startswith("/") and posixpath.dirname(job_dir) not in ("/", ""):
+            workspace = self._remote_workspace(ssh)
+            resolved_job_dir = self._remote_path(ssh, job_dir)
+            if not resolved_job_dir.startswith(workspace + "/"):
+                self.config.remote_workspace = posixpath.dirname(resolved_job_dir)
         job_dir = self._require_workspace_child(ssh, job_dir, "remote job directory")
         self.remote_job_dir = job_dir
         return self._require_workspace_child(ssh, posixpath.join(job_dir, *parts), "remote job file")
@@ -1115,15 +1120,11 @@ class RemoteRunner:
                     "                        elif kind == 'image_start':",
                     "                            image_states[input_file] = 'running'",
                     "                        elif kind == 'image_done':",
-                    "                            is_ok = bool(event.get('success'))",
-                    "                            if is_ok and log_text and has_scheduled:",
-                    "                                ok_lines = [l for l in log_text.splitlines() if ('- OK' in l or '- SUCCESS' in l)]",
-                    "                                if len(ok_lines) < len(scheduled_tools):",
-                    "                                    is_ok = False",
-                    "                            if is_ok:",
-                    "                                image_states[input_file] = 'success'",
-                    "                            elif state == 'stopped' or ev_status == 'stopped':",
+                    "                            is_stopped = (state == 'stopped' or ev_status == 'stopped' or str(event.get('status') or '').lower() == 'stopped')",
+                    "                            if is_stopped:",
                     "                                image_states[input_file] = 'stopped'",
+                    "                            elif bool(event.get('success')):",
+                    "                                image_states[input_file] = 'success'",
                     "                            else:",
                     "                                image_states[input_file] = 'failed'",
                     "        except Exception:",

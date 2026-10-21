@@ -91,6 +91,7 @@ class _ImageRunContext:
     tracker: PipelineTracker
     started_at: float = field(default_factory=time.time)
     steps: list = field(default_factory=list)
+    stage_steps: dict[str, list[object]] = field(default_factory=dict)
     completed_stages: set[str] = field(default_factory=set)
     stage_outputs: dict[str, str] = field(default_factory=dict)
     completed: bool = False
@@ -110,7 +111,13 @@ class _ImageRunContext:
 
     def record_step(self, step: object, output_for_next: str | None, local_stage: str) -> None:
         with self.lock:
+            if not hasattr(step, "stage") or not getattr(step, "stage", None):
+                try:
+                    setattr(step, "stage", local_stage)
+                except Exception:
+                    pass
             self.steps.append(step)
+            self.stage_steps.setdefault(local_stage, []).append(step)
             if getattr(step, "success", False):
                 self.completed_stages.add(local_stage)
                 if output_for_next:
@@ -689,9 +696,27 @@ def run_neuroflow_batch(
 
     is_stopped = bool(should_stop and should_stop())
     for context in contexts.values():
-        all_stages_completed = bool(expected_stage_set) and expected_stage_set.issubset(context.completed_stages)
-        all_steps_succeeded = bool(context.steps) and all(getattr(step, "success", False) for step in context.steps)
-        success = all_stages_completed and all_steps_succeeded
+        latest_step_per_stage: dict[str, object] = {
+            stg: steps[-1] for stg, steps in context.stage_steps.items() if steps
+        }
+        for step in context.steps:
+            stg = getattr(step, "stage", None)
+            if stg and stg not in latest_step_per_stage:
+                latest_step_per_stage[stg] = step
+
+        if expected_stage_set:
+            all_stages_completed = expected_stage_set.issubset(context.completed_stages)
+            all_steps_succeeded = all(
+                getattr(latest_step_per_stage.get(stg), "success", False) for stg in expected_stage_set
+            )
+            success = all_stages_completed and all_steps_succeeded
+        else:
+            all_stages_completed = bool(context.completed_stages)
+            all_steps_succeeded = bool(latest_step_per_stage) and all(
+                getattr(step, "success", False) for step in latest_step_per_stage.values()
+            )
+            success = all_stages_completed and all_steps_succeeded
+
         context.tracker.mark_completed(success)
         stats_result = generator.generate(context.subject_dir, context.subject_id)
         if stats_result.files or stats_result.warnings:
@@ -702,13 +727,24 @@ def run_neuroflow_batch(
             err = "one or more NeuroFLOW scheduled steps failed"
         else:
             err = ""
+
+        final_steps: list[object] = []
+        for s in STAGE_ORDER:
+            if s in latest_step_per_stage:
+                final_steps.append(latest_step_per_stage[s])
+        for stg, step in latest_step_per_stage.items():
+            if stg not in STAGE_ORDER:
+                final_steps.append(step)
+        if not final_steps and context.steps:
+            final_steps = list(context.steps)
+
         image_result = BatchImageResult(
             input_file=context.input_file,
             subject_id=context.subject_id,
             subject_dir=context.subject_dir,
             success=success,
             duration_sec=time.time() - context.started_at,
-            steps=context.steps,
+            steps=final_steps,
             error=err,
         )
         results.append(image_result)
