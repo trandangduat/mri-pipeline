@@ -475,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
             _write_status(job_dir, state="stopped", exit_code=0, finished_at=time.time(), duration_sec=time.time() - start)
             _log(job_dir, f"Background job stopped upon request: {exc}")
         else:
+            state = "failed"
             code = 1
             _write_status(job_dir, state="failed", exit_code=1, error=f"{type(exc).__name__}: {exc}", finished_at=time.time(), duration_sec=time.time() - start)
             _log(job_dir, f"ERROR: {type(exc).__name__}: {exc}")

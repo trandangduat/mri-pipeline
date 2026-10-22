@@ -292,7 +292,12 @@ def _scheduler_config(req: dict) -> object:
     )
 
 
-def _filter_profiles_for_thread_limit(pipeline: object, profiles: object, thread_limit: int) -> tuple[object, object]:
+def _filter_profiles_for_thread_limit(
+    pipeline: object,
+    profiles: object,
+    thread_limit: int,
+    available_gpus: int = 0,
+) -> tuple[object, object]:
     if not hasattr(pipeline, "stages") or not hasattr(profiles, "profiles"):
         return pipeline, profiles
     limit = max(1, int(thread_limit))
@@ -304,6 +309,7 @@ def _filter_profiles_for_thread_limit(pipeline: object, profiles: object, thread
             config
             for config in getattr(stage, "execution_configurations", ())
             if int(getattr(config, "cpu_threads", 1) or 1) <= limit
+            and (available_gpus > 0 or str(getattr(config, "execution_mode", "")).lower() != "gpu")
         ]
         if not configs:
             raise ValueError(
@@ -428,8 +434,11 @@ def run_neuroflow_batch(
     preset_id = str(pipeline.pipeline_id)
     profile_set_id = str(getattr(profiles, "profile_set_id", profile_set_id))
     thread_limit = max(1, int(req.get("threads", 1) or 1))
-    pipeline, profiles = _filter_profiles_for_thread_limit(pipeline, profiles, thread_limit)
     scheduler_config = _scheduler_config(req)
+    available_gpus = len(tuple(g for g in getattr(scheduler_config.limits, "gpus", ()) if getattr(g, "enabled", True)))
+    pipeline, profiles = _filter_profiles_for_thread_limit(
+        pipeline, profiles, thread_limit, available_gpus=available_gpus
+    )
     validate_cross_documents(pipeline, profiles, scheduler_config)
 
     output_dir = str(req.get("effective_output_dir", req.get("output_dir", "")))
