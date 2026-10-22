@@ -168,6 +168,10 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 except Exception:
                     pass
         payload = {"stage": stage, "status": status, "pct": pct, "msg": msg}
+        if msg:
+            subj_match = re.match(r"^\[([^\]]+)\]", msg)
+            if subj_match:
+                payload["subject_id"] = subj_match.group(1).strip()
         if elapsed_sec is not None:
             payload["elapsed_sec"] = elapsed_sec
         _emit_event(job_dir, "progress", **payload)

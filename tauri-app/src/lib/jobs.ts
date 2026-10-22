@@ -931,6 +931,24 @@ export function isEventForImage(event: PipelineEvent, image: BatchImageItem | nu
       if (safeSubj.length >= 20 && cName.includes(safeSubj.slice(0, 20))) return true;
     }
   }
+
+  const msgText = String(event.msg || event.message || '');
+  const prefixMatch = msgText.match(/^\[([^\]]+)\]/);
+  if (prefixMatch && prefixMatch[1]) {
+    const msgSubj = prefixMatch[1].trim();
+    if (image.subject_id) {
+      if (image.subject_id === msgSubj) return true;
+      const sanitized = image.subject_id.replace(/[/\\:]/g, '_');
+      if (sanitized === msgSubj || msgSubj.includes(sanitized) || sanitized.includes(msgSubj)) return true;
+    }
+    if (image.input_file) {
+      const parts = image.input_file.split(/[/\\]/).filter(Boolean);
+      const fileName = parts[parts.length - 1] || '';
+      if (fileName === msgSubj || image.input_file.includes(msgSubj)) return true;
+    }
+    return false;
+  }
+
   return false;
 }
 
@@ -977,7 +995,9 @@ export function deriveImageSteps(
     if (kind === 'image_start') {
       currentActiveFile = String(event.input_file || '');
     } else if (kind === 'progress' || kind === 'step' || kind === 'stage') {
-      const isTargeted = Boolean(event.input_file || event.subject_id || event.container_name);
+      const msgText = String(event.msg || event.message || '');
+      const hasMsgPrefix = /^\[([^\]]+)\]/.test(msgText);
+      const isTargeted = Boolean(event.input_file || event.subject_id || event.container_name || hasMsgPrefix);
       const activeMatch = isTargeted ? isEventForImage(event, image) : (currentActiveFile ? currentActiveFile === image.input_file : true);
       if (activeMatch) {
         const rawStageKey = String(event.stage || event.step || event.message || '').toLowerCase();
