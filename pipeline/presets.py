@@ -130,24 +130,25 @@ FREESURFER_8_VOLUME_TOOLS = {
 
 FREESURFER_8_TOOLS = FREESURFER_8_VOLUME_TOOLS
 
-FASTSURFER_TOOLS = {
+FASTSURFER_SURFACE_TOOLS = {
     "reorientation": "fastsurfer_reorientation",
     "brain_extraction": "",
     "segmentation": "fastsurfer_segmentation",
     "template_registration": "fastsurfer_template_registration",
     "bias_correction": "fastsurfer_standardization",
     "white_matter_segmentation": "fastsurfer_wm_segmentation",
-    "surface_reconstruction": "",
-    "surface_registration": "",
-    "stats_extraction": "fastsurfer_volume_stats_extraction",
-}
-
-FASTSURFER_SURFACE_TOOLS = {
-    **FASTSURFER_TOOLS,
     "surface_reconstruction": "fastsurfer_surface_reconstruction",
     "surface_registration": "fastsurfer_surface_registration",
     "stats_extraction": "fastsurfer_stats_extraction",
 }
+
+FASTSURFER_VOLUME_TOOLS = {
+    **FASTSURFER_SURFACE_TOOLS,
+    **{stage: "" for stage in VOLUME_SKIPPED_STAGES},
+    "stats_extraction": "fastsurfer_volume_stats_extraction",
+}
+
+FASTSURFER_TOOLS = FASTSURFER_VOLUME_TOOLS
 
 CAT12_VOLUME_TOOLS = {
     "reorientation": "",

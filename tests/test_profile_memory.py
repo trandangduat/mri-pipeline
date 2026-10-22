@@ -13,7 +13,7 @@ from pipeline.profile_memory import (
 def test_standard_profile_peaks_defined() -> None:
     assert len(STANDARD_PROFILE_PEAKS) == 9
     assert STANDARD_PROFILE_PEAKS["FreeSurfer 7 + Volume"] == 2083
-    assert STANDARD_PROFILE_PEAKS["FastSurfer + Volume"] == 6830
+    assert STANDARD_PROFILE_PEAKS["FastSurfer + Volume"] == 3550
     assert STANDARD_PROFILE_PEAKS["FreeSurfer 8 + Volume"] == 16507
 
 
@@ -24,7 +24,7 @@ def test_load_profile_peak_mib_from_yaml() -> None:
 
 def test_get_profile_peak_ram_mib_modes() -> None:
     assert get_profile_peak_ram_mib({"pipeline_mode": "FreeSurfer 7 + Volume"}) == 2083
-    assert get_profile_peak_ram_mib({"pipeline_mode": "FastSurfer + Volume"}) == 6830
+    assert get_profile_peak_ram_mib({"pipeline_mode": "FastSurfer + Volume"}) == 3550
     assert get_profile_peak_ram_mib({"pipeline_mode": "FreeSurfer 8 + Volume + Cortical Thickness"}) == 14900
 
 

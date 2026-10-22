@@ -435,7 +435,14 @@ def run_neuroflow_batch(
     profile_set_id = str(getattr(profiles, "profile_set_id", profile_set_id))
     thread_limit = max(1, int(req.get("threads", 1) or 1))
     scheduler_config = _scheduler_config(req)
-    available_gpus = len(tuple(g for g in getattr(scheduler_config.limits, "gpus", ()) if getattr(g, "enabled", True)))
+    limits = getattr(scheduler_config, "limits", None)
+    if limits is None and isinstance(scheduler_config, dict):
+        limits = scheduler_config.get("limits")
+    gpu_list = getattr(limits, "gpus", None)
+    if gpu_list is None and isinstance(limits, dict):
+        gpu_list = limits.get("gpus")
+    gpu_list = gpu_list or ()
+    available_gpus = len(tuple(g for g in gpu_list if (getattr(g, "enabled", True) if not isinstance(g, dict) else g.get("enabled", True))))
     pipeline, profiles = _filter_profiles_for_thread_limit(
         pipeline, profiles, thread_limit, available_gpus=available_gpus
     )

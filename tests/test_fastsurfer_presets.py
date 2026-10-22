@@ -10,9 +10,9 @@ def test_fastsurfer_volume_preset_uses_volume_stats_without_surface_stages() -> 
         "reorientation": "fastsurfer_reorientation",
         "brain_extraction": "",
         "segmentation": "fastsurfer_segmentation",
-        "template_registration": "fastsurfer_template_registration",
-        "bias_correction": "fastsurfer_standardization",
-        "white_matter_segmentation": "fastsurfer_wm_segmentation",
+        "template_registration": "",
+        "bias_correction": "",
+        "white_matter_segmentation": "",
         "surface_reconstruction": "",
         "surface_registration": "",
         "stats_extraction": "fastsurfer_volume_stats_extraction",
@@ -23,6 +23,11 @@ def test_fastsurfer_volume_preset_uses_volume_stats_without_surface_stages() -> 
 
 
 def test_fastsurfer_surface_presets_keep_full_stats_extraction() -> None:
+    assert FASTSURFER_SURFACE_TOOLS["template_registration"] == "fastsurfer_template_registration"
+    assert FASTSURFER_SURFACE_TOOLS["bias_correction"] == "fastsurfer_standardization"
+    assert FASTSURFER_SURFACE_TOOLS["white_matter_segmentation"] == "fastsurfer_wm_segmentation"
+    assert FASTSURFER_SURFACE_TOOLS["surface_reconstruction"] == "fastsurfer_surface_reconstruction"
+    assert FASTSURFER_SURFACE_TOOLS["surface_registration"] == "fastsurfer_surface_registration"
     assert FASTSURFER_SURFACE_TOOLS["stats_extraction"] == "fastsurfer_stats_extraction"
     assert PRESET_CONFIGS["FastSurfer + Cortical Thickness"]["tools"]["stats_extraction"] == "fastsurfer_stats_extraction"
     assert PRESET_CONFIGS["FastSurfer + Volume + Cortical Thickness"]["tools"]["stats_extraction"] == "fastsurfer_stats_extraction"

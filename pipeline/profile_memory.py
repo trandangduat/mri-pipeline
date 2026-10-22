@@ -22,7 +22,7 @@ PIPELINE_MODE_TO_PRESET: dict[str, str] = {
 # Standard peak RAM requirements (in MiB) measured from NeuroFLOW profiles
 STANDARD_PROFILE_PEAKS: dict[str, int] = {
     "FreeSurfer 7 + Volume": 2083,
-    "FastSurfer + Volume": 6830,
+    "FastSurfer + Volume": 3550,
     "FreeSurfer 7 + Cortical Thickness": 11878,
     "FastSurfer + Cortical Thickness": 11878,
     "FreeSurfer 7 + Volume + Cortical Thickness": 13660,
