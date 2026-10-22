@@ -193,6 +193,7 @@ def _fs8r_common(ctx: ToolContext) -> str:
     subject = _q(ctx.subject_id)
     return (
         "set -e; "
+        f"export OMP_NUM_THREADS={int(ctx.threads)} ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS={int(ctx.threads)}; "
         "export SUBJECTS_DIR=/output/freesurfer; "
         "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
@@ -448,6 +449,7 @@ def _fs7r_common(ctx: ToolContext) -> str:
     subject = _q(ctx.subject_id)
     return (
         "set -e; "
+        f"export OMP_NUM_THREADS={int(ctx.threads)} ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS={int(ctx.threads)}; "
         "export SUBJECTS_DIR=/output/freesurfer; "
         "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "
@@ -782,6 +784,7 @@ def _fs7r_surface_stats(ctx: ToolContext) -> str:
     subject = shlex.quote(ctx.subject_id)
     return (
         "set -e; "
+        f"export OMP_NUM_THREADS={int(ctx.threads)} ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS={int(ctx.threads)}; "
         "export SUBJECTS_DIR=/output/freesurfer; "
         "mkdir -p /output/stats; "
         "if [ -L \"$SUBJECTS_DIR/fsaverage\" ]; then rm \"$SUBJECTS_DIR/fsaverage\"; fi; "
@@ -960,6 +963,7 @@ def _fs8_mni_atlas_projection(ctx: ToolContext) -> str:
         ctx.enabled_stats["selected_atlases"] = ["mni_sclimbic"]
     return (
         "set -e; "
+        f"export OMP_NUM_THREADS={int(ctx.threads)} ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS={int(ctx.threads)}; "
         "export SUBJECTS_DIR=/output/freesurfer; "
         "if [ -d /license ]; then LIC_FILE=$(find /license -type f | head -n 1); if [ -n \"$LIC_FILE\" ]; then export FS_LICENSE=\"$LIC_FILE\"; fi; fi; "
         f"SUBJ={subject}; "

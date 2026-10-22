@@ -34,16 +34,7 @@ export function AppFooter({isReady = true, connectionLabel}: AppFooterProps) {
       <div className="flex items-center gap-3 text-cursor-body">
         <span className="font-mono text-2xs text-cursor-muted">v1.0.0</span>
         <a
-          href="https://github.com"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 hover:text-cursor-ink transition-colors"
-        >
-          Documentation
-          <ExternalLink className="h-2.5 w-2.5" />
-        </a>
-        <a
-          href="https://github.com"
+          href="https://github.com/trandangduat/mri-pipeline"
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1 hover:text-cursor-ink transition-colors"

@@ -17,7 +17,7 @@ from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig
 from .discovery import _derive_subject_id
 from .hardware import _total_ram_bytes
 from .presets import normalize_stats_vector_config_for_pipeline_mode
-from .registry import STAGE_ORDER
+from .registry import STAGE_ORDER, STAGE_LABELS
 from .reports import BatchReportContext, write_batch_reports
 from .runner import run_pipeline_stage
 from .state import PipelineTracker
@@ -495,6 +495,7 @@ def run_neuroflow_batch(
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     lazy_upload = bool(req.get("lazy_upload"))
     awaiting_emitted: set[str] = set()
+    started_subjects: set[str] = set()
 
     def _run_launch_stage(
         launch: object,
@@ -524,11 +525,15 @@ def run_neuroflow_batch(
             stats_vector_config=context.config.stats_vector_config,
             container_name_suffix=f"{local_stage}_{launch.attempt_id}",
         )
+        def _stage_progress(stg: str, status: str, pct: float, msg: str) -> None:
+            if on_progress:
+                on_progress(stg, status, pct, f"[{context.subject_id}] {msg}")
+
         step, output_for_next = run_pipeline_stage(
             stage_config,
             local_stage,
             input_for_stage=context.input_for_stage(local_stage),
-            on_progress=on_progress,
+            on_progress=_stage_progress,
             on_build_log=on_build_log,
             on_metrics=on_metrics,
             tracker=context.tracker,
@@ -660,7 +665,8 @@ def run_neuroflow_batch(
                             continue
                         local_stage = NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(str(launch.stage_id), str(launch.stage_id))
                         execution_id = str(launch.attempt_id)
-                        if on_image_start:
+                        if on_image_start and context.subject_id not in started_subjects:
+                            started_subjects.add(context.subject_id)
                             on_image_start(context.input_file, context.idx, context.total)
                         if on_image_awaiting_input and context.subject_id not in awaiting_emitted:
                             awaiting_emitted.add(context.subject_id)

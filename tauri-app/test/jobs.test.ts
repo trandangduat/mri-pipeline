@@ -19,6 +19,9 @@ import {
   deriveJobDisplayMetadata,
   deriveSubjectStageInfo,
   formatCpuMetric,
+  formatMemory,
+  formatStepCpu,
+  formatStepRam,
   downsampleSeries,
 } from '../src/lib/jobs';
 
@@ -619,6 +622,34 @@ test('formatCpuMetric formats <=100% as percentage and >100% with core equivalen
   expect(formatCpuMetric(100.0)).toBe('100.0%');
   expect(formatCpuMetric(1686.1)).toBe('1686.1% (16.9 cores)');
   expect(formatCpuMetric(425.2)).toBe('425.2% (4.3 cores)');
+});
+
+test('formatMemory formats bytes into MB and GB with appropriate units', () => {
+  expect(formatMemory(undefined)).toBe('Not reported');
+  expect(formatMemory(0)).toBe('Not reported');
+  expect(formatMemory(-500)).toBe('Not reported');
+  expect(formatMemory(45 * 1024 * 1024)).toBe('45 MB');
+  expect(formatMemory(1536 * 1024 * 1024)).toBe('1.5 GB');
+});
+
+test('formatStepCpu displays < 1% for fast successful steps without reported CPU telemetry', () => {
+  expect(formatStepCpu(undefined)).toBe('Not reported');
+  expect(formatStepCpu({stage: 'stats', status: 'failed', elapsed_sec: 1.4})).toBe('Not reported');
+  expect(formatStepCpu({stage: 'stats', status: 'success', elapsed_sec: 45})).toBe('Not reported');
+  expect(formatStepCpu({stage: 'stats', status: 'success', elapsed_sec: 1.4})).toBe('< 1%');
+  expect(formatStepCpu({stage: 'stats', status: 'success', elapsed_sec: 0})).toBe('< 1%');
+  expect(formatStepCpu({stage: 'stats', status: 'success'})).toBe('< 1%');
+  expect(formatStepCpu({stage: 'stats', status: 'success', elapsed_sec: 1.4, cpu_pct: 12.3})).toBe('12.3%');
+});
+
+test('formatStepRam displays < 50 MB for fast successful steps without reported RAM telemetry', () => {
+  expect(formatStepRam(undefined)).toBe('Not reported');
+  expect(formatStepRam({stage: 'stats', status: 'failed', elapsed_sec: 1.4})).toBe('Not reported');
+  expect(formatStepRam({stage: 'stats', status: 'success', elapsed_sec: 45})).toBe('Not reported');
+  expect(formatStepRam({stage: 'stats', status: 'success', elapsed_sec: 1.4})).toBe('< 50 MB');
+  expect(formatStepRam({stage: 'stats', status: 'success', elapsed_sec: 0})).toBe('< 50 MB');
+  expect(formatStepRam({stage: 'stats', status: 'success'})).toBe('< 50 MB');
+  expect(formatStepRam({stage: 'stats', status: 'success', elapsed_sec: 1.4, ram_bytes: 500 * 1024 * 1024})).toBe('500 MB');
 });
 
 test('downsampleSeries reduces sample count while preserving peaks across timeline', () => {

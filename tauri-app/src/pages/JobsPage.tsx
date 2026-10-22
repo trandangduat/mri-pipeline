@@ -8,7 +8,6 @@ import {
   Clock,
   Copy,
   Download,
-  Eraser,
   Eye,
   EyeOff,
   HardDrive,
@@ -51,11 +50,15 @@ import {
   reduceBatchImages,
   displayJobState,
   filterLogLines,
+  filterLogForSubject,
   type BatchSummary,
   StageStepDetail,
   DEFAULT_STAGE_ORDER,
   DEFAULT_STAGE_LABELS,
   formatCpuMetric,
+  formatMemory,
+  formatStepCpu,
+  formatStepRam,
 } from '../lib/jobs';
 import {
   useListLocalJobsMutation,
@@ -649,7 +652,6 @@ export function JobsPage() {
   const outputText = useJobsStore((s) => s.outputText);
   const setOutputText = useJobsStore((s) => s.setOutputText);
   const appendOutputText = useJobsStore((s) => s.appendOutputText);
-  const clearJobLog = useJobsStore((s) => s.clearJobLog);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
@@ -1533,10 +1535,7 @@ export function JobsPage() {
     return Object.fromEntries(Object.entries(tools).map(([key, tool]) => [key, tool.display_name || key]));
   }, [metadata?.tools]);
 
-  const filteredLog = React.useMemo(
-    () => filterLogLines(outputText, jobLogSearch, showRawLog),
-    [outputText, jobLogSearch, showRawLog],
-  );
+
 
   const handleDownloadClick = () => {
     if (!job || !isTerminal) return;
@@ -1762,6 +1761,22 @@ export function JobsPage() {
       ? deriveImageSteps(modalEvents, modalSubject, selectedTools, stageOrder, stageLabels)
       : [];
   }, [modalEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
+
+  const modalSubjectLog = React.useMemo(() => {
+    return filterLogForSubject(
+      outputText,
+      modalSubject,
+      batchImages.length,
+      modalImageSteps,
+      showRawLog,
+      toolDisplayNames,
+    );
+  }, [outputText, modalSubject, batchImages.length, modalImageSteps, showRawLog, toolDisplayNames]);
+
+  const filteredLog = React.useMemo(
+    () => filterLogLines(modalSubjectLog, jobLogSearch, showRawLog),
+    [modalSubjectLog, jobLogSearch, showRawLog],
+  );
 
   const modalMetricsSeries = React.useMemo(() => {
     return modalSubject
@@ -2801,7 +2816,16 @@ export function JobsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => setShowRawLog(!showRawLog)}
-                          className="h-6 px-2 text-2xs border-cursor-hairline text-cursor-body"
+                          className={`h-6 px-2 text-2xs border-cursor-hairline ${
+                            showRawLog
+                              ? 'bg-cursor-canvas-soft border-cursor-primary/50 text-cursor-primary font-medium'
+                              : 'text-cursor-body'
+                          }`}
+                          title={
+                            showRawLog
+                              ? 'Currently showing detailed Raw log. Click to view Sanitized log.'
+                              : 'Currently showing Sanitized log. Click to view detailed Raw log.'
+                          }
                         >
                           {showRawLog ? (
                             <>
@@ -2823,14 +2847,6 @@ export function JobsPage() {
                           />
                           <Search className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
                         </label>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={clearJobLog}
-                          className="h-6 px-1.5 text-2xs text-cursor-body"
-                        >
-                          <Eraser className="h-3 w-3 mr-1" /> Clear
-                        </Button>
                       </div>
                     )}
                   </div>
@@ -2916,12 +2932,6 @@ function formatMetricValue(value: number | undefined, suffix: string, fractionDi
   return `${value.toFixed(fractionDigits)}${suffix}`;
 }
 
-function formatMemory(bytes: number | undefined) {
-  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return 'Not reported';
-  const mb = bytes / (1024 * 1024);
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${Math.round(mb)} MB`;
-}
 
 function formatElapsed(seconds: number | undefined) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return 'Waiting';
@@ -3026,12 +3036,17 @@ function VerticalTimelineStepRow({
   isLoadingMetrics?: boolean;
 }) {
   const isSkipped = step?.status === 'not_scheduled' || step?.status === 'skipped';
+  const isFastSuccess =
+    step?.status === 'success' &&
+    (typeof step?.elapsed_sec !== 'number' || step.elapsed_sec <= 5);
   const isCpuLoading =
     isLoadingMetrics &&
+    !isFastSuccess &&
     step?.status !== 'pending' &&
     (typeof step?.cpu_pct !== 'number' || step.cpu_pct <= 0);
   const isRamLoading =
     isLoadingMetrics &&
+    !isFastSuccess &&
     step?.status !== 'pending' &&
     (typeof step?.ram_bytes !== 'number' || step.ram_bytes <= 0);
 
@@ -3095,13 +3110,13 @@ function VerticalTimelineStepRow({
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric
                 label="CPU"
-                value={formatCpuMetric(step?.cpu_pct, 1)}
+                value={formatStepCpu(step, 1)}
                 isLoading={isCpuLoading}
               />
               <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric
                 label="RAM"
-                value={formatMemory(step?.ram_bytes)}
+                value={formatStepRam(step)}
                 isLoading={isRamLoading}
               />
             </div>

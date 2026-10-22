@@ -73,6 +73,41 @@ export function formatCpuMetric(value: number | undefined, fractionDigits = 1): 
   return `${value.toFixed(fractionDigits)}%`;
 }
 
+export function formatMemory(bytes: number | undefined): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return 'Not reported';
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${Math.round(mb)} MB`;
+}
+
+export function formatStepCpu(step: StageStepDetail | undefined, fractionDigits = 1): string {
+  if (!step) return 'Not reported';
+  if (typeof step.cpu_pct === 'number' && Number.isFinite(step.cpu_pct) && step.cpu_pct > 0) {
+    return formatCpuMetric(step.cpu_pct, fractionDigits);
+  }
+  const isFastSuccess =
+    step.status === 'success' &&
+    (typeof step.elapsed_sec !== 'number' || step.elapsed_sec <= 5);
+  if (isFastSuccess) {
+    return '< 1%';
+  }
+  return 'Not reported';
+}
+
+export function formatStepRam(step: StageStepDetail | undefined): string {
+  if (!step) return 'Not reported';
+  if (typeof step.ram_bytes === 'number' && Number.isFinite(step.ram_bytes) && step.ram_bytes > 0) {
+    return formatMemory(step.ram_bytes);
+  }
+  const isFastSuccess =
+    step.status === 'success' &&
+    (typeof step.elapsed_sec !== 'number' || step.elapsed_sec <= 5);
+  if (isFastSuccess) {
+    return '< 50 MB';
+  }
+  return 'Not reported';
+}
+
 export function downsampleSeries(points: number[], maxPoints = 180): number[] {
   if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
   const downsampled: number[] = [];
@@ -155,6 +190,227 @@ export function filterLogLines(text: string | null | undefined, query: string, s
     .split('\n')
     .filter((line) => line.toLowerCase().includes(q))
     .join('\n');
+}
+
+function formatDurationSec(sec: number | undefined): string {
+  if (typeof sec !== 'number' || !Number.isFinite(sec) || sec < 0) return '—';
+  const s = Math.round(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rem = s % 60;
+  if (h > 0) return `${h}h ${m}m ${rem}s`;
+  if (m > 0) return `${m}m ${rem}s`;
+  return `${rem}s`;
+}
+
+export function buildSubjectRawDetails(
+  subject: BatchImageItem,
+  steps: StageStepDetail[],
+  timestamps: string[],
+  toolDisplayNames?: Record<string, string>,
+  extraRawLines?: string[],
+  rawSubjectLines?: string[],
+): string {
+  const scheduledSteps = steps.filter((s) => s.status !== 'not_scheduled' && s.status !== 'skipped');
+  const stepList = scheduledSteps.length > 0 ? scheduledSteps : steps;
+
+  const headerLines = [
+    '================================================================================',
+    `SUBJECT LOG [RAW DETAILS]: #${subject.idx} ${subject.subject_id}`,
+    '================================================================================',
+    `  • Subject ID:     ${subject.subject_id}`,
+    `  • Batch Position: #${subject.idx} (of ${subject.total || '?'})`,
+    `  • Input File:     ${subject.input_file}`,
+    `  • Overall Status: ${(subject.status || 'unknown').toUpperCase()}`,
+    subject.duration_sec !== undefined ? `  • Total Duration: ${formatDurationSec(subject.duration_sec)}` : null,
+    subject.started_at
+      ? `  • Started At:     ${new Date(subject.started_at * 1000).toLocaleString()}`
+      : timestamps[0] && timestamps[0] !== '—'
+        ? `  • Started At:     ${timestamps[0]}`
+        : null,
+    subject.finished_at ? `  • Finished At:    ${new Date(subject.finished_at * 1000).toLocaleString()}` : null,
+    `  • Stages Count:   ${stepList.length} configured pipeline stages`,
+    '================================================================================',
+    '',
+  ].filter(Boolean);
+
+  const stepBlocks = stepList.map((step, idx) => {
+    const stepNum = idx + 1;
+    const toolName = (toolDisplayNames && step.tool ? toolDisplayNames[step.tool] : undefined) || step.tool || 'Not specified';
+    const timeStr = timestamps[idx] || '—';
+    const elapsedStr = step.elapsed_sec !== undefined ? `${step.elapsed_sec}s` : (step.status === 'success' ? '< 1s' : 'Not recorded');
+    const cpuStr = formatStepCpu(step);
+    const ramStr = formatStepRam(step);
+    const gpuStr = typeof step.gpu_pct === 'number' && step.gpu_pct > 0 ? `${step.gpu_pct}%` : 'N/A (CPU execution)';
+    const container = step.container_name || (step.tool ? `mri-${subject.subject_id}-${step.tool}` : '—');
+    const cleanLabel = (step.label || step.stage).replace(/^\d+\.\s*/, '');
+
+    return [
+      `[STAGE ${stepNum}/${stepList.length}] ${cleanLabel}`,
+      `  • Stage Key:    ${step.stage}`,
+      `  • Tool:         ${toolName}${step.tool ? ` (${step.tool})` : ''}`,
+      `  • Status:       ${(step.status || 'pending').toUpperCase()}`,
+      `  • Started at:   ${timeStr}`,
+      `  • Duration:     ${elapsedStr}`,
+      `  • Peak CPU:     ${cpuStr}`,
+      `  • Peak RAM:     ${ramStr}`,
+      `  • Peak GPU:     ${gpuStr}`,
+      `  • Container:    ${container}`,
+      `  • Isolation:    Docker Container`,
+      `  • Target File:  ${subject.input_file}`,
+    ].join('\n');
+  }).join('\n\n');
+
+  let result = `${headerLines.join('\n')}\n${stepBlocks}`;
+
+  const streamLines = rawSubjectLines && rawSubjectLines.length > 0 ? rawSubjectLines : extraRawLines;
+  if (streamLines && streamLines.length > 0) {
+    result += `\n\n================================================================================\nRAW CONSOLE OUTPUT STREAM [${streamLines.length} lines]:\n================================================================================\n${streamLines.join('\n')}\n================================================================================`;
+  }
+
+  return result;
+}
+
+export function filterLogForSubject(
+  text: string | null | undefined,
+  subject: BatchImageItem | null | undefined,
+  totalCount = 1,
+  steps?: StageStepDetail[],
+  showRaw = false,
+  toolDisplayNames?: Record<string, string>,
+): string {
+  if (!text) return '';
+  if (!subject) return text;
+
+  const lines = text.split('\n');
+  const idx = subject.idx;
+  if (!idx || idx <= 0) return text;
+
+  // 1. Identify lines relevant to this subject
+  let targetLines: string[] = [];
+
+  // 1a. Detect if log has structured "Starting image X/Y" markers
+  const startIndices: {idx: number; lineIndex: number}[] = [];
+  lines.forEach((line, i) => {
+    const m = line.match(/Starting image (\d+)\/(\d+)/i);
+    if (m && m[1]) {
+      startIndices.push({idx: parseInt(m[1], 10), lineIndex: i});
+    }
+  });
+
+  const ourStart = startIndices.find((s) => s.idx === idx);
+  if (ourStart) {
+    const ourDoneIndex = lines.findIndex(
+      (line, i) =>
+        i >= ourStart.lineIndex &&
+        new RegExp(`Done image ${idx}/`, 'i').test(line),
+    );
+
+    const nextStart = startIndices.find((s) => s.idx !== idx && s.lineIndex > ourStart.lineIndex);
+    const isSequential =
+      !nextStart || ourDoneIndex === -1 || ourDoneIndex <= nextStart.lineIndex;
+
+    if (isSequential) {
+      const endLineIndex =
+        ourDoneIndex !== -1
+          ? ourDoneIndex + 1
+          : nextStart
+            ? nextStart.lineIndex
+            : lines.length;
+      targetLines = lines.slice(ourStart.lineIndex, endLineIndex);
+    }
+  }
+
+  // 1b. Interleaved / Concurrent fallback: match subject keywords
+  if (targetLines.length === 0 && totalCount > 1) {
+    const subjectId = (subject.subject_id || '').trim();
+    const rawFile = (subject.input_file || '').trim();
+    const fileBasename = rawFile ? rawFile.split(/[/\\]/).pop() || '' : '';
+    const cleanBasename = fileBasename.replace(/\.nii(\.gz)?$|\.mgz$/i, '');
+
+    const genericNames = new Set(['001', 'orig', 't1', 'mri', 'image', 'input', 'raw']);
+    const isGeneric = (name: string) => genericNames.has(name.toLowerCase());
+
+    const keywords: string[] = [];
+    if (subjectId && subjectId.length >= 3 && !isGeneric(subjectId)) {
+      keywords.push(subjectId.toLowerCase());
+      keywords.push(subjectId.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase());
+      keywords.push(subjectId.replace(/[^A-Za-z0-9]+/g, '_').toLowerCase());
+    }
+    if (cleanBasename && cleanBasename.length >= 5 && !isGeneric(cleanBasename)) {
+      keywords.push(cleanBasename.toLowerCase());
+    }
+    keywords.push(`image ${idx}/`);
+    keywords.push(`image ${idx}:`);
+
+    const uniqueKeywords = Array.from(new Set(keywords.filter(Boolean)));
+    if (uniqueKeywords.length > 0) {
+      const matched = lines.filter((line) => {
+        const lower = line.toLowerCase();
+        return uniqueKeywords.some((kw) => lower.includes(kw));
+      });
+      if (matched.length > 0) {
+        targetLines = matched;
+      }
+    }
+  }
+
+  if (targetLines.length === 0) {
+    targetLines = lines;
+  }
+
+  // Extract timestamps from start lines
+  const timestamps: string[] = [];
+  const extraLines: string[] = [];
+  for (const line of targetLines) {
+    const isStart = new RegExp(`Starting image ${idx}/\\d+`, 'i').test(line);
+    const isDone = new RegExp(`Done image ${idx}/\\d+`, 'i').test(line);
+    if (isStart) {
+      const m = line.match(/\[(\d{1,2}:\d{2}:\d{2})\]/);
+      timestamps.push(m && m[1] ? m[1] : '—');
+    } else if (!isDone && line.trim()) {
+      extraLines.push(line);
+    }
+  }
+
+  // If RAW mode is active and we have steps, construct full technical details
+  if (showRaw && steps && steps.length > 0) {
+    return buildSubjectRawDetails(subject, steps, timestamps, toolDisplayNames, extraLines, targetLines);
+  }
+
+  // Otherwise SANITIZED mode: clean out "Starting image <idx>/<total>"
+  const scheduledSteps = steps ? steps.filter((s) => s.status !== 'not_scheduled' && s.status !== 'skipped') : [];
+  const stepList = scheduledSteps.length > 0 ? scheduledSteps : (steps || []);
+  let counter = 0;
+
+  const sanitizedLines = targetLines
+    .filter((line) => {
+      const trimmed = line.trim();
+      return !trimmed.startsWith('MRI_EVENT {') && !trimmed.startsWith('MRI_EVENT\t{');
+    })
+    .map((line) => {
+      const startingRegex = new RegExp(`Starting image ${idx}/\\d+:?\\s*`, 'i');
+      if (startingRegex.test(line)) {
+        const step = stepList[counter];
+        counter++;
+        if (step) {
+          const cleanLabel = (step.label || step.stage).replace(/^\d+\.\s*/, '');
+          const toolStr = (toolDisplayNames && step.tool ? toolDisplayNames[step.tool] : undefined) || step.tool;
+          const labelWithTool = toolStr ? `${cleanLabel} - ${toolStr}` : cleanLabel;
+          return line.replace(startingRegex, `[${counter}. ${labelWithTool}]: `);
+        }
+        return line.replace(startingRegex, '');
+      }
+
+      const doneRegex = new RegExp(`Done image ${idx}/\\d+:?\\s*`, 'i');
+      if (doneRegex.test(line)) {
+        return line.replace(doneRegex, 'Done: ');
+      }
+
+      return line;
+    });
+
+  return sanitizedLines.join('\n');
 }
 
 export function displayJobState(state: unknown): string {
