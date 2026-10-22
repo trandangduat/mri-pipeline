@@ -75,6 +75,7 @@ TOOL_CONTRACTS = {
     "fastsurfer_reorientation": _c(produces={ORIG_MGZ}),
     "fs8_reduced54_reorientation": _c(produces={ORIG_MGZ}),
     "fs7_recon_style_reorientation": _c(produces={ORIG_MGZ}),
+    "dcm2niix": _c(produces={NIFTI_VOLUME}),
     "mri_convert_fs7": _c(produces={NIFTI_VOLUME}),
     "nibabel": _c(produces={NIFTI_VOLUME}),
     # --- brain extraction --------------------------------------------------

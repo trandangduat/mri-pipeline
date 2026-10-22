@@ -1,17 +1,13 @@
-# Communication & Language
-Follow ISO24495
+# Answer Language
 
-# Agent Environment
+Write all answers in ASD-STE100 Simplified Technical English.
 
-This Herdr workspace uses a Planner → Executor workflow.
+- Use short sentences. Maximum 20 words in each sentence.
+- Give one idea in each sentence.
+- Use simple words. Do not use idioms or jargon.
+- Use the active voice where possible.
+- Use lists and tables for data and steps.
 
-If you are the Planning Agent:
-- Read `.agents/roles/planner.md`.
-- Reference to `DESIGN.md` for UI works.
-- Follow the Herdr skill when communicating with other agents.
+# Rules
 
-# Testing
-
-Write and run only critical tests.
-
-Keep session-specific context out of this file.
+- **Avoid unnecessary tests**: DO NOT write and run unnecessary tests

@@ -890,7 +890,19 @@ def _cat12_segmentation(ctx: ToolContext, surface_mode: int, batch_names: str) -
         "*.nii.gz) WORK_INPUT=input.nii.gz; cp \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
         "*.nii) WORK_INPUT=input.nii; cp \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
         "*.mgz|*.mgh) WORK_INPUT=input.nii; python3 -c 'import sys, nibabel as nib; img = nib.load(sys.argv[1]); nib.save(img, sys.argv[2])' \"$INPUT\" \"/work/$WORK_INPUT\" ;; "
-        "*) echo 'CAT12 supports .nii, .nii.gz, .mgz, or .mgh input files' >&2; exit 2 ;; "
+        "*) "
+        "INPUT_DIR=$(dirname \"$INPUT\"); "
+        "TARGET_DIR=\"$INPUT_DIR\"; "
+        "if [ -d \"$INPUT\" ]; then TARGET_DIR=\"$INPUT\"; fi; "
+        "if command -v dcm2niix >/dev/null 2>&1; then "
+        "dcm2niix -z y -b y -f input -o /work \"$TARGET_DIR\"; "
+        "if [ ! -f /work/input.nii.gz ]; then "
+        "CONV=$(find /work -maxdepth 1 -name \"input*.nii.gz\" | head -n 1); "
+        "if [ -n \"$CONV\" ]; then mv \"$CONV\" /work/input.nii.gz; "
+        "else echo 'CAT12 failed to convert DICOM input to NIfTI' >&2; exit 2; fi; "
+        "fi; "
+        "WORK_INPUT=input.nii.gz; "
+        "else echo 'CAT12 supports .nii, .nii.gz, .mgz, or .mgh input files' >&2; exit 2; fi ;; "
         "esac; "
         "CAT_SCRIPT=; for candidate in /opt/spm/standalone/cat_standalone.sh /opt/cat12/standalone/cat_standalone.sh; do if [ -x \"$candidate\" ]; then CAT_SCRIPT=\"$candidate\"; break; fi; done; "
         "test -n \"$CAT_SCRIPT\" || { echo 'CAT standalone script not found' >&2; exit 3; }; "
@@ -972,6 +984,30 @@ def _fs8_mni_atlas_projection(ctx: ToolContext) -> str:
         "test -s \"$NORM\" || { echo norm.mgz not found; exit 1; }; "
         + _fs8r_atlas_projection_suffix(ctx)
         + "test -s /output/stats/atlas_mapping/mni152_to_subject.affine.lta"
+    )
+
+
+def _dcm2niix_command(ctx: ToolContext) -> str:
+    return (
+        "set -euo pipefail; "
+        "mkdir -p /work /output; "
+        f"INPUT={_q(ctx.input_path)}; "
+        "INPUT_DIR=$(dirname \"$INPUT\"); "
+        "INPUT_BASE=$(basename \"$INPUT\"); "
+        "case \"$INPUT_BASE\" in "
+        "*.nii.gz) cp \"$INPUT\" /work/01_reoriented.nii.gz ;; "
+        "*.nii) gzip -c \"$INPUT\" > /work/01_reoriented.nii.gz ;; "
+        "*) TARGET_DIR=\"$INPUT_DIR\"; "
+        "if [ -d \"$INPUT\" ]; then TARGET_DIR=\"$INPUT\"; fi; "
+        "dcm2niix -z y -b y -f 01_reoriented -o /work \"$TARGET_DIR\"; "
+        "if [ ! -f /work/01_reoriented.nii.gz ]; then "
+        "FOUND=$(find /work -maxdepth 1 -name \"01_reoriented*.nii.gz\" | head -n 1); "
+        "if [ -n \"$FOUND\" ]; then mv \"$FOUND\" /work/01_reoriented.nii.gz; "
+        "else ANY=$(find /work -maxdepth 1 -name \"*.nii.gz\" | head -n 1); "
+        "if [ -n \"$ANY\" ]; then mv \"$ANY\" /work/01_reoriented.nii.gz; "
+        "else echo 'dcm2niix conversion failed' >&2; exit 2; fi; fi; fi ;; "
+        "esac; "
+        "test -s /work/01_reoriented.nii.gz"
     )
 
 
@@ -1373,6 +1409,15 @@ TOOL_DEFS: dict[str, dict] = {
         "stage": "reorientation",
         "needs_license": True,
         "command_builder": lambda ctx: f"mri_convert {'-no-dcm2niix -dicomread2 --sdcmlist ' + ctx.dicom_list_path + ' ' if ctx.dicom_list_path else ''}{ctx.input_path} /work/01_reoriented.nii.gz",
+        "output_files": ["01_reoriented.nii.gz"],
+    },
+    "dcm2niix": {
+        "display_name": "dcm2niix Reorientation",
+        "image": CAT12_IMAGE,
+        "dockerfile": "docker/dcm2niix",
+        "stage": "reorientation",
+        "needs_license": False,
+        "command_builder": _dcm2niix_command,
         "output_files": ["01_reoriented.nii.gz"],
     },
     "nibabel": {
