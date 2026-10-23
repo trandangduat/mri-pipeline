@@ -130,14 +130,18 @@ export function BatchPieChart({
   const center = 50;
   const chartStyle = {width: `${size}px`, height: `${size}px`, minWidth: `${size}px`, minHeight: `${size}px`};
   const stoppedCount = (typeof stopped === 'number' ? stopped : interrupted) || 0;
-  const safeTotal = total > 0 ? total : ((success || 0) + (failed || 0) + stoppedCount + (running || 0) + (pending || 0));
+  const countedNonPending = (success || 0) + (failed || 0) + stoppedCount + (running || 0);
+  const sumCount = countedNonPending + (pending || 0);
+  const safeTotal = total > 0 ? total : sumCount;
+  const effectivePending = Math.max(0, safeTotal - countedNonPending);
+  const finalPending = Math.max(pending || 0, effectivePending);
 
   const segments = [
     {count: success || 0, color: '#1f8a65', key: 'success', label: `Finished: ${success || 0}`}, // Semantic Success
     {count: failed || 0, color: '#cf2d56', key: 'failed', label: `Failed: ${failed || 0}`}, // Semantic Error
     {count: stoppedCount, color: '#f59e0b', key: 'interrupted', label: `Stopped: ${stoppedCount}`}, // Semantic Warn
     {count: running || 0, color: '#0077b6', key: 'running', label: `Running: ${running || 0}`}, // Primary
-    {count: pending || 0, color: '#cfcdc4', key: 'pending', label: `Pending: ${pending || 0}`}, // Muted / Pending
+    {count: finalPending, color: '#cfcdc4', key: 'pending', label: `Pending: ${finalPending}`}, // Muted / Pending
   ].filter((s) => s.count > 0);
 
   if (safeTotal <= 0 || segments.length === 0) {
@@ -150,8 +154,9 @@ export function BatchPieChart({
     );
   }
 
-  // If only 1 category exists, render a full solid circle
-  const singleSeg = segments.length === 1 ? segments[0] : undefined;
+  // If only 1 category exists and it fully accounts for the total, render a full solid circle
+  const firstSegment = segments[0];
+  const singleSeg = segments.length === 1 && firstSegment && firstSegment.count >= safeTotal ? firstSegment : undefined;
   if (singleSeg) {
     return (
       <div className="relative flex items-center justify-center flex-none" style={chartStyle}>
@@ -339,6 +344,11 @@ function jobBatchSummary(job: Record<string, unknown>): BatchSummary {
     if (running === 0 && pending === 0 && success === 0) {
       running = total;
     }
+  }
+
+  const remaining = Math.max(0, total - success - failed - stopped - running);
+  if (pending <= 0 && remaining > 0 && normState === 'running') {
+    pending = remaining;
   }
 
   const completed = success + failed + stopped;
@@ -1458,7 +1468,16 @@ export function JobsPage() {
     () => reduceBatchImages(reducedBatchImages, [], JSON.parse(jobSnapshot) as Record<string, unknown>),
     [reducedBatchImages, jobSnapshot],
   );
-  const batchSummary = React.useMemo(() => deriveBatchSummary(batchImages), [batchImages]);
+  const expectedJobTotal = React.useMemo(() => {
+    const raw = job?.batch_summary as Record<string, unknown> | undefined;
+    const summary = (job?.run_request_summary as Record<string, unknown>) || {};
+    return Number(raw?.total || summary.batchImageCount || (Array.isArray(job?.input_files) ? job.input_files.length : 0));
+  }, [job]);
+
+  const batchSummary = React.useMemo(
+    () => deriveBatchSummary(batchImages, expectedJobTotal),
+    [batchImages, expectedJobTotal],
+  );
   const displayMeta = React.useMemo(
     () => deriveJobDisplayMetadata(JSON.parse(jobSnapshot) as Record<string, unknown>, safeEvents, batchImages),
     [jobSnapshot, safeEvents, batchImages],
@@ -1473,7 +1492,7 @@ export function JobsPage() {
 
 
   // Adaptive polling:
-  // - If looking at a running job: poll every 30s with lightweight delta fetch
+  // - If looking at a running job: poll every 10s with lightweight delta fetch
   // - If looking at a terminal job: do not poll (paused)
   // - If on jobs list: poll every 20s
   // - If the backend is down: pause entirely. The status-line Retry is the
@@ -1487,7 +1506,7 @@ export function JobsPage() {
     if (selectedJobId && isTerminal) {
       return;
     }
-    const pollDelay = selectedJobId && normState === 'running' ? 30_000 : 20_000;
+    const pollDelay = selectedJobId && normState === 'running' ? 10_000 : 20_000;
     const interval = setInterval(() => {
       if (useUiStore.getState().busy.refreshJobs) return;
       void refreshJobs();

@@ -85,10 +85,12 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       nextFormValues.inputSource = (workspace.input_source as string) || (workspace.run_target === 'Server' ? 'Server' : 'Local');
       const rawInputMode = (workspace.input_mode as string) || 'file';
       nextFormValues.inputMode = rawInputMode === 'dir' || rawInputMode === 'batch_folder' ? 'batch_folder' : rawInputMode;
-      nextFormValues.inputPath = inputPath || inputServerDir;
-      nextFormValues.outputDir = outputDir || serverOutputDir;
-      nextFormValues.serverOutputDir = serverOutputDir || (isServer ? outputDir : '');
-      nextFormValues.inputServerDir = inputServerDir || (isServer ? inputPath : '');
+      const effectiveOutput = isServer ? (serverOutputDir || outputDir) : (outputDir || serverOutputDir);
+      const effectiveInput = isServer ? (inputServerDir || inputPath) : (inputPath || inputServerDir);
+      nextFormValues.inputPath = effectiveInput;
+      nextFormValues.outputDir = effectiveOutput;
+      nextFormValues.serverOutputDir = isServer ? effectiveOutput : (serverOutputDir || outputDir);
+      nextFormValues.inputServerDir = isServer ? effectiveInput : (inputServerDir || inputPath);
       nextFormValues.additionalInputPaths = Array.isArray(workspace.selected_files)
         ? workspace.selected_files.join(', ')
         : (workspace.selected_files as string) || '';

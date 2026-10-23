@@ -83,34 +83,28 @@ export function useRemoveImage() {
   });
 }
 
-export interface PullStreamState {
-  status: 'idle' | 'pulling' | 'success' | 'failed';
-  logs: string[];
-  error: string | null;
-  image: string | null;
-  target: string;
+import {useToolsStore, type PullStreamState} from '../stores/toolsStore';
+export type {PullStreamState};
+
+let activePullAbortController: AbortController | null = null;
+let activePullPollTimer: number | null = null;
+
+function stopPullPolling() {
+  if (activePullPollTimer != null) {
+    window.clearInterval(activePullPollTimer);
+    activePullPollTimer = null;
+  }
 }
 
 export function usePullImageStream() {
   const queryClient = useQueryClient();
-  const [state, setState] = useState<PullStreamState>({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
-  const abortRef = useRef<AbortController | null>(null);
-  const pollRef = useRef<number | null>(null);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current != null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => stopPolling, [stopPolling]);
+  const pullStreamState = useToolsStore((s) => s.pullStreamState);
 
   const startPolling = useCallback(
     (image: string, remote: unknown) => {
-      stopPolling();
+      stopPullPolling();
       let offset = 0;
-      pollRef.current = window.setInterval(async () => {
+      activePullPollTimer = window.setInterval(async () => {
         try {
           const res = await fetch(`${DEFAULT_BACKEND_URL}/tools/server/pull/status`, {
             method: 'POST',
@@ -130,22 +124,24 @@ export function usePullImageStream() {
           if (data.log_text) {
             const newLines = data.log_text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
             if (newLines.length > 0) {
-              setState((s) => ({...s, logs: [...s.logs, ...newLines]}));
+              useToolsStore.getState().appendPullLogs(newLines);
             }
           }
           if (typeof data.next_offset === 'number') {
             offset = data.next_offset;
           }
           if (data.exit_code != null) {
-            stopPolling();
+            stopPullPolling();
             if (data.exit_code === 0) {
-              setState((s) => ({...s, status: 'success', logs: [...s.logs, 'Server pull completed.']}));
+              useToolsStore.getState().setPullStreamState((s) => ({
+                status: 'success',
+                logs: [...s.logs, 'Server pull completed.'],
+              }));
             } else {
-              setState((s) => ({
-                ...s,
+              useToolsStore.getState().setPullStreamState({
                 status: 'failed',
                 error: data.error || `Server pull failed (exit ${data.exit_code})`,
-              }));
+              });
             }
             void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
           }
@@ -154,16 +150,16 @@ export function usePullImageStream() {
         }
       }, 3000);
     },
-    [queryClient, stopPolling],
+    [queryClient],
   );
 
   const pull = useCallback(
     async (image: string, {target = 'Local', remote = null}: {target?: string; remote?: unknown} = {}) => {
-      stopPolling();
-      abortRef.current?.abort();
+      stopPullPolling();
+      activePullAbortController?.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
-      setState({status: 'pulling', logs: [], error: null, image, target});
+      activePullAbortController = controller;
+      useToolsStore.getState().setPullStreamState({status: 'pulling', logs: [], error: null, image, target});
 
       try {
         const response = await fetch(`${DEFAULT_BACKEND_URL}/tools/local/pull`, {
@@ -174,13 +170,13 @@ export function usePullImageStream() {
         });
 
         if (!response.ok) {
-          setState((s) => ({...s, status: 'failed', error: `HTTP ${response.status}`}));
+          useToolsStore.getState().setPullStreamState({status: 'failed', error: `HTTP ${response.status}`});
           return;
         }
 
         const reader = response.body?.getReader();
         if (!reader) {
-          setState((s) => ({...s, status: 'failed', error: 'No response body'}));
+          useToolsStore.getState().setPullStreamState({status: 'failed', error: 'No response body'});
           return;
         }
 
@@ -202,19 +198,22 @@ export function usePullImageStream() {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (currentEvent === 'step' && data.detail) {
-                  setState((s) => ({...s, logs: [...s.logs, data.detail]}));
+                  useToolsStore.getState().appendPullLogs([data.detail]);
                 } else if (currentEvent === 'complete') {
                   sawComplete = true;
                   if (data.ok) {
                     if (target === 'Server' && data.status === 'pulling') {
-                      setState((s) => ({...s, status: 'pulling', logs: [...s.logs, 'Server pull is running in the background.']}));
+                      useToolsStore.getState().setPullStreamState((s) => ({
+                        status: 'pulling',
+                        logs: [...s.logs, 'Server pull is running in the background.'],
+                      }));
                       startPolling(image, remote);
                     } else {
-                      setState((s) => ({...s, status: 'success'}));
+                      useToolsStore.getState().setPullStreamState({status: 'success'});
                     }
                     void queryClient.invalidateQueries({queryKey: queryKeys.tools.all});
                   } else {
-                    setState((s) => ({...s, status: 'failed', error: data.error || 'Pull failed'}));
+                    useToolsStore.getState().setPullStreamState({status: 'failed', error: data.error || 'Pull failed'});
                   }
                 }
                 currentEvent = '';
@@ -226,7 +225,7 @@ export function usePullImageStream() {
         }
 
         if (!sawComplete) {
-          setState((s) => {
+          useToolsStore.getState().setPullStreamState((s) => {
             if (s.status !== 'pulling') {
               return s;
             }
@@ -239,18 +238,18 @@ export function usePullImageStream() {
         }
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
-          setState((s) => ({...s, status: 'failed', error: (err as Error).message || 'Stream error'}));
+          useToolsStore.getState().setPullStreamState({status: 'failed', error: (err as Error).message || 'Stream error'});
         }
       }
     },
-    [queryClient, startPolling, stopPolling],
+    [queryClient, startPolling],
   );
 
   const reset = useCallback(() => {
-    stopPolling();
-    abortRef.current?.abort();
-    setState({status: 'idle', logs: [], error: null, image: null, target: 'Local'});
-  }, [stopPolling]);
+    stopPullPolling();
+    activePullAbortController?.abort();
+    useToolsStore.getState().resetPullStream();
+  }, []);
 
-  return {...state, pull, reset};
+  return {...pullStreamState, pull, reset};
 }

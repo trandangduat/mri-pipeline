@@ -128,7 +128,7 @@ export function buildRunConfig(
           : [],
     selected_files: additionalPaths.length > 0 ? additionalPaths : [],
     output_dir: formValues.runtimeTarget === 'Server'
-      ? (formValues.outputDir || formValues.serverOutputDir || '')
+      ? (formValues.serverOutputDir || formValues.outputDir || '')
       : formValues.outputDir,
     server_output_dir: formValues.runtimeTarget === 'Server'
       ? (formValues.serverOutputDir || formValues.outputDir || '')

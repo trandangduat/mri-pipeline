@@ -2137,30 +2137,10 @@ function BatchConfigModal({
         </div>
       )}
 
-      {/* Manual count fallback (local or not yet scanned) */}
-      {(!canScan || !scanned) && (
-        <div className="px-4 py-3">
-          <label className={labelCls}>
-            Number of images to process
-            <input
-              type="number"
-              min={1}
-              step={1}
-              className={inputCls}
-              value={count}
-              onChange={(e) => {
-                setCount(Math.max(1, parseInt(e.target.value, 10) || 1));
-                setSelectedPaths(new Set());
-              }}
-            />
-          </label>
-        </div>
-      )}
-
       {/* Sticky footer */}
       <div className="flex items-center justify-between gap-2.5 border-t border-cursor-hairline bg-cursor-surface-card px-4 py-3">
         <div className="text-sm font-medium text-cursor-ink">
-          {selectedPaths.size} of {serverEntries.length} selected
+          {scanPending ? 'Scanning directory...' : `${selectedPaths.size} of ${serverEntries.length} selected`}
         </div>
         <div className="flex flex-none gap-2">
           <Button variant="ghost" onClick={onClose}>
@@ -2168,9 +2148,9 @@ function BatchConfigModal({
           </Button>
           <Button
             variant="primary"
-            disabled={canScan && scanned && selectedPaths.size === 0}
+            disabled={scanPending || selectedPaths.size === 0}
             onClick={() => {
-              const paths = scanned && selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
+              const paths = selectedPaths.size > 0 ? Array.from(selectedPaths) : undefined;
               onConfirm(finalCount, paths);
             }}
           >
@@ -2541,7 +2521,10 @@ export function InputOutputSection() {
                 label="Output location (server path)"
                 value={formValues.serverOutputDir || ''}
                 placeholder="/home/user/mri-outputs"
-                onChange={(v) => setFormField('serverOutputDir', v)}
+                onChange={(v) => {
+                  setFormField('serverOutputDir', v);
+                  setFormField('outputDir', v);
+                }}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
                 required
@@ -2639,7 +2622,10 @@ export function InputOutputSection() {
                 label="Output location (server path)"
                 value={formValues.serverOutputDir || ''}
                 placeholder="/home/user/mri-outputs"
-                onChange={(v) => setFormField('serverOutputDir', v)}
+                onChange={(v) => {
+                  setFormField('serverOutputDir', v);
+                  setFormField('outputDir', v);
+                }}
                 onBrowse={() => setServerOutputModal(true)}
                 disabled={!remoteConnected}
                 required
@@ -2725,6 +2711,7 @@ export function InputOutputSection() {
             foldersOnly={true}
             onConfirm={(p) => {
               setFormField('serverOutputDir', p);
+              setFormField('outputDir', p);
               setServerOutputModal(false);
             }}
             onClose={() => setServerOutputModal(false)}

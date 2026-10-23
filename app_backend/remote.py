@@ -687,7 +687,7 @@ class RemoteJobService:
             input_file=str(run_request.get("input_file", "")),
             input_files=list(run_request.get("input_files") or []),
             input_dir=str(run_request.get("input_dir", "")),
-            output_dir=str(run_request.get("output_dir", "")),
+            output_dir=str(run_request.get("server_output_dir") or run_request.get("output_dir", "")),
             server_output_dir=str(run_request.get("server_output_dir", "")),
             license_dir=str(run_request.get("license_dir", "")),
             device=str(run_request.get("device", "cpu")),
@@ -821,6 +821,17 @@ class RemoteJobService:
 
         from app_backend.jobs import _make_run_request_summary
 
+        actual_output_dir = (
+            getattr(runner, "remote_output_dir", "")
+            or remote_config.server_output_dir
+            or remote_config.output_dir
+            or str(run_request.get("server_output_dir") or run_request.get("output_dir", ""))
+        )
+        req_for_summary = dict(run_request)
+        if actual_output_dir:
+            req_for_summary["output_dir"] = actual_output_dir
+            req_for_summary["effective_output_dir"] = actual_output_dir
+
         yield complete_event(True, job={
             "job_id": job_id,
             "target": "Server",
@@ -830,11 +841,11 @@ class RemoteJobService:
             "remote_workspace": remote_config.remote_workspace,
             "started_at": float(remote_status.get("started_at", 0) or 0) or None,
             "pid": remote_status.get("pid"),
-            "output_dir": remote_config.output_dir or str(run_request.get("output_dir", "")),
-            "effective_output_dir": remote_config.output_dir or str(run_request.get("effective_output_dir", run_request.get("output_dir", ""))),
+            "output_dir": actual_output_dir,
+            "effective_output_dir": actual_output_dir,
             "download_subdir": remote_config.download_subdir or str(run_request.get("download_subdir", "")),
             "input_files": list(run_request.get("input_files") or ([run_request["input_file"]] if run_request.get("input_file") else [])),
-            "run_request_summary": _make_run_request_summary(run_request),
+            "run_request_summary": _make_run_request_summary(req_for_summary),
         })
 
     def stream_download_outputs(self, data: dict[str, object]) -> Iterator[SSEEvent]:

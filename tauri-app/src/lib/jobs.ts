@@ -842,13 +842,13 @@ export function reduceBatchImages(
   return Array.from(imagesMap.values());
 }
 
-export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
-  const total = images.length;
+export function deriveBatchSummary(images: BatchImageItem[], expectedTotal?: number): BatchSummary {
   let success = 0;
   let failed = 0;
   let running = 0;
   let pending = 0;
   let stopped = 0;
+  let maxItemTotal = 0;
 
   for (const img of images) {
     if (img.status === 'success') success++;
@@ -856,8 +856,15 @@ export function deriveBatchSummary(images: BatchImageItem[]): BatchSummary {
     else if (img.status === 'stopped' || (img.status as string) === 'interrupted') stopped++;
     else if (img.status === 'running') running++;
     else pending++;
+    if (typeof img.total === 'number' && img.total > maxItemTotal) {
+      maxItemTotal = img.total;
+    }
   }
 
+  const derivedTotal = Math.max(images.length, maxItemTotal, expectedTotal || 0);
+  const remaining = Math.max(0, derivedTotal - success - failed - stopped - running);
+  pending = Math.max(pending, remaining);
+  const total = success + failed + stopped + running + pending;
   const completed = success + failed + stopped;
   const completedPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
@@ -1334,12 +1341,26 @@ export function deriveJobDisplayMetadata(
   const reqSummary = (job?.run_request_summary as Record<string, unknown>) || {};
   const jobStateRaw = String(job?.state || 'unknown');
   const normState = normalizeJobState(jobStateRaw);
-
   const batchImages = precomputedBatchImages ?? deriveBatchImages(events, job || {});
+  const rawSum = (job?.batch_summary as Record<string, unknown>) || {};
+  let maxEventTotal = 0;
+  for (const ev of events) {
+    if (ev.total && Number(ev.total) > maxEventTotal) {
+      maxEventTotal = Number(ev.total);
+    }
+  }
+  const expectedTotal = Math.max(
+    Number(rawSum.total || reqSummary.batchImageCount || 0),
+    maxEventTotal,
+    Array.isArray(job?.input_files) ? job.input_files.length : 0,
+    batchImages.length > 0 ? (batchImages[0]?.total || 0) : 0,
+    1,
+  );
+
   const anyImageRunning = batchImages.some((img) => img.status === 'running');
   const anyImageFailed = batchImages.some((img) => img.status === 'failed');
   const allImagesTerminal =
-    batchImages.length > 0 &&
+    batchImages.length >= expectedTotal &&
     batchImages.every((img) => img.status === 'success' || img.status === 'failed');
 
   let hasTerminalEvent = false;
@@ -1373,12 +1394,16 @@ export function deriveJobDisplayMetadata(
     status_reconciled = allImagesTerminal && !anyImageFailed ? 'completed' : 'failed';
   } else if (hasTerminalEvent) {
     status_reconciled = hasFailedEvent || anyImageFailed ? 'failed' : 'completed';
+  } else if (normState === 'running' || anyImageRunning) {
+    if (allImagesTerminal && !anyImageRunning) {
+      status_reconciled = anyImageFailed ? 'failed' : 'completed';
+    } else {
+      status_reconciled = 'running';
+    }
   } else if (allImagesTerminal) {
     status_reconciled = anyImageFailed ? 'failed' : 'completed';
   } else if (normState === 'completed') {
     status_reconciled = anyImageFailed ? 'failed' : 'completed';
-  } else if (normState === 'running' || anyImageRunning) {
-    status_reconciled = 'running';
   }
 
   const firstEv = events[0];
