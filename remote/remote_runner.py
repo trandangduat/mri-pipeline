@@ -142,6 +142,7 @@ class RemoteRunConfig:
     pipeline_mode: str = "Custom"
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
+    neuroflow_policy: str = "B6"
     neuroflow_max_retries: int = 3
     neuroflow_warmup_enabled: bool = True
     neuroflow_warmup_initial_concurrency: int = 2
@@ -878,6 +879,7 @@ class RemoteRunner:
             "pipeline_mode": self.config.pipeline_mode,
             "neuroflow_enabled": bool(self.config.neuroflow_enabled),
             "neuroflow_max_concurrent_tasks": int(self.config.neuroflow_max_concurrent_tasks),
+            "neuroflow_policy": str(self.config.neuroflow_policy or "B6").strip(),
             "neuroflow_max_retries": int(self.config.neuroflow_max_retries),
             "neuroflow_warmup_enabled": bool(self.config.neuroflow_warmup_enabled),
             "neuroflow_warmup_initial_concurrency": int(self.config.neuroflow_warmup_initial_concurrency),

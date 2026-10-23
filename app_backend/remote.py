@@ -699,6 +699,7 @@ class RemoteJobService:
             pipeline_mode=str(run_request.get("pipeline_mode", "Custom")),
             neuroflow_enabled=bool(run_request.get("neuroflow_enabled", False)),
             neuroflow_max_concurrent_tasks=int(run_request.get("neuroflow_max_concurrent_tasks", 2) or 2),
+            neuroflow_policy=str(run_request.get("neuroflow_policy", "B6") or "B6").strip(),
             neuroflow_max_retries=int(run_request.get("neuroflow_max_retries", 3) or 3),
             neuroflow_warmup_enabled=bool(run_request.get("neuroflow_warmup_enabled", True)),
             neuroflow_warmup_initial_concurrency=int(run_request.get("neuroflow_warmup_initial_concurrency", 2) or 2),

@@ -252,6 +252,27 @@ def _scheduler_config(req: dict) -> object:
         }
         for gpu in _gpu_resources(str(req.get("device", "cpu")))
     ]
+    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
+    if policy_choice in ("B0", "Sequential FIFO"):
+        policy_variant = "A4"
+        max_concurrent = 1
+        warmup_enabled = False
+        warmup_initial = 1
+    elif policy_choice in ("B1", "Parallel FIFO First-Fit"):
+        policy_variant = "A4"
+    elif policy_choice in ("B2", "Shortest Processing Time First-Fit"):
+        policy_variant = "B2"
+    elif policy_choice in ("B3", "Static Critical-Path First-Fit"):
+        policy_variant = "A5"
+        warmup_enabled = False
+        warmup_initial = max_concurrent
+    elif policy_choice in ("B4", "Static Critical-Path Protected Backfill"):
+        policy_variant = "A3"
+    elif policy_choice in ("B5", "Adaptive FIFO Resource Scheduler"):
+        policy_variant = "A4"
+    else:
+        policy_variant = "B6"
+
     limits: dict[str, object] = {
         "max_concurrent_tasks": max_concurrent,
         "max_total_cpu_threads": scheduler_thread_limit,
@@ -260,14 +281,13 @@ def _scheduler_config(req: dict) -> object:
     }
     if gpus:
         limits["gpus"] = gpus
-    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
-    policy_name = "neuroflow" if policy_choice in ("B6", "neuroflow", "Full NeuroFLOW") else policy_choice
 
     return load_scheduler_dict(
         {
             "schema_version": 1,
             "scheduler_id": "mri_pipeline_neuroflow",
-            "policy": {"name": policy_name, "algorithm_version": "1"},
+            "policy": {"name": "neuroflow", "algorithm_version": "1"},
+            "metadata": {"policy_choice": policy_choice, "policy_variant": policy_variant},
             "limits": limits,
             "warmup": {
                 "enabled": warmup_enabled,
@@ -338,7 +358,11 @@ def _resource_snapshot(
     from neuroflow import ResourceSnapshot
 
     now = datetime.now(timezone.utc)
-    max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
+    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
+    if policy_choice in ("B0", "Sequential FIFO"):
+        max_concurrent = 1
+    else:
+        max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     slots = max_concurrent if available_slots is None else max(0, available_slots)
     threads = max(1, int(req.get("threads", 1) or 1)) if available_threads is None else max(0, available_threads)
     ram = _ram_limit_mib(int(req.get("ram_percent", 100) or 100)) if available_ram_mib is None else max(0, available_ram_mib)
@@ -505,10 +529,14 @@ def run_neuroflow_batch(
         )
     scheduler.add_images(request=AddImagesRequest(request_id="add-neuroflow-images", images=tuple(image_specs)))
 
+    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
     if on_progress:
-        on_progress("batch", "running", 0.0, f"NeuroFLOW preset {preset_id} loaded with profile {profile_set_id}")
+        on_progress("batch", "running", 0.0, f"NeuroFLOW preset {preset_id} loaded with profile {profile_set_id} ({policy_choice})")
 
-    max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
+    if policy_choice in ("B0", "Sequential FIFO"):
+        max_concurrent = 1
+    else:
+        max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     lazy_upload = bool(req.get("lazy_upload"))
     awaiting_emitted: set[str] = set()
     started_subjects: set[str] = set()
