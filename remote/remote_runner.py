@@ -143,6 +143,8 @@ class RemoteRunConfig:
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
     neuroflow_policy: str = "B6"
+    neuroflow_default_configurations: str = ""
+    neuroflow_heft_mode: str = "online"
     neuroflow_max_retries: int = 3
     neuroflow_warmup_enabled: bool = True
     neuroflow_warmup_initial_concurrency: int = 2
@@ -236,6 +238,7 @@ class RemoteRunner:
         for folder, extensions in (
             (neuroflow / "src" if neuroflow else Path(), {".py", ".typed"}),
             (neuroflow_configs, {".yaml", ".yml", ".json"}),
+            (PROJECT_ROOT / "configs" / "baselines", {".json"}),
         ):
             if folder.exists():
                 for root, dirs, files in os.walk(folder):
@@ -880,6 +883,8 @@ class RemoteRunner:
             "neuroflow_enabled": bool(self.config.neuroflow_enabled),
             "neuroflow_max_concurrent_tasks": int(self.config.neuroflow_max_concurrent_tasks),
             "neuroflow_policy": str(self.config.neuroflow_policy or "B6").strip(),
+            "neuroflow_default_configurations": self.config.neuroflow_default_configurations,
+            "neuroflow_heft_mode": self.config.neuroflow_heft_mode,
             "neuroflow_max_retries": int(self.config.neuroflow_max_retries),
             "neuroflow_warmup_enabled": bool(self.config.neuroflow_warmup_enabled),
             "neuroflow_warmup_initial_concurrency": int(self.config.neuroflow_warmup_initial_concurrency),
@@ -1512,6 +1517,7 @@ class RemoteRunner:
             "neuroflow_observations.tsv",
             "neuroflow_observations.jsonl",
             "neuroflow_workspace.sqlite",
+            "neuroflow_policy_contract.json",
             "job_config.json",
             "job_metadata.json",
             "job_status.json",
@@ -1677,6 +1683,13 @@ class RemoteRunner:
                 posixpath.join(remote_code, "configs", "neuroflow"),
                 skip_dirs={"__pycache__", ".pytest_cache"},
                 allowed_extensions={".yaml", ".yml", ".json"},
+            )
+        baseline_configs = PROJECT_ROOT / "configs" / "baselines"
+        if baseline_configs.exists():
+            ssh.upload_dir(
+                baseline_configs,
+                posixpath.join(remote_code, "configs", "baselines"),
+                allowed_extensions={".json"},
             )
 
     def _upload_license(self, ssh: RemoteSSHClient) -> None:

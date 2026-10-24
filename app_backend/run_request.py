@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,8 @@ class RunRequestInput:
     neuroflow_enabled: bool = False
     neuroflow_max_concurrent_tasks: int = 2
     neuroflow_policy: str = "B6"
+    neuroflow_default_configurations: str = ""
+    neuroflow_heft_mode: str = "online"
     neuroflow_max_retries: int = 3
     neuroflow_warmup_enabled: bool = True
     neuroflow_warmup_initial_concurrency: int = 2
@@ -78,6 +81,10 @@ class RunRequestInput:
             neuroflow_enabled=_bool_from_data(data.get("neuroflow_enabled"), False),
             neuroflow_max_concurrent_tasks=max(1, _int_from_data(data.get("neuroflow_max_concurrent_tasks"), 2)),
             neuroflow_policy=str(data.get("neuroflow_policy", "B6") or "B6").strip(),
+            neuroflow_default_configurations=(json.dumps(data["neuroflow_default_configurations"])
+                if isinstance(data.get("neuroflow_default_configurations"), dict)
+                else str(data.get("neuroflow_default_configurations") or "")),
+            neuroflow_heft_mode=str(data.get("neuroflow_heft_mode", "online") or "online"),
             neuroflow_max_retries=max(0, _int_from_data(data.get("neuroflow_max_retries"), 3)),
             neuroflow_warmup_enabled=_bool_from_data(data.get("neuroflow_warmup_enabled"), True),
             neuroflow_warmup_initial_concurrency=max(1, _int_from_data(data.get("neuroflow_warmup_initial_concurrency"), 2)),
@@ -288,6 +295,8 @@ def _base_request(config: RunRequestInput) -> dict[str, JsonValue]:
         ),
         "neuroflow_max_concurrent_tasks": config.neuroflow_max_concurrent_tasks,
         "neuroflow_policy": config.neuroflow_policy,
+        "neuroflow_default_configurations": config.neuroflow_default_configurations,
+        "neuroflow_heft_mode": config.neuroflow_heft_mode,
         "neuroflow_max_retries": config.neuroflow_max_retries,
         "neuroflow_warmup_enabled": config.neuroflow_warmup_enabled,
         "neuroflow_warmup_initial_concurrency": config.neuroflow_warmup_initial_concurrency,
@@ -410,6 +419,14 @@ def _tool_combo_error(config: RunRequestInput) -> str:
 def _neuroflow_error(config: RunRequestInput) -> str:
     if not config.neuroflow_enabled:
         return ""
+    from pipeline.policy_contract import default_configurations, normalize_policy
+    try:
+        policy_id = normalize_policy(config.neuroflow_policy)
+        if policy_id == "B7" and config.neuroflow_heft_mode != "online":
+            return "This integration supports online HEFT only. Batch HEFT is not enabled."
+        default_configurations(config.neuroflow_default_configurations)
+    except ValueError as error:
+        return str(error)
     if config.neuroflow_max_concurrent_tasks < 1:
         return "NeuroFLOW max concurrent tasks must be at least 1."
     if config.neuroflow_max_retries < 0 or config.neuroflow_max_retries > 5:

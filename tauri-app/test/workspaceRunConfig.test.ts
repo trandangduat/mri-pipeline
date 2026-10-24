@@ -25,6 +25,17 @@ describe('workspace run config', () => {
     });
   });
 
+  it('keeps B6 as the default and preserves explicit baseline stage choices', () => {
+    expect(buildRunConfig(DEFAULT_FORM_VALUES, null).neuroflow_policy).toBe('B6');
+    const defaults = '{"reorient_resize":"cpu_1"}';
+    usePipelineFormStore.getState().applyWorkspaceConfig({
+      neuroflow_policy: 'B0', neuroflow_default_configurations: defaults,
+    });
+    const config = buildRunConfig(usePipelineFormStore.getState().formValues, null);
+    expect(config.neuroflow_policy).toBe('B0');
+    expect(config.neuroflow_default_configurations).toBe(defaults);
+  });
+
   it('keeps workspace tools for non-custom workspace modes', () => {
     usePipelineFormStore.getState().applyWorkspaceConfig({
       pipeline_mode: 'FreeSurfer 8 + Volume + Cortical Thickness',

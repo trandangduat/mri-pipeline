@@ -644,7 +644,8 @@ export const NEUROFLOW_POLICIES = [
   { id: 'B2', label: 'Shortest Processing Time First-Fit', desc: 'Tasks are ordered by ascending estimated runtime; uses static profiles and no protected backfilling.' },
   { id: 'B3', label: 'Static Critical-Path First-Fit', desc: 'Upward critical-path rank; static profiles; no adaptation; no aging; no protected backfilling.' },
   { id: 'B4', label: 'Static Critical-Path Protected Backfill', desc: 'Upward critical-path rank; static profiles; protected backfilling; CPU/GPU configuration selection; no adaptive estimates.' },
-  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'NeuroFLOW adaptive estimators; FIFO priority; adaptive concurrency; no critical-path ranking.' },
+  { id: 'B5', label: 'Adaptive FIFO Resource Scheduler', desc: 'Adaptive estimates and concurrency; FIFO priority; no protected backfilling.' },
+  { id: 'B7', label: 'HEFT (online)', desc: 'Ranks known tasks by mean static cost and places them by earliest finish on this host.' },
 ] as const;
 
 export function QueuePolicySelect({
@@ -811,6 +812,23 @@ export function AdvancedSettingsSection() {
                   />
                 </div>
               </div>
+
+              {['B0', 'B1', 'B2'].includes(currentPolicyId) && (
+                <label className={labelCls}>
+                  <span className="font-medium text-cursor-ink">Fixed stage configurations (JSON)</span>
+                  <textarea
+                    value={formValues.neuroflowDefaultConfigurations ?? ''}
+                    onChange={(event) => setFormField('neuroflowDefaultConfigurations', event.target.value)}
+                    placeholder={'{"reorient_resize":"cpu_1","subcortical_segmentation":"cpu_2"}'}
+                    className={inputCls}
+                    rows={3}
+                  />
+                  <span className="text-xs text-cursor-muted">
+                    Choose one configuration ID per stage. Preset defaults also apply. Missing choices block execution.
+                    {currentPolicyId === 'B0' ? ' B0 runs one task at a time.' : ''} Static policies do not learn profiles.
+                  </span>
+                </label>
+              )}
 
               {/* Row 2: Preset configuration & Profile configuration */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -28,6 +28,7 @@ export interface PipelineFormValues {
   neuroflowEnabled?: boolean;
   neuroflowMaxConcurrentTasks?: number;
   neuroflowPolicy?: string;
+  neuroflowDefaultConfigurations?: string;
   neuroflowMaxRetries?: number;
   neuroflowWarmupEnabled?: boolean;
   neuroflowWarmupInitialConcurrency?: number;
@@ -146,6 +147,7 @@ export function buildRunConfig(
     neuroflow_enabled: Boolean(formValues.neuroflowEnabled),
     neuroflow_max_concurrent_tasks: Math.max(1, Number(formValues.neuroflowMaxConcurrentTasks || 2)),
     neuroflow_policy: String(formValues.neuroflowPolicy || 'B6'),
+    neuroflow_default_configurations: String(formValues.neuroflowDefaultConfigurations || '').trim(),
     neuroflow_max_retries: Math.max(0, Number(formValues.neuroflowMaxRetries ?? 3)),
     neuroflow_warmup_enabled: Boolean(formValues.neuroflowWarmupEnabled),
     neuroflow_warmup_initial_concurrency: Math.max(1, Number(formValues.neuroflowWarmupInitialConcurrency || 2)),

@@ -74,6 +74,13 @@ def test_prepare_run_request_preserves_neuroflow_configuration_files(tmp_path: P
     assert request["neuroflow_profile_file"] == str(profile)
 
 
+def test_prepare_run_request_preserves_explicit_baseline_defaults(tmp_path):
+    (tmp_path / "image.nii.gz").write_text("fake", encoding="utf-8")
+    config = _base_config(tmp_path, neuroflow_default_configurations={"root": "cpu_2"})
+    request = _ok_request(prepare_run_request(config))
+    assert json.loads(request["neuroflow_default_configurations"]) == {"root": "cpu_2"}
+
+
 def test_prepare_run_request_ignores_missing_neuroflow_files_when_disabled(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
     image.write_text("fake", encoding="utf-8")

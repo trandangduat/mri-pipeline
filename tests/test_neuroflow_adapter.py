@@ -767,6 +767,21 @@ def test_scheduler_config_parses_all_advanced_settings() -> None:
     assert cfg.estimation.runtime.local_quantile == 0.95
 
 
+@pytest.mark.parametrize("policy_id", ["B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7"])
+def test_scheduler_config_keeps_policy_identity(policy_id, monkeypatch):
+    neuroflow_adapter._ensure_neuroflow_import_path()
+    monkeypatch.setattr(neuroflow_adapter, "_gpu_resources", lambda _device: ())
+    cfg = _scheduler_config({"threads": 4, "neuroflow_policy": policy_id, "neuroflow_max_concurrent_tasks": 50})
+    assert dict(cfg.metadata)["policy_variant"] == policy_id
+    assert cfg.limits.max_concurrent_tasks == (1 if policy_id == "B0" else 50)
+    assert cfg.warmup.enabled == (policy_id in {"B5", "B6"})
+
+
+def test_scheduler_config_rejects_unknown_policy():
+    with pytest.raises(ValueError, match="Unknown"):
+        _scheduler_config({"neuroflow_policy": "not-a-policy"})
+
+
 def test_neuroflow_batch_normalizes_raw_stats_vector_config_for_preset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

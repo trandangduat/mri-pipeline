@@ -361,6 +361,8 @@ class PipelineConfig:
     export_config: ExportConfig = field(default_factory=ExportConfig)
     stats_vector_config: StatsVectorConfig = field(default_factory=StatsVectorConfig)
     container_name_suffix: str = ""
+    gpu_device_id: str | None = None
+    cpu_thread_limit: int | None = None
 
 @dataclass
 class StepResult:

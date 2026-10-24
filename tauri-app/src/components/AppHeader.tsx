@@ -222,6 +222,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
         neuroflow_enabled: Boolean(fv.neuroflowEnabled),
         neuroflow_max_concurrent_tasks: Math.max(1, Number(fv.neuroflowMaxConcurrentTasks || 2)),
         neuroflow_policy: String(fv.neuroflowPolicy || 'B6'),
+        neuroflow_default_configurations: String(fv.neuroflowDefaultConfigurations || ''),
         neuroflow_warmup_enabled: Boolean(fv.neuroflowWarmupEnabled),
         neuroflow_preset_file: String(fv.neuroflowPresetFile || ''),
         neuroflow_profile_file: String(fv.neuroflowProfileFile || ''),

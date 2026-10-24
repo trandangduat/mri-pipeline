@@ -78,6 +78,20 @@ def test_executor_command_generation(mocker):
     assert cmd_called[image_index + 2:] == ["-sd", "/out", "-s", "sub-01", "-all"]
 
 
+def test_executor_limits_baseline_cpu_and_gpu_allocation(mocker):
+    process = MagicMock()
+    process.communicate.return_value = ("", "")
+    process.returncode = 0
+    popen = mocker.patch("pipeline.executor.subprocess.Popen", return_value=process)
+    mocker.patch("pipeline.executor.threading.Thread.start")
+    mocker.patch("pipeline.executor.threading.Thread.join")
+    LocalDockerExecutor().execute(ExecutionRequest(
+        image="test", args=[], mounts=[], gpus=True, gpu_device_id="1", cpu_thread_limit=2))
+    command = popen.call_args[0][0]
+    assert command[command.index("--gpus") + 1] == "device=1"
+    assert command[command.index("--cpus") + 1] == "2"
+
+
 def test_executor_removes_running_container_when_stop_is_requested(mocker):
     mock_popen = mocker.patch("pipeline.executor.subprocess.Popen")
     mock_run = mocker.patch("pipeline.executor.subprocess.run")

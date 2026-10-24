@@ -36,6 +36,8 @@ class ExecutionRequest:
     container_name: str | None = None
     timeout: int = 7200
     should_stop: Callable[[], bool] | None = None
+    gpu_device_id: str | None = None
+    cpu_thread_limit: int | None = None
 
 @dataclass
 class ExecutionResult:
@@ -93,7 +95,11 @@ class LocalDockerExecutor(BaseExecutor):
         if req.container_name:
             cmd += ["--name", req.container_name]
         if req.gpus:
-            cmd += ["--gpus", "all"]
+            cmd += ["--gpus", f"device={req.gpu_device_id}" if req.gpu_device_id is not None else "all"]
+        if req.cpu_thread_limit is not None:
+            if req.cpu_thread_limit < 1:
+                raise ValueError("CPU thread limit must be positive")
+            cmd += ["--cpus", str(req.cpu_thread_limit)]
         if req.memory_bytes and req.memory_bytes > 0:
             cmd += ["--memory", f"{int(req.memory_bytes)}b"]
         for host_path, container_path in req.mounts:

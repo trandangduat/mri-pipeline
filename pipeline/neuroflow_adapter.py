@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import subprocess
@@ -8,7 +9,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
@@ -23,6 +24,7 @@ from .runner import run_pipeline_stage
 from .state import PipelineTracker
 from .stats import StatsGenerator
 from pipeline.win_process import no_window_kwargs
+from .policy_contract import FIXED_POLICIES, INTEGRATION_VERSION, STATIC_POLICIES, normalize_policy, resolve_defaults
 
 
 NEUROFLOW_STAGE_TO_LOCAL_STAGE = {
@@ -125,6 +127,8 @@ class _ImageRunContext:
 
 
 def _ensure_neuroflow_import_path() -> None:
+    # Imports must not create or replace cache files in the original checkout.
+    sys.dont_write_bytecode = True
     try:
         import neuroflow  # noqa: F401
         return
@@ -252,26 +256,16 @@ def _scheduler_config(req: dict) -> object:
         }
         for gpu in _gpu_resources(str(req.get("device", "cpu")))
     ]
-    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
-    if policy_choice in ("B0", "Sequential FIFO"):
-        policy_variant = "A4"
+    policy_choice = normalize_policy(req.get("neuroflow_policy"))
+    policy_variant = policy_choice
+    policy_metadata = {"policy_choice": policy_choice, "policy_variant": policy_variant}
+    if policy_choice != "B6":
+        policy_metadata.update(engine="external_baseline", integration_version=INTEGRATION_VERSION)
+    if policy_choice == "B0":
         max_concurrent = 1
-        warmup_enabled = False
-        warmup_initial = 1
-    elif policy_choice in ("B1", "Parallel FIFO First-Fit"):
-        policy_variant = "A4"
-    elif policy_choice in ("B2", "Shortest Processing Time First-Fit"):
-        policy_variant = "B2"
-    elif policy_choice in ("B3", "Static Critical-Path First-Fit"):
-        policy_variant = "A5"
+    if policy_choice in STATIC_POLICIES:
         warmup_enabled = False
         warmup_initial = max_concurrent
-    elif policy_choice in ("B4", "Static Critical-Path Protected Backfill"):
-        policy_variant = "A3"
-    elif policy_choice in ("B5", "Adaptive FIFO Resource Scheduler"):
-        policy_variant = "A4"
-    else:
-        policy_variant = "B6"
 
     limits: dict[str, object] = {
         "max_concurrent_tasks": max_concurrent,
@@ -287,7 +281,7 @@ def _scheduler_config(req: dict) -> object:
             "schema_version": 1,
             "scheduler_id": "mri_pipeline_neuroflow",
             "policy": {"name": "neuroflow", "algorithm_version": "1"},
-            "metadata": {"policy_choice": policy_choice, "policy_variant": policy_variant},
+            "metadata": policy_metadata,
             "limits": limits,
             "warmup": {
                 "enabled": warmup_enabled,
@@ -358,8 +352,8 @@ def _resource_snapshot(
     from neuroflow import ResourceSnapshot
 
     now = datetime.now(timezone.utc)
-    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
-    if policy_choice in ("B0", "Sequential FIFO"):
+    policy_choice = normalize_policy(req.get("neuroflow_policy"))
+    if policy_choice == "B0":
         max_concurrent = 1
     else:
         max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
@@ -451,14 +445,26 @@ def run_neuroflow_batch(
     config_root = _neuroflow_config_root()
     preset_file = str(req.get("neuroflow_preset_file") or "").strip()
     profile_file = str(req.get("neuroflow_profile_file") or "").strip()
-    pipeline = load_pipeline_file(preset_file or config_root / "presets" / f"{preset_id}.yaml")
+    preset_source = Path(preset_file) if preset_file else config_root / "presets" / f"{preset_id}.yaml"
+    pipeline = load_pipeline_file(preset_source)
     if not profile_file and preset_file:
         profile_set_id = f"{pipeline.pipeline_id}_default"
-    profiles = load_profile_set_file(profile_file or config_root / "profiles" / f"{profile_set_id}.yaml")
+    profile_source = Path(profile_file) if profile_file else config_root / "profiles" / f"{profile_set_id}.yaml"
+    profiles = load_profile_set_file(profile_source)
     preset_id = str(pipeline.pipeline_id)
     profile_set_id = str(getattr(profiles, "profile_set_id", profile_set_id))
     thread_limit = max(1, int(req.get("threads", 1) or 1))
     scheduler_config = _scheduler_config(req)
+    policy_choice = normalize_policy(req.get("neuroflow_policy"))
+    defaults = {}
+    if policy_choice in FIXED_POLICIES:
+        defaults = resolve_defaults(pipeline, req.get("neuroflow_default_configurations"), scheduler_config.limits)
+        pipeline = replace(pipeline, stages=tuple(
+            replace(stage, execution_configurations=tuple(
+                c for c in stage.execution_configurations
+                if str(c.configuration_id) == defaults[str(stage.stage_id)]
+            )) if stage.enabled else stage for stage in pipeline.stages
+        ))
     limits = getattr(scheduler_config, "limits", None)
     if limits is None and isinstance(scheduler_config, dict):
         limits = scheduler_config.get("limits")
@@ -471,6 +477,36 @@ def run_neuroflow_batch(
         pipeline, profiles, thread_limit, available_gpus=available_gpus
     )
     validate_cross_documents(pipeline, profiles, scheduler_config)
+
+    database = job_dir / "neuroflow_workspace.sqlite"
+    workspace_id = f"mri-pipeline-{job_dir.name}"
+    contract = None
+    restored_steps = []
+    if policy_choice != "B6":
+        from .policy_runtime import check_resume, make_contract, preflight_baseline
+        preflight_baseline(pipeline, profiles, scheduler_config, req)
+        contract = make_contract(policy_choice, pipeline, profiles, scheduler_config, defaults, req)
+        contract["inputs"] = [
+            {"path": str(path), "image_id": subject_id_map.get(path)
+             or subject_id_map.get(str(Path(path).resolve())) or _derive_subject_id(path)}
+            for path in input_files
+        ]
+        contract["output_dir"] = str(req.get("effective_output_dir", req.get("output_dir", "")))
+        contract["preset_file_sha256"] = hashlib.sha256(preset_source.read_bytes()).hexdigest()
+        contract["profile_file_sha256"] = hashlib.sha256(profile_source.read_bytes()).hexdigest()
+        check_resume(database, contract)
+        if database.exists():
+            from .policy_runtime import completed_execution_steps
+            restored_steps = completed_execution_steps(database)
+    elif database.exists():
+        # Read-only inspection must precede the library's recovery writes.
+        from .policy_runtime import check_resume
+        sidecar = database.with_name("neuroflow_policy_contract.json")
+        if sidecar.exists():
+            if json.loads(sidecar.read_text(encoding="utf-8")).get("policy_id") != "B6":
+                raise ValueError("Workspace used a different policy. Use a new job directory.")
+        else:
+            check_resume(database, {"policy_id": "B6"})
 
     output_dir = str(req.get("effective_output_dir", req.get("output_dir", "")))
     export_config = ExportConfig.from_dict(req.get("export_config"))
@@ -496,7 +532,7 @@ def run_neuroflow_batch(
             device=str(req.get("device", "cpu")),
             threads=int(req.get("threads", 1) or 1),
             ram_percent=int(req.get("ram_percent", 100) or 100),
-            resume=bool(req.get("resume", False)),
+            resume=bool(req.get("resume", False)) or (policy_choice != "B6" and database.exists()),
             export_config=export_config,
             stats_vector_config=stats_vector_config,
             selected_tools=selected_tools,
@@ -514,9 +550,22 @@ def run_neuroflow_batch(
             )
         )
 
-    database = job_dir / "neuroflow_workspace.sqlite"
-    workspace_id = f"mri-pipeline-{job_dir.name}"
-    if database.exists():
+    for image_id, step, output in restored_steps:
+        if image_id in contexts:
+            contexts[image_id].record_step(step, output, step.stage)
+
+    if policy_choice != "B6":
+        from .policy_runtime import create_baseline_scheduler, load_baseline_scheduler, write_contract
+        if database.exists():
+            scheduler = load_baseline_scheduler(database, workspace_id)
+        else:
+            scheduler = create_baseline_scheduler(
+                database_path=database, workspace_id=workspace_id,
+                pipeline_configs=(pipeline,), default_profiles=profiles,
+                scheduler_config=scheduler_config,
+                machine_profile_id=str(req.get("neuroflow_machine_profile_id") or "application_default"))
+        write_contract(database, contract)
+    elif database.exists():
         scheduler = AdaptiveScheduler.load(database_path=database, expected_workspace_id=workspace_id).scheduler
     else:
         scheduler = AdaptiveScheduler.create(
@@ -529,11 +578,10 @@ def run_neuroflow_batch(
         )
     scheduler.add_images(request=AddImagesRequest(request_id="add-neuroflow-images", images=tuple(image_specs)))
 
-    policy_choice = str(req.get("neuroflow_policy", "B6") or "B6").strip()
     if on_progress:
         on_progress("batch", "running", 0.0, f"NeuroFLOW preset {preset_id} loaded with profile {profile_set_id} ({policy_choice})")
 
-    if policy_choice in ("B0", "Sequential FIFO"):
+    if policy_choice == "B0":
         max_concurrent = 1
     else:
         max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
@@ -563,11 +611,16 @@ def run_neuroflow_batch(
             device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
             threads=int(launch.cpu_threads),
             ram_percent=context.config.ram_percent,
-            resume=context.config.resume,
+            # Only committed scheduler completions are reused for baselines.
+            # An uncommitted task must run and produce real measurements.
+            resume=context.config.resume if policy_choice == "B6" else False,
             selected_tools=context.config.selected_tools,
             export_config=context.config.export_config,
             stats_vector_config=context.config.stats_vector_config,
             container_name_suffix=f"{local_stage}_{launch.attempt_id}",
+            gpu_device_id=(str(launch.gpu_id).removeprefix("gpu_")
+                           if policy_choice != "B6" and launch.gpu_id is not None else None),
+            cpu_thread_limit=int(launch.cpu_threads) if policy_choice != "B6" else None,
         )
         def _stage_progress(stg: str, status: str, pct: float, msg: str) -> None:
             if on_progress:
@@ -585,17 +638,29 @@ def run_neuroflow_batch(
             total_stages=len(STAGE_ORDER),
             should_stop=should_stop,
         )
+        missing_ram_measurement = policy_choice != "B6" and step.success and not step.peak_ram_bytes
+        if missing_ram_measurement:
+            step = replace(step, success=False, error="Missing measured peak RAM for baseline validation")
         context.record_step(step, output_for_next, local_stage)
         runtime_ms = max(1, int(step.duration_sec * 1000))
-        peak_ram_mib = _memory_mib(step.peak_ram_bytes)
+        peak_ram_mib = (_memory_mib(step.peak_ram_bytes) if step.peak_ram_bytes or policy_choice == "B6" else None)
         success = bool(step.success)
-        error = None if success else TaskError(category=ErrorCategory.PROCESS_CRASH, message=step.error or "Pipeline stage failed")
+        category = ErrorCategory.PROCESS_CRASH
+        if not success and policy_choice != "B6":
+            from .policy_contract import classify_failure
+            category = getattr(ErrorCategory, classify_failure(step))
+        if missing_ram_measurement:
+            category = ErrorCategory.VALIDATION_FAILURE
+        interrupted = policy_choice != "B6" and not success and should_stop and should_stop()
+        if interrupted:
+            category = ErrorCategory.INTERRUPTED
+        error = None if success else TaskError(category=category, message=step.error or "Pipeline stage failed")
         result = TaskResult(
             result_id=f"result-{launch.attempt_id}",
             task_id=str(launch.task_id),
             attempt_id=str(launch.attempt_id),
             execution_id=execution_id,
-            status=ResultStatus.SUCCEEDED if success else ResultStatus.FAILED,
+            status=ResultStatus.SUCCEEDED if success else (ResultStatus.INTERRUPTED if interrupted else ResultStatus.FAILED),
             exit_code=0 if success else (step.return_code or 1),
             validation_passed=True if success else False,
             error=error,
@@ -608,6 +673,8 @@ def run_neuroflow_batch(
                 peak_cpu_utilization=step.peak_cpu_pct,
             ),
             finished_at=datetime.now(timezone.utc),
+            metadata=(("application_step", asdict(step)), ("output_for_next", output_for_next))
+                     if policy_choice != "B6" else (),
         )
         observation = {
             "preset_id": preset_id,
@@ -632,6 +699,7 @@ def run_neuroflow_batch(
 
     running_futures: dict[concurrent.futures.Future, tuple[object, _ImageRunContext, str, str]] = {}
     last_response_terminal = False
+    stopping = False
 
     def _scheduler_is_terminal() -> bool:
         if hasattr(scheduler, "get_status"):
@@ -642,7 +710,12 @@ def run_neuroflow_batch(
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         while True:
             if should_stop and should_stop():
-                break
+                if policy_choice == "B6":
+                    break
+                if not stopping:
+                    from neuroflow import ShutdownMode, ShutdownRequest
+                    scheduler.begin_shutdown(request=ShutdownRequest("adapter-stop", ShutdownMode.WAIT))
+                    stopping = True
 
             # 1. Process any completed tasks
             completed = [f for f in list(running_futures) if f.done()]
@@ -651,6 +724,8 @@ def run_neuroflow_batch(
                 try:
                     result, observation = future.result()
                 except Exception as exc:
+                    unknown_runtime = None if policy_choice != "B6" else 1000
+                    unknown_ram = None if policy_choice != "B6" else 512
                     result = TaskResult(
                         result_id=f"result-{launch.attempt_id}",
                         task_id=str(launch.task_id),
@@ -661,8 +736,8 @@ def run_neuroflow_batch(
                         validation_passed=False,
                         error=TaskError(category=ErrorCategory.PROCESS_CRASH, message=str(exc)),
                         metrics=TaskMetrics(
-                            runtime_ms=1000,
-                            peak_ram_mib=512,
+                            runtime_ms=unknown_runtime,
+                            peak_ram_mib=unknown_ram,
                             allocated_cpu_threads=int(launch.cpu_threads),
                             execution_mode=launch.execution_mode,
                             gpu_id=launch.gpu_id,
@@ -681,8 +756,8 @@ def run_neuroflow_batch(
                         "mode": str(launch.execution_mode.value),
                         "cpu_threads": int(launch.cpu_threads),
                         "gpu_id": launch.gpu_id or "",
-                        "runtime_ms": 1000,
-                        "peak_ram_mib": 512,
+                        "runtime_ms": unknown_runtime,
+                        "peak_ram_mib": unknown_ram,
                         "peak_gpu_memory_mib": "",
                         "exit_code": 1,
                         "success": False,
@@ -695,9 +770,17 @@ def run_neuroflow_batch(
                     _write_observation(output_observation_dir, observation)
 
             # 2. Check available concurrency slots and request new launches
+            if stopping:
+                if not running_futures:
+                    break
+                time.sleep(0.05)
+                continue
             available_slots = max_concurrent - len(running_futures)
             if available_slots > 0:
-                snapshot = _resource_snapshot(req, available_slots=available_slots)
+                # Baseline snapshots contain the full budget. Its coordinator
+                # subtracts active reservations once, including concurrency.
+                snapshot = _resource_snapshot(req, available_slots=(
+                    available_slots if policy_choice == "B6" else max_concurrent))
                 response = scheduler.request_launches(
                     request=LaunchRequest(resource_snapshot=snapshot, maximum_number=available_slots)
                 )

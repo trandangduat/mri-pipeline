@@ -549,6 +549,23 @@ def test_remote_runner_uploads_tracked_neuroflow_configs(mocker: object) -> None
         remote.endswith("/NeuroFLOW-private/config")
         for _local, remote in FakeRemoteSSHClient.uploaded_dirs
     )
+    assert any(remote.endswith("/configs/baselines") for _, remote in FakeRemoteSSHClient.uploaded_dirs)
+
+
+def test_remote_job_config_preserves_baseline_defaults():
+    class CaptureSSH(FakeRemoteSSHClient):
+        def write_text_file(self, path, text):
+            self.payload = json.loads(text)
+
+    runner = RemoteRunner(RemoteRunConfig(
+        ssh=SSHConfig(host="example", username="tester"), neuroflow_policy="B0",
+        neuroflow_default_configurations='{"reorient_resize":"cpu_1"}'))
+    runner.remote_job_dir = "/home/tester/mri-remote-jobs/job_123"
+    runner.remote_output_dir = "/home/tester/mri-remote-jobs/job_123/outputs"
+    ssh = CaptureSSH(None)
+    runner._write_job_config(ssh)
+    assert ssh.payload["neuroflow_policy"] == "B0"
+    assert json.loads(ssh.payload["neuroflow_default_configurations"]) == {"reorient_resize": "cpu_1"}
 
 
 def test_remote_runner_recreates_old_venv_for_neuroflow(mocker) -> None:

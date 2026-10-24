@@ -217,6 +217,8 @@ def _build_execution_request(
         container_name=_safe_container_name(*container_parts),
         timeout=int(tool.get("timeout", 7200)),
         should_stop=should_stop,
+        gpu_device_id=config.gpu_device_id,
+        cpu_thread_limit=config.cpu_thread_limit,
     )
 
 
