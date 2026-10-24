@@ -11,3 +11,4 @@ Write all answers in ASD-STE100 Simplified Technical English.
 # Rules
 
 - **Avoid unnecessary tests**: DO NOT write and run unnecessary tests
+- **UI changes**: Do not create or run tests for UI changes. The user will test these changes manually.
