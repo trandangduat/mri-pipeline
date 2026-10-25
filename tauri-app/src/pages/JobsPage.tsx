@@ -2247,19 +2247,20 @@ export function JobsPage() {
 
               {isTerminal && displayMeta.status_reconciled === 'completed' ? (
                 <Button
-                  id="refreshJobsButton"
+                  id="deleteJobButton"
                   variant="outline"
-                  onClick={() => void refreshJobs({force: true})}
-                  disabled={busy.refreshJobs}
-                  className="w-full h-8 border-cursor-hairline text-cursor-ink bg-cursor-surface-card hover:bg-cursor-canvas-soft font-medium text-xs cursor-pointer"
+                  onClick={() => job && handleDeleteJob(job)}
+                  disabled={!job || deletingJobId !== null || actionBlockedReason(isServerJob) !== null}
+                  title={actionBlockedReason(isServerJob) || 'Delete job'}
+                  className="w-full h-8 border-cursor-hairline text-cursor-semantic-error hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error font-medium text-xs cursor-pointer"
                 >
-                  {busy.refreshJobs ? (
+                  {deletingJobId === String(job?.job_id) ? (
                     <>
-                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Refreshing...
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Deleting...
                     </>
                   ) : (
                     <>
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh Job
+                      <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete Job
                     </>
                   )}
                 </Button>

@@ -813,22 +813,6 @@ export function AdvancedSettingsSection() {
                 </div>
               </div>
 
-              {['B0', 'B1', 'B2'].includes(currentPolicyId) && (
-                <label className={labelCls}>
-                  <span className="font-medium text-cursor-ink">Fixed stage configurations (JSON)</span>
-                  <textarea
-                    value={formValues.neuroflowDefaultConfigurations ?? ''}
-                    onChange={(event) => setFormField('neuroflowDefaultConfigurations', event.target.value)}
-                    placeholder={'{"reorient_resize":"cpu_1","subcortical_segmentation":"cpu_2"}'}
-                    className={inputCls}
-                    rows={3}
-                  />
-                  <span className="text-xs text-cursor-muted">
-                    Choose one configuration ID per stage. Preset defaults also apply. Missing choices block execution.
-                    {currentPolicyId === 'B0' ? ' B0 runs one task at a time.' : ''} Static policies do not learn profiles.
-                  </span>
-                </label>
-              )}
 
               {/* Row 2: Preset configuration & Profile configuration */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
