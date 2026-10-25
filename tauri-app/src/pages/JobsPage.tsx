@@ -1829,6 +1829,44 @@ export function JobsPage() {
     );
   };
 
+  const jobContainer = React.useMemo(() => {
+    // 1. Look for active container names from currently running steps across batch subjects
+    const runningContainers: string[] = [];
+    for (const img of batchImages) {
+      if (img.status === 'running') {
+        const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
+        for (const s of steps) {
+          if (s.status === 'running' && s.container_name && !runningContainers.includes(s.container_name)) {
+            runningContainers.push(s.container_name);
+          }
+        }
+      }
+    }
+    if (runningContainers.length > 0) {
+      return runningContainers.join(', ');
+    }
+
+    // 2. Look for the most recent container_name in safeEvents
+    for (let i = safeEvents.length - 1; i >= 0; i -= 1) {
+      const cName = safeEvents[i]?.container_name;
+      if (typeof cName === 'string' && cName.trim() && cName.trim() !== 'None') {
+        return cName.trim();
+      }
+    }
+
+    // 3. Look for any container_name recorded in any step
+    for (const img of batchImages) {
+      const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
+      for (const s of steps) {
+        if (s.container_name && s.container_name !== 'None') {
+          return s.container_name;
+        }
+      }
+    }
+
+    return 'None (Native)';
+  }, [batchImages, safeEvents, selectedTools, stageOrder, stageLabels]);
+
   if (!selectedJobId && !urlJobId) {
     return (
       <>
@@ -2052,9 +2090,9 @@ export function JobsPage() {
                       </td>
                       <td
                         className="py-1.5 px-2.5 text-cursor-body truncate"
-                        title={modalMetricsSeries.latestContainer || 'None (Native)'}
+                        title={jobContainer}
                       >
-                        {modalMetricsSeries.latestContainer || 'None (Native)'}
+                        {jobContainer}
                       </td>
                       <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         RAM

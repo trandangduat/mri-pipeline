@@ -985,18 +985,6 @@ export function deriveImageSteps(
 
   let currentActiveFile: string | null = null;
 
-  const markPriorActiveStagesSuccess = (currentStage: string) => {
-    const currentIndex = stageOrder.indexOf(currentStage);
-    if (currentIndex < 0) return;
-    for (let i = 0; i < currentIndex; i += 1) {
-      const prior = stepMap.get(stageOrder[i] || '');
-      if (!prior || prior.status === 'not_scheduled' || prior.status === 'failed') continue;
-      if (prior.status === 'running' || prior.status === 'pending') {
-        prior.status = 'success';
-      }
-    }
-  };
-
   for (const event of events) {
     const kind = String(event.kind || '');
     if (kind === 'image_start') {
@@ -1026,7 +1014,6 @@ export function deriveImageSteps(
           const rawStatus = String(event.status || event.state || '').toLowerCase();
           const isStoppedMsg = String(event.msg || event.message || event.error || '').toLowerCase().includes('stopped');
           if (['running', 'start', 'started'].includes(rawStatus)) {
-            markPriorActiveStagesSuccess(step.stage);
             step.status = 'running';
           } else if (['ok', 'done', 'completed', 'success'].includes(rawStatus)) {
             step.status = 'success';
@@ -1072,7 +1059,6 @@ export function deriveImageSteps(
           if (typeof event.elapsed === 'number') step.elapsed_sec = Math.max(step.elapsed_sec || 0, event.elapsed);
           if (event.container_name) step.container_name = String(event.container_name);
           if (step.status === 'pending' || step.status === 'not_scheduled') {
-            markPriorActiveStagesSuccess(step.stage);
             step.status = 'running';
           }
         }
