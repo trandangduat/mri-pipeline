@@ -46,6 +46,9 @@ for required_resource in \
   fi
 done
 
+echo "Checking bundled scheduler imports..."
+"$OUTPUT_EXE" check
+
 SMOKE_PORT=18765
 SMOKE_TOKEN="$($PYTHON -c 'import secrets; print(secrets.token_urlsafe(32))')"
 SMOKE_LOG="$(mktemp "${TMPDIR:-/tmp}/neuroflow-backend-smoke.XXXXXX.log")"

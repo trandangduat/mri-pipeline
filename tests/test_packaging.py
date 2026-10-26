@@ -108,3 +108,32 @@ def test_windows_backend_is_windowed_and_shell_hides_console_children() -> None:
     win_process = Path("pipeline/win_process.py").read_text(encoding="utf-8")
     assert "CREATE_NO_WINDOW" in win_process
     assert "DETACHED_PROCESS" in win_process  # documented as incompatible
+
+
+def test_scheduler_source_selection_and_copy(tmp_path, monkeypatch):
+    from packaging_resources import neuroflow_source_root, collect_neuroflow_datas
+    package = tmp_path / "private" / "src" / "neuroflow"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package.parent.parent / "pyproject.toml").write_text("[project]", encoding="utf-8")
+    monkeypatch.setenv("NEUROFLOW_SOURCE_DIR", str(package.parent.parent))
+    source = neuroflow_source_root(tmp_path)
+    datas = collect_neuroflow_datas(source)
+    assert (str(package / "__init__.py"), "NeuroFLOW-private/src/neuroflow") in [(source, Path(dest).as_posix()) for source, dest in datas]
+    assert any(destination == "NeuroFLOW-private" for _, destination in datas)
+
+
+def test_packaging_rejects_missing_scheduler_sources(tmp_path, monkeypatch):
+    import pytest
+    from packaging_resources import neuroflow_source_root
+    monkeypatch.delenv("NEUROFLOW_SOURCE_DIR", raising=False)
+    with pytest.raises(FileNotFoundError, match="NEUROFLOW_SOURCE_DIR"):
+        neuroflow_source_root(tmp_path)
+
+
+def test_all_native_bundles_collect_the_scheduler():
+    for platform in ("windows", "linux", "macos"):
+        text = Path("packaging", platform, "neuroflow-backend.spec").read_text(encoding="utf-8")
+        assert 'collect_submodules("neuroflow")' in text
+        assert 'collect_neuroflow_datas(scheduler_source)' in text
+        assert 'pathex=[PROJECT_ROOT, str(scheduler_source)]' in text

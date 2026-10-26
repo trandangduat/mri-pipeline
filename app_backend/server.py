@@ -183,17 +183,13 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(request, dict):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "run_request must be an object"})
                 return
-            # Do not accept the historical pre-shaped worker payload. It
-            # bypassed all input, tool, and path validation before reaching
-            # Docker command builders.
-            prepared = prepare_run_request(request)
-            if not prepared.get("ok") or not isinstance(prepared.get("request"), dict):
-                self._write_json(
-                    HTTPStatus.BAD_REQUEST,
-                    {"ok": False, "error": "Invalid run request", "errors": prepared.get("errors", [])},
-                )
-                return
-            self._write_json(HTTPStatus.OK, self._local_jobs().start_local_job(prepared["request"]))
+            result = {"ok": False, "error": "Local startup did not complete."}
+            for event in self._local_jobs().stream_start_job(request):
+                if event["event"] == "complete":
+                    result = event["data"]
+            if not result.get("ok") and "error" not in result:
+                result = {**result, "error": "Invalid run request"}
+            self._write_json(HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST, result)
             return
         if self.path == "/jobs/local/stop":
             job_id = str(payload.get("job_id", "") or "")

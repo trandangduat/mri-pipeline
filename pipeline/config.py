@@ -365,6 +365,7 @@ class PipelineConfig:
     cpu_thread_limit: int | None = None
     console_job_dir: str = ""
     console_attempt_id: str = ""
+    runtime_ram_bytes: int | None = None
 
 @dataclass
 class StepResult:

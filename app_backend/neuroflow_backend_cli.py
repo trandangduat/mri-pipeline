@@ -40,7 +40,7 @@ def _run_check() -> int:
 
     print("=== NeuroFlow Backend Dependency Diagnostics ===")
     failed = False
-    for mod, label in [("yaml", "PyYAML"), ("cryptography", "cryptography"), ("paramiko", "Paramiko")]:
+    for mod, label in [("yaml", "PyYAML"), ("cryptography", "cryptography"), ("paramiko", "Paramiko"), ("neuroflow", "NeuroFLOW"), ("neuroflow.configuration", "NeuroFLOW configuration")]:
         try:
             m = importlib.import_module(mod)
             path = getattr(m, "__file__", "built-in")

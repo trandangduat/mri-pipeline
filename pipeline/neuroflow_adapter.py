@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import subprocess
 import sys
 import threading
@@ -134,7 +135,8 @@ def _ensure_neuroflow_import_path() -> None:
         import neuroflow  # noqa: F401
         return
     except ModuleNotFoundError:
-        checkout_src = PROJECT_ROOT / "NeuroFLOW-private" / "src"
+        source = os.environ.get("NEUROFLOW_SOURCE_DIR")
+        checkout_src = Path(source).expanduser() / "src" if source else PROJECT_ROOT / "NeuroFLOW-private" / "src"
         if checkout_src.exists():
             sys.path.insert(0, str(checkout_src))
 
@@ -170,12 +172,19 @@ def _neuroflow_config_root() -> Path:
     return root
 
 
-def _ram_limit_mib(ram_percent: int) -> int:
-    total = _total_ram_bytes()
+def _ram_limit_mib(ram_percent: int, runtime_ram_bytes: int | None = None) -> int:
+    total = runtime_ram_bytes if runtime_ram_bytes is not None else _total_ram_bytes()
     if not total:
         return 1024
     pct = max(1, min(int(ram_percent), 100))
     return max(1, int(total * pct / 100 / (1024 * 1024)))
+
+
+def _request_ram_limit_mib(req: dict) -> int:
+    percent = int(req.get("ram_percent", 100) or 100)
+    if req.get("runtime_ram_bytes") is not None:
+        return _ram_limit_mib(percent, req["runtime_ram_bytes"])
+    return _ram_limit_mib(percent)
 
 
 def _gpu_resources(device: str) -> tuple[object, ...]:
@@ -218,12 +227,13 @@ def _gpu_resources(device: str) -> tuple[object, ...]:
 
 
 def _scheduler_config(req: dict) -> object:
+    _ensure_neuroflow_import_path()
     from neuroflow.configuration import load_scheduler_dict
 
     threads = max(1, int(req.get("threads", 1) or 1))
     scheduler_thread_limit = threads
     max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
-    ram_mib = _ram_limit_mib(int(req.get("ram_percent", 100) or 100))
+    ram_mib = _request_ram_limit_mib(req)
 
     warmup_enabled = bool(req.get("neuroflow_warmup_enabled", True))
     warmup_initial = max(1, min(max_concurrent, int(req.get("neuroflow_warmup_initial_concurrency", 2) or 2)))
@@ -360,7 +370,7 @@ def _resource_snapshot(
         max_concurrent = max(1, int(req.get("neuroflow_max_concurrent_tasks", 2) or 2))
     slots = max_concurrent if available_slots is None else max(0, available_slots)
     threads = max(1, int(req.get("threads", 1) or 1)) if available_threads is None else max(0, available_threads)
-    ram = _ram_limit_mib(int(req.get("ram_percent", 100) or 100)) if available_ram_mib is None else max(0, available_ram_mib)
+    ram = _request_ram_limit_mib(req) if available_ram_mib is None else max(0, available_ram_mib)
     return ResourceSnapshot(
         snapshot_id=f"mri-pipeline-{int(now.timestamp() * 1000)}",
         captured_at=now,
@@ -533,6 +543,7 @@ def run_neuroflow_batch(
             device=str(req.get("device", "cpu")),
             threads=int(req.get("threads", 1) or 1),
             ram_percent=int(req.get("ram_percent", 100) or 100),
+            runtime_ram_bytes=req.get("runtime_ram_bytes"),
             resume=bool(req.get("resume", False)) or (policy_choice != "B6" and database.exists()),
             export_config=export_config,
             stats_vector_config=stats_vector_config,
@@ -614,6 +625,7 @@ def run_neuroflow_batch(
             device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
             threads=int(launch.cpu_threads),
             ram_percent=context.config.ram_percent,
+            runtime_ram_bytes=context.config.runtime_ram_bytes,
             # Only committed scheduler completions are reused for baselines.
             # An uncommitted task must run and produce real measurements.
             resume=context.config.resume if policy_choice == "B6" else False,

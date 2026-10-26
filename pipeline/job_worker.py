@@ -379,6 +379,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
             device=req.get("device", "cpu"),
             threads=int(req.get("threads", 4)),
             ram_percent=int(req.get("ram_percent", 100)),
+            runtime_ram_bytes=req.get("runtime_ram_bytes"),
             resume=bool(req.get("resume", False)),
             export_config=export_config,
             stats_vector_config=stats_vector_config,
