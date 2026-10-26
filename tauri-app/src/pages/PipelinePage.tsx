@@ -2341,7 +2341,7 @@ export function InputOutputSection() {
 
   // Input Mode radio options — map to existing backend inputMode values
   const inputModeOptions = [
-    {label: 'Single input', value: 'file', hint: 'Process one NIfTI file or DICOM series folder.'},
+    {label: 'Single input', value: 'file', hint: 'Process one MRI volume file or DICOM series folder.'},
     {label: 'Batch input', value: 'batch_folder', hint: 'Process a folder of images or DICOM series.'},
   ];
 
@@ -2373,7 +2373,7 @@ export function InputOutputSection() {
       });
       const path = selectedDialogPath(selected);
       if (path) {
-        setFormField('inputPath', path);
+        setFormFields({inputPath: path, additionalInputPaths: '', batchImageCount: undefined, batchScanMode: undefined});
       }
     } catch {
       // dialog cancelled or unavailable
@@ -2385,7 +2385,7 @@ export function InputOutputSection() {
       const selected = await open({directory: true, multiple: false});
       const path = selectedDialogPath(selected);
       if (path) {
-        setFormField('inputPath', path);
+        setFormFields({inputPath: path, additionalInputPaths: '', batchImageCount: undefined, batchScanMode: undefined});
         if (isBatch) setBatchModal(true);
       }
     } catch {
