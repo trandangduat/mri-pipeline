@@ -7,6 +7,7 @@ files are allowed into the core package.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pipeline.stats import VECTOR_SPECS
@@ -52,3 +53,25 @@ def collect_python_source_datas(source_root: Path, destination_root: str) -> lis
         for path in sorted(source_root.rglob("*.py"))
         if path.is_file() and "__pycache__" not in path.parts
     ]
+
+
+def neuroflow_source_root(project_root: Path) -> Path:
+    """Require scheduler sources rather than building an incomplete installer."""
+    configured = os.environ.get("NEUROFLOW_SOURCE_DIR")
+    project = Path(configured).expanduser() if configured else project_root / "NeuroFLOW-private"
+    source = project / "src"
+    if not (source / "neuroflow" / "__init__.py").is_file():
+        raise FileNotFoundError(
+            "NeuroFLOW scheduler sources are missing. Set NEUROFLOW_SOURCE_DIR "
+            "to the scheduler checkout before building the application."
+        )
+    return source.resolve()
+
+
+def collect_neuroflow_datas(source: Path) -> list[tuple[str, str]]:
+    # The raw copy also supports the existing SSH source upload contract.
+    datas = collect_python_source_datas(source / "neuroflow", "NeuroFLOW-private/src/neuroflow")
+    project = source.parent / "pyproject.toml"
+    if project.is_file():
+        datas.append((str(project), "NeuroFLOW-private"))
+    return datas

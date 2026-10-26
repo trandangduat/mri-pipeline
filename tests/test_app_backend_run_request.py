@@ -52,6 +52,42 @@ def test_prepare_run_request_builds_local_file_request(tmp_path: Path) -> None:
     json.dumps(result)
 
 
+def test_single_input_uses_visible_mgz_path_over_stale_batch_selection(tmp_path: Path) -> None:
+    image = tmp_path / "001.mgz"
+    image.write_bytes(b"volume")
+
+    request = _ok_request(
+        prepare_run_request(
+            _base_config(
+                tmp_path,
+                input_path=str(image),
+                selected_files=["/server/previous_batch/subject.nii.gz"],
+            )
+        )
+    )
+
+    assert request["input_file"] == str(image)
+    assert request["mode"] == "file"
+    assert request["is_batch"] is False
+
+
+def test_single_input_rejects_missing_visible_path_despite_valid_old_selection(tmp_path: Path) -> None:
+    old_image = tmp_path / "previous_subject.nii.gz"
+    old_image.write_bytes(b"volume")
+
+    result = prepare_run_request(
+        _base_config(
+            tmp_path,
+            input_path=str(tmp_path / "missing.mgz"),
+            selected_files=[str(old_image)],
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["request"] is None
+    assert result["errors"] == ["Input file or DICOM folder does not exist."]
+
+
 def test_prepare_run_request_preserves_neuroflow_configuration_files(tmp_path: Path) -> None:
     image = tmp_path / "image.nii.gz"
     preset = tmp_path / "preset.yaml"

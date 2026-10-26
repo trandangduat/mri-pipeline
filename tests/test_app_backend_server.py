@@ -278,7 +278,9 @@ def test_sidecar_uploads_license_file_to_backend_store(tmp_path: Path) -> None:
         thread.join(timeout=5)
 
 
-def test_sidecar_local_job_start_list_and_stop_endpoints(tmp_path: Path) -> None:
+def test_sidecar_local_job_start_list_and_stop_endpoints(tmp_path: Path, mocker) -> None:
+    mocker.patch("app_backend.local_runtime.local_runtime_checks", return_value=iter(()))
+    mocker.patch("app_backend.jobs.check_freesurfer_license", return_value=(True, "valid"))
     image = tmp_path / "image.nii.gz"
     license_file = tmp_path / "license.txt"
     image.write_text("fake", encoding="utf-8")
@@ -865,3 +867,29 @@ def test_sidecar_neuroflow_validate_endpoint(tmp_path: Path) -> None:
         server.shutdown()
         thread.join(timeout=5)
 
+
+
+def test_local_http_start_cannot_bypass_docker_preflight(tmp_path: Path, mocker) -> None:
+    image = tmp_path / "sample.mgz"
+    image.write_bytes(b"input")
+    worker = mocker.Mock(return_value=ProcessHandle(123))
+    service = LocalJobService(jobs_root=tmp_path / "jobs", process_runner=worker)
+    mocker.patch("app_backend.local_runtime.inspect_docker_runtime", side_effect=RuntimeError("Docker is offline"))
+    server, thread, base_url = _serve_in_thread(service)
+    try:
+        request = Request(
+            f"{base_url}/jobs/local/start",
+            data=json.dumps({"run_request": {"input_mode": "file", "input_path": str(image),
+                "output_dir": str(tmp_path / "output"), "pipeline_mode": "CAT12 + Volume"}}).encode(),
+            headers={"Authorization": f"Bearer {TEST_API_TOKEN}", "Content-Type": "application/json"},
+        )
+        try:
+            urlopen(request, timeout=5)
+            raise AssertionError("Local startup bypassed preflight")
+        except HTTPError as exc:
+            assert exc.code == 400
+            assert json.loads(exc.read())["error"] == "Docker is offline"
+        worker.assert_not_called()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)

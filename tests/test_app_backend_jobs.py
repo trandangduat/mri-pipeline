@@ -81,6 +81,7 @@ def test_stream_start_job_reports_license_failure_before_worker_start(tmp_path: 
         return_value=(False, "FreeSurfer license check failed."),
     )
 
+    mocker.patch("app_backend.local_runtime.local_runtime_checks", return_value=iter(()))
     events = list(service.stream_start_job(request))
 
     assert [(event["event"], event["data"].get("status")) for event in events] == [

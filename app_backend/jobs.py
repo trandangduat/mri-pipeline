@@ -24,6 +24,8 @@ JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dic
 @dataclass(frozen=True)
 class ProcessHandle:
     pid: int
+    create_time: float | None = None
+    terminate: Callable[[], None] | None = None
 
 
 ProcessRunner = Callable[[list[str]], ProcessHandle]
@@ -36,10 +38,15 @@ class LocalJobService:
         jobs_root: str | Path | None = None,
         process_runner: ProcessRunner | None = None,
         clock: Clock | None = None,
+        process_checker: Callable[[int, float | None], bool] | None = None,
+        startup_timeout: float = 15.0,
     ) -> None:
         self.jobs_root = Path(jobs_root) if jobs_root is not None else paths.jobs_root()
         self.registry_path = self.jobs_root / "job_registry.json"
         self.process_runner = process_runner or _default_process_runner
+        self.process_checker = process_checker or (_worker_is_alive if process_runner is None else None)
+        self.wait_for_readiness = process_runner is None
+        self.startup_timeout = startup_timeout
         self.clock = clock or time.time
         self._registry_lock = threading.RLock()
 
@@ -51,22 +58,41 @@ class LocalJobService:
         config_path = job_dir / "job_config.json"
         write_json(config_path, request)
 
-        command = paths.worker_command(str(config_path))
-        process = self.process_runner(command)
         now = self.clock()
-        write_json(job_dir / "launcher_status.json", {"pid": process.pid, "started_at": now, "command": command})
-        write_json(
-            job_dir / "job_status.json",
-            {
-                "state": "running",
-                "pid": process.pid,
-                "job_dir": str(job_dir),
-                "output_dir": str(request.get("output_dir", "")),
-                "started_at": now,
-                "updated_at": now,
-            },
-        )
+        # The parent initializes status before the worker can publish its result.
+        write_json(job_dir / "job_status.json", {
+            "state": "running", "job_dir": str(job_dir),
+            "output_dir": str(request.get("output_dir", "")),
+            "started_at": now, "updated_at": now,
+        })
+        command = paths.worker_command(str(config_path))
+        try:
+            process = self.process_runner(command)
+        except Exception as exc:
+            _record_worker_exit(job_dir, 1, f"Could not start the local worker: {exc}")
+            return {"ok": False, "error": str(exc)}
+        write_json(job_dir / "launcher_status.json", {
+            "pid": process.pid, "create_time": process.create_time,
+            "started_at": now, "command": command,
+        })
         entry = self._registry_entry_for_local_job(job_dir, request, process.pid, now, "running")
+        self._upsert_registry(entry)
+        if self.wait_for_readiness:
+            deadline = time.monotonic() + self.startup_timeout
+            while True:
+                entry = self._refresh_local_job(entry)
+                if entry["state"] in {"failed", "stopped"}:
+                    self._upsert_registry(entry)
+                    return {"ok": False, "error": str(entry.get("error") or "The local worker exited during startup."), "job": _job_summary(entry)}
+                if entry["state"] == "completed" or _worker_ready(job_dir, process.pid):
+                    break
+                if time.monotonic() >= deadline:
+                    message = "The local worker did not become ready. See launcher.log for details."
+                    _record_worker_exit(job_dir, 1, message)
+                    _terminate_worker(process)
+                    return {"ok": False, "error": message}
+                time.sleep(0.05)
+        entry = self._refresh_local_job(entry)
         self._upsert_registry(entry)
         return {"ok": True, "job": _job_summary(entry)}
 
@@ -125,7 +151,7 @@ class LocalJobService:
         from app_backend.run_request import prepare_run_request
 
         yield step_event("validate", "running", "Validating configuration...")
-        result = prepare_run_request(payload)
+        result = prepare_run_request({**payload, "run_target": "Local"}, validate_license=False)
         if not result.get("ok"):
             errors = result.get("errors", [])
             yield step_event("validate", "failed", "; ".join(str(e) for e in errors))
@@ -133,6 +159,12 @@ class LocalJobService:
             return
         request = result["request"]
         yield step_event("validate", "done", "Configuration valid")
+
+        from app_backend.local_runtime import local_runtime_checks
+        for event in local_runtime_checks(request):
+            yield event
+            if event["event"] == "complete":
+                return
 
         yield step_event("license", "running", "Checking FreeSurfer license...")
         license_ok, license_detail = check_freesurfer_license(
@@ -235,6 +267,15 @@ class LocalJobService:
             return entry
 
         status = read_json(job_dir / "job_status.json", {})
+        launcher = read_json(job_dir / "launcher_status.json", {})
+        pid = int(launcher.get("pid") or entry.get("pid") or 0)
+        if (self.process_checker is not None and _exit_code(job_dir, status) is None
+                and status.get("state") not in {"completed", "failed", "stopped"}
+                and not self.process_checker(pid, launcher.get("create_time"))):
+            _record_worker_exit(job_dir, None)
+            status = read_json(job_dir / "job_status.json", {})
+        if status.get("error"):
+            entry["error"] = str(status["error"])
         exit_code = _exit_code(job_dir, status)
         stop_requested = (job_dir / "stop_requested").exists()
         if status.get("state") == "stopped" or (stop_requested and (exit_code is not None or status.get("state") in {"completed", "failed", "stopped"})):
@@ -289,21 +330,76 @@ class LocalJobService:
             self._save_registry(jobs)
 
 
+def _worker_is_alive(pid: int, create_time: float | None = None) -> bool:
+    import psutil
+    try:
+        process = psutil.Process(pid)
+        return (process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+                and (create_time is None or abs(process.create_time() - create_time) < 0.1))
+    except (psutil.NoSuchProcess, ValueError):
+        return False
+    except psutil.AccessDenied:
+        return True
+
+
+def _worker_ready(job_dir: Path, pid: int) -> bool:
+    try:
+        return int((job_dir / "pid.txt").read_text(encoding="utf-8").strip()) == pid
+    except (OSError, ValueError):
+        return False
+
+
+def _record_worker_exit(job_dir: Path, code: int | None, message: str = "") -> None:
+    # Re-read after observing process exit; the worker may have just committed status.
+    status = read_json(job_dir / "job_status.json", {})
+    if status.get("state") in {"completed", "failed", "stopped"}:
+        if not (job_dir / "exit_code.txt").exists():
+            (job_dir / "exit_code.txt").write_text(str(status.get("exit_code", code or 0)), encoding="utf-8")
+        return
+    stopped = (job_dir / "stop_requested").exists()
+    status.update(
+        state="stopped" if stopped else "failed", exit_code=0 if stopped else (code or 1),
+        finished_at=time.time(), updated_at=time.time(),
+    )
+    if not stopped:
+        status["error"] = message or "The worker exited before writing its final status. See launcher.log for details."
+    write_json(job_dir / "job_status.json", status)
+    (job_dir / "exit_code.txt").write_text(str(status["exit_code"]), encoding="utf-8")
+
+
+def _terminate_worker(handle: ProcessHandle) -> None:
+    # Keep the original Popen handle; never terminate an arbitrary reused PID.
+    if handle.terminate is not None:
+        try:
+            handle.terminate()
+        except OSError:
+            pass
+
+
 def _default_process_runner(command: list[str]) -> ProcessHandle:
+    import psutil
+    config_path = Path(command[command.index("--job-config") + 1]).resolve()
+    job_dir = config_path.parent
     kwargs: dict[str, object] = {
-        "cwd": str(paths.backend_cwd()),
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "cwd": str(paths.backend_cwd()), "stdin": subprocess.DEVNULL,
+        "stderr": subprocess.STDOUT,
     }
     if os.name == "nt":
-        # CREATE_NO_WINDOW (not DETACHED_PROCESS): MSDN ignores CREATE_NO_WINDOW
-        # when combined with DETACHED_PROCESS, which lets console children flash.
         kwargs["creationflags"] = detached_worker_flags()
     else:
         kwargs["start_new_session"] = True
-    process = subprocess.Popen(command, **kwargs)
-    return ProcessHandle(pid=int(process.pid))
+    with (job_dir / "launcher.log").open("ab") as output:
+        process = subprocess.Popen(command, stdout=output, **kwargs)
+    try:
+        created = psutil.Process(process.pid).create_time()
+    except psutil.Error:
+        created = None
+
+    def collect_exit() -> None:
+        _record_worker_exit(job_dir, process.wait())
+
+    threading.Thread(target=collect_exit, daemon=True).start()
+    return ProcessHandle(pid=int(process.pid), create_time=created, terminate=process.terminate)
 
 
 SAFE_RUN_REQUEST_KEYS = (
@@ -361,6 +457,7 @@ def _job_summary(entry: dict[str, JsonValue]) -> dict[str, JsonValue]:
         "download_subdir": str(entry.get("download_subdir", "")),
         "input_files": _json_value(input_files),
         "run_request_summary": _make_run_request_summary(req_dict),
+        "error": str(entry.get("error") or ""),
     }
     if isinstance(batch_summary, dict):
         summary["batch_summary"] = _json_value(batch_summary)

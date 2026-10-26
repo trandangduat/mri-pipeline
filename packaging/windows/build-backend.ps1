@@ -64,6 +64,12 @@ foreach ($requiredResource in $requiredResources) {
     }
 }
 
+Write-Host "Checking bundled scheduler imports..."
+$dependencyCheck = Start-Process -FilePath $exePath -ArgumentList @("check") -Wait -PassThru -WindowStyle Hidden
+if ($dependencyCheck.ExitCode -ne 0) {
+    throw "The bundled backend dependency check failed."
+}
+
 Write-Host "Checking bundled backend capabilities..."
 $smokePort = 18765
 $smokeToken = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")

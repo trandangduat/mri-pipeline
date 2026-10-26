@@ -127,7 +127,7 @@ export function buildRunConfig(
         : normalizedInputMode === 'dir' && additionalPaths.length > 0
           ? additionalPaths
           : [],
-    selected_files: additionalPaths.length > 0 ? additionalPaths : [],
+    selected_files: normalizedInputMode === 'file' ? [] : additionalPaths,
     output_dir: formValues.runtimeTarget === 'Server'
       ? (formValues.serverOutputDir || formValues.outputDir || '')
       : formValues.outputDir,

@@ -96,11 +96,11 @@ def _selected_stats_atlases(config: PipelineConfig) -> list[str]:
 
 
 
-def _docker_memory_limit_bytes(ram_percent: int) -> int | None:
+def _docker_memory_limit_bytes(ram_percent: int, runtime_ram_bytes: int | None = None) -> int | None:
     pct = max(1, min(int(ram_percent), 100))
-    if pct >= 100:
+    if pct >= 100 and runtime_ram_bytes is None:
         return None
-    total = _total_ram_bytes()
+    total = runtime_ram_bytes if runtime_ram_bytes is not None else _total_ram_bytes()
     if not total:
         return None
     return max(1, int(total * pct / 100))
@@ -324,7 +324,7 @@ def run_pipeline_stage(
         progress(stage, "failed", (index + 1) / total if total else 1.0, f"{STAGE_LABELS[stage]} FAILED: {err}")
         return result, input_for_stage
 
-    memory_limit_bytes = _docker_memory_limit_bytes(max(1, min(int(config.ram_percent), 100)))
+    memory_limit_bytes = _docker_memory_limit_bytes(max(1, min(int(config.ram_percent), 100)), config.runtime_ram_bytes)
     req = _build_execution_request(
         tool_key=tool_key,
         tool=tool,
@@ -555,7 +555,7 @@ def run_pipeline(
     total_stages = len(stage_order)
     paused = False
     ram_percent = max(1, min(int(config.ram_percent), 100))
-    memory_limit_bytes = _docker_memory_limit_bytes(ram_percent)
+    memory_limit_bytes = _docker_memory_limit_bytes(ram_percent, config.runtime_ram_bytes)
 
     for stage_idx, stage in enumerate(stage_order):
         tool_key = config.selected_tools.get(stage)
@@ -815,6 +815,7 @@ def run_batch_pipeline(
 
         try:
             config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, ram_percent=ram_percent, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
+            config.runtime_ram_bytes = (batch_config or {}).get("runtime_ram_bytes")
             config.console_job_dir = console_job_dir
             steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics, should_stop=should_stop)
             success = bool(steps) and all(step.success for step in steps)

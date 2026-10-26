@@ -140,7 +140,7 @@ def _prepare_run_request_result(
     raw_input = run_config.input_path.strip()
 
     if mode == "file":
-        path = run_config.selected_files[0] if run_config.selected_files else raw_input
+        path = raw_input or (run_config.selected_files[0] if run_config.selected_files else "")
         input_path = Path(path).expanduser()
         if input_path.is_file() and _is_dicom_file(input_path):
             parent = input_path.parent
@@ -235,7 +235,7 @@ def validate_run_request_input(config: RunRequestInput, *, validate_license: boo
 
     mode = config.input_mode
     if mode == "file":
-        path = config.selected_files[0] if config.selected_files else raw_input
+        path = raw_input or (config.selected_files[0] if config.selected_files else "")
         if not _is_supported_mri_input(path):
             return ["Input file or DICOM folder does not exist."]
     elif mode == "files":

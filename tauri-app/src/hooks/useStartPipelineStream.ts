@@ -33,6 +33,9 @@ export const REMOTE_STEPS: PipelineStep[] = [
 
 const LOCAL_STEPS: PipelineStep[] = [
   {id: 'validate', label: 'Validating configuration', status: 'pending'},
+  {id: 'runtime', label: 'Checking Docker and scheduler', status: 'pending'},
+  {id: 'resources', label: 'Checking local resources', status: 'pending'},
+  {id: 'images', label: 'Checking Docker images', status: 'pending'},
   {id: 'license', label: 'Checking FreeSurfer license', status: 'pending'},
   {id: 'config', label: 'Preparing job configuration', status: 'pending'},
   {id: 'start', label: 'Starting local worker', status: 'pending'},

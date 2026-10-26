@@ -32,13 +32,15 @@ def test_detached_worker_flags_prefer_create_no_window_not_detached() -> None:
     assert flags & detached == 0
 
 
-def test_jobs_default_runner_uses_detached_worker_flags(monkeypatch) -> None:
+def test_jobs_default_runner_uses_detached_worker_flags(monkeypatch, tmp_path) -> None:
     from app_backend import jobs
 
     captured: dict[str, object] = {}
 
     class FakeProc:
         pid = 4242
+        def terminate(self):
+            pass
 
     def fake_popen(command, **kwargs):
         captured["command"] = command
@@ -46,10 +48,11 @@ def test_jobs_default_runner_uses_detached_worker_flags(monkeypatch) -> None:
         return FakeProc()
 
     monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(jobs.threading.Thread, "start", lambda self: None)
     monkeypatch.setattr(jobs.os, "name", "nt")
     monkeypatch.setattr(jobs, "detached_worker_flags", lambda: CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
 
-    handle = jobs._default_process_runner(["neuroflow-backend.exe", "worker", "--job-config", "x.json"])
+    handle = jobs._default_process_runner(["neuroflow-backend.exe", "worker", "--job-config", str(tmp_path / "x.json")])
     assert handle.pid == 4242
     assert captured["kwargs"]["creationflags"] == CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
     assert "DETACHED_PROCESS" not in str(captured["kwargs"])

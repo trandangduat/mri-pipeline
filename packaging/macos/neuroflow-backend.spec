@@ -10,7 +10,15 @@ block_cipher = None
 PROJECT_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 sys.path.insert(0, PROJECT_ROOT)
 
-from packaging_resources import collect_core_info_datas, collect_python_source_datas
+from packaging_resources import (
+    collect_core_info_datas, collect_python_source_datas,
+    neuroflow_source_root, collect_neuroflow_datas,
+)
+from PyInstaller.utils.hooks import collect_submodules
+
+scheduler_source = neuroflow_source_root(Path(PROJECT_ROOT))
+sys.path.insert(0, str(scheduler_source))
+scheduler_modules = collect_submodules("neuroflow")
 
 extra_metadata = []
 for pkg in ["paramiko", "cryptography", "bcrypt", "pynacl", "invoke"]:
@@ -22,9 +30,10 @@ for pkg in ["paramiko", "cryptography", "bcrypt", "pynacl", "invoke"]:
 
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "app_backend", "neuroflow_backend_cli.py")],
-    pathex=[PROJECT_ROOT],
+    pathex=[PROJECT_ROOT, str(scheduler_source)],
     binaries=[],
     datas=[
+        *collect_neuroflow_datas(scheduler_source),
         *extra_metadata,
         *collect_python_source_datas(Path(PROJECT_ROOT) / "pipeline", "pipeline"),
         (os.path.join(PROJECT_ROOT, "configs", "neuroflow"), "configs/neuroflow"),
@@ -36,6 +45,7 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "requirements.txt"), "."),
     ],
     hiddenimports=[
+        *scheduler_modules,
         "app_backend",
         "app_backend.server",
         "app_backend.atlases",
