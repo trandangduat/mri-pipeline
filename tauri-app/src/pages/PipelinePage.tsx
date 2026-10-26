@@ -2369,7 +2369,7 @@ export function InputOutputSection() {
     try {
       const selected = await open({
         multiple: false,
-        filters: [{name: 'MRI Images', extensions: ['nii', 'nii.gz', 'dcm', 'ima']}],
+        filters: [{name: 'MRI Images', extensions: ['nii', 'nii.gz', 'mgz', 'mgh', 'dcm', 'ima']}],
       });
       const path = selectedDialogPath(selected);
       if (path) {
