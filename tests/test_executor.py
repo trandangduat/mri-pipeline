@@ -5,6 +5,7 @@ import subprocess
 import pytest
 from unittest.mock import MagicMock
 from pipeline.executor import LocalDockerExecutor, ExecutionRequest
+from pipeline.win_process import no_window_kwargs
 
 def test_executor_command_generation(mocker):
     # Mock subprocess.Popen
@@ -120,6 +121,7 @@ def test_executor_removes_running_container_when_stop_is_requested(mocker):
         capture_output=True,
         text=True,
         timeout=30,
+        **no_window_kwargs(),
     )
     assert result.success is False
     assert result.error == "stopped by request"

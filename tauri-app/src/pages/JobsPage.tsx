@@ -8,8 +8,6 @@ import {
   Clock,
   Copy,
   Download,
-  Eye,
-  EyeOff,
   HardDrive,
   ImageIcon,
   Layers,
@@ -49,8 +47,6 @@ import {
   deriveSubjectStageInfo,
   reduceBatchImages,
   displayJobState,
-  filterLogLines,
-  filterLogForSubject,
   type BatchSummary,
   StageStepDetail,
   DEFAULT_STAGE_ORDER,
@@ -82,6 +78,7 @@ import type {PipelineEvent} from '../types/backend';
 import type {BatchImageItem} from '../lib/jobs';
 import {DownloadOutputsDialog} from '../components/DownloadOutputsDialog';
 import {ModalPortal} from '../components/ModalPortal';
+import {OperatorConsoleLog} from '../components/OperatorConsoleLog';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {LazyUploadProgress} from '../components/LazyUploadProgress';
 import type {DownloadStep} from '../components/DownloadOutputsDialog';
@@ -657,16 +654,12 @@ export function JobsPage() {
   const jobEvents = useJobsStore((s) => s.jobEvents);
   const setJobEvents = useJobsStore((s) => s.setJobEvents);
   const appendJobEvents = useJobsStore((s) => s.appendJobEvents);
-  const jobLogSearch = useJobsStore((s) => s.jobLogSearch);
-  const setJobLogSearch = useJobsStore((s) => s.setJobLogSearch);
-  const outputText = useJobsStore((s) => s.outputText);
   const setOutputText = useJobsStore((s) => s.setOutputText);
   const appendOutputText = useJobsStore((s) => s.appendOutputText);
   const appendOutput = useJobsStore((s) => s.appendOutput);
 
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
   const [detailsNotice, setDetailsNotice] = useState<{type: 'error' | 'info'; message: string} | null>(null);
-  const [showRawLog, setShowRawLog] = useState<boolean>(false);
   const [subjectViewMode, setSubjectViewMode] = useState<'grid' | 'list'>('grid');
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -684,9 +677,7 @@ export function JobsPage() {
   >('all');
   const [activeModalSubjectFile, setActiveModalSubjectFile] = useState<string | null>(null);
   const [subjectSortMode, setSubjectSortMode] = useState<'start-time' | 'input-order'>('start-time');
-  const [isLogExpanded, setIsLogExpanded] = useState<boolean>(false);
 
-  const isLogExpandedRef = useRef<boolean>(false);
   const activeModalSubjectFileRef = useRef<string | null>(null);
   const [modalMetricsEvents, setModalMetricsEvents] = useState<PipelineEvent[]>([]);
   const [isLoadingModalMetrics, setIsLoadingModalMetrics] = useState<boolean>(false);
@@ -696,9 +687,8 @@ export function JobsPage() {
   const activeModalSubjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    isLogExpandedRef.current = isLogExpanded;
     activeModalSubjectFileRef.current = activeModalSubjectFile;
-  }, [isLogExpanded, activeModalSubjectFile]);
+  }, [activeModalSubjectFile]);
 
   // Reset accumulated telemetry whenever the modal subject changes (including
   // close). Byte offsets are per-file; reusing a stale offset from another
@@ -761,12 +751,10 @@ export function JobsPage() {
     detailsAbortRef.current?.abort();
     detailsAbortRef.current = null;
     activeModalSubjectFileRef.current = null;
-    isLogExpandedRef.current = false;
     prevModalSubjectRef.current = null;
     modalMetricsOffsetRef.current = 0;
     setModalMetricsEvents([]);
     setActiveModalSubjectFile(null);
-    setIsLogExpanded(false);
     setIsLoadingModalMetrics(false);
   }, []);
 
@@ -838,8 +826,7 @@ export function JobsPage() {
         detailsAbortRef.current?.abort();
         detailsAbortRef.current = null;
         activeModalSubjectFileRef.current = null;
-        isLogExpandedRef.current = false;
-        currentJobIdRef.current = null;
+            currentJobIdRef.current = null;
         eventsOffsetRef.current = 0;
         logOffsetRef.current = 0;
         if (seq === reqSeqRef.current) {
@@ -925,7 +912,7 @@ export function JobsPage() {
       const eventOffset = isInitial ? 0 : eventsOffsetRef.current;
       const logOffset = isInitial ? 0 : logOffsetRef.current;
       const shouldFetchLog = Boolean(
-        options.fetchLog || (isLogExpandedRef.current && activeModalSubjectFileRef.current),
+        options.fetchLog,
       );
       const shouldFetchMetrics = Boolean(activeModalSubjectFileRef.current);
       if (shouldFetchMetrics) {
@@ -1484,13 +1471,6 @@ export function JobsPage() {
   );
   const isTerminal = ['completed', 'failed', 'stopped'].includes(displayMeta.status_reconciled);
 
-  useEffect(() => {
-    if (isLogExpanded && selectedJobId) {
-      void loadJobDetails(selectedJobId, null, {fetchLog: true});
-    }
-  }, [isLogExpanded, selectedJobId, loadJobDetails]);
-
-
   // Adaptive polling:
   // - If looking at a running job: poll every 10s with lightweight delta fetch
   // - If looking at a terminal job: do not poll (paused)
@@ -1780,22 +1760,6 @@ export function JobsPage() {
       ? deriveImageSteps(modalEvents, modalSubject, selectedTools, stageOrder, stageLabels)
       : [];
   }, [modalEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
-
-  const modalSubjectLog = React.useMemo(() => {
-    return filterLogForSubject(
-      outputText,
-      modalSubject,
-      batchImages.length,
-      modalImageSteps,
-      showRawLog,
-      toolDisplayNames,
-    );
-  }, [outputText, modalSubject, batchImages.length, modalImageSteps, showRawLog, toolDisplayNames]);
-
-  const filteredLog = React.useMemo(
-    () => filterLogLines(modalSubjectLog, jobLogSearch, showRawLog),
-    [modalSubjectLog, jobLogSearch, showRawLog],
-  );
 
   const modalMetricsSeries = React.useMemo(() => {
     return modalSubject
@@ -2889,70 +2853,16 @@ export function JobsPage() {
                   </div>
                 </div>
 
-                {/* Operator Console Log - Collapsible and Collapsed by Default */}
-                <div className="bg-cursor-surface-card border border-cursor-hairline rounded-lg p-3.5 shadow-none flex flex-col transition-all">
-                  <div className="p-0 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setIsLogExpanded(!isLogExpanded)}
-                      className="flex items-center gap-1.5 text-sm font-semibold leading-[1.3] text-cursor-ink hover:text-cursor-primary cursor-pointer bg-transparent border-none p-0"
-                    >
-                      <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isLogExpanded ? 'rotate-90' : ''}`} />
-                      <span>Operator Console Log</span>
-                    </button>
-                    {!isLogExpanded ? (
-                      <span className="text-2xs text-cursor-muted font-normal italic">Collapsed (click to view)</span>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowRawLog(!showRawLog)}
-                          className={`h-6 px-2 text-2xs border-cursor-hairline ${
-                            showRawLog
-                              ? 'bg-cursor-canvas-soft border-cursor-primary/50 text-cursor-primary font-medium'
-                              : 'text-cursor-body'
-                          }`}
-                          title={
-                            showRawLog
-                              ? 'Currently showing detailed Raw log. Click to view Sanitized log.'
-                              : 'Currently showing Sanitized log. Click to view detailed Raw log.'
-                          }
-                        >
-                          {showRawLog ? (
-                            <>
-                              <EyeOff className="h-3 w-3 mr-1" /> Sanitized
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="h-3 w-3 mr-1" /> Raw
-                            </>
-                          )}
-                        </Button>
-                        <label className="relative m-0 block w-full max-w-[8rem]">
-                          <input
-                            type="search"
-                            placeholder="Filter..."
-                            value={jobLogSearch}
-                            onChange={(e) => setJobLogSearch(e.target.value)}
-                            className="w-full rounded-md border border-cursor-hairline bg-cursor-surface-card px-2 py-0.5 pr-6 text-2xs text-cursor-ink placeholder:text-cursor-muted-soft focus:outline-none focus:ring-1 focus:ring-cursor-primary h-6"
-                          />
-                          <Search className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-cursor-muted" />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                  {isLogExpanded && (
-                    <div className="p-0 pt-2.5 flex-1 min-h-0 overflow-hidden">
-                      <pre
-                        className="h-full max-h-[18rem] min-h-[10rem] w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-cursor-hairline-soft bg-cursor-canvas-soft p-2.5 text-xs leading-relaxed text-cursor-ink font-mono"
-                        aria-live="polite"
-                      >
-                        {filteredLog || 'Log stream is empty.'}
-                      </pre>
-                    </div>
-                  )}
-                </div>
+                <OperatorConsoleLog
+                  key={`${selectedJobId}:${modalSubject.input_file}:${modalSubject.subject_id}`}
+                  jobId={String(selectedJobId || job?.job_id || '')}
+                  remoteJobDir={String(job?.remote_job_dir || job?.job_dir || canonicalJobId(selectedJobId))}
+                  isServer={isServerJob}
+                  running={!isTerminal}
+                  subjectId={modalSubject.subject_id}
+                  inputFile={modalSubject.input_file}
+                  remotePayload={buildRemotePayload(formValues)}
+                />
               </div>
             </div>
           </div>

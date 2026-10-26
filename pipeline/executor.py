@@ -38,6 +38,7 @@ class ExecutionRequest:
     should_stop: Callable[[], bool] | None = None
     gpu_device_id: str | None = None
     cpu_thread_limit: int | None = None
+    output_capture: object | None = None
 
 @dataclass
 class ExecutionResult:
@@ -139,15 +140,41 @@ class LocalDockerExecutor(BaseExecutor):
                 stop_monitor.wait(2.0)
 
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **no_window_kwargs())
+            streaming = req.output_capture is not None
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=not streaming, **no_window_kwargs())
+            tail = bytearray()
+            reader = None
+            if streaming:
+                def read_output():
+                    try:
+                        while True:
+                            chunk = proc.stdout.read1(65536)
+                            if not chunk:
+                                break
+                            req.output_capture.write(chunk)
+                            tail.extend(chunk)
+                            if len(tail) > 65536:
+                                del tail[:-65536]
+                    except Exception as exc:
+                        req.output_capture.meta['coverage'] = 'partial'
+                        req.output_capture.meta['capture_error'] = str(exc)
+                reader = threading.Thread(target=read_output, daemon=True)
+                reader.start()
             monitor = threading.Thread(target=monitor_resources, daemon=True)
             monitor.start()
             stopped = False
+            timed_out = False
+            return_code = -1
             try:
                 deadline = t0 + req.timeout
                 while True:
                     try:
-                        output, _ = proc.communicate(timeout=min(0.5, max(0.01, deadline - time.time())))
+                        timeout = min(0.5, max(0.01, deadline - time.time()))
+                        if streaming:
+                            proc.wait(timeout=timeout)
+                            output = ""
+                        else:
+                            output, _ = proc.communicate(timeout=timeout)
                         return_code = proc.returncode
                         break
                     except subprocess.TimeoutExpired:
@@ -157,20 +184,37 @@ class LocalDockerExecutor(BaseExecutor):
                                 subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30, **no_window_kwargs())
                             else:
                                 proc.kill()
-                            output, _ = proc.communicate(timeout=30)
+                            if streaming:
+                                proc.wait(timeout=30)
+                                output = ""
+                            else:
+                                output, _ = proc.communicate(timeout=30)
                             return_code = proc.returncode if proc.returncode is not None else -1
                             break
                         if time.time() >= deadline:
+                            timed_out = True
                             proc.kill()
                             if req.container_name:
                                 subprocess.run(["docker", "rm", "-f", req.container_name], capture_output=True, text=True, timeout=30, **no_window_kwargs())
-                            output, _ = proc.communicate()
+                            if streaming:
+                                proc.wait()
+                                output = ""
+                            else:
+                                output, _ = proc.communicate()
                             output = f"{output or ''}\nDocker timed out after {req.timeout}s"
                             return_code = -1
                             break
             finally:
                 stop_monitor.set()
                 monitor.join(timeout=2)
+                if reader is not None:
+                    reader.join(timeout=5)
+                    if reader.is_alive():
+                        req.output_capture.meta['coverage'] = 'partial'
+                        req.output_capture.meta['capture_error'] = 'Output reader did not finish'
+                    output = bytes(tail).decode('utf-8', errors='replace')
+                    if timed_out:
+                        output += f"\nDocker timed out after {req.timeout}s"
                 
             metrics = _resource_metrics(ram_samples, cpu_samples)
             return ExecutionResult(
@@ -183,6 +227,14 @@ class LocalDockerExecutor(BaseExecutor):
                 return_code=return_code
             )
         except subprocess.TimeoutExpired:
+            if req.output_capture:
+                req.output_capture.finish(False, 'Docker timeout', -1)
             return ExecutionResult(False, f"Docker timed out after {req.timeout}s", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)
         except FileNotFoundError:
+            if req.output_capture:
+                req.output_capture.finish(False, 'docker not found', None)
             return ExecutionResult(False, "docker not found - is Docker installed and in PATH?", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)
+        except Exception as exc:
+            if req.output_capture:
+                req.output_capture.finish(False, str(exc), None)
+            raise

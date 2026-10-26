@@ -363,6 +363,8 @@ class PipelineConfig:
     container_name_suffix: str = ""
     gpu_device_id: str | None = None
     cpu_thread_limit: int | None = None
+    console_job_dir: str = ""
+    console_attempt_id: str = ""
 
 @dataclass
 class StepResult:

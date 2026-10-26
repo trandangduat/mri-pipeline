@@ -19,6 +19,18 @@ class LocalJobProgressService:
         self.jobs_root = Path(jobs_root) if jobs_root is not None else paths.jobs_root()
         self.registry_path = self.jobs_root / "job_registry.json"
 
+    def console(self, data: dict, export: bool = False) -> dict:
+        from pipeline.console_reader import ConsoleFiles, export_console, public_response, read_console, scheduler_records
+        job = self._job_dir(str(data.get('job_id') or ''))
+        if job is None:
+            return {'ok': False, 'error': 'Local job not found'}
+        try:
+            files = ConsoleFiles(str(job))
+            native = lambda subject: scheduler_records(str(job), subject)
+            return export_console(files, data, native) if export else public_response(read_console(files, data, native))
+        except Exception as exc:
+            return {'ok': False, 'error': str(exc)}
+
     def read_events(self, job_id: str, offset: int = 0, limit: int = 500) -> dict[str, JsonValue]:
         job_dir = self._job_dir(job_id)
         if job_dir is None:

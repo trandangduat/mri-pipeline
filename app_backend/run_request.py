@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import json
 import time
 from dataclasses import dataclass, field
@@ -169,13 +170,13 @@ def _prepare_run_request_result(
     elif mode == "files":
         files = _normalized_input_files(_selected_or_split_files(run_config))
         request["input_files"] = files
-        request["input_dir"] = _common_input_root(files)
+        request["input_dir"] = _common_input_root(files, run_config.run_target == 'Server' and run_config.input_source == 'Server')
     else:
         if run_config.selected_files:
             request["mode"] = "files"
             files = _normalized_input_files(run_config.selected_files)
             request["input_files"] = files
-            request["input_dir"] = _common_input_root(files)
+            request["input_dir"] = _common_input_root(files, run_config.run_target == 'Server' and run_config.input_source == 'Server')
         else:
             request["input_dir"] = raw_input
             request["recursive"] = not run_config.non_recursive
@@ -358,7 +359,13 @@ def _normalize_dicom_file_to_series_dir(path: str) -> str:
     return path
 
 
-def _common_input_root(files: list[str]) -> str:
+def _common_input_root(files: list[str], server_paths: bool = False) -> str:
+    if server_paths:
+        parents = [posixpath.dirname(path) for path in files]
+        try:
+            return posixpath.commonpath(parents)
+        except ValueError:
+            return parents[0] if parents else ''
     parents = [str(Path(path).expanduser().resolve().parent) for path in files]
     try:
         return os.path.commonpath(parents)
