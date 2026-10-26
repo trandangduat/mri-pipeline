@@ -268,10 +268,18 @@ class LocalJobService:
 
         status = read_json(job_dir / "job_status.json", {})
         launcher = read_json(job_dir / "launcher_status.json", {})
-        pid = int(launcher.get("pid") or entry.get("pid") or 0)
+        pid_file = job_dir / "pid.txt"
+        worker_pid = None
+        if pid_file.exists():
+            try:
+                worker_pid = int(pid_file.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                pass
+        pid = worker_pid or int(launcher.get("pid") or entry.get("pid") or 0)
+        create_time = launcher.get("create_time") if (worker_pid is None or worker_pid == launcher.get("pid")) else None
         if (self.process_checker is not None and _exit_code(job_dir, status) is None
                 and status.get("state") not in {"completed", "failed", "stopped"}
-                and not self.process_checker(pid, launcher.get("create_time"))):
+                and not self.process_checker(pid, create_time)):
             _record_worker_exit(job_dir, None)
             status = read_json(job_dir / "job_status.json", {})
         if status.get("error"):
@@ -344,7 +352,8 @@ def _worker_is_alive(pid: int, create_time: float | None = None) -> bool:
 
 def _worker_ready(job_dir: Path, pid: int) -> bool:
     try:
-        return int((job_dir / "pid.txt").read_text(encoding="utf-8").strip()) == pid
+        worker_pid = int((job_dir / "pid.txt").read_text(encoding="utf-8").strip())
+        return worker_pid == pid or _worker_is_alive(worker_pid)
     except (OSError, ValueError):
         return False
 

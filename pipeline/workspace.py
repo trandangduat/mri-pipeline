@@ -36,7 +36,7 @@ def _check_output_workspace(path: str, input_file: str = "") -> tuple[bool, str]
             input_size = Path(input_file).stat().st_size
         except OSError:
             input_size = 0
-    min_free = max(10 * 1024 ** 3, input_size * 20)
+    min_free = max(2 * 1024 ** 3, input_size * 5)
     if usage.free < min_free:
         return False, f"not enough free disk in {workspace}: free {_format_bytes(usage.free)}, recommended at least {_format_bytes(min_free)} for this pipeline run"
     return True, f"output workspace ok: free {_format_bytes(usage.free)}"
