@@ -164,7 +164,7 @@ def pull_image_events(
             ["docker", "pull", image],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            bufsize=1,
+            bufsize=0,
             **(no_window_kwargs() if popen_fn is subprocess.Popen else {}),
         )
     except Exception as exc:
