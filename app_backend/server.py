@@ -340,7 +340,7 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._handle_tools_pull_stream(image)
             return
-                if self.path == "/tools/local/pull/status":
+        if self.path == "/tools/local/pull/status":
             image = str(payload.get("image", "") or "")
             if not image:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "image is required"})
