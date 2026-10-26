@@ -365,6 +365,98 @@ def test_neuroflow_batch_runs_ready_launches_concurrently(
     assert all(isinstance(result, BatchImageResult) for result in results)
 
 
+def test_subject_completion_is_published_before_other_subjects_finish(tmp_path, monkeypatch):
+    import json
+
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+    release_second = threading.Event()
+    second_finished = threading.Event()
+    generated = []
+    notifications = []
+
+    def run_stage(config, stage, **kwargs):
+        if config.subject_id == 'subject-b':
+            assert release_second.wait(2), 'First subject did not publish completion while the second was active'
+            second_finished.set()
+        return _FakeStep(), str(tmp_path / config.subject_id / 'out.mgz')
+
+    class Generator:
+        def __init__(self, config):
+            pass
+
+        def generate(self, directory, subject):
+            generated.append(subject)
+            return SimpleNamespace(files=[], warnings=[])
+
+    def done(result, index, total):
+        scheduler = _FakeAdaptiveScheduler.instances[0]
+        assert any(r.attempt_id == ('attempt-a' if result.subject_id == 'subject-a' else 'attempt-b')
+                   for r in scheduler.results)
+        state = json.loads((Path(result.subject_dir) / 'logs/pipeline_state.json').read_text())
+        assert state['status'] == 'SUCCESS'
+        assert generated.count(result.subject_id) == 1
+        if result.subject_id == 'subject-a':
+            assert not second_finished.is_set()
+            release_second.set()
+        notifications.append((result.subject_id, index, total))
+
+    monkeypatch.setattr(neuroflow_adapter, 'run_pipeline_stage', run_stage)
+    monkeypatch.setattr(neuroflow_adapter, 'StatsGenerator', Generator)
+    monkeypatch.setattr(neuroflow_adapter, 'write_batch_reports', lambda context: None)
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / 'job',
+        req={'pipeline_mode': 'FreeSurfer 8 + Volume', 'effective_output_dir': str(tmp_path / 'out'),
+             'selected_tools': {'reorientation': 'fake_tool'}, 'threads': 2, 'neuroflow_max_concurrent_tasks': 2},
+        input_files=['a.nii', 'b.nii'], subject_id_map={'a.nii': 'subject-a', 'b.nii': 'subject-b'},
+        on_image_done=done,
+    )
+    assert all(result.success for result in results)
+    assert notifications == [('subject-a', 1, 2), ('subject-b', 2, 2)]
+    assert generated == ['subject-a', 'subject-b']
+
+
+def test_subject_completion_waits_for_every_enabled_preset_stage(tmp_path, monkeypatch):
+    _FakeAdaptiveScheduler.instances = []
+    _install_fake_neuroflow(monkeypatch)
+    configuration = sys.modules['neuroflow.configuration']
+    configuration.load_pipeline_file = lambda path: SimpleNamespace(
+        pipeline_id='fake_pipeline', pipeline_version='1',
+        stages=(SimpleNamespace(stage_id='reorient_resize', enabled=True),
+                SimpleNamespace(stage_id='subcortical_segmentation', enabled=True)),
+    )
+    scheduler_finished = threading.Event()
+
+    class Scheduler(_FakeAdaptiveScheduler):
+        def request_launches(self, *, request):
+            response = super().request_launches(request=request)
+            if response.terminal:
+                scheduler_finished.set()
+            return response
+
+    sys.modules['neuroflow'].AdaptiveScheduler = Scheduler
+    monkeypatch.setattr(neuroflow_adapter, 'run_pipeline_stage',
+                        lambda config, stage, **kwargs: (_FakeStep(), None))
+    monkeypatch.setattr(neuroflow_adapter, 'StatsGenerator', lambda config: SimpleNamespace(
+        generate=lambda *args: SimpleNamespace(files=[], warnings=[])))
+    monkeypatch.setattr(neuroflow_adapter, 'write_batch_reports', lambda context: None)
+    notifications = []
+
+    def done(result, index, total):
+        assert scheduler_finished.is_set()
+        notifications.append(result)
+
+    results = run_neuroflow_batch(
+        job_dir=tmp_path / 'job',
+        req={'pipeline_mode': 'FreeSurfer 8 + Volume', 'effective_output_dir': str(tmp_path / 'out'),
+             'selected_tools': {'reorientation': 'fake_tool'}, 'threads': 2, 'neuroflow_max_concurrent_tasks': 2},
+        input_files=['a.nii', 'b.nii'], subject_id_map={'a.nii': 'subject-a', 'b.nii': 'subject-b'},
+        on_image_done=done,
+    )
+    assert len(notifications) == 2
+    assert all(not result.success for result in results)
+
+
 def test_neuroflow_continuous_replenishment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

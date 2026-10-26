@@ -72,8 +72,7 @@ It does not load the complete export into browser memory.
 It refuses to overwrite existing files.
 
 The combined log contains activity, stage boundaries, original output bytes, and an export manifest footer.
-The footer records source identifiers, byte ranges, lengths, and SHA-256 values.
-Use `monitor_operator_console.py verify-export` to compare them with independently read server files.
+The footer records source identifiers, byte ranges, lengths, and SHA-256 values for independent verification.
 A running-job export is a snapshot. Later output can extend the source files.
 Missing historical output cannot be recovered by exporting.
 
@@ -94,4 +93,4 @@ No job was started during implementation.
 
 Restart NeuroFlow through `run-gui.bat` before reviewing this change.
 This reloads backend source and the native Save dialog permission.
-See `docs/operator-console-monitoring.md` for capture commands and manual checkpoints.
+Review Summary, Detailed, search, subject switching, and Download manually through the UI.

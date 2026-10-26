@@ -95,6 +95,7 @@ class _ImageRunContext:
     steps: list = field(default_factory=list)
     stage_steps: dict[str, list[object]] = field(default_factory=dict)
     completed_stages: set[str] = field(default_factory=set)
+    committed_stages: set[str] = field(default_factory=set)
     stage_outputs: dict[str, str] = field(default_factory=dict)
     completed: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -553,6 +554,8 @@ def run_neuroflow_batch(
     for image_id, step, output in restored_steps:
         if image_id in contexts:
             contexts[image_id].record_step(step, output, step.stage)
+            if step.success:
+                contexts[image_id].committed_stages.add(step.stage)
 
     if policy_choice != "B6":
         from .policy_runtime import create_baseline_scheduler, load_baseline_scheduler, write_contract
@@ -709,6 +712,87 @@ def run_neuroflow_batch(
             return bool(getattr(status, "terminal", False))
         return bool(last_response_terminal)
 
+    generator = StatsGenerator(stats_vector_config)
+    finished_results: dict[str, BatchImageResult] = {}
+    if hasattr(pipeline, "stages"):
+        expected_stage_set = {
+            NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(str(stage.stage_id), str(stage.stage_id))
+            for stage in pipeline.stages if getattr(stage, "enabled", True)
+        }
+    else:
+        expected_stage_set = {stage for stage, tool in selected_tools.items() if tool}
+
+    def _finalize_subject(context: _ImageRunContext, allow_partial: bool = False) -> BatchImageResult | None:
+        if context.completed:
+            return finished_results[context.subject_id]
+        # A worker records its step before the scheduler commits its result.
+        # Wait until every result for this subject has been processed.
+        if not allow_partial and any(item[1] is context for item in running_futures.values()):
+            return None
+        latest_step_per_stage: dict[str, object] = {
+            stg: steps[-1] for stg, steps in context.stage_steps.items() if steps
+        }
+        for step in context.steps:
+            stg = getattr(step, "stage", None)
+            if stg and stg not in latest_step_per_stage:
+                latest_step_per_stage[stg] = step
+
+        if expected_stage_set:
+            all_stages_completed = expected_stage_set.issubset(context.committed_stages)
+            all_steps_succeeded = all(
+                getattr(latest_step_per_stage.get(stg), "success", False) for stg in expected_stage_set
+            )
+            success = all_stages_completed and all_steps_succeeded
+        else:
+            all_stages_completed = bool(context.committed_stages)
+            all_steps_succeeded = bool(latest_step_per_stage) and all(
+                getattr(step, "success", False) for step in latest_step_per_stage.values()
+            )
+            success = all_stages_completed and all_steps_succeeded
+
+        if not allow_partial and not success:
+            return None
+        is_stopped = bool(should_stop and should_stop())
+        stats_result = generator.generate(context.subject_dir, context.subject_id)
+        if stats_result.files or stats_result.warnings:
+            context.tracker.set_stats_vectors(stats_result.files, stats_result.warnings)
+        context.tracker.mark_completed(success)
+        if is_stopped and not success:
+            err = "Job stopped before all pipeline stages completed"
+        elif not success:
+            err = "one or more NeuroFLOW scheduled steps failed"
+        else:
+            err = ""
+
+        final_steps: list[object] = []
+        for s in STAGE_ORDER:
+            if s in latest_step_per_stage:
+                final_steps.append(latest_step_per_stage[s])
+        for stg, step in latest_step_per_stage.items():
+            if stg not in STAGE_ORDER:
+                final_steps.append(step)
+        if not final_steps and context.steps:
+            final_steps = list(context.steps)
+
+        image_result = BatchImageResult(
+            input_file=context.input_file,
+            subject_id=context.subject_id,
+            subject_dir=context.subject_dir,
+            success=success,
+            duration_sec=time.time() - context.started_at,
+            steps=final_steps,
+            error=err,
+        )
+        finished_results[context.subject_id] = image_result
+        context.completed = True
+        if on_image_done:
+            on_image_done(image_result, context.idx, context.total)
+        return image_result
+
+    for context in contexts.values():
+        if context.committed_stages:
+            _finalize_subject(context)
+
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         while True:
             if should_stop and should_stop():
@@ -721,6 +805,7 @@ def run_neuroflow_batch(
 
             # 1. Process any completed tasks
             completed = [f for f in list(running_futures) if f.done()]
+            completed_contexts: dict[str, _ImageRunContext] = {}
             for future in completed:
                 launch, context, local_stage, execution_id = running_futures.pop(future)
                 try:
@@ -766,12 +851,18 @@ def run_neuroflow_batch(
                         "error": str(exc),
                     }
                 receipt = scheduler.report_result(result=result)
+                completed_contexts[context.subject_id] = context
+                if result.status == ResultStatus.SUCCEEDED and result.validation_passed:
+                    context.committed_stages.add(local_stage)
                 from .tool_output import record_scheduler_result
                 record_scheduler_result(job_dir, context.subject_id, launch.attempt_id, receipt)
                 _write_observation(job_dir, observation)
                 output_observation_dir = Path(output_dir)
                 if output_observation_dir.resolve() != job_dir.resolve():
                     _write_observation(output_observation_dir, observation)
+
+            for context in completed_contexts.values():
+                _finalize_subject(context)
 
             # 2. Check available concurrency slots and request new launches
             if stopping:
@@ -824,69 +915,9 @@ def run_neuroflow_batch(
 
             time.sleep(0.05)
 
-    results: list[BatchImageResult] = []
-    generator = StatsGenerator(stats_vector_config)
-    expected_stages = [stage for stage, tool in selected_tools.items() if tool]
-    if not expected_stages and hasattr(pipeline, "stages"):
-        expected_stages = [NEUROFLOW_STAGE_TO_LOCAL_STAGE.get(s.stage_id, s.stage_id) for s in pipeline.stages]
-    expected_stage_set = set(expected_stages)
-
-    is_stopped = bool(should_stop and should_stop())
     for context in contexts.values():
-        latest_step_per_stage: dict[str, object] = {
-            stg: steps[-1] for stg, steps in context.stage_steps.items() if steps
-        }
-        for step in context.steps:
-            stg = getattr(step, "stage", None)
-            if stg and stg not in latest_step_per_stage:
-                latest_step_per_stage[stg] = step
-
-        if expected_stage_set:
-            all_stages_completed = expected_stage_set.issubset(context.completed_stages)
-            all_steps_succeeded = all(
-                getattr(latest_step_per_stage.get(stg), "success", False) for stg in expected_stage_set
-            )
-            success = all_stages_completed and all_steps_succeeded
-        else:
-            all_stages_completed = bool(context.completed_stages)
-            all_steps_succeeded = bool(latest_step_per_stage) and all(
-                getattr(step, "success", False) for step in latest_step_per_stage.values()
-            )
-            success = all_stages_completed and all_steps_succeeded
-
-        context.tracker.mark_completed(success)
-        stats_result = generator.generate(context.subject_dir, context.subject_id)
-        if stats_result.files or stats_result.warnings:
-            context.tracker.set_stats_vectors(stats_result.files, stats_result.warnings)
-        if is_stopped and not success:
-            err = "Job stopped before all pipeline stages completed"
-        elif not success:
-            err = "one or more NeuroFLOW scheduled steps failed"
-        else:
-            err = ""
-
-        final_steps: list[object] = []
-        for s in STAGE_ORDER:
-            if s in latest_step_per_stage:
-                final_steps.append(latest_step_per_stage[s])
-        for stg, step in latest_step_per_stage.items():
-            if stg not in STAGE_ORDER:
-                final_steps.append(step)
-        if not final_steps and context.steps:
-            final_steps = list(context.steps)
-
-        image_result = BatchImageResult(
-            input_file=context.input_file,
-            subject_id=context.subject_id,
-            subject_dir=context.subject_dir,
-            success=success,
-            duration_sec=time.time() - context.started_at,
-            steps=final_steps,
-            error=err,
-        )
-        results.append(image_result)
-        if on_image_done:
-            on_image_done(image_result, context.idx, context.total)
+        _finalize_subject(context, allow_partial=True)
+    results = [finished_results[context.subject_id] for context in contexts.values()]
 
     write_batch_reports(
         BatchReportContext(
