@@ -440,7 +440,7 @@ export function RuntimeSection() {
 
           <div className="grid gap-2.5 grid-cols-2">
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Host</span>
                 <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
               </span>
@@ -453,7 +453,7 @@ export function RuntimeSection() {
               />
             </label>
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Port</span>
                 <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
               </span>
@@ -468,7 +468,7 @@ export function RuntimeSection() {
               />
             </label>
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Username</span>
                 <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
               </span>
@@ -481,7 +481,7 @@ export function RuntimeSection() {
               />
             </label>
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Remote Python</span>
                 <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
               </span>
@@ -494,7 +494,7 @@ export function RuntimeSection() {
               />
             </label>
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Workspace directory</span>
                 <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
               </span>
@@ -507,7 +507,7 @@ export function RuntimeSection() {
               />
             </label>
             <label className={labelCls}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>SSH key path</span>
               </span>
               <div className="flex items-center gap-1.5">
@@ -529,7 +529,7 @@ export function RuntimeSection() {
               </div>
             </label>
             <label className={`${labelCls} col-span-2`}>
-              <span className="flex h-4 items-center gap-1">
+              <span className="flex min-h-4 items-center gap-1">
                 <span>Password (optional)</span>
               </span>
               <input

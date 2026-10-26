@@ -302,9 +302,9 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
   const startButtonText = starting ? 'Starting...' : 'Start Pipeline';
 
   return (
-    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card [--font-scale:1]">
+    <header className="sticky top-0 z-30 w-full flex-none border-b border-cursor-hairline bg-cursor-surface-card">
       {/* Top Bar: Brand & Action Buttons */}
-      <div className="flex h-12 items-center justify-between px-4">
+      <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2">
         {/* Brand Logo, Title & Theme Toggle */}
         <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-cursor-primary text-white">
@@ -377,7 +377,7 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
       {/* Navigation Tabs Bar */}
       <nav
         aria-label="Main Navigation"
-        className="flex items-center gap-5 px-4 border-t border-cursor-hairline"
+        className="flex flex-wrap items-center gap-x-5 px-4 border-t border-cursor-hairline"
       >
         <button
           type="button"

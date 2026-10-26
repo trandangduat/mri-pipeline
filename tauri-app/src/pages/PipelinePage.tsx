@@ -268,7 +268,7 @@ export function PipelineStepsSection() {
       {needsLicense && (
         <div className="mt-2.5 flex flex-wrap items-end gap-2">
           <label className={`${labelCls} min-w-[min(100%,14rem)] flex-1`}>
-            <span className="flex h-4 items-center gap-1">
+            <span className="flex min-h-4 items-center gap-1">
               <span>FreeSurfer license (license.txt)</span>
               <span className="text-cursor-semantic-error font-medium" title="Required">*</span>
             </span>
@@ -2202,7 +2202,7 @@ function PathField({
 
   return (
     <label className={`${labelCls} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-      <span className="flex h-4 items-center gap-1">
+      <span className="flex min-h-4 items-center gap-1">
         <span>{label}</span>
         {isRequired && (
           <span className="text-cursor-semantic-error font-medium" title="Required">*</span>

@@ -36,7 +36,7 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
   }, [isOpen]);
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center [--font-scale:1]">
+    <div ref={containerRef} className="relative inline-flex items-center">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
@@ -53,18 +53,18 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
 
       {isOpen && (
         <div
-          className="absolute left-0 top-full mt-1.5 z-50 w-52 rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2 animate-in fade-in-50 zoom-in-95 [--font-scale:1]"
+          className="absolute left-0 top-full mt-1.5 z-50 w-max min-w-52 max-w-[calc(100vw-2rem)] max-h-[60dvh] overflow-y-auto rounded-lg border border-cursor-hairline bg-cursor-surface-card p-2 animate-in fade-in-50 zoom-in-95"
           role="menu"
           aria-orientation="vertical"
         >
           {/* Header */}
-          <div className="mb-1.5 flex items-center justify-between border-b border-cursor-hairline pb-1.5 px-1.5">
+          <div className="mb-1.5 flex items-center justify-between gap-4 border-b border-cursor-hairline pb-1.5 px-1.5">
             <span className="text-xs font-semibold text-cursor-ink">UI Font Size</span>
             {scale !== DEFAULT_FONT_SCALE && (
               <button
                 type="button"
                 onClick={resetScale}
-                className="inline-flex items-center gap-1 text-[11px] text-cursor-muted hover:text-cursor-primary transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs text-cursor-muted hover:text-cursor-primary transition-colors cursor-pointer"
                 title="Reset to default (100%)"
               >
                 <RotateCcw className="h-3 w-3" />
@@ -94,7 +94,7 @@ export function FontScaleToggle({className = ''}: {className?: string}) {
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">{preset.label}</span>
-                    <span className="text-[11px] text-cursor-muted">({preset.desc})</span>
+                    <span className="text-xs text-cursor-muted">({preset.desc})</span>
                   </div>
                   {isSelected && <Check className="h-3.5 w-3.5 text-cursor-primary shrink-0" />}
                 </button>
