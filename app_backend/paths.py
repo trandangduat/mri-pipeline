@@ -70,6 +70,13 @@ def jobs_root() -> Path:
     return data_root() / "outputs" / "jobs"
 
 
+def pulls_root() -> Path:
+    raw = os.environ.get("NEUROFLOW_PULLS_ROOT")
+    if raw:
+        return Path(raw)
+    return data_root() / "outputs" / "pulls"
+
+
 def license_root() -> Path:
     raw = os.environ.get("NEUROFLOW_LICENSE_ROOT")
     if raw:

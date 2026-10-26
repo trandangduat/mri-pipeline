@@ -5,12 +5,14 @@ Extracted from server.py so streaming and optional watchdog behavior are unit-te
 
 from __future__ import annotations
 
+import json
 import queue
 import re
 import subprocess
 import threading
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, Callable
 from pipeline.win_process import no_window_kwargs
 
@@ -54,20 +56,108 @@ def _split_stream_segments(buffer: str) -> tuple[list[str], str]:
     return [part for part in parts if part], remaining
 
 
+def local_pull_paths(image: str) -> dict[str, Path]:
+    from app_backend.paths import pulls_root
+
+    safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", image)
+    root = pulls_root()
+    return {
+        "dir": root,
+        "json": root / f"{safe}.json",
+        "log": root / f"{safe}.log",
+    }
+
+
+def read_local_pull_state(image: str) -> dict[str, Any] | None:
+    p = local_pull_paths(image)
+    if not p["json"].is_file():
+        return None
+    try:
+        data = json.loads(p["json"].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    status = str(data.get("status", "")).lower()
+    pid = data.get("pid")
+    if status == "pulling" and isinstance(pid, int):
+        from app_backend.jobs import _worker_is_alive
+
+        if not _worker_is_alive(pid):
+            data["status"] = "failed"
+            data["error"] = "Pull process terminated unexpectedly"
+            try:
+                p["json"].write_text(json.dumps(data, indent=2), encoding="utf-8")
+            except OSError:
+                pass
+            return data
+    return data
+
+
+def write_local_pull_state(image: str, state: dict[str, Any]) -> None:
+    p = local_pull_paths(image)
+    try:
+        p["dir"].mkdir(parents=True, exist_ok=True)
+        p["json"].write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def pull_image_events(
     image: str,
     *,
     stall_timeout_s: int | None = DEFAULT_STALL_TIMEOUT_S,
     popen: Callable[..., Any] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Yield SSE-style ``{"event": ..., "data": ...}`` dicts for a docker pull.
+    paths = local_pull_paths(image)
+    try:
+        paths["dir"].mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
-    - Per-layer progress frames (separated by ``\\r``) are streamed with light
-      throttling so the UI can show download/extract progress per layer.
-    - By default, Docker controls pull retries and failures without an
-      application-level inactivity deadline. If ``stall_timeout_s`` is set,
-      the process is killed after that many seconds without output.
-    """
+    # Check if a pull for this image is already actively running
+    existing = read_local_pull_state(image)
+    if existing and str(existing.get("status", "")).lower() == "pulling":
+        yield {
+            "event": "step",
+            "data": {"step": "pull", "status": "running", "detail": f"Pulling {image}..."},
+        }
+        offset = 0
+        if paths["log"].is_file():
+            try:
+                initial_lines = paths["log"].read_text(encoding="utf-8", errors="replace").splitlines()
+                for line in initial_lines[-5:]:
+                    if line.strip():
+                        yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line.strip()}}
+                offset = paths["log"].stat().st_size
+            except OSError:
+                pass
+        while True:
+            time.sleep(0.3)
+            if paths["log"].is_file():
+                try:
+                    cur_size = paths["log"].stat().st_size
+                    if cur_size > offset:
+                        with open(paths["log"], "r", encoding="utf-8", errors="replace") as lf:
+                            lf.seek(offset)
+                            new_data = lf.read()
+                            offset = lf.tell()
+                            for line in new_data.splitlines():
+                                if line.strip():
+                                    yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line.strip()}}
+                except OSError:
+                    pass
+            cur_state = read_local_pull_state(image)
+            if not cur_state or str(cur_state.get("status", "")).lower() != "pulling":
+                ok = bool(cur_state and str(cur_state.get("status", "")).lower() == "success")
+                err = cur_state.get("error") if cur_state else "Pull ended"
+                if ok:
+                    yield {"event": "complete", "data": {"ok": True}}
+                else:
+                    yield {"event": "step", "data": {"step": "pull", "status": "failed", "detail": str(err)}}
+                    yield {"event": "complete", "data": {"ok": False, "error": str(err)}}
+                return
+
     popen_fn = popen or subprocess.Popen
     try:
         proc = popen_fn(
@@ -81,6 +171,22 @@ def pull_image_events(
         yield {"event": "step", "data": {"step": "pull", "status": "failed", "detail": str(exc)}}
         yield {"event": "complete", "data": {"ok": False, "error": str(exc)}}
         return
+
+    pid = getattr(proc, "pid", None)
+    now = time.time()
+    state_record = {
+        "image": image,
+        "status": "pulling",
+        "pid": pid,
+        "started_at": now,
+        "updated_at": now,
+        "log_path": str(paths["log"]),
+    }
+    write_local_pull_state(image, state_record)
+    try:
+        paths["log"].write_text(f"Starting pull for {image}\n", encoding="utf-8")
+    except OSError:
+        pass
 
     segments: queue.Queue = queue.Queue()
 
@@ -111,6 +217,15 @@ def pull_image_events(
     tail: list[str] = []
     timed_out = False
     last_progress_emit = 0.0
+    last_state_write = time.monotonic()
+
+    def _append_log(msg: str) -> None:
+        try:
+            with open(paths["log"], "a", encoding="utf-8", errors="replace") as lf:
+                lf.write(msg + "\n")
+        except OSError:
+            pass
+
     while True:
         try:
             item = segments.get(timeout=stall_timeout_s)
@@ -124,12 +239,19 @@ def pull_image_events(
             continue
         tail.append(line)
         tail = tail[-5:]
+        _append_log(line)
+
+        now_mono = time.monotonic()
+        if (now_mono - last_state_write) >= 2.0:
+            last_state_write = now_mono
+            state_record["updated_at"] = time.time()
+            write_local_pull_state(image, state_record)
+
         if _ALWAYS_EMIT_RE.search(line):
             yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line}}
             continue
-        now = time.monotonic()
-        if (now - last_progress_emit) >= PROGRESS_EMIT_INTERVAL_S:
-            last_progress_emit = now
+        if (now_mono - last_progress_emit) >= PROGRESS_EMIT_INTERVAL_S:
+            last_progress_emit = now_mono
             yield {"event": "step", "data": {"step": "pull", "status": "running", "detail": line}}
 
     if timed_out:
@@ -142,14 +264,32 @@ def pull_image_events(
             f"Network connection lost during pull (no output for {stall_timeout_s}s). "
             "Check your internet connection and try again."
         )
+        _append_log(f"TIMEOUT: {message}")
+        state_record["status"] = "failed"
+        state_record["exit_code"] = 1
+        state_record["error"] = message
+        state_record["updated_at"] = time.time()
+        write_local_pull_state(image, state_record)
+
         yield {"event": "step", "data": {"step": "pull", "status": "failed", "detail": message}}
         yield {"event": "complete", "data": {"ok": False, "error": message}}
         return
 
     proc.wait()
     if proc.returncode == 0:
+        state_record["status"] = "success"
+        state_record["exit_code"] = 0
+        state_record["updated_at"] = time.time()
+        write_local_pull_state(image, state_record)
+        _append_log("Pull completed successfully.")
         yield {"event": "complete", "data": {"ok": True}}
     else:
         error = friendly_pull_error(tail, int(proc.returncode))
+        state_record["status"] = "failed"
+        state_record["exit_code"] = int(proc.returncode)
+        state_record["error"] = error
+        state_record["updated_at"] = time.time()
+        write_local_pull_state(image, state_record)
+        _append_log(f"FAILED: {error}")
         yield {"event": "step", "data": {"step": "pull", "status": "failed", "detail": error}}
         yield {"event": "complete", "data": {"ok": False, "error": error}}

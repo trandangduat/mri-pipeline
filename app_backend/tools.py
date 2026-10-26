@@ -14,6 +14,7 @@ from pipeline.registry import TOOL_DEFS, tool_display_name
 from remote.remote_runner import RemoteRunConfig, RemoteRunner
 from remote.ssh_client import RemoteSSHClient
 from app_backend.remote import parse_remote_config
+from app_backend.pull_stream import local_pull_paths, read_local_pull_state
 from pipeline.win_process import no_window_kwargs
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -133,6 +134,17 @@ class LocalToolService:
                 entry["disk_usage"] = None
                 entry["content_size"] = None
                 entry["image_id"] = None
+                pull_state = read_local_pull_state(image)
+                if pull_state:
+                    p_status = str(pull_state.get("status", "")).lower()
+                    if p_status == "pulling":
+                        entry["pull_status"] = "pulling"
+                        entry["pull_pid"] = pull_state.get("pid")
+                        entry["pull_started_at"] = pull_state.get("started_at")
+                        entry["pull_updated_at"] = pull_state.get("updated_at")
+                    elif p_status == "failed":
+                        entry["pull_status"] = "failed"
+                        entry["pull_error"] = pull_state.get("error")
                 missing_entries.append((image, entry))
             images.append(entry)
         download_sizes = self._download_sizes(image for image, _entry in missing_entries)
@@ -220,6 +232,41 @@ class LocalToolService:
             return result  # type: ignore[return-value]
         except Exception as exc:
             return {"ok": False, "target": "Server", "error": str(exc)}
+
+    def local_pull_status(
+        self,
+        image: str,
+        log_offset: int = 0,
+    ) -> dict[str, JsonValue]:
+        paths = local_pull_paths(image)
+        state = read_local_pull_state(image)
+        if not state:
+            return {"ok": True, "target": "Local", "status": "idle", "exit_code": None, "log_text": "", "next_offset": 0}
+
+        status = str(state.get("status", "idle"))
+        exit_code = state.get("exit_code")
+        error = state.get("error")
+
+        log_text = ""
+        next_offset = log_offset
+        if paths["log"].is_file():
+            try:
+                with open(paths["log"], "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(max(0, log_offset))
+                    log_text = f.read()
+                    next_offset = f.tell()
+            except OSError:
+                pass
+
+        return {
+            "ok": True,
+            "target": "Local",
+            "status": status,
+            "exit_code": exit_code,
+            "error": error,
+            "log_text": log_text,
+            "next_offset": next_offset,
+        }
 
     def server_pull_status(
         self,
