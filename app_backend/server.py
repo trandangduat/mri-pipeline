@@ -376,6 +376,14 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
             result = self._atlases().import_local_folder(source_path)
             self._write_json(HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST, result)
             return
+        if self.path == "/atlases/remove":
+            pack_id = str(payload.get("pack_id", "") or "")
+            if not pack_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "pack_id is required"})
+                return
+            result = self._atlases().remove_pack(pack_id)
+            self._write_json(HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST, result)
+            return
         self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
 
     def do_PUT(self) -> None:

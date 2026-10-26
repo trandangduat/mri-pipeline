@@ -358,3 +358,45 @@ class AtlasService:
             }
         except Exception as exc:
             return {"ok": False, "error": f"Import failed: {str(exc)}"}
+
+    def remove_pack(self, pack_id: str, res_root: Path | None = None) -> dict[str, Any]:
+        """Remove all installed files belonging to an atlas pack."""
+        pack = next((p for p in ATLAS_PACKS if p.id == pack_id), None)
+        if not pack:
+            return {"ok": False, "error": f"Unknown atlas pack ID: {pack_id}"}
+
+        deleted_files: list[str] = []
+        errors: list[str] = []
+
+        candidate_dirs = candidate_surface_atlas_dirs(res_root)
+        primary_dir = surface_atlases_data_dir()
+        if primary_dir not in candidate_dirs:
+            candidate_dirs.insert(0, primary_dir)
+
+        for rel in pack.files:
+            for base_dir in candidate_dirs:
+                target_file = base_dir / rel
+                if target_file.is_file():
+                    try:
+                        target_file.unlink()
+                        deleted_files.append(str(target_file))
+                    except OSError as exc:
+                        errors.append(f"Failed to delete {target_file}: {exc}")
+
+                parent = target_file.parent
+                if parent.exists() and parent.is_dir() and parent != base_dir:
+                    try:
+                        if not any(parent.iterdir()):
+                            parent.rmdir()
+                    except OSError:
+                        pass
+
+        if errors:
+            return {"ok": False, "error": "; ".join(errors), "deleted_files": deleted_files}
+
+        return {
+            "ok": True,
+            "pack_id": pack_id,
+            "deleted_files": deleted_files,
+            "packs": self.list_packs(res_root),
+        }

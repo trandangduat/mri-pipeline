@@ -32,6 +32,17 @@ export function useImportAtlas() {
   });
 }
 
+export function useRemoveAtlas() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (packId: string) => client.removeAtlas(packId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({queryKey: queryKeys.atlases.status()});
+    },
+  });
+}
+
 export interface AtlasDownloadStreamState {
   status: 'idle' | 'connecting' | 'downloading' | 'extracting' | 'success' | 'failed';
   packId: string | null;

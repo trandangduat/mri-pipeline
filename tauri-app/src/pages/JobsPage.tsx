@@ -1829,6 +1829,12 @@ export function JobsPage() {
     );
   };
 
+  const toolsSummary = React.useMemo(() => {
+    const tools = Object.values(selectedTools).filter(Boolean);
+    const unique = Array.from(new Set(tools));
+    return unique.join(', ');
+  }, [selectedTools]);
+
   const jobContainer = React.useMemo(() => {
     // 1. Look for active container names from currently running steps across batch subjects
     const runningContainers: string[] = [];
@@ -1836,8 +1842,11 @@ export function JobsPage() {
       if (img.status === 'running') {
         const steps = deriveImageSteps(safeEvents, img, selectedTools, stageOrder, stageLabels);
         for (const s of steps) {
-          if (s.status === 'running' && s.container_name && !runningContainers.includes(s.container_name)) {
-            runningContainers.push(s.container_name);
+          if (s.status === 'running') {
+            const cName = s.container_name || (s.tool && img.subject_id ? `mri-${img.subject_id}-${s.tool}` : '');
+            if (cName && !runningContainers.includes(cName)) {
+              runningContainers.push(cName);
+            }
           }
         }
       }
@@ -1864,8 +1873,29 @@ export function JobsPage() {
       }
     }
 
-    return 'None (Native)';
-  }, [batchImages, safeEvents, selectedTools, stageOrder, stageLabels]);
+    // 4. If the job is currently running but no container name was captured yet
+    if (!isTerminal && (normState === 'running' || displayMeta.status_reconciled === 'running')) {
+      return isServerJob ? 'Docker (Server, Running)' : 'Docker (Local, Running)';
+    }
+
+    // 5. If the job is queued or pending
+    if (!isTerminal && (displayMeta.status_reconciled === 'pending' || normState === 'unknown')) {
+      return isServerJob ? 'Docker (Server, Queued)' : 'Docker (Local, Queued)';
+    }
+
+    // 6. For finished jobs (completed, stopped, failed): show actual execution runtime
+    return isServerJob ? 'Docker (Server)' : 'Docker (Local)';
+  }, [
+    batchImages,
+    safeEvents,
+    selectedTools,
+    stageOrder,
+    stageLabels,
+    isTerminal,
+    normState,
+    displayMeta.status_reconciled,
+    isServerJob,
+  ]);
 
   if (!selectedJobId && !urlJobId) {
     return (
@@ -2090,7 +2120,11 @@ export function JobsPage() {
                       </td>
                       <td
                         className="py-1.5 px-2.5 text-cursor-body truncate"
-                        title={jobContainer}
+                        title={
+                          toolsSummary
+                            ? `${jobContainer} • Tools: ${toolsSummary}`
+                            : jobContainer
+                        }
                       >
                         {jobContainer}
                       </td>

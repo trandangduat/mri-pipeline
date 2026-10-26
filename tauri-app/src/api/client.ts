@@ -20,6 +20,7 @@ import type {
   ToolsImageResponse,
   AtlasStatusResponse,
   AtlasImportResponse,
+  AtlasRemoveResponse,
 } from '../types/backend';
 import {
   appMetadataSchema,
@@ -43,6 +44,7 @@ import {
   toolsImageResponseSchema,
   atlasStatusResponseSchema,
   atlasImportResponseSchema,
+  atlasRemoveResponseSchema,
 } from './schemas';
 import type {RemotePayload} from './runConfig';
 import {authenticatedBackendHeaders} from './backendToken';
@@ -389,6 +391,15 @@ export class BackendClient {
       headers: {'Content-Type': 'application/json'},
     });
     return atlasImportResponseSchema.parse(payload);
+  }
+
+  async removeAtlas(packId: string): Promise<AtlasRemoveResponse> {
+    const payload = await this.request('/atlases/remove', {
+      method: 'POST',
+      body: JSON.stringify({pack_id: packId}),
+      headers: {'Content-Type': 'application/json'},
+    });
+    return atlasRemoveResponseSchema.parse(payload);
   }
 
   async startAtlasDownloadStream(

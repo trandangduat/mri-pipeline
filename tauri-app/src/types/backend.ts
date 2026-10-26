@@ -39,11 +39,13 @@ import type {
   atlasPackSchema,
   atlasStatusResponseSchema,
   atlasImportResponseSchema,
+  atlasRemoveResponseSchema,
 } from '../api/schemas';
 
 export type AtlasPack = z.infer<typeof atlasPackSchema>;
 export type AtlasStatusResponse = z.infer<typeof atlasStatusResponseSchema>;
 export type AtlasImportResponse = z.infer<typeof atlasImportResponseSchema>;
+export type AtlasRemoveResponse = z.infer<typeof atlasRemoveResponseSchema>;
 
 export type NeuroflowValidationResponse = z.infer<typeof neuroflowValidationResponseSchema>;
 

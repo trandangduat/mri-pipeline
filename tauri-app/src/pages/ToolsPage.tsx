@@ -5,10 +5,10 @@ import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {AtlasCard} from '../components/AtlasCard';
 import {ConfirmDialog} from '../components/ConfirmDialog';
 import {isImageInstalled, isImageDownloading} from '../lib/tools';
-import type {EnvironmentResponse, RemoteEnvironmentResponse, ToolImage} from '../types/backend';
+import type {EnvironmentResponse, RemoteEnvironmentResponse, ToolImage, AtlasPack} from '../types/backend';
 import {useEnvironment, useRemoteEnvironment} from '../query/useEnvironment';
 import {useLocalImageStatusMutation, useRemoveImage, usePullImageStream} from '../query/useTools';
-import {useAtlasStatus, useImportAtlas, useDownloadAtlasStream} from '../query/useAtlases';
+import {useAtlasStatus, useImportAtlas, useRemoveAtlas, useDownloadAtlasStream} from '../query/useAtlases';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useToolsStore} from '../stores/toolsStore';
 import {useRemoteStore} from '../stores/remoteStore';
@@ -49,12 +49,14 @@ export function ToolsPage() {
 
   const {packs: atlasPacks, isPending: isAtlasesPending, refetch: refetchAtlases} = useAtlasStatus();
   const importAtlasMutation = useImportAtlas();
+  const removeAtlasMutation = useRemoveAtlas();
   const atlasDownloadStream = useDownloadAtlasStream();
   const [importStatusMessage, setImportStatusMessage] = useState<string | null>(null);
   const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
 
   const [removingImage, setRemovingImage] = useState<string | null>(null);
   const [imageToRemove, setImageToRemove] = useState<string | null>(null);
+  const [packToRemove, setPackToRemove] = useState<AtlasPack | null>(null);
 
   const target = isServerTarget ? 'Server' : 'Local';
 
@@ -214,6 +216,25 @@ export function ToolsPage() {
       }
     } finally {
       setRemovingImage(null);
+    }
+  };
+
+  const handleConfirmRemoveAtlas = async () => {
+    if (!packToRemove) return;
+    const pack = packToRemove;
+    try {
+      const result = await removeAtlasMutation.mutateAsync(pack.id);
+      if (result.ok) {
+        setImportErrorMessage(null);
+        setImportStatusMessage(`Successfully removed ${pack.label} from disk.`);
+        setTimeout(() => setImportStatusMessage(null), 5000);
+      } else {
+        setImportErrorMessage(result.error || 'Failed to remove atlas pack.');
+      }
+    } catch (err) {
+      setImportErrorMessage((err as Error).message || 'Failed to remove atlas pack.');
+    } finally {
+      setPackToRemove(null);
     }
   };
 
@@ -418,6 +439,8 @@ export function ToolsPage() {
                   key={pack.id}
                   pack={pack}
                   onDownload={(id) => atlasDownloadStream.download(id)}
+                  onRemove={(p) => setPackToRemove(p)}
+                  isRemoving={removeAtlasMutation.isPending && packToRemove?.id === pack.id}
                   isDownloading={
                     atlasDownloadStream.packId === pack.id &&
                     ['connecting', 'downloading', 'extracting'].includes(atlasDownloadStream.status)
@@ -456,6 +479,21 @@ export function ToolsPage() {
         onConfirm={handleConfirmRemove}
         onClose={() => {
           if (removingImage === null) setImageToRemove(null);
+        }}
+      />
+
+      {/* Remove Atlas Confirm Dialog */}
+      <ConfirmDialog
+        open={packToRemove !== null}
+        title="Remove Surface Atlas"
+        entityName={packToRemove ? `${packToRemove.label} (${packToRemove.id})` : undefined}
+        description="Are you sure you want to remove this surface atlas pack? The atlas files (.gcs / .annot) will be deleted from disk and will need to be downloaded again before running pipelines that use this parcellation."
+        confirmLabel="Remove Atlas"
+        confirmLoadingLabel="Removing..."
+        isLoading={removeAtlasMutation.isPending}
+        onConfirm={handleConfirmRemoveAtlas}
+        onClose={() => {
+          if (!removeAtlasMutation.isPending) setPackToRemove(null);
         }}
       />
     </div>

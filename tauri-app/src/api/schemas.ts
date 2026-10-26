@@ -418,4 +418,14 @@ export const atlasImportResponseSchema = z.object({
   packs: z.array(atlasPackSchema).optional(),
 });
 
+export const atlasRemoveResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+  pack_id: z.string().optional(),
+  deleted_files: z.array(z.string()).optional(),
+  packs: z.array(atlasPackSchema).optional(),
+});
+
+export type AtlasRemoveResponse = z.infer<typeof atlasRemoveResponseSchema>;
+
 

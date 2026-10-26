@@ -1,5 +1,5 @@
 import React from 'react';
-import {Layers, Download, CheckCircle2, AlertCircle, Loader2, RotateCw} from 'lucide-react';
+import {Layers, Download, CheckCircle2, AlertCircle, Loader2, RotateCw, Trash2} from 'lucide-react';
 import {Button} from './ui';
 import type {AtlasPack} from '../types/backend';
 import {cn} from '@/lib/utils';
@@ -7,6 +7,8 @@ import {cn} from '@/lib/utils';
 interface AtlasCardProps {
   pack: AtlasPack;
   onDownload: (packId: string) => void;
+  onRemove?: ((pack: AtlasPack) => void) | undefined;
+  isRemoving?: boolean | undefined;
   isDownloading?: boolean | undefined;
   downloadState?:
     | {
@@ -23,7 +25,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function AtlasCard({pack, onDownload, isDownloading, downloadState}: AtlasCardProps) {
+export function AtlasCard({
+  pack,
+  onDownload,
+  onRemove,
+  isRemoving,
+  isDownloading,
+  downloadState,
+}: AtlasCardProps) {
   const isInstalled = pack.installed;
   const isFailed = downloadState?.status === 'failed';
   const isCurrentDownloading = Boolean(
@@ -144,12 +153,17 @@ export function AtlasCard({pack, onDownload, isDownloading, downloadState}: Atla
             ) : isInstalled ? (
               <Button
                 variant="ghost"
-                className="h-7 px-2.5 text-xs text-cursor-muted hover:text-cursor-ink"
-                onClick={() => onDownload(pack.id)}
-                title="Re-download and overwrite existing atlas files"
+                className="h-7 px-2.5 text-xs text-cursor-semantic-error hover:bg-cursor-semantic-error/10 hover:text-cursor-semantic-error cursor-pointer"
+                onClick={() => onRemove?.(pack)}
+                disabled={isRemoving}
+                title="Remove atlas files from disk"
               >
-                <RotateCw className="mr-1 h-3 w-3" />
-                Re-download
+                {isRemoving ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-1 h-3 w-3" />
+                )}
+                Remove Atlas
               </Button>
             ) : (
               <Button
