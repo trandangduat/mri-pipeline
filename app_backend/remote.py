@@ -425,6 +425,20 @@ class RemoteJobService:
                 "next_offset": offset,
             }
 
+    def subject_console(self, data: dict, export: bool = False) -> dict:
+        parsed = parse_remote_config(data)
+        if parsed['errors']:
+            return {'ok': False, 'errors': parsed['errors'], 'error': 'Server configuration is incomplete'}
+        config = parsed['config']
+        remote_job_dir = str(data.get('remote_job_dir') or data.get('job_id') or '').strip()
+        self._adapt_workspace_for_job(config, remote_job_dir)
+        try:
+            runner = self.runner_factory(config)
+            runner.remote_job_dir = remote_job_dir
+            return runner.subject_console(data, export)
+        except Exception as exc:
+            return {'ok': False, 'error': _safe_error_message(exc, config)}
+
     def read_job_log(self, data: dict[str, object]) -> dict[str, JsonValue]:
         parsed = parse_remote_config(data)
         if parsed["errors"]:

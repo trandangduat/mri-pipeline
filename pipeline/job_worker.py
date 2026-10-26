@@ -122,6 +122,7 @@ def _delete_restart_outputs(req: dict, job_dir: Path) -> None:
 
 
 def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
+    req['console_log_version'] = 1
     stop_file = job_dir / "stop_requested"
     mode = req.get("mode")
     output_dir = req.get("effective_output_dir", req.get("output_dir", ""))
@@ -135,9 +136,9 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         selected_tools = dict(PRESET_CONFIGS[pipeline_mode]["tools"])
         req["selected_tools"] = selected_tools
         req["pipeline_mode"] = pipeline_mode
-        write_json(job_dir / "job_config.json", req)
     else:
         selected_tools = req.get("selected_tools", {})
+    write_json(job_dir / 'job_config.json', req)
     export_config = ExportConfig.from_dict(req.get("export_config"))
     stats_vector_config = StatsVectorConfig.from_dict(
         normalize_stats_vector_config_for_pipeline_mode(pipeline_mode, req.get("stats_vector_config"))
@@ -329,6 +330,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 _log(job_dir, f"Lazy Watch found {len(new_files)} new files to process.")
                 subject_id_map = build_subject_id_map(new_files, input_dir)
                 results = run_batch_pipeline(
+                    console_job_dir=str(job_dir),
                     input_dir=input_dir,
                     output_dir=output_dir,
                     license_dir=req.get("license_dir", ""),
@@ -369,6 +371,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
         _log(job_dir, f"Running single file: {input_file} (Subject: {subject_id})")
         image_start_cb(input_file, 1, 1)
         config = PipelineConfig(
+            console_job_dir=str(job_dir),
             input_file=input_file,
             output_dir=output_dir,
             subject_id=subject_id,
@@ -415,6 +418,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
     if not subject_id_map:
         subject_id_map = build_subject_id_map(files, input_dir)
     results = run_batch_pipeline(
+        console_job_dir=str(job_dir),
         input_dir=input_dir,
         output_dir=output_dir,
         license_dir=req.get("license_dir", ""),

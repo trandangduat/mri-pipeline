@@ -1430,6 +1430,22 @@ class RemoteRunner:
                     return {"ok": False, "error": str(exc), "events": [], "warnings": [], "next_offset": offset, "source": None}
             return {"ok": True, "events": [], "warnings": [], "next_offset": offset, "source": None}
 
+    def subject_console(self, payload: dict, export: bool = False) -> dict:
+        from pipeline.console_reader import ConsoleFiles, SCHEDULER_READER, export_console, public_response, read_console
+        with RemoteSSHClient(self.config.ssh, lambda _line: None) as ssh:
+            job_dir = posixpath.dirname(self._job_child_path(ssh, 'job_config.json'))
+            identity = f'{self.config.ssh.username}@{self.config.ssh.host}:{self.config.ssh.port}'
+            files = ConsoleFiles(job_dir, ssh.sftp, identity)
+            def native(subject):
+                request = json.dumps({'job_dir': job_dir, 'subject_id': subject})
+                code = 'request = ' + repr(json.loads(request)) + '\n' + SCHEDULER_READER + '\nprint(json.dumps(result))'
+                command = shlex.quote(self.config.remote_python or 'python3') + ' -B -c ' + shlex.quote(code)
+                status, text = ssh.read_text(command)
+                if status:
+                    raise RuntimeError('Older scheduler details could not be read')
+                return json.loads(text)
+            return export_console(files, payload, native) if export else public_response(read_console(files, payload, native))
+
     def read_remote_log_since(self, offset: int = 0, max_bytes: int = 65536) -> tuple[str, int]:
         if not self.remote_job_dir:
             return "", offset

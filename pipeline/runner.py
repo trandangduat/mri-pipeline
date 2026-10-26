@@ -40,6 +40,7 @@ from .registry import (
 )
 from .docker_ops import require_image
 from .executor import ExecutionRequest, LocalDockerExecutor
+from .tool_output import create_capture
 from .state import PipelineTracker, StageResult
 from .discovery import (
     _derive_subject_id,
@@ -134,7 +135,7 @@ def _build_execution_request(
             dicom_list_path = "/work/logs/dicom_input_files.txt"
         mounts: list[tuple[str, str]] = [(host_input_dir, "/input")]
     else:
-        rel = os.path.relpath(input_for_next_step, subject_dir)
+        rel = Path(os.path.relpath(input_for_next_step, subject_dir)).as_posix()
         input_path = f"/work/{rel}"
         dicom_list_path = ""
         mounts = []
@@ -219,6 +220,7 @@ def _build_execution_request(
         should_stop=should_stop,
         gpu_device_id=config.gpu_device_id,
         cpu_thread_limit=config.cpu_thread_limit,
+        output_capture=create_capture(config, next((s for s, t in config.selected_tools.items() if t == tool_key), tool_key), tool_key),
     )
 
 
@@ -413,6 +415,8 @@ def run_pipeline_stage(
         metric_lines.append(f"\n--- Output ---\n{output[-3000:]}")
     _append_step_log(logs_dir, tool_key, metric_lines)
 
+    if req.output_capture:
+        req.output_capture.finish(success, error, exec_result.return_code)
     result = StepResult(
         stage=stage,
         tool=tool_key,
@@ -694,7 +698,9 @@ def run_pipeline(
             step_log_lines.append(f"\n--- Output ---\n{output[-3000:]}")
         _append_step_log(logs_dir, tool_key, step_log_lines)
 
-        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=0.0, peak_ram_bytes=peak_ram, avg_ram_bytes=metrics.avg_ram_bytes, p95_ram_bytes=metrics.p95_ram_bytes, peak_cpu_pct=peak_cpu, avg_cpu_pct=metrics.avg_cpu_pct, p95_cpu_pct=metrics.p95_cpu_pct, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error))
+        if req.output_capture:
+            req.output_capture.finish(success, error, exec_result.return_code)
+        results.append(StepResult(stage=stage, tool=tool_key, success=success, duration_sec=duration, build_duration_sec=0.0, peak_ram_bytes=peak_ram, avg_ram_bytes=metrics.avg_ram_bytes, p95_ram_bytes=metrics.p95_ram_bytes, peak_cpu_pct=peak_cpu, avg_cpu_pct=metrics.avg_cpu_pct, p95_cpu_pct=metrics.p95_cpu_pct, log_text=output[-2000:] if output else "", output_files=tool["output_files"], error=error, return_code=exec_result.return_code))
 
         if success:
             msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
@@ -761,6 +767,7 @@ def run_batch_pipeline(
     on_metrics: MetricsCallback | None = None,
     should_stop: Callable[[], bool] | None = None,
     batch_config: dict | None = None,
+    console_job_dir: str = "",
 ) -> list[BatchImageResult]:
     if input_files is None:
         input_files = _discover_mri_files(input_dir, recursive=recursive)
@@ -808,6 +815,7 @@ def run_batch_pipeline(
 
         try:
             config = PipelineConfig(input_file=input_file, output_dir=output_dir, subject_id=subject_id, license_dir=license_dir, device=device, threads=threads, ram_percent=ram_percent, resume=resume, export_config=export_config or ExportConfig(), stats_vector_config=stats_vector_config or StatsVectorConfig(), selected_tools=selected_tools or PipelineConfig(input_file, output_dir, subject_id).selected_tools)
+            config.console_job_dir = console_job_dir
             steps = run_pipeline(config, on_progress=on_progress, on_build_log=on_build_log, on_metrics=on_metrics, should_stop=should_stop)
             success = bool(steps) and all(step.success for step in steps)
             if should_stop and should_stop() and not success:

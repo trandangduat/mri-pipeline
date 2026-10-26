@@ -278,6 +278,12 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/remote/jobs/events":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_events(payload))
             return
+        if self.path in ('/jobs/local/console', '/jobs/local/console/export'):
+            self._write_json(HTTPStatus.OK, self._local_progress().console(payload, self.path.endswith('/export')))
+            return
+        if self.path in ('/remote/jobs/console', '/remote/jobs/console/export'):
+            self._write_json(HTTPStatus.OK, self._remote_jobs().subject_console(payload, self.path.endswith('/export')))
+            return
         if self.path == "/remote/jobs/log":
             self._write_json(HTTPStatus.OK, self._remote_jobs().read_job_log(payload))
             return

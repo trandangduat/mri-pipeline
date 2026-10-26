@@ -621,6 +621,8 @@ def run_neuroflow_batch(
             gpu_device_id=(str(launch.gpu_id).removeprefix("gpu_")
                            if policy_choice != "B6" and launch.gpu_id is not None else None),
             cpu_thread_limit=int(launch.cpu_threads) if policy_choice != "B6" else None,
+            console_job_dir=str(job_dir),
+            console_attempt_id=str(launch.attempt_id),
         )
         def _stage_progress(stg: str, status: str, pct: float, msg: str) -> None:
             if on_progress:
@@ -763,7 +765,9 @@ def run_neuroflow_batch(
                         "success": False,
                         "error": str(exc),
                     }
-                scheduler.report_result(result=result)
+                receipt = scheduler.report_result(result=result)
+                from .tool_output import record_scheduler_result
+                record_scheduler_result(job_dir, context.subject_id, launch.attempt_id, receipt)
                 _write_observation(job_dir, observation)
                 output_observation_dir = Path(output_dir)
                 if output_observation_dir.resolve() != job_dir.resolve():

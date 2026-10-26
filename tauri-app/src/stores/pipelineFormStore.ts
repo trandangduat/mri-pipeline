@@ -75,6 +75,9 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
     const workspaceTools = (workspace.tools as Record<string, unknown>) || {};
     set((state) => {
       const nextFormValues = {...state.formValues};
+      for (const key of Object.keys(nextFormValues)) {
+        if (key.startsWith('stage_')) (nextFormValues as Record<string, unknown>)[key] = '';
+      }
       nextFormValues.pipelineMode = pipelineMode;
       const isServer = (workspace.input_source as string) === 'Server' || workspace.run_target === 'Server';
       const inputPath = String(workspace.input_path || '');
@@ -146,7 +149,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
           (nextFormValues as Record<string, unknown>)[`stage_${stage}`] = toolKey;
         }
       }
-      const nextAtlases = {...state.selectedStatsAtlases};
+      const nextAtlases: Record<string, string[]> = {};
       const sv = workspace.stats_vectors as Record<string, unknown> | undefined;
       if (sv && typeof sv === 'object') {
         for (const [statKey, val] of Object.entries(sv)) {
