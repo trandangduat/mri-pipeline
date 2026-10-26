@@ -458,6 +458,11 @@ def main(argv: list[str] | None = None) -> int:
     req = read_json(config_path, {})
     start = time.time()
     code = 1
+    if req.get("run_target") == "Local":
+        import psutil
+        write_json(job_dir / "worker_identity.json", {
+            "pid": os.getpid(), "create_time": psutil.Process().create_time(),
+        })
     with open(job_dir / "pid.txt", "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
     _write_status(job_dir, state="running", pid=os.getpid(), started_at=start, job_dir=str(job_dir), output_dir=req.get("output_dir", ""))

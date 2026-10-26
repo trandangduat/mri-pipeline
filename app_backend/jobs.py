@@ -276,10 +276,12 @@ class LocalJobService:
             except (OSError, ValueError):
                 pass
         pid = worker_pid or int(launcher.get("pid") or entry.get("pid") or 0)
-        create_time = launcher.get("create_time") if (worker_pid is None or worker_pid == launcher.get("pid")) else None
+        child_worker = worker_pid is not None and worker_pid != launcher.get("pid")
+        create_time = (_child_worker_create_time(job_dir, pid, status) if child_worker
+                       else launcher.get("create_time"))
         if (self.process_checker is not None and _exit_code(job_dir, status) is None
                 and status.get("state") not in {"completed", "failed", "stopped"}
-                and not self.process_checker(pid, create_time)):
+                and ((child_worker and create_time is None) or not self.process_checker(pid, create_time))):
             _record_worker_exit(job_dir, None)
             status = read_json(job_dir / "job_status.json", {})
         if status.get("error"):
@@ -353,9 +355,31 @@ def _worker_is_alive(pid: int, create_time: float | None = None) -> bool:
 def _worker_ready(job_dir: Path, pid: int) -> bool:
     try:
         worker_pid = int((job_dir / "pid.txt").read_text(encoding="utf-8").strip())
-        return worker_pid == pid or _worker_is_alive(worker_pid)
+        if worker_pid == pid:
+            return True
+        created = _child_worker_create_time(job_dir, worker_pid, read_json(job_dir / "job_status.json", {}))
+        return created is not None and _worker_is_alive(worker_pid, created)
     except (OSError, ValueError):
         return False
+
+
+def _child_worker_create_time(job_dir: Path, pid: int, status: dict) -> float | None:
+    identity = read_json(job_dir / "worker_identity.json", {})
+    created = identity.get("create_time")
+    if identity.get("pid") == pid and isinstance(created, (int, float)) and created > 0:
+        return float(created)
+
+    # Older local workers did not publish identity. Their status timestamp
+    # still rejects a process that started after the original worker did.
+    started = status.get("started_at")
+    if status.get("pid") != pid or not isinstance(started, (int, float)):
+        return None
+    import psutil
+    try:
+        created = psutil.Process(pid).create_time()
+    except psutil.Error:
+        return None
+    return created if created <= started else None
 
 
 def _record_worker_exit(job_dir: Path, code: int | None, message: str = "") -> None:

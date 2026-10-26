@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 
+import pytest
+
 from pipeline.config import StepResult
 from pipeline.presets import PRESET_CONFIGS
 
@@ -127,6 +129,29 @@ def test_job_worker_main_sets_stopped_state_on_stop_requested(mocker, tmp_path) 
     status = json.loads((tmp_path / "job_status.json").read_text())
     assert status["state"] == "stopped"
     assert (tmp_path / "exit_code.txt").read_text().strip() == "0"
+
+
+@pytest.mark.parametrize("target", ["Local", "Server"])
+def test_worker_publishes_process_identity_only_for_local_jobs(mocker, tmp_path, target):
+    import os
+    import psutil
+    from pipeline.jobs import read_json, write_json
+
+    job_worker = importlib.import_module("pipeline.job_worker")
+    config_file = tmp_path / "job_config.json"
+    write_json(config_file, {"run_target": target})
+
+    def run(*args):
+        identity = read_json(tmp_path / "worker_identity.json", {})
+        if target == "Local":
+            assert identity == {"pid": os.getpid(), "create_time": psutil.Process().create_time()}
+        else:
+            assert not identity
+        return 0
+
+    mocker.patch.object(job_worker, "_run_job", side_effect=run)
+    assert job_worker.main(["--job-config", str(config_file)]) == 0
+    assert read_json(tmp_path / "job_status.json")["state"] == "completed"
 
 
 def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path) -> None:

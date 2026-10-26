@@ -140,6 +140,29 @@ def test_process_identity_rejects_reused_pid():
     assert not jobs._worker_is_alive(os.getpid(), created - 100)
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("reused", [False, True])
+def test_packaged_worker_identity_survives_backend_restart(tmp_path, legacy, reused):
+    import psutil
+    import time
+    pid = os.getpid()
+    created = psutil.Process(pid).create_time()
+    (tmp_path / "pid.txt").write_text(str(pid))
+    write_json(tmp_path / "launcher_status.json", {"pid": 99999999, "create_time": created - 2000})
+    write_json(tmp_path / "job_status.json", {
+        "state": "running", "pid": pid,
+        "started_at": created - 1000 if reused else time.time(),
+    })
+    if not legacy:
+        write_json(tmp_path / "worker_identity.json", {
+            "pid": pid, "create_time": created - 1000 if reused else created,
+        })
+    assert jobs._worker_ready(tmp_path, 99999999) is not reused
+    service = jobs.LocalJobService(jobs_root=tmp_path)
+    result = service._refresh_local_job({"job_dir": str(tmp_path), "state": "running"})
+    assert result["state"] == ("failed" if reused else "running")
+
+
 def test_engine_ram_reaches_scheduler_and_standard_executor(mocker):
     from pipeline.neuroflow_adapter import _ram_limit_mib
     from pipeline.runner import _docker_memory_limit_bytes

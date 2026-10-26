@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -117,3 +119,126 @@ def test_local_pull_status_reads_log_with_offset(tmp_path: Path, monkeypatch: py
 
     res3 = service.local_pull_status(image, log_offset=next_offset)
     assert "line 4" in str(res3["log_text"])
+
+
+class PausedPull(MockProc):
+    def __init__(self, release: threading.Event, returncode: int = 0):
+        super().__init__([b"Layer 1: Pull complete\n"], returncode=returncode)
+        self.release = release
+
+    def read(self, _size: int = 4096) -> bytes:
+        assert self.release.wait(timeout=5)
+        return super().read(_size)
+
+
+@pytest.mark.parametrize("code,expected", [(0, "success"), (1, "failed")])
+def test_disconnected_pull_keeps_logs_and_final_result(tmp_path, monkeypatch, code, expected):
+    monkeypatch.setenv("NEUROFLOW_PULLS_ROOT", str(tmp_path))
+    release = threading.Event()
+    proc = PausedPull(release, returncode=code)
+    image = "test/disconnected:latest"
+    stream = pull_image_events(image, popen=lambda *a, **k: proc)
+    try:
+        assert next(stream)["event"] == "step"
+        stream.close()
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        state = read_local_pull_state(image)
+        if state and state.get("status") == expected:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("Disconnected pull did not save its final result")
+    assert state["exit_code"] == code
+    assert "Layer 1: Pull complete" in local_pull_paths(image)["log"].read_text()
+
+
+def test_concurrent_pull_requests_share_one_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEUROFLOW_PULLS_ROOT", str(tmp_path))
+    release = threading.Event()
+    start = threading.Barrier(2)
+    proc = PausedPull(release)
+    calls = []
+
+    def popen(*args, **kwargs):
+        calls.append(args[0])
+        return proc
+
+    def subscribe(_):
+        start.wait(timeout=5)
+        stream = pull_image_events("test/shared:latest", popen=popen)
+        assert next(stream)["event"] == "step"
+        return stream
+
+    streams = []
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            streams = list(pool.map(subscribe, range(2)))
+        assert len(calls) == 1
+        streams[0].close()
+        release.set()
+        assert list(streams[1])[-1] == {"event": "complete", "data": {"ok": True}}
+    finally:
+        release.set()
+        for stream in streams:
+            stream.close()
+
+
+def test_status_reader_waits_for_active_producer_to_record_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEUROFLOW_PULLS_ROOT", str(tmp_path))
+    # Simulate the Docker process exiting before its producer saves success.
+    monkeypatch.setattr("app_backend.jobs._worker_is_alive", lambda pid: False)
+    waiting = threading.Event()
+    release = threading.Event()
+
+    class ExitedPull(MockProc):
+        def wait(self):
+            waiting.set()
+            assert release.wait(timeout=5)
+            return 0
+
+    stream = pull_image_events("test/exited:latest", popen=lambda *a, **k: ExitedPull([]))
+    try:
+        next(stream)
+        assert waiting.wait(timeout=5)
+        assert read_local_pull_state("test/exited:latest")["status"] == "pulling"
+        release.set()
+        assert list(stream)[-1]["data"]["ok"] is True
+    finally:
+        release.set()
+        stream.close()
+
+
+def test_http_disconnect_detaches_subscriber_without_stopping_pull(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app_backend import pull_stream
+    from app_backend.server import AppBackendRequestHandler, ClientDisconnectedError
+
+    monkeypatch.setenv("NEUROFLOW_PULLS_ROOT", str(tmp_path))
+    release = threading.Event()
+    proc = PausedPull(release)
+    image = "test/http-disconnect:latest"
+    original = pull_stream.pull_image_events
+    monkeypatch.setattr(pull_stream, "pull_image_events", lambda img: original(img, popen=lambda *a, **k: proc))
+
+    def disconnected(*args):
+        raise ClientDisconnectedError("client closed")
+
+    handler = SimpleNamespace(_write_sse_headers=lambda: None, _send_sse_event=disconnected)
+    try:
+        AppBackendRequestHandler._handle_tools_pull_stream(handler, image)
+        assert handler.close_connection is True
+        with pull_stream._PULL_LOCK:
+            assert not pull_stream._ACTIVE_PULLS[pull_stream._pull_key(image)].subscribers
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        state = read_local_pull_state(image)
+        if state and state.get("status") == "success":
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("HTTP disconnect stopped pull completion")

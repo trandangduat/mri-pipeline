@@ -695,15 +695,21 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_tools_pull_stream(self, image: str) -> None:
         self._write_sse_headers()
+        events = None
         try:
             from app_backend.pull_stream import pull_image_events
 
-            for event in pull_image_events(image):
+            events = pull_image_events(image)
+            for event in events:
                 self._send_sse_event(event["event"], event["data"])
+        except ClientDisconnectedError:
+            pass
         except Exception as exc:
             self._send_sse_event("step", {"step": "pull", "status": "failed", "detail": str(exc)})
             self._send_sse_event("complete", {"ok": False, "error": str(exc)})
         finally:
+            if events is not None:
+                events.close()
             self.close_connection = True
 
     def _handle_atlas_download_stream(self, pack_id: str) -> None:
