@@ -11,6 +11,7 @@ import {EMPTY_STAGE_VIOLATIONS, validateStageTools} from '../lib/stageValidation
 import {Tooltip, TooltipTrigger, TooltipContent, TooltipProvider} from '@/components/ui/tooltip';
 import {SplitPaneForm} from '../components/SplitPaneForm';
 import {RuntimeSection} from '../components/RuntimeSection';
+import {ExportNamingSection} from '../components/ExportNamingSection';
 import {DualPaneTransferModal} from '../components/DualPaneTransferModal';
 import {ModalPortal} from '../components/ModalPortal';
 import {useMetadata, useClient, useEnvironment} from '../query/useEnvironment';
@@ -2307,6 +2308,7 @@ function RadioCard({
 // ---------------------------------------------------------------------------
 
 export function InputOutputSection() {
+  const {data: metadata} = useMetadata();
   const formValues = usePipelineFormStore((s) => s.formValues);
   const setFormField = usePipelineFormStore((s) => s.setFormField);
   const setFormFields = usePipelineFormStore((s) => s.setFormFields);
@@ -2634,6 +2636,14 @@ export function InputOutputSection() {
               />
             </div>
           )}
+
+          {/* Exported Image Filename & Format Settings */}
+          <ExportNamingSection
+            metadata={metadata}
+            formValues={formValues}
+            setFormField={setFormField}
+            setFormFields={setFormFields}
+          />
 
         </div>
       </Panel>

@@ -161,6 +161,18 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
           }
         }
       }
+      if (workspace.export_config && typeof workspace.export_config === 'object') {
+        const ec = workspace.export_config as Record<string, unknown>;
+        if (ec.enabled !== undefined) nextFormValues.exportEnabled = Boolean(ec.enabled);
+        if (ec.folder) nextFormValues.exportFolder = String(ec.folder);
+        if (ec.default_format) nextFormValues.exportDefaultFormat = String(ec.default_format);
+        if (ec.names && typeof ec.names === 'object') {
+          nextFormValues.exportCustomNames = {...(ec.names as Record<string, string>)};
+        }
+        if (ec.formats && typeof ec.formats === 'object') {
+          nextFormValues.exportCustomFormats = {...(ec.formats as Record<string, string>)};
+        }
+      }
       return {
         formValues: nextFormValues,
         selectedStatsAtlases: nextAtlases,
