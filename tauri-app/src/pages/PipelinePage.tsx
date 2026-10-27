@@ -2803,6 +2803,7 @@ export function InputOutputSection() {
 export function PipelinePage() {
   return (
     <SplitPaneForm
+      initialWidth={47}
       left={
         <div className="grid min-h-0 h-full content-start gap-4 overflow-y-auto pl-4 pt-4 pb-4 pr-3 [scrollbar-gutter:stable]">
           <PipelineStepsSection />

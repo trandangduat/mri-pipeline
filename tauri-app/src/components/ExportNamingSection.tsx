@@ -164,7 +164,7 @@ export function ExportNamingSection({
                   handleResetDefaults(e as unknown as React.MouseEvent);
                 }
               }}
-              className="inline-flex items-center gap-1 text-3xs text-cursor-muted hover:text-cursor-primary px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1 text-2xs text-cursor-muted hover:text-cursor-primary px-1.5 py-0.5 rounded cursor-pointer transition-colors"
               title="Reset all names to default"
             >
               <RotateCcw className="h-2.5 w-2.5" />
@@ -197,13 +197,13 @@ export function ExportNamingSection({
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 py-1 border-b border-cursor-hairline-soft/60 last:border-0"
                   >
                     {/* Left: Label & Default Name */}
-                    <div className="flex items-center gap-2 min-w-0 sm:w-1/2">
+                    <div className="flex items-center gap-1.5 min-w-0 sm:w-1/2">
                       <span className="text-xs text-cursor-ink font-medium truncate" title={item.label}>
                         {item.label}
                       </span>
-                      <code className="text-3xs font-mono text-cursor-muted bg-cursor-surface-strong/50 px-1 py-0.2 rounded shrink-0">
+                      <span className="text-[9.5px] font-mono text-cursor-muted/80 bg-cursor-surface-strong/40 border border-cursor-hairline-soft/80 px-1 py-0.5 rounded shrink-0 leading-none select-none">
                         {item.default_name}
-                      </code>
+                      </span>
                     </div>
 
                     {/* Right: Custom Name Input & Suffix */}

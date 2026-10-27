@@ -377,7 +377,7 @@ def run_pipeline_stage(
     exported_outputs: list[str] = []
     export_error = ""
     if success:
-        exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config)
+        exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config, license_dir=config.license_dir)
         if export_error:
             progress(stage, "running", (index + 1) / total if total else 1.0, f"Export warning: {export_error}")
 
@@ -659,7 +659,7 @@ def run_pipeline(
         exported_outputs: list[str] = []
         export_error = ""
         if success:
-            exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config)
+            exported_outputs, export_error = _export_stage_outputs(subject_dir, stage, outputs_found, config.export_config, license_dir=config.license_dir)
             if export_error:
                 progress(stage, "running", (stage_idx + 1) / total_stages, f"Export warning: {export_error}")
         from .state import StageResult
