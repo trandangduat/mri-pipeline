@@ -26,8 +26,50 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
   formValues: {...DEFAULT_FORM_VALUES},
   selectedStatsAtlases: {},
   preparedRequest: null,
-  setFormField: (name, value) => set((state) => ({formValues: {...state.formValues, [name]: value}})),
-  setFormFields: (patch) => set((state) => ({formValues: {...state.formValues, ...patch}})),
+  setFormField: (name, value) =>
+    set((state) => {
+      if (name === 'inputMode') {
+        const nextMode = String(value === 'dir' || value === 'batch_folder' ? 'batch_folder' : value);
+        const prevMode = state.formValues.inputMode;
+        if (nextMode !== prevMode) {
+          const isServerInput = state.formValues.inputSource === 'Server';
+          const nextFormValues: PipelineFormValues = {
+            ...state.formValues,
+            inputMode: nextMode,
+            inputPath: '',
+            additionalInputPaths: '',
+            ...(isServerInput ? {inputServerDir: ''} : {}),
+            ...(state.formValues.pipelineMode === 'Batch' && nextMode === 'file' ? {pipelineMode: 'Custom'} : {}),
+          };
+          delete nextFormValues.batchImageCount;
+          delete nextFormValues.batchScanMode;
+          return {formValues: nextFormValues};
+        }
+      }
+      return {formValues: {...state.formValues, [name]: value}};
+    }),
+  setFormFields: (patch) =>
+    set((state) => {
+      const nextValues: PipelineFormValues = {...state.formValues, ...patch};
+      if ('inputMode' in patch && patch.inputMode !== undefined) {
+        const nextMode = String(patch.inputMode === 'dir' || patch.inputMode === 'batch_folder' ? 'batch_folder' : patch.inputMode);
+        const prevMode = state.formValues.inputMode;
+        if (nextMode !== prevMode && !('inputPath' in patch)) {
+          const isServerInput = (patch.inputSource ?? state.formValues.inputSource) === 'Server';
+          nextValues.inputPath = '';
+          nextValues.additionalInputPaths = '';
+          delete nextValues.batchImageCount;
+          delete nextValues.batchScanMode;
+          if (isServerInput) {
+            nextValues.inputServerDir = '';
+          }
+          if (state.formValues.pipelineMode === 'Batch' && nextMode === 'file') {
+            nextValues.pipelineMode = 'Custom';
+          }
+        }
+      }
+      return {formValues: nextValues};
+    }),
   setPipelineMode: (pipelineMode) => set((state) => ({formValues: {...state.formValues, pipelineMode}})),
   setSelectedStatsAtlases: (selectedStatsAtlases) =>
     set((state) => ({

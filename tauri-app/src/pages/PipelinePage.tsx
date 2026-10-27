@@ -2395,6 +2395,13 @@ export function InputOutputSection() {
     }
   };
 
+  const handleInputModeChange = (mode: string) => {
+    const nextMode = mode === 'dir' || mode === 'batch_folder' ? 'batch_folder' : 'file';
+    const currentMode = isBatch ? 'batch_folder' : 'file';
+    if (nextMode === currentMode) return;
+    setFormField('inputMode', nextMode);
+  };
+
   const handleLocalBrowseOutputDir = async () => {
     try {
       const selected = await open({directory: true, multiple: false});
@@ -2433,7 +2440,7 @@ export function InputOutputSection() {
               value={inputModeOptions[0]?.value ?? ''}
               selectedValue={isBatch ? 'batch_folder' : 'file'}
               hint={inputModeOptions[0]?.hint}
-              onChange={(v) => setFormField('inputMode', v)}
+              onChange={(v) => handleInputModeChange(v)}
             />
 
             {/* Row 2 cards: Server & Batch input */}
@@ -2452,7 +2459,7 @@ export function InputOutputSection() {
               value={inputModeOptions[1]?.value ?? ''}
               selectedValue={isBatch ? 'batch_folder' : 'file'}
               hint={inputModeOptions[1]?.hint}
-              onChange={(v) => setFormField('inputMode', v)}
+              onChange={(v) => handleInputModeChange(v)}
             />
 
             {/* Row 3: Actions row (Aligned) */}
