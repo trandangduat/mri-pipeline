@@ -26,7 +26,7 @@ import {defaultConfigName, saveJsonAsDialog} from '../lib/configExport';
 import {usePipelineFormStore} from '../stores/pipelineFormStore';
 import {useJobsStore} from '../stores/jobsStore';
 import {useRemoteStore} from '../stores/remoteStore';
-import {buildExportConfig, buildRunConfig, buildRemotePayload} from '../api/runConfig';
+import {buildRunConfig, buildRemotePayload} from '../api/runConfig';
 import {normalizeJob, normalizeJobState, normalizeJobTarget, sortJobsByStartedAtDesc} from '../jobFormatters';
 import type {AppTab} from '../stores/uiStore';
 
@@ -227,7 +227,10 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
         neuroflow_warmup_enabled: Boolean(fv.neuroflowWarmupEnabled),
         neuroflow_preset_file: String(fv.neuroflowPresetFile || ''),
         neuroflow_profile_file: String(fv.neuroflowProfileFile || ''),
-        export_config: buildExportConfig(fv),
+        export_config: {
+          enabled: Boolean(fv.exportEnabled),
+          names: {...((fv.exportCustomNames as Record<string, string>) || {})},
+        },
         stats_vectors: sv,
         tools,
         ...(fv.runtimeTarget === 'Server'

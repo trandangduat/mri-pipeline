@@ -1761,6 +1761,13 @@ export function JobsPage() {
       : [];
   }, [modalEvents, modalSubject, selectedTools, stageOrder, stageLabels]);
 
+  const visibleModalSteps = React.useMemo(() => {
+    const active = modalImageSteps.filter(
+      (step) => step.status !== 'not_scheduled' && step.status !== 'skipped',
+    );
+    return active.length > 0 ? active : modalImageSteps;
+  }, [modalImageSteps]);
+
   const modalMetricsSeries = React.useMemo(() => {
     return modalSubject
       ? deriveMetricsSeries(modalEvents, modalSubject)
@@ -2235,7 +2242,7 @@ export function JobsPage() {
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-1.5">
-              {isTerminal && displayMeta.status_reconciled === 'completed' ? (
+              {isTerminal ? (
                 <Button
                   variant="default"
                   onClick={handleDownloadClick}
@@ -2265,7 +2272,7 @@ export function JobsPage() {
                 </Button>
               )}
 
-              {(!isTerminal || displayMeta.status_reconciled !== 'completed') && (
+              {!isTerminal && (
                 <Button
                   onClick={handleStopJob}
                   disabled={!job || normState !== 'running' || isTerminal || stoppingJob || stopBlockedReason !== null}
@@ -2281,7 +2288,7 @@ export function JobsPage() {
                 </Button>
               )}
 
-              {isTerminal && displayMeta.status_reconciled === 'completed' ? (
+              {isTerminal ? (
                 <Button
                   id="deleteJobButton"
                   variant="outline"
@@ -2790,11 +2797,11 @@ export function JobsPage() {
                 </div>
                 <div className="p-0 flex-1 overflow-auto min-h-0">
                   <div className="space-y-1.5">
-                    {modalImageSteps.map((step, idx) => (
+                    {visibleModalSteps.map((step, idx) => (
                       <VerticalTimelineStepRow
                         key={step.stage}
                         step={step}
-                        isLast={idx === modalImageSteps.length - 1}
+                        isLast={idx === visibleModalSteps.length - 1}
                         toolDisplayNames={toolDisplayNames}
                         lastSyncedAt={lastSyncedAt}
                         isLoadingMetrics={isLoadingModalMetrics}

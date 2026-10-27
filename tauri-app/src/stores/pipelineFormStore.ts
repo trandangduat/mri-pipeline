@@ -219,13 +219,20 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       const ec = workspace.export_config && typeof workspace.export_config === 'object'
         ? workspace.export_config as Record<string, unknown>
         : {};
-      nextFormValues.exportEnabled = ec.enabled !== undefined ? Boolean(ec.enabled) : (DEFAULT_FORM_VALUES.exportEnabled ?? false);
-      nextFormValues.exportFolder = String(ec.folder || DEFAULT_FORM_VALUES.exportFolder);
-      nextFormValues.exportDefaultFormat = String(ec.default_format || DEFAULT_FORM_VALUES.exportDefaultFormat);
-      nextFormValues.exportCustomNames = ec.names && typeof ec.names === 'object'
-        ? {...(ec.names as Record<string, string>)} : {};
-      nextFormValues.exportCustomFormats = ec.formats && typeof ec.formats === 'object'
-        ? {...(ec.formats as Record<string, string>)} : {};
+      const exportEnabled = ec.enabled !== undefined
+        ? Boolean(ec.enabled)
+        : workspace.export_enabled !== undefined
+          ? Boolean(workspace.export_enabled)
+          : (DEFAULT_FORM_VALUES.exportEnabled ?? false);
+      const exportCustomNames = (ec.names && typeof ec.names === 'object' ? ec.names : null)
+        || (workspace.export_custom_names && typeof workspace.export_custom_names === 'object' ? workspace.export_custom_names : null)
+        || {};
+
+      nextFormValues.exportEnabled = exportEnabled;
+      nextFormValues.exportFolder = DEFAULT_FORM_VALUES.exportFolder || 'exports';
+      nextFormValues.exportDefaultFormat = DEFAULT_FORM_VALUES.exportDefaultFormat || '.nii.gz';
+      nextFormValues.exportCustomNames = {...(exportCustomNames as Record<string, string>)};
+      nextFormValues.exportCustomFormats = {};
       return {
         formValues: nextFormValues,
         selectedStatsAtlases: nextAtlases,

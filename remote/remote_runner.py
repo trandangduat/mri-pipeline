@@ -1614,11 +1614,13 @@ class RemoteRunner:
                 manifest_data = json.loads(ready_text)
                 if manifest_data.get("signature") == signature:
                     self.on_log(f"Using shared remote pipeline code: {remote_code}")
+                    self.last_code_sync_action = "cached"
                     return remote_code
             except (json.JSONDecodeError, ValueError):
                 pass
 
         self.on_log(f"Uploading shared pipeline code once: {remote_code}")
+        self.last_code_sync_action = "uploaded"
         self._upload_code(ssh, remote_code)
         ssh.write_text_file(manifest_path, json.dumps({"signature": signature, "updated_at": time.time()}, indent=2))
         return remote_code

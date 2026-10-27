@@ -735,11 +735,13 @@ class RemoteJobService:
         runner = self.runner_factory(remote_config)
 
         # Step 5: Code check and synchronization
-        yield step_event("code", "running", "Checking and synchronizing pipeline code...")
+        yield step_event("code", "running", "Checking pipeline code...")
         try:
             if hasattr(runner, "sync_code"):
                 runner.sync_code()
-            yield step_event("code", "done", "Pipeline code is up to date")
+            sync_action = getattr(runner, "last_code_sync_action", "cached")
+            code_detail = "Code synchronized" if sync_action == "uploaded" else "Code up to date"
+            yield step_event("code", "done", code_detail)
         except Exception as exc:
             detail = _safe_preflight_error(exc, remote_config)
             yield step_event("code", "failed", detail)
