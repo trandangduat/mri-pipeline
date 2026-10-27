@@ -48,6 +48,9 @@ class FakeRunner:
     def check_image_statuses(self, image_names: list[str]) -> dict[str, bool]:
         return {image: True for image in image_names}
 
+    def validate_paths(self) -> None:
+        self.calls.append("validate_paths")
+
     def sync_code(self) -> str:
         self.calls.append("sync_code")
         return "/workspace/code"
@@ -572,7 +575,7 @@ def test_stream_start_job_reports_missing_license_as_license_failure() -> None:
     assert len(license_failed) == 1
     assert license_failed[0]["data"]["detail"] == "License not found locally: /tmp/license.txt"
     assert "SSH connection failed" not in license_failed[0]["data"]["detail"]
-    assert fake.calls == ["sync_code", "sync_venv", "stage_freesurfer_license"]
+    assert fake.calls == ["sync_code", "sync_venv", "validate_paths", "stage_freesurfer_license"]
     assert events[-1]["data"]["ok"] is False
 
 
@@ -615,7 +618,7 @@ def test_stream_start_job_stops_after_invalid_license_check(tmp_path) -> None:
         ("license", "running"),
         ("license", "failed"),
     ]
-    assert fake.calls == ["sync_code", "sync_venv", "stage_freesurfer_license", "check_freesurfer_license"]
+    assert fake.calls == ["sync_code", "sync_venv", "validate_paths", "stage_freesurfer_license", "check_freesurfer_license"]
     assert events[-1]["data"]["ok"] is False
 
 
@@ -651,6 +654,7 @@ def test_stream_start_job_orders_license_config_and_worker(tmp_path) -> None:
     assert fake.calls == [
         "sync_code",
         "sync_venv",
+        "validate_paths",
         "stage_freesurfer_license",
         "check_freesurfer_license",
         "upload_job",
@@ -1079,3 +1083,43 @@ def test_stream_start_job_passes_when_allocated_ram_sufficient(tmp_path) -> None
 
 
 
+
+
+def test_stream_start_job_blocks_before_license_upload_and_worker_when_paths_fail() -> None:
+    class BadPathsRunner(FakeRunner):
+        def validate_paths(self):
+            super().validate_paths()
+            raise RuntimeError("Input does not exist: /data/missing.nii.gz")
+
+    fake = BadPathsRunner([])
+    events = list(RemoteJobService(runner_factory=lambda _: fake).stream_start_job({
+        "host": "server", "username": "alice", "password": "secret",
+        "run_request": {
+            "input_source": "Server", "run_target": "Server",
+            "input_mode": "file", "input_path": "/data/missing.nii.gz",
+            "output_dir": "/out", "pipeline_mode": "Custom",
+            "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
+        },
+    }))
+    assert fake.calls == ["sync_code", "sync_venv", "validate_paths"]
+    assert events[-2]["data"]["step"] == "paths"
+    assert events[-2]["data"]["status"] == "failed"
+    assert "/data/missing.nii.gz" in events[-2]["data"]["detail"]
+    assert events[-1]["data"]["ok"] is False
+
+
+def test_stream_start_job_preserves_batch_recursion_for_path_check() -> None:
+    configs = []
+    def factory(config):
+        configs.append(config)
+        return FakeRunner([])
+    list(RemoteJobService(runner_factory=factory).stream_start_job({
+        "host": "server", "username": "alice", "password": "secret",
+        "run_request": {
+            "input_source": "Server", "run_target": "Server", "input_mode": "dir",
+            "input_path": "/data/images", "non_recursive": True,
+            "output_dir": "/out", "pipeline_mode": "Custom",
+            "selected_tools": {"segmentation": "synthseg_freesurfer_fs7"},
+        },
+    }))
+    assert configs[-1].recursive is False

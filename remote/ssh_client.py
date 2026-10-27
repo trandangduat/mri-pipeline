@@ -694,16 +694,19 @@ class RemoteSSHClient:
         finally:
             self._release_channel_slot()
 
-    def read_text(self, command: str) -> tuple[int, str]:
+    def read_text(self, command: str, timeout: float | None = None, input_text: str | None = None) -> tuple[int, str]:
         self._acquire_channel_slot()
         try:
             try:
-                stdin, stdout, stderr = self.client.exec_command(command)
+                stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
             except Exception:
                 self._evict_if_transport_dead()
                 raise
 
             try:
+                if input_text is not None:
+                    stdin.write(input_text)
+                    stdin.flush()
                 stdin.close()
                 text = stdout.read().decode(errors="replace")
                 err = stderr.read().decode(errors="replace")

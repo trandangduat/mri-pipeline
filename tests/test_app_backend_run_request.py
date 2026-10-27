@@ -288,6 +288,7 @@ def test_prepare_run_request_normalizes_multi_file_dicom_selection_to_series_dir
 def test_prepare_run_request_builds_batch_dir_request(tmp_path: Path) -> None:
     input_dir = tmp_path / "inputs"
     input_dir.mkdir()
+    (input_dir / "image.nii.gz").write_bytes(b"volume")
 
     result = prepare_run_request(
         _base_config(
@@ -778,3 +779,28 @@ def test_prepare_run_request_skips_core_check_when_host_info_unavailable(tmp_pat
     monkeypatch.setattr(hardware_module, "_host_info", _boom)
 
     _ok_request(prepare_run_request(_base_config(tmp_path)))
+
+
+def test_prepare_run_request_rejects_empty_local_batch(tmp_path: Path) -> None:
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    result = prepare_run_request(_base_config(tmp_path, input_mode="dir", input_path=str(folder)))
+    assert result["ok"] is False
+    assert "No MRI files or DICOM series" in result["errors"][0]
+
+
+def test_prepare_run_request_checks_local_batch_before_upload(tmp_path: Path) -> None:
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    result = prepare_run_request(_base_config(tmp_path, input_mode="dir", input_path=str(folder),
+        input_source="Local", run_target="Server", input_server_dir="/server/new-staging"))
+    assert result["ok"] is False
+    assert "No MRI files or DICOM series" in result["errors"][0]
+
+
+def test_prepare_run_request_rejects_output_file(tmp_path: Path) -> None:
+    image = tmp_path / "image.nii.gz"
+    image.write_bytes(b"volume")
+    result = prepare_run_request(_base_config(tmp_path, output_dir=str(image)))
+    assert result["ok"] is False
+    assert "Output path is not a directory" in result["errors"][0]

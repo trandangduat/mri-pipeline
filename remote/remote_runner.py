@@ -641,6 +641,40 @@ class RemoteRunner:
                 self.on_log(("Deleted: " if ok else "Failed: ") + image)
         return results
 
+    def validate_paths(self) -> None:
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = self._remote_code_dir(ssh)
+            # Expand server paths on the server, never against the local home.
+            input_file = ssh.expand_path(self.config.input_file) if self.config.input_file else ""
+            input_dir = ssh.expand_path(self.config.input_dir) if self.config.input_dir else ""
+            input_files = [ssh.expand_path(path) for path in self.config.input_files]
+            staging = ssh.expand_path(self.config.input_server_dir) if self.config.input_server_dir else ""
+            output = (self._remote_path(ssh, self.config.server_output_dir) if self.config.server_output_dir
+                      else posixpath.join(self._remote_workspace(ssh), self.job_id, "outputs"))
+            request = {
+                "input_source": self.config.input_source,
+                "mode": self.config.input_mode,
+                "input_path": input_file if self.config.input_mode == "file" else input_dir,
+                "input_files": input_files,
+                "recursive": self.config.recursive,
+                "input_server_dir": staging,
+                "output_dir": output,
+            }
+            command = (f"cd {shlex.quote(remote_code)} && " + self._python_shell_command(
+                self._remote_venv_python(ssh), "-m", "pipeline.path_validation"))
+            code, text = ssh.read_text(command, timeout=35, input_text=json.dumps(request))
+            try:
+                result = json.loads(text)
+            except ValueError as exc:
+                raise RuntimeError("Could not validate server paths: " + text[-500:]) from exc
+            if code != 0 or not result.get("ok"):
+                raise RuntimeError(str(result.get("error") or "Could not validate server paths."))
+            if self.config.input_source != "Local":
+                self.config.input_file = input_file
+                self.config.input_dir = input_dir
+                self.config.input_files = input_files
+            self.config.input_server_dir = staging
+
     def upload_job(self) -> str:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             workspace = self._initialize_remote_job(ssh)

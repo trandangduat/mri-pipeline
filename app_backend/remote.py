@@ -645,10 +645,6 @@ class RemoteJobService:
         run_request = result["request"]
         yield step_event("validate", "done", "Configuration valid")
 
-        # Step 3: Input/output paths
-        yield step_event("paths", "running", "Validating input/output paths...")
-        yield step_event("paths", "done", "Paths validated")
-
         # Step 4: Docker images (resolve tool keys → actual image names via TOOL_DEFS)
         from pipeline.registry import TOOL_DEFS
         tool_keys = [v for v in run_request.get("selected_tools", {}).values() if v]
@@ -701,6 +697,7 @@ class RemoteJobService:
             input_file=str(run_request.get("input_file", "")),
             input_files=list(run_request.get("input_files") or []),
             input_dir=str(run_request.get("input_dir", "")),
+            recursive=bool(run_request.get("recursive", True)),
             output_dir=str(run_request.get("server_output_dir") or run_request.get("output_dir", "")),
             server_output_dir=str(run_request.get("server_output_dir", "")),
             license_dir=str(run_request.get("license_dir", "")),
@@ -760,6 +757,16 @@ class RemoteJobService:
             yield step_event("venv", "failed", detail)
             yield complete_event(False, error=detail)
             return
+
+        yield step_event("paths", "running", "Validating input/output paths...")
+        try:
+            runner.validate_paths()
+        except Exception as exc:
+            detail = _safe_preflight_error(exc, remote_config)
+            yield step_event("paths", "failed", detail)
+            yield complete_event(False, error=detail)
+            return
+        yield step_event("paths", "done", "Paths validated")
 
         # License staging and validation must happen before upload_job(),
         # because upload_job() writes the remote job configuration.

@@ -258,6 +258,17 @@ def validate_run_request_input(config: RunRequestInput, *, validate_license: boo
     else:
         return ["Input mode must be file, files, or dir."]
 
+    from pipeline.path_validation import validate_input_paths, validate_writable_directory
+    try:
+        validate_input_paths(
+            mode, raw_input,
+            _selected_or_split_files(config) if mode == "files" else config.selected_files,
+            recursive=not config.non_recursive,
+        )
+        if not is_remote:
+            validate_writable_directory(config.output_dir)
+    except (OSError, ValueError) as exc:
+        return [str(exc)]
     return []
 
 

@@ -137,3 +137,20 @@ def test_write_text_file_raises_descriptive_permission_error() -> None:
     assert "Permission denied writing to remote file" in msg
     assert "/home/trandangduat/config.json" in msg
     assert "user 'catcd1'" in msg
+
+
+def test_read_text_passes_probe_input_and_timeout() -> None:
+    client = RemoteSSHClient(SSHConfig(host="example"))
+    transport = MagicMock()
+    stdin, stdout, stderr = MagicMock(), MagicMock(), MagicMock()
+    stdout.read.return_value = b'{"ok": true}'
+    stderr.read.return_value = b""
+    stdout.channel.recv_exit_status.return_value = 0
+    transport.exec_command.return_value = (stdin, stdout, stderr)
+    client._client = transport
+
+    assert client.read_text("python -m pipeline.path_validation", timeout=35, input_text="{}") == (0, '{"ok": true}')
+    transport.exec_command.assert_called_once_with("python -m pipeline.path_validation", timeout=35)
+    stdin.write.assert_called_once_with("{}")
+    stdin.flush.assert_called_once()
+    stdin.close.assert_called_once()
