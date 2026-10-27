@@ -129,7 +129,7 @@ export function buildRunConfig(
   const inputMode = formValues.inputMode || 'file';
   const normalizedInputMode = inputMode === 'batch_folder' ? 'dir' : inputMode;
   const rawInputPath = formValues.inputPath || '';
-  const inputPath = formValues.inputSource === 'Server' && !rawInputPath
+  const inputPath = formValues.inputSource === 'Server'
     ? (formValues.inputServerDir || '')
     : rawInputPath;
   const additionalPaths = String(formValues.additionalInputPaths || '')

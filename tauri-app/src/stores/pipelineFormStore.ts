@@ -22,6 +22,19 @@ interface PipelineFormState {
   applyPresetConfig: (preset: Record<string, unknown>) => void;
 }
 
+function updateInputSelection(previous: PipelineFormValues, next: PipelineFormValues, patch: Record<string, unknown>) {
+  const inputPath = (values: PipelineFormValues) => values.inputSource === 'Server'
+    ? (values.inputServerDir || '') : values.inputPath;
+  const changed = previous.inputSource !== next.inputSource || inputPath(previous) !== inputPath(next);
+  if (changed) {
+    // Explicit selections in a bulk update belong to the new input.
+    if (!('additionalInputPaths' in patch)) next.additionalInputPaths = '';
+    if (!('batchImageCount' in patch)) delete next.batchImageCount;
+    if (!('batchScanMode' in patch)) delete next.batchScanMode;
+  }
+  return {formValues: next, ...(changed ? {preparedRequest: null} : {})};
+}
+
 export const usePipelineFormStore = create<PipelineFormState>((set) => ({
   formValues: {...DEFAULT_FORM_VALUES},
   selectedStatsAtlases: {},
@@ -46,7 +59,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
           return {formValues: nextFormValues};
         }
       }
-      return {formValues: {...state.formValues, [name]: value}};
+      return updateInputSelection(state.formValues, {...state.formValues, [name]: value}, {[name]: value});
     }),
   setFormFields: (patch) =>
     set((state) => {
@@ -68,7 +81,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
           }
         }
       }
-      return {formValues: nextValues};
+      return updateInputSelection(state.formValues, nextValues, patch);
     }),
   setPipelineMode: (pipelineMode) => set((state) => ({formValues: {...state.formValues, pipelineMode}})),
   setSelectedStatsAtlases: (selectedStatsAtlases) =>

@@ -1556,6 +1556,11 @@ function BatchConfigModal({
   const remoteBrowseMutation = useRemoteBrowseMutation();
   const localBrowseMutation = useLocalBrowseMutation();
   const [count, setCount] = React.useState<number>(currentCount ?? 1);
+  const scanActive = React.useRef(true);
+  React.useEffect(() => {
+    scanActive.current = true;
+    return () => { scanActive.current = false; };
+  }, []);
 
   const isServer = inputSource === 'Server';
   const canScan = isServer ? isConnected : !!inputPath;
@@ -1633,7 +1638,7 @@ function BatchConfigModal({
       setScanned(false);
 
       const handleSuccess = (res: RemoteBrowseResponse) => {
-        if (!res.ok) {
+        if (!scanActive.current || !res.ok) {
           return;
         }
         const candidates = (res.entries ?? []).filter((e) => e.kind === 'file' && e.selectable);
@@ -2332,7 +2337,16 @@ export function InputOutputSection() {
 
   // Batch scan cache — persists across modal open/close
   const [batchScanCache, setBatchScanCache] = React.useState<BatchScanCache | null>(null);
-  const batchCacheKey = `${inputSource}|${formValues.inputPath}|${formValues.inputServerDir || ''}|${JSON.stringify(remotePayload)}`;
+  const batchInputPath = inputSource === 'Server' ? (formValues.inputServerDir || '') : formValues.inputPath;
+  const batchCacheKey = `${inputSource}|${formValues.inputMode}|${batchInputPath}|${inputSource === 'Server' ? JSON.stringify(remotePayload) : ''}`;
+
+  React.useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) setBatchScanCache((cache) => cache?.cacheKey === batchCacheKey ? cache : null);
+    });
+    return () => { active = false; };
+  }, [batchCacheKey]);
 
   // When runtime is Local or remote is disconnected, force source to Local
   React.useEffect(() => {
@@ -2756,8 +2770,9 @@ export function InputOutputSection() {
       {/* Batch config modal */}
       {batchModal && (
         <BatchConfigModal
+          key={batchCacheKey}
           inputSource={inputSource}
-          inputPath={inputSource === 'Server' ? (formValues.inputServerDir || '') : formValues.inputPath}
+          inputPath={batchInputPath}
           currentCount={formValues.batchImageCount as number | undefined}
           isConnected={remoteConnected}
           remotePayload={remotePayload}
@@ -2792,13 +2807,7 @@ export function InputOutputSection() {
           remotePayload={remotePayload}
           initialLocalPath={formValues.inputPath || ''}
           initialRemotePath={formValues.inputServerDir || formValues.inputPath || '~'}
-          onSetInputLocation={(path) => {
-            if (inputSource === 'Local') {
-              setFormField('inputServerDir', path);
-            } else {
-              setFormField('inputPath', path);
-            }
-          }}
+          onSetInputLocation={(path) => setFormField('inputServerDir', path)}
         />
       )}
     </>

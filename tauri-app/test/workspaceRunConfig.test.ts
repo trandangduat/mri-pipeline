@@ -7,6 +7,87 @@ describe('workspace run config', () => {
     usePipelineFormStore.getState().resetForm();
   });
 
+  it('sends the newly selected Server file after loading an old workspace', () => {
+    usePipelineFormStore.getState().applyWorkspaceConfig({
+      input_source: 'Server', run_target: 'Server', input_mode: 'file',
+      input_path: '/old/A.nii.gz', input_server_dir: '/old/A.nii.gz',
+    });
+    usePipelineFormStore.getState().setFormField('inputServerDir', '/new/B.nii.gz');
+    const form = usePipelineFormStore.getState().formValues;
+    expect(form.inputPath).toBe('/old/A.nii.gz');
+    expect(form.inputServerDir).toBe('/new/B.nii.gz');
+    expect(buildRunConfig(form, null).input_path).toBe('/new/B.nii.gz');
+  });
+
+  it('does not fall back to a hidden old path when Server input is cleared', () => {
+    expect(buildRunConfig({...DEFAULT_FORM_VALUES, inputSource: 'Server', runtimeTarget: 'Server',
+      inputPath: '/old/A.nii.gz', inputServerDir: ''}, null).input_path).toBe('');
+  });
+
+  it.each(['Local', 'Server'] as const)('clears old Batch selections when the %s input folder changes', (inputSource) => {
+    for (const bulk of [false, true]) {
+      usePipelineFormStore.getState().resetForm();
+      usePipelineFormStore.getState().setFormFields({inputSource, runtimeTarget: 'Server', inputMode: 'batch_folder',
+        inputPath: '/old/local', inputServerDir: '/old/server', additionalInputPaths: '/old/A.nii.gz',
+        batchImageCount: 1, batchScanMode: 'recursive'});
+      usePipelineFormStore.getState().setPreparedRequest({input_files: ['/old/A.nii.gz']});
+      const field = inputSource === 'Server' ? 'inputServerDir' : 'inputPath';
+      if (bulk) usePipelineFormStore.getState().setFormFields({[field]: '/new/folder'});
+      else usePipelineFormStore.getState().setFormField(field, '/new/folder');
+      const form = usePipelineFormStore.getState().formValues;
+      expect(form.additionalInputPaths).toBe('');
+      expect(form.batchImageCount).toBeUndefined();
+      expect(form.batchScanMode).toBeUndefined();
+      expect(usePipelineFormStore.getState().preparedRequest).toBeNull();
+      const request = buildRunConfig(form, null);
+      expect(request.input_path).toBe('/new/folder');
+      expect(request.selected_files).toEqual([]);
+    }
+  });
+
+  it.each(['Local', 'Server'] as const)('clears old Batch selections when switching away from %s', (inputSource) => {
+    for (const bulk of [false, true]) {
+      usePipelineFormStore.getState().resetForm();
+      usePipelineFormStore.getState().setFormFields({inputSource, runtimeTarget: 'Server', inputMode: 'batch_folder',
+        inputPath: '/local/input', inputServerDir: '/server/input', additionalInputPaths: '/old/A.nii.gz',
+        batchImageCount: 1, batchScanMode: 'recursive'});
+      const nextSource = inputSource === 'Local' ? 'Server' : 'Local';
+      if (bulk) usePipelineFormStore.getState().setFormFields({inputSource: nextSource});
+      else usePipelineFormStore.getState().setFormField('inputSource', nextSource);
+      const form = usePipelineFormStore.getState().formValues;
+      expect(form.additionalInputPaths).toBe('');
+      expect(form.batchImageCount).toBeUndefined();
+      expect(form.batchScanMode).toBeUndefined();
+      expect(buildRunConfig(form, null).input_path).toBe(nextSource === 'Server' ? '/server/input' : '/local/input');
+    }
+  });
+
+  it('keeps Local Batch selections when only Server staging changes', () => {
+    usePipelineFormStore.getState().setFormFields({inputSource: 'Local', runtimeTarget: 'Server', inputMode: 'batch_folder',
+      inputPath: '/local/input', inputServerDir: '/old/staging', additionalInputPaths: '/local/input/A.nii.gz',
+      batchImageCount: 1, batchScanMode: 'recursive'});
+    usePipelineFormStore.getState().setFormField('inputServerDir', '/new/staging');
+    const form = usePipelineFormStore.getState().formValues;
+    const config = buildRunConfig(form, null);
+    expect(form.batchImageCount).toBe(1);
+    expect(form.batchScanMode).toBe('recursive');
+    expect(config.input_path).toBe('/local/input');
+    expect(config.input_server_dir).toBe('/new/staging');
+    expect(config.selected_files).toEqual(['/local/input/A.nii.gz']);
+  });
+
+  it('keeps valid selections when the input is unchanged or explicitly replaced together', () => {
+    usePipelineFormStore.getState().setFormFields({inputSource: 'Server', inputMode: 'batch_folder', inputPath: '',
+      inputServerDir: '/old', additionalInputPaths: '/old/A.nii.gz', batchImageCount: 1});
+    usePipelineFormStore.getState().setFormField('inputServerDir', '/old');
+    expect(usePipelineFormStore.getState().formValues.additionalInputPaths).toBe('/old/A.nii.gz');
+    usePipelineFormStore.getState().setFormFields({inputServerDir: '/new',
+      additionalInputPaths: '/new/B.nii.gz', batchImageCount: 1, batchScanMode: 'recursive'});
+    const form = usePipelineFormStore.getState().formValues;
+    expect(form.batchImageCount).toBe(1);
+    expect(buildRunConfig(form, null).selected_files).toEqual(['/new/B.nii.gz']);
+  });
+
   it('preserves export options when saving and loading a workspace', () => {
     const names = {'reorientation.primary': 'scan.v2'};
     const forms = {...DEFAULT_FORM_VALUES, exportEnabled: false, exportFolder: 'custom',
@@ -158,6 +239,7 @@ describe('workspace run config', () => {
     const formValues = usePipelineFormStore.getState().formValues;
     expect(formValues.inputSource).toBe('Server');
     expect(formValues.inputServerDir).toBe('/home/catcd1/ADNIDOD_T1/ADNIDOD/');
+    expect(buildRunConfig(formValues, null).input_path).toBe('/home/catcd1/ADNIDOD_T1/ADNIDOD/');
     expect(formValues.serverOutputDir).toBe('/home/catcd1/neuroflow-benchmark/outputs/30subjects_20parallel');
   });
 });
