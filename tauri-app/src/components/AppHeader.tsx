@@ -190,9 +190,10 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
         }
       }
       const isServer = fv.inputSource === 'Server' || fv.runtimeTarget === 'Server';
-      const resolvedInputPath = isServer ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputPath || '');
+      const isServerInput = fv.inputSource === 'Server';
+      const resolvedInputPath = isServerInput ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputPath || '');
       const resolvedOutputDir = isServer ? (fv.serverOutputDir || fv.outputDir || '') : (fv.outputDir || '');
-      const resolvedInputServerDir = isServer ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputServerDir || '');
+      const resolvedInputServerDir = isServerInput ? (fv.inputServerDir || fv.inputPath || '') : (fv.inputServerDir || '');
       const resolvedServerOutputDir = isServer ? (fv.serverOutputDir || fv.outputDir || '') : (fv.serverOutputDir || '');
 
       const workspace: Record<string, unknown> = {

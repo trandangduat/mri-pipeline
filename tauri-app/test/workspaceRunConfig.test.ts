@@ -80,6 +80,52 @@ describe('workspace run config', () => {
     expect(configLocal.server_output_dir).toBe('');
   });
 
+  it.each(['Local', 'Server'] as const)(
+    'keeps local input separate from server staging when loading a %s runtime workspace',
+    (runtimeTarget) => {
+      usePipelineFormStore.getState().applyWorkspaceConfig({
+        input_source: 'Local',
+        run_target: runtimeTarget,
+        input_mode: 'file',
+        input_path: '/local/mri/scan.mgz',
+        input_server_dir: '/server/staging',
+        output_dir: '/outputs',
+      });
+
+      const formValues = usePipelineFormStore.getState().formValues;
+      expect(formValues.inputPath).toBe('/local/mri/scan.mgz');
+      expect(formValues.inputServerDir).toBe('/server/staging');
+      const request = buildRunConfig(formValues, null);
+      expect(request.input_source).toBe('Local');
+      expect(request.run_target).toBe(runtimeTarget);
+      expect(request.input_path).toBe('/local/mri/scan.mgz');
+      expect(request.input_server_dir).toBe('/server/staging');
+    },
+  );
+
+  it('does not use server staging as a missing local input', () => {
+    usePipelineFormStore.getState().applyWorkspaceConfig({
+      input_source: 'Local', run_target: 'Server',
+      input_path: '', input_server_dir: '/server/staging',
+    });
+
+    const formValues = usePipelineFormStore.getState().formValues;
+    expect(formValues.inputPath).toBe('');
+    expect(formValues.inputServerDir).toBe('/server/staging');
+    expect(buildRunConfig(formValues, null).input_path).toBe('');
+  });
+
+  it('does not use a local input as a missing server staging directory', () => {
+    usePipelineFormStore.getState().applyWorkspaceConfig({
+      input_source: 'Local', run_target: 'Server',
+      input_path: '/local/mri/scan.mgz', input_server_dir: '',
+    });
+
+    const formValues = usePipelineFormStore.getState().formValues;
+    expect(formValues.inputPath).toBe('/local/mri/scan.mgz');
+    expect(formValues.inputServerDir).toBe('');
+  });
+
   it('populates inputServerDir and serverOutputDir when loading a server workspace with input_path and output_dir', () => {
     usePipelineFormStore.getState().applyWorkspaceConfig({
       input_source: 'Server',
