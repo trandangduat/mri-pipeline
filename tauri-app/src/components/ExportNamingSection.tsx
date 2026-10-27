@@ -77,6 +77,7 @@ export function ExportNamingSection({
   setFormFields,
 }: ExportNamingSectionProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const exportEnabled = formValues.exportEnabled ?? false;
 
   const customNames = useMemo(
     () => (formValues.exportCustomNames as Record<string, string>) || {},
@@ -133,6 +134,19 @@ export function ExportNamingSection({
 
   return (
     <div className="rounded-lg border border-cursor-hairline bg-cursor-surface/30 transition-colors">
+      <label className="inline-flex items-center gap-2 px-3 pt-2 text-xs text-cursor-ink cursor-pointer">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={exportEnabled}
+          onChange={(e) => {
+            setFormField('exportEnabled', e.target.checked);
+            if (e.target.checked) setIsOpen(true);
+          }}
+          className="accent-cursor-primary"
+        />
+        Export output images
+      </label>
       {/* Compact Collapsible Header Bar */}
       <button
         type="button"
@@ -145,7 +159,9 @@ export function ExportNamingSection({
           <span className="text-xs font-medium text-cursor-ink">
             Custom Output Filenames <span className="text-cursor-muted text-2xs font-normal">({formValues.exportFolder || 'exports'}/ folder)</span>
           </span>
-          {customNamesCount > 0 ? (
+          {!exportEnabled ? (
+            <span className={`${BADGE.base} ${BADGE.neutral} ml-1`}>Off</span>
+          ) : customNamesCount > 0 ? (
             <span className={`${BADGE.base} ${BADGE.primary} ml-1`}>{customNamesCount} Renamed</span>
           ) : (
             <span className={`${BADGE.base} ${BADGE.neutral} ml-1`}>Default</span>
@@ -153,7 +169,7 @@ export function ExportNamingSection({
         </div>
 
         <div className="flex items-center gap-2">
-          {customNamesCount > 0 && (
+          {exportEnabled && customNamesCount > 0 && (
             <span
               role="button"
               tabIndex={0}
@@ -179,7 +195,10 @@ export function ExportNamingSection({
 
       {/* Expanded Compact Naming Table */}
       {isOpen && (
-        <div className="border-t border-cursor-hairline px-3 py-2.5 space-y-1.5">
+        <fieldset disabled={!exportEnabled} className="m-0 min-w-0 border-t border-cursor-hairline px-3 py-2.5 space-y-1.5 disabled:opacity-50">
+          <p className="text-2xs text-cursor-muted">
+            {exportEnabled ? 'Blank names use the default filenames.' : 'Export is off. Saved filenames are kept.'}
+          </p>
           {activeItems.length === 0 ? (
             <p className="text-2xs text-cursor-muted py-1 italic">
               {isCustom
@@ -241,7 +260,7 @@ export function ExportNamingSection({
               })}
             </div>
           )}
-        </div>
+        </fieldset>
       )}
     </div>
   );

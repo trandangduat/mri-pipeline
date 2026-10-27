@@ -164,7 +164,7 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
       const ec = workspace.export_config && typeof workspace.export_config === 'object'
         ? workspace.export_config as Record<string, unknown>
         : {};
-      nextFormValues.exportEnabled = ec.enabled !== undefined ? Boolean(ec.enabled) : (DEFAULT_FORM_VALUES.exportEnabled ?? true);
+      nextFormValues.exportEnabled = ec.enabled !== undefined ? Boolean(ec.enabled) : (DEFAULT_FORM_VALUES.exportEnabled ?? false);
       nextFormValues.exportFolder = String(ec.folder || DEFAULT_FORM_VALUES.exportFolder);
       nextFormValues.exportDefaultFormat = String(ec.default_format || DEFAULT_FORM_VALUES.exportDefaultFormat);
       nextFormValues.exportCustomNames = ec.names && typeof ec.names === 'object'

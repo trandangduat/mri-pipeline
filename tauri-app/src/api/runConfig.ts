@@ -101,7 +101,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   neuroflowMachineProfileId: 'application_default',
   neuroflowPresetFile: 'configs/neuroflow/presets/freesurfer8_all.yaml',
   neuroflowProfileFile: 'configs/neuroflow/profiles/freesurfer8_all_default.yaml',
-  exportEnabled: true,
+  exportEnabled: false,
   exportFolder: 'exports',
   exportDefaultFormat: '.nii.gz',
   exportCustomNames: {},
@@ -110,7 +110,7 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
 
 export function buildExportConfig(formValues: PipelineFormValues) {
   return {
-    enabled: formValues.exportEnabled ?? true,
+    enabled: formValues.exportEnabled ?? false,
     folder: formValues.exportFolder || 'exports',
     default_format: formValues.exportDefaultFormat || '.nii.gz',
     names: {...(formValues.exportCustomNames || {})},
