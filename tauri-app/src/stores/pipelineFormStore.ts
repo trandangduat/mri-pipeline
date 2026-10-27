@@ -161,18 +161,16 @@ export const usePipelineFormStore = create<PipelineFormState>((set) => ({
           }
         }
       }
-      if (workspace.export_config && typeof workspace.export_config === 'object') {
-        const ec = workspace.export_config as Record<string, unknown>;
-        if (ec.enabled !== undefined) nextFormValues.exportEnabled = Boolean(ec.enabled);
-        if (ec.folder) nextFormValues.exportFolder = String(ec.folder);
-        if (ec.default_format) nextFormValues.exportDefaultFormat = String(ec.default_format);
-        if (ec.names && typeof ec.names === 'object') {
-          nextFormValues.exportCustomNames = {...(ec.names as Record<string, string>)};
-        }
-        if (ec.formats && typeof ec.formats === 'object') {
-          nextFormValues.exportCustomFormats = {...(ec.formats as Record<string, string>)};
-        }
-      }
+      const ec = workspace.export_config && typeof workspace.export_config === 'object'
+        ? workspace.export_config as Record<string, unknown>
+        : {};
+      nextFormValues.exportEnabled = ec.enabled !== undefined ? Boolean(ec.enabled) : (DEFAULT_FORM_VALUES.exportEnabled ?? true);
+      nextFormValues.exportFolder = String(ec.folder || DEFAULT_FORM_VALUES.exportFolder);
+      nextFormValues.exportDefaultFormat = String(ec.default_format || DEFAULT_FORM_VALUES.exportDefaultFormat);
+      nextFormValues.exportCustomNames = ec.names && typeof ec.names === 'object'
+        ? {...(ec.names as Record<string, string>)} : {};
+      nextFormValues.exportCustomFormats = ec.formats && typeof ec.formats === 'object'
+        ? {...(ec.formats as Record<string, string>)} : {};
       return {
         formValues: nextFormValues,
         selectedStatsAtlases: nextAtlases,

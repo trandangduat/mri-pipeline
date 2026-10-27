@@ -215,6 +215,11 @@ def validate_run_request_input(config: RunRequestInput, *, validate_license: boo
     if neuroflow_error:
         return [neuroflow_error]
 
+    from pipeline.export import export_name_errors
+    export_errors = export_name_errors(ExportConfig.from_dict(config.export_config), _selected_tools(config))
+    if export_errors:
+        return export_errors
+
     atlas_errors = atlas_selection_errors(config.stats_vector_config)
     if atlas_errors:
         return atlas_errors

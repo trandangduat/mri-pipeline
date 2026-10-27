@@ -96,6 +96,19 @@ class ConsoleLoggingTests(unittest.TestCase):
         result = read_console(ConsoleFiles(str(self.job)), dict(self.payload, mode='combined'))
         self.assertIn('Required image unavailable', result['text'])
 
+    def test_export_warning_survives_captured_stage_and_download(self):
+        self.capture(text="MRI processing succeeded\n")
+        event = {"kind": "progress", "subject_id": "A", "input_file": "/input/a.nii",
+                 "stage": "segmentation", "status": "running", "time": 1,
+                 "msg": "Export warning: conversion failed"}
+        (self.job / "events.jsonl").write_text(json.dumps(event) + "\n")
+        for mode in ("combined", "summary"):
+            result = read_console(ConsoleFiles(str(self.job)), dict(self.payload, mode=mode))
+            self.assertIn("Export warning: conversion failed", result["text"])
+        target = self.root / "warning.log"
+        export_console(ConsoleFiles(str(self.job)), dict(self.payload, target_file=str(target)))
+        self.assertIn("Export warning: conversion failed", target.read_text())
+
     def test_streams_large_stdout_and_stderr_without_buffering_the_complete_result(self):
         config = PipelineConfig('/input/a.nii', str(self.output), 'A', console_job_dir=str(self.job))
         capture = ToolOutputCapture(config, 'segmentation', 'synthseg')

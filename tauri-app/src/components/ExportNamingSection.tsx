@@ -143,7 +143,7 @@ export function ExportNamingSection({
         <div className="flex items-center gap-2 min-w-0">
           <SlidersHorizontal className="h-3.5 w-3.5 text-cursor-primary flex-shrink-0" />
           <span className="text-xs font-medium text-cursor-ink">
-            Custom Output Filenames <span className="text-cursor-muted text-2xs font-normal">(&quot;exports/&quot; folder)</span>
+            Custom Output Filenames <span className="text-cursor-muted text-2xs font-normal">({formValues.exportFolder || 'exports'}/ folder)</span>
           </span>
           {customNamesCount > 0 ? (
             <span className={`${BADGE.base} ${BADGE.primary} ml-1`}>{customNamesCount} Renamed</span>
@@ -231,7 +231,9 @@ export function ExportNamingSection({
                         ) : null}
                       </div>
                       <span className="text-2xs font-mono text-cursor-muted shrink-0 select-none">
-                        .nii.gz
+                        {(formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz') === 'same'
+                          ? '(original format)'
+                          : (formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz')}
                       </span>
                     </div>
                   </div>

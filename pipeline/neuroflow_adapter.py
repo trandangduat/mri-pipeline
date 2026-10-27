@@ -19,9 +19,9 @@ from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig
 from .discovery import _derive_subject_id
 from .hardware import _total_ram_bytes
 from .presets import normalize_stats_vector_config_for_pipeline_mode
-from .registry import STAGE_ORDER, STAGE_LABELS
+from .registry import STAGE_ORDER, STAGE_LABELS, TOOL_DEFS
 from .reports import BatchReportContext, write_batch_reports
-from .runner import run_pipeline_stage
+from .runner import _resume_exports, run_pipeline_stage
 from .state import PipelineTracker
 from .stats import StatsGenerator
 from pipeline.win_process import no_window_kwargs
@@ -567,6 +567,17 @@ def run_neuroflow_batch(
             contexts[image_id].record_step(step, output, step.stage)
             if step.success:
                 contexts[image_id].committed_stages.add(step.stage)
+
+    if database.exists():
+        # Repair exports from verified intermediate files without resubmitting scheduler tasks.
+        for context in contexts.values():
+            for stage, key in selected_tools.items():
+                tool = TOOL_DEFS.get(key, {})
+                outputs = context.tracker.find_existing_outputs(
+                    context.subject_dir, tool.get("output_files", []), tool.get("output_globs", []),
+                )
+                if outputs:
+                    _resume_exports(context.config, stage, context.subject_dir, outputs, context.tracker, on_progress)
 
     if policy_choice != "B6":
         from .policy_runtime import create_baseline_scheduler, load_baseline_scheduler, write_contract

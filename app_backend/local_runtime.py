@@ -82,4 +82,10 @@ def local_runtime_checks(request: dict) -> Iterator[SSEEvent]:
         yield step_event("images", "failed", str(exc))
         yield complete_event(False, error=str(exc))
         return
+    from pipeline.export import export_conversion_error
+    error = export_conversion_error(request)
+    if error:
+        yield step_event("images", "failed", error)
+        yield complete_event(False, error=error)
+        return
     yield step_event("images", "done", "All Docker images are ready")

@@ -1074,3 +1074,30 @@ def test_neuroflow_retried_stage_succeeds_marks_image_success(
     assert emitted_done[0].success is True
 
 
+
+
+def test_scheduler_resume_repairs_exports_before_loading_tasks(tmp_path, monkeypatch):
+    _install_fake_neuroflow(monkeypatch)
+    job = tmp_path / "job"
+    job.mkdir()
+    (job / "neuroflow_workspace.sqlite").touch()
+    policy = ModuleType("pipeline.policy_runtime")
+    policy.check_resume = lambda *_args: None
+    monkeypatch.setitem(sys.modules, "pipeline.policy_runtime", policy)
+    def stop_after_repair(**_kwargs):
+        raise RuntimeError("stop after export repair")
+    monkeypatch.setattr(_FakeAdaptiveScheduler, "load", stop_after_repair)
+    output = tmp_path / "results"
+    intermediate = output / "subject-a/mri/01_reoriented.nii.gz"
+    intermediate.parent.mkdir(parents=True)
+    intermediate.write_bytes(b"existing verified MRI output")
+    with pytest.raises(RuntimeError, match="stop after export repair"):
+        run_neuroflow_batch(
+            job_dir=job,
+            req={"pipeline_mode": "FreeSurfer 8 + Volume", "output_dir": str(output),
+                 "selected_tools": {"reorientation": "mri_convert_fs7"},
+                 "export_config": {"names": {"reorientation.primary": "restored.v2"}}},
+            input_files=[str(tmp_path / "a.nii.gz")],
+            subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
+        )
+    assert (output / "subject-a/exports/restored.v2.nii.gz").read_bytes() == intermediate.read_bytes()

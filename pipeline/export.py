@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shlex
 import shutil
+import tempfile
+import threading
 from pathlib import Path
-from typing import Tuple, List
 from .config import EXPORT_OUTPUT_ITEMS, ExportConfig
-from .registry import TOOL_DEFS
+from .registry import TOOL_DEFS, is_tool_enabled
 from .docker_ops import require_image
 from .executor import LocalDockerExecutor, ExecutionRequest
 from .utils import _safe_container_name
 from .workspace import _repair_host_permissions
+
+_EXPORT_LOCK = threading.RLock()
 
 def _volume_extension(path: Path) -> str:
     name = path.name.lower()
@@ -19,9 +25,10 @@ def _volume_extension(path: Path) -> str:
 
 def _strip_volume_extension(name: str) -> str:
     lower = name.lower()
-    if lower.endswith(".nii.gz"):
-        return name[:-7]
-    return Path(name).stem
+    for extension in (".nii.gz", ".nii", ".mgz", ".mgh"):
+        if lower.endswith(extension):
+            return name[:-len(extension)]
+    return name
 
 def _safe_export_stem(value: str, fallback: str) -> str:
     raw = (value or fallback).strip()
@@ -82,11 +89,11 @@ def _copy_or_convert_export(src: Path, dst: Path, subject_dir: str, license_dir:
             image=TOOL_DEFS["mri_convert_fs7"]["image"],
             args=[],
             mounts=mounts,
-            command=["bash", "-c", f"{cmd_prefix}mri_convert /subject/{src_rel} /subject/{dst_rel}"],
-            container_name=_safe_container_name("mri", subject_path.name, "export")
+            command=["bash", "-c", f"{cmd_prefix}mri_convert {shlex.quote('/subject/' + src_rel)} {shlex.quote('/subject/' + dst_rel)}"],
+            container_name=_safe_container_name("mri", subject_path.name, "export", dst.stem)
         )
         res = LocalDockerExecutor().execute(req)
-        if res.return_code == 0 and dst.exists():
+        if res.return_code == 0 and dst.is_file() and dst.stat().st_size:
             _repair_host_permissions(str(subject_path), TOOL_DEFS["mri_convert_fs7"]["image"])
             return True, ""
         docker_err = res.output.strip()
@@ -103,43 +110,133 @@ def _copy_or_convert_export(src: Path, dst: Path, subject_dir: str, license_dir:
         tail = " | ".join(docker_err.splitlines()[-3:]) if docker_err else "mri_convert failed"
         return False, f"{tail} (fallback error: {exc})"
 
+def _export_targets(stage: str, paths: list[str], config: ExportConfig):
+    used: set[str] = set()
+    volumes = [Path(p) for p in paths if _volume_extension(Path(p)) in (".nii", ".nii.gz", ".mgz", ".mgh")]
+    default_format = config.default_format if config.default_format in ("same", ".nii.gz", ".mgz") else ".nii.gz"
+    for index, source in enumerate(volumes):
+        item = _export_item_id(stage, source, index)
+        default_name = _default_export_name(item, source)
+        stem = _safe_export_stem(_strip_volume_extension(config.names.get(item, default_name)), default_name)
+        format_ = config.formats.get(item, default_format)
+        if format_ not in ("same", ".nii.gz", ".mgz"):
+            format_ = default_format
+        extension = _volume_extension(source) if format_ == "same" else format_
+        filename = stem + extension
+        if filename.casefold() in used:
+            filename = f"{stem}_{index + 1}{extension}"
+        used.add(filename.casefold())
+        yield source, item, filename
+
+
+def _configured_targets(config: ExportConfig, tools: dict):
+    for stage, key in tools.items():
+        if not key or not is_tool_enabled(key):
+            continue
+        tool = TOOL_DEFS.get(key, {})
+        paths = list(tool.get("output_files", [])) + list(tool.get("output_globs", []))
+        for source, item, filename in _export_targets(stage, paths, config):
+            yield stage, source, item, filename
+
+
+def export_name_errors(config: ExportConfig, tools: dict) -> list[str]:
+    if not config.enabled:
+        return []
+    destinations = {}
+    for stage, source, item, filename in _configured_targets(config, tools):
+        previous = destinations.setdefault(filename.casefold(), (stage, item))
+        if previous != (stage, item):
+            return [f"Export filename '{filename}' is shared by {previous[1]} and {item}. Choose different output names."]
+    return []
+
+
+def export_conversion_error(request: dict) -> str:
+    """Check the converter only when configured outputs need a format change."""
+    config = ExportConfig.from_dict(request.get("export_config"))
+    if not config.enabled or not any(
+        _volume_extension(source) != _volume_extension(Path(filename))
+        for _, source, _, filename in _configured_targets(config, request.get("selected_tools", {}))
+    ):
+        return ""
+    try:
+        import nibabel
+        if callable(nibabel.load) and callable(nibabel.save):
+            return ""
+    except Exception:
+        pass
+    ok, error = require_image("mri_convert_fs7")
+    if not ok:
+        return f"Image export needs nibabel or the FreeSurfer converter. {error}"
+    license_path = Path(request.get("license_dir") or os.environ.get("FS_LICENSE") or "").expanduser()
+    if not license_path.is_file() and not (license_path / "license.txt").is_file():
+        return "Image export needs a FreeSurfer license file or nibabel. Select a license or repair the installation."
+    return ""
+
+
+def _write_export(source: Path, destination: Path, subject_dir: str, license_dir: str,
+                  stage: str, item: str, only_missing: bool) -> tuple[bool, str]:
+    # Per-file ownership permits resume without allowing another stage to overwrite an image.
+    owner = destination.with_name(".export-" + hashlib.sha256(destination.name.casefold().encode()).hexdigest()[:20] + ".json")
+    identity = {"source": str(source.resolve()), "stage": stage, "item": item}
+    temporary = None
+    claimed = False
+    with _EXPORT_LOCK:
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists() and not owner.exists():
+                return False, f"Export destination already exists and is not owned by this stage: {destination.name}"
+            try:
+                with owner.open("x", encoding="utf-8") as stream:
+                    json.dump(identity, stream)
+                claimed = True
+            except FileExistsError:
+                if json.loads(owner.read_text(encoding="utf-8")) != identity:
+                    return False, f"Export filename belongs to another output: {destination.name}"
+            existed = destination.exists()
+            if only_missing and existed and destination.stat().st_size:
+                return True, ""
+            with tempfile.NamedTemporaryFile(prefix=".export-", suffix=_volume_extension(destination),
+                                             dir=destination.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+            ok, error = _copy_or_convert_export(source, temporary, subject_dir, license_dir)
+            if not ok:
+                return False, error
+            if existed:
+                os.replace(temporary, destination)
+            else:
+                # Exclusive publication also protects against a different worker creating this path.
+                os.link(temporary, destination)
+            return True, ""
+        except (OSError, ValueError) as exc:
+            return False, str(exc)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            if claimed and not destination.exists():
+                owner.unlink(missing_ok=True)
+
+
 def _export_stage_outputs(
     subject_dir: str,
     stage: str,
     outputs_found: list[str],
     export_config: ExportConfig,
     license_dir: str = "",
+    *,
+    only_missing: bool = False,
 ) -> tuple[list[str], str]:
     if not export_config.enabled:
         return [], ""
-    fmt_default = export_config.default_format if export_config.default_format in ("same", ".nii.gz", ".mgz") else ".nii.gz"
-    export_folder = _safe_export_stem(export_config.folder, "exports")
-    export_dir = Path(subject_dir) / export_folder
+    export_dir = Path(subject_dir) / _safe_export_stem(export_config.folder, "exports")
     exported: list[str] = []
     errors: list[str] = []
-    used_names: set[str] = set()
-
-    volume_exts = (".nii", ".nii.gz", ".mgz", ".mgh")
-    volume_outputs = [Path(p) for p in outputs_found if Path(p).name.lower().endswith(volume_exts)]
-    for idx, src in enumerate(volume_outputs):
-        if not src.exists():
+    for source, item, filename in _export_targets(stage, outputs_found, export_config):
+        if not source.is_file():
             continue
-        item_id = _export_item_id(stage, src, idx)
-        default_name = _default_export_name(item_id, src)
-        configured_name = _strip_volume_extension(export_config.names.get(item_id, default_name))
-        stem = _safe_export_stem(configured_name, default_name)
-        target_format = export_config.formats.get(item_id, fmt_default)
-        if target_format not in ("same", ".nii.gz", ".mgz"):
-            target_format = fmt_default
-        ext = _volume_extension(src) if target_format == "same" else target_format
-        filename = f"{stem}{ext}"
-        if filename in used_names:
-            filename = f"{stem}_{idx + 1}{ext}"
-        used_names.add(filename)
-        dst = export_dir / filename
-        ok, err = _copy_or_convert_export(src, dst, subject_dir, license_dir=license_dir)
+        destination = export_dir / filename
+        ok, error = _write_export(source, destination, subject_dir, license_dir, stage, item, only_missing)
         if ok:
-            exported.append(str(dst))
+            exported.append(str(destination))
         else:
-            errors.append(f"{src.name} -> {filename}: {err}")
+            errors.append(f"{source.name} -> {filename}: {error}")
     return exported, "; ".join(errors)

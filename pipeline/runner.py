@@ -106,6 +106,16 @@ def _docker_memory_limit_bytes(ram_percent: int, runtime_ram_bytes: int | None =
     return max(1, int(total * pct / 100))
 
 
+def _resume_exports(config, stage, subject_dir, outputs, tracker, progress, pct=0.0):
+    exported, error = _export_stage_outputs(
+        subject_dir, stage, outputs, config.export_config,
+        license_dir=config.license_dir, only_missing=True,
+    )
+    tracker.add_exported_outputs(stage, exported, error)
+    if error and progress:
+        progress(stage, "running", pct, f"Export warning: {error}")
+
+
 def _build_execution_request(
     *,
     tool_key: str,
@@ -291,6 +301,7 @@ def run_pipeline_stage(
             tool.get("output_globs"),
         )
         if resumed_output:
+            _resume_exports(config, stage, subject_dir, resumed_outputs, tracker, progress, stage_pct)
             tracker.mark_stage_completed(
                 StageResult(
                     stage=stage,
@@ -580,6 +591,7 @@ def run_pipeline(
                 tool.get("output_globs")
             )
             if resumed_output:
+                _resume_exports(config, stage, subject_dir, resumed_outputs, tracker, progress, stage_pct)
                 input_for_next_step = resumed_output
                 from .state import StageResult
                 tracker.mark_stage_completed(StageResult(

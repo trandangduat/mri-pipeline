@@ -36,6 +36,7 @@ a = Analysis(
         (os.path.join(PROJECT_ROOT, "requirements.txt"), "."),
     ],
     hiddenimports=[
+        "nibabel",
         *scheduler_modules,
         "app_backend",
         "app_backend.server",

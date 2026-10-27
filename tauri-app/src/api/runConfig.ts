@@ -108,6 +108,16 @@ export const DEFAULT_FORM_VALUES: PipelineFormValues = {
   exportCustomFormats: {},
 };
 
+export function buildExportConfig(formValues: PipelineFormValues) {
+  return {
+    enabled: formValues.exportEnabled ?? true,
+    folder: formValues.exportFolder || 'exports',
+    default_format: formValues.exportDefaultFormat || '.nii.gz',
+    names: {...(formValues.exportCustomNames || {})},
+    formats: {...(formValues.exportCustomFormats || {})},
+  };
+}
+
 export function buildRunConfig(
   formValues: PipelineFormValues,
   metadata: AppMetadata | null,
@@ -147,13 +157,7 @@ export function buildRunConfig(
     input_server_dir: formValues.inputServerDir || '',
     pipeline_mode: mode,
     selected_tools: selectedTools,
-    export_config: {
-      enabled: true,
-      folder: 'exports',
-      default_format: '.nii.gz',
-      names: (formValues.exportCustomNames as Record<string, string>) || {},
-      formats: (formValues.exportCustomFormats as Record<string, string>) || {},
-    },
+    export_config: buildExportConfig(formValues),
     stats_vector_config: {enabled_stats: {}, atlases: selectedStatsAtlases || {}},
     non_recursive: Boolean(formValues.nonRecursive),
     device: formValues.gpuMode === 'on' ? 'cuda' : 'cpu',

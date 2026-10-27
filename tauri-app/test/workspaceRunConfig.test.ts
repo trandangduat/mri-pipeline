@@ -1,10 +1,28 @@
 import {beforeEach, describe, expect, it} from 'vitest';
-import {buildRunConfig, DEFAULT_FORM_VALUES, selectedToolsFromForm} from '../src/api/runConfig';
+import {buildExportConfig, buildRunConfig, DEFAULT_FORM_VALUES, selectedToolsFromForm} from '../src/api/runConfig';
 import {usePipelineFormStore} from '../src/stores/pipelineFormStore';
 
 describe('workspace run config', () => {
   beforeEach(() => {
     usePipelineFormStore.getState().resetForm();
+  });
+
+  it('preserves export options when saving and loading a workspace', () => {
+    const names = {'reorientation.primary': 'scan.v2'};
+    const forms = {...DEFAULT_FORM_VALUES, exportEnabled: false, exportFolder: 'custom',
+      exportDefaultFormat: '.mgz', exportCustomNames: names, exportCustomFormats: {'segmentation.primary': 'same'}};
+    const saved = JSON.parse(JSON.stringify({export_config: buildExportConfig(forms)}));
+    usePipelineFormStore.getState().applyWorkspaceConfig(saved);
+    const config = buildRunConfig(usePipelineFormStore.getState().formValues, null);
+    expect(config.export_config).toEqual(saved.export_config);
+    expect((config.export_config as {names: unknown}).names).toEqual(names);
+  });
+
+  it('resets export settings when a legacy workspace has none', () => {
+    usePipelineFormStore.getState().setFormFields({exportEnabled: false, exportFolder: 'previous',
+      exportCustomNames: {'reorientation.primary': 'previous'}, exportCustomFormats: {'reorientation.primary': '.mgz'}});
+    usePipelineFormStore.getState().applyWorkspaceConfig({});
+    expect(buildExportConfig(usePipelineFormStore.getState().formValues)).toEqual(buildExportConfig(DEFAULT_FORM_VALUES));
   });
 
   it('builds selected tools from stage fields when preset metadata is unavailable', () => {

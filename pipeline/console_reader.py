@@ -403,6 +403,12 @@ def read_console(files: ConsoleFiles, payload: dict, native_reader=None):
         except Exception:
             warnings.append('Older scheduler attempt details are unavailable. Available activity is shown.')
     scoped = subject_events(events, subject, input_file, len(set(configured_files)) == 1)
+    for event in scoped:
+        message = str(event.get('msg') or event.get('message') or '')
+        if 'Export warning:' in message:
+            warning = f"{event.get('stage', '')}: {message}"
+            if warning not in warnings:
+                warnings.append(warning)
     for item in items:
         if item.get('version') == 1 or item.get('metadata_scope'):
             continue
@@ -424,7 +430,7 @@ def read_console(files: ConsoleFiles, payload: dict, native_reader=None):
     elif mode == 'detailed' and selected:
         text, hidden, byte_limited = tail(files, selected)
     elif mode == 'summary':
-        text = '\n'.join(lines[-200:]).encode('utf-8')[-MAX_TEXT:].decode('utf-8', errors='replace')
+        text = '\n'.join(warnings + lines[-200:]).encode('utf-8')[-MAX_TEXT:].decode('utf-8', errors='replace')
     else:
         text = ''
     fields = {'record_id', 'stage', 'tool', 'attempt_id', 'attempt_number', 'started_at', 'finished_at',

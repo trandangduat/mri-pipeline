@@ -111,6 +111,8 @@ class PipelineTracker:
             s_data["exported_outputs"] = exported
             if error:
                 s_data["export_error"] = error
+            else:
+                s_data.pop("export_error", None)
             self._save()
 
     def set_stats_vectors(self, generated: list[str], warnings: list[str]) -> None:
