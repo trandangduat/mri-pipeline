@@ -134,7 +134,13 @@ export function ExportNamingSection({
 
   return (
     <div className="rounded-lg border border-cursor-hairline bg-cursor-surface/30 transition-colors">
-      <label className="inline-flex items-center gap-2 px-3 pt-2 text-xs text-cursor-ink cursor-pointer">
+      <label className="flex items-center justify-between gap-3 px-3 py-3 cursor-pointer">
+        <span className="min-w-0">
+          <span className="block text-xs font-medium text-cursor-ink">Export output images</span>
+          <span className="mt-0.5 block text-2xs text-cursor-muted">
+            Save additional image files in {formValues.exportFolder || 'exports'}/.
+          </span>
+        </span>
         <input
           type="checkbox"
           role="switch"
@@ -143,124 +149,130 @@ export function ExportNamingSection({
             setFormField('exportEnabled', e.target.checked);
             if (e.target.checked) setIsOpen(true);
           }}
-          className="accent-cursor-primary"
+          aria-label="Export output images"
+          className="peer sr-only"
         />
-        Export output images
+        <span
+          aria-hidden="true"
+          className="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-cursor-muted/40 transition-colors peer-checked:bg-cursor-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-cursor-primary after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:after:translate-x-4"
+        />
       </label>
-      {/* Compact Collapsible Header Bar */}
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-cursor-ink transition-colors hover:bg-cursor-canvas-soft/50 rounded-lg"
-        aria-expanded={isOpen}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <SlidersHorizontal className="h-3.5 w-3.5 text-cursor-primary flex-shrink-0" />
-          <span className="text-xs font-medium text-cursor-ink">
-            Custom Output Filenames <span className="text-cursor-muted text-2xs font-normal">({formValues.exportFolder || 'exports'}/ folder)</span>
-          </span>
-          {!exportEnabled ? (
-            <span className={`${BADGE.base} ${BADGE.neutral} ml-1`}>Off</span>
-          ) : customNamesCount > 0 ? (
-            <span className={`${BADGE.base} ${BADGE.primary} ml-1`}>{customNamesCount} Renamed</span>
-          ) : (
-            <span className={`${BADGE.base} ${BADGE.neutral} ml-1`}>Default</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {exportEnabled && customNamesCount > 0 && (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={handleResetDefaults}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.stopPropagation();
-                  handleResetDefaults(e as unknown as React.MouseEvent);
-                }
-              }}
-              className="inline-flex items-center gap-1 text-2xs text-cursor-muted hover:text-cursor-primary px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-              title="Reset all names to default"
-            >
-              <RotateCcw className="h-2.5 w-2.5" />
-              Reset
-            </span>
-          )}
-          <ChevronDown
-            className={`h-3.5 w-3.5 text-cursor-muted transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-          />
-        </div>
-      </button>
-
-      {/* Expanded Compact Naming Table */}
-      {isOpen && (
-        <fieldset disabled={!exportEnabled} className="m-0 min-w-0 border-t border-cursor-hairline px-3 py-2.5 space-y-1.5 disabled:opacity-50">
-          <p className="text-2xs text-cursor-muted">
-            {exportEnabled ? 'Blank names use the default filenames.' : 'Export is off. Saved filenames are kept.'}
-          </p>
-          {activeItems.length === 0 ? (
-            <p className="text-2xs text-cursor-muted py-1 italic">
-              {isCustom
-                ? 'Select tools in Pipeline Steps above to enable and rename output images.'
-                : 'No exportable output images for this preset.'}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {activeItems.map((item) => {
-                const currentCustom = customNames[item.id] || '';
-
-                return (
-                  <div
-                    key={item.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 py-1 border-b border-cursor-hairline-soft/60 last:border-0"
-                  >
-                    {/* Left: Label & Default Name */}
-                    <div className="flex items-center gap-1.5 min-w-0 sm:w-1/2">
-                      <span className="text-xs text-cursor-ink font-medium truncate" title={item.label}>
-                        {item.label}
-                      </span>
-                      <span className="text-[9.5px] font-mono text-cursor-muted/80 bg-cursor-surface-strong/40 border border-cursor-hairline-soft/80 px-1 py-0.5 rounded shrink-0 leading-none select-none">
-                        {item.default_name}
-                      </span>
-                    </div>
-
-                    {/* Right: Custom Name Input & Suffix */}
-                    <div className="flex items-center gap-1.5 sm:w-1/2 justify-end">
-                      <div className="relative flex-1 max-w-[240px] flex items-center">
-                        <input
-                          type="text"
-                          value={currentCustom}
-                          placeholder={item.default_name}
-                          onChange={(e) => handleNameChange(item.id, e.target.value)}
-                          className={`${inputCls} h-6 text-xs font-mono px-2 pr-5 ${
-                            currentCustom ? 'border-cursor-primary/70 bg-cursor-primary/5 text-cursor-primary font-medium' : ''
-                          }`}
-                          title={`Custom filename for ${item.label}`}
-                        />
-                        {currentCustom ? (
-                          <button
-                            type="button"
-                            onClick={() => handleNameChange(item.id, '')}
-                            className="absolute right-1 text-cursor-muted hover:text-cursor-ink p-0.5 cursor-pointer"
-                            title="Reset to default name"
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        ) : null}
-                      </div>
-                      <span className="text-2xs font-mono text-cursor-muted shrink-0 select-none">
-                        {(formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz') === 'same'
-                          ? '(original format)'
-                          : (formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz')}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+      {exportEnabled && (
+        <>
+          {/* Compact Collapsible Header Bar */}
+          <button
+            type="button"
+            onClick={() => setIsOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left text-cursor-ink transition-colors hover:bg-cursor-canvas-soft/50 border-t border-cursor-hairline"
+            aria-expanded={isOpen}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-cursor-primary flex-shrink-0" />
+              <span className="text-xs font-medium text-cursor-ink">
+                Output filenames
+              </span>
+              {customNamesCount > 0 ? (
+                <span className={`${BADGE.base} ${BADGE.primary} ml-1`}>{customNamesCount} Renamed</span>
+              ) : (
+                <span className={`${BADGE.base} ${BADGE.neutral} ml-1`}>Default</span>
+              )}
             </div>
+
+            <div className="flex items-center gap-2">
+              {customNamesCount > 0 && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleResetDefaults}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      handleResetDefaults(e as unknown as React.MouseEvent);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-2xs text-cursor-muted hover:text-cursor-primary px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                  title="Reset all names to default"
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />
+                  Reset
+                </span>
+              )}
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-cursor-muted transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+              />
+            </div>
+          </button>
+
+          {/* Expanded Compact Naming Table */}
+          {isOpen && (
+            <fieldset className="m-0 min-w-0 border-0 border-t border-cursor-hairline px-3 py-2.5 space-y-1.5">
+              <p className="text-2xs text-cursor-muted">
+                Blank names use the default filenames.
+              </p>
+              {activeItems.length === 0 ? (
+                <p className="text-2xs text-cursor-muted py-1 italic">
+                  {isCustom
+                    ? 'Select tools in Pipeline Steps above to enable and rename output images.'
+                    : 'No exportable output images for this preset.'}
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {activeItems.map((item) => {
+                    const currentCustom = customNames[item.id] || '';
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 py-1 border-b border-cursor-hairline-soft/60 last:border-0"
+                      >
+                        {/* Left: Label & Default Name */}
+                        <div className="flex items-center gap-1.5 min-w-0 sm:w-1/2">
+                          <span className="text-xs text-cursor-ink font-medium truncate" title={item.label}>
+                            {item.label}
+                          </span>
+                          <span className="text-[9.5px] font-mono text-cursor-muted/80 bg-cursor-surface-strong/40 border border-cursor-hairline-soft/80 px-1 py-0.5 rounded shrink-0 leading-none select-none">
+                            {item.default_name}
+                          </span>
+                        </div>
+
+                        {/* Right: Custom Name Input & Suffix */}
+                        <div className="flex items-center gap-1.5 sm:w-1/2 justify-end">
+                          <div className="relative flex-1 max-w-[240px] flex items-center">
+                            <input
+                              type="text"
+                              value={currentCustom}
+                              placeholder={item.default_name}
+                              onChange={(e) => handleNameChange(item.id, e.target.value)}
+                              className={`${inputCls} h-6 text-xs font-mono px-2 pr-5 ${
+                                currentCustom ? 'border-cursor-primary/70 bg-cursor-primary/5 text-cursor-primary font-medium' : ''
+                              }`}
+                              title={`Custom filename for ${item.label}`}
+                            />
+                            {currentCustom ? (
+                              <button
+                                type="button"
+                                onClick={() => handleNameChange(item.id, '')}
+                                className="absolute right-1 text-cursor-muted hover:text-cursor-ink p-0.5 cursor-pointer"
+                                title="Reset to default name"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                          <span className="text-2xs font-mono text-cursor-muted shrink-0 select-none">
+                            {(formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz') === 'same'
+                              ? '(original format)'
+                              : (formValues.exportCustomFormats?.[item.id] || formValues.exportDefaultFormat || '.nii.gz')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </fieldset>
           )}
-        </fieldset>
+        </>
       )}
     </div>
   );
