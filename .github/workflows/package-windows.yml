@@ -19,6 +19,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check scheduler source access
+        shell: pwsh
+        env:
+          NEUROFLOW_SOURCE_TOKEN: ${{ secrets.NEUROFLOW_SOURCE_TOKEN }}
+        run: |
+          if (-not $env:NEUROFLOW_SOURCE_TOKEN) {
+            throw "Set the NEUROFLOW_SOURCE_TOKEN repository secret with read access to catcd/NeuroFLOW-private. See packaging/README.md."
+          }
+
+      - name: Checkout NeuroFLOW scheduler
+        uses: actions/checkout@v4
+        with:
+          repository: catcd/NeuroFLOW-private
+          ref: e82eacbc5d7fcf57b59e21a1efff9dcae4d8b41d
+          token: ${{ secrets.NEUROFLOW_SOURCE_TOKEN }}
+          path: NeuroFLOW-private
+          persist-credentials: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

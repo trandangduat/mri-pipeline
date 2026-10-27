@@ -42,6 +42,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check scheduler source access
+        env:
+          NEUROFLOW_SOURCE_TOKEN: ${{ secrets.NEUROFLOW_SOURCE_TOKEN }}
+        run: |
+          if [[ -z "$NEUROFLOW_SOURCE_TOKEN" ]]; then
+            echo "Set the NEUROFLOW_SOURCE_TOKEN repository secret with read access to catcd/NeuroFLOW-private. See packaging/README.md." >&2
+            exit 1
+          fi
+
+      - name: Checkout NeuroFLOW scheduler
+        uses: actions/checkout@v4
+        with:
+          repository: catcd/NeuroFLOW-private
+          ref: e82eacbc5d7fcf57b59e21a1efff9dcae4d8b41d
+          token: ${{ secrets.NEUROFLOW_SOURCE_TOKEN }}
+          path: NeuroFLOW-private
+          persist-credentials: false
+
       - name: Install Linux system dependencies
         if: matrix.platform == 'linux'
         run: |
