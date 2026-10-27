@@ -35,22 +35,30 @@ def license_check_tool(selected_tools: object) -> tuple[str, str] | None:
     return None
 
 
+MINIMAL_PROBE_NII_B64 = (
+    "H4sIAAAAAAAE/4thZCAKMDMwgSEjAwSiamJhEAALNNgzMODDG5wh8qi6B47HhMdqkD/QAbFiDAx52obomsF8ABhAwqNwAQAA"
+)
+
+
 def license_check_script() -> str:
     return (
         "set -eu; "
         "LICENSE_FILE=$(find /license -maxdepth 1 -type f -print -quit); "
         "test -s \"$LICENSE_FILE\"; "
         "export FS_LICENSE=\"$LICENSE_FILE\"; "
+        "if [ -z \"${FREESURFER_HOME:-}\" ]; then "
+        "if [ -d /opt/freesurfer ]; then export FREESURFER_HOME=/opt/freesurfer; "
+        "elif [ -d /usr/local/freesurfer ]; then export FREESURFER_HOME=/usr/local/freesurfer; fi; "
+        "fi; "
+        "if [ -n \"${FREESURFER_HOME:-}\" ] && [ -d \"$FREESURFER_HOME/bin\" ]; then "
+        "export PATH=\"$FREESURFER_HOME/bin:$PATH\"; "
+        "fi; "
         "if [ -f \"${FREESURFER_HOME:-}/SetUpFreeSurfer.sh\" ]; then "
         "set +u; . \"$FREESURFER_HOME/SetUpFreeSurfer.sh\" >/dev/null; set -u; "
         "fi; "
-        "SAMPLE_MGZ=\"${FREESURFER_HOME:-}/subjects/fsaverage/mri/orig.mgz\"; "
-        "if [ -f \"$SAMPLE_MGZ\" ]; then "
-        "mri_convert \"$SAMPLE_MGZ\" /tmp/_fs_license_check.mgz >/dev/null; "
-        "rm -f /tmp/_fs_license_check.mgz; "
-        "else "
-        "recon-all -version >/dev/null; "
-        "fi"
+        f"echo '{MINIMAL_PROBE_NII_B64}' | base64 -d > /tmp/_fs_license_probe.nii.gz; "
+        "mri_convert /tmp/_fs_license_probe.nii.gz /tmp/_fs_license_probe.mgz >/dev/null; "
+        "rm -f /tmp/_fs_license_probe.nii.gz /tmp/_fs_license_probe.mgz"
     )
 
 
