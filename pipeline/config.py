@@ -385,6 +385,8 @@ class StepResult:
     output_files: list[str] = field(default_factory=list)
     error: str = ""
     return_code: int = 0
+    peak_gpu_memory_mib: int | None = None
+    gpu_telemetry: dict | None = None
 
 @dataclass
 class BatchImageResult:

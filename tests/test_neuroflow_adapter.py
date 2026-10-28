@@ -1144,8 +1144,8 @@ def test_gpu_discovery_uses_host_indexes_and_uuids(monkeypatch):
     gpus = neuroflow_adapter._gpu_resources("gpu")
 
     assert [g.gpu_id for g in gpus] == ["gpu_1", "gpu_0"]
-    assert dict(gpus[0].metadata) == {"host_index": "1", "uuid": "GPU-one"}
-    assert gpus[0].device_class == "GPU, one"
+    assert dict(gpus[0].metadata) == {"host_index": "1", "uuid": "GPU-one", "name": "GPU, one"}
+    assert gpus[0].device_class == "generic_cuda"
     assert "--query-gpu=index,uuid,memory.free,memory.total,name" in calls[0]
 
 
@@ -1270,3 +1270,29 @@ def test_gpu_placement_rechecks_reserved_memory(monkeypatch):
                              reserved_gpu_memory_mib=gpu.free_memory_mib + 1)
     with pytest.raises(neuroflow_adapter._GPUPlacementError):
         neuroflow_adapter._resolve_gpu_device_id(launch, (gpu,))
+
+
+
+@pytest.mark.parametrize("device", ["cuda", "gpu"])
+def test_discovered_gpu_passes_stock_fastsurfer_profile_validation(monkeypatch, device):
+    neuroflow_adapter._ensure_neuroflow_import_path()
+    from neuroflow.configuration import (
+        load_pipeline_file, load_profile_set_file, validate_cross_documents,
+    )
+
+    def query(command, **kwargs):
+        assert "--query-gpu=index,uuid,memory.free,memory.total,name" in command
+        return SimpleNamespace(returncode=0, stdout=(
+            "0, GPU-laptop, 7604, 8188, NVIDIA GeForce RTX 4060 Laptop GPU\n"))
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", query)
+    scheduler = _scheduler_config({
+        "device": device, "threads": 4, "ram_percent": 80,
+        "runtime_ram_bytes": 10427236352,
+    })
+    root = _neuroflow_config_root()
+    pipeline = load_pipeline_file(root / "presets/fastsurfer_volumetrics.yaml")
+    profiles = load_profile_set_file(root / "profiles/fastsurfer_volumetrics_default.yaml")
+    pipeline, profiles = _filter_profiles_for_thread_limit(
+        pipeline, profiles, 4, available_gpus=len(scheduler.limits.gpus))
+    validate_cross_documents(pipeline, profiles, scheduler)
+    assert scheduler.limits.gpus[0].device_class == "generic_cuda"

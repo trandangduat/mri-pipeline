@@ -377,3 +377,30 @@ def test_run_pipeline_stage_logs_selected_cpu_and_quota(tmp_path, mocker, cpu_th
     assert "Peak CPU: n/a" in stage_log
     assert "Mean CPU: n/a" in stage_log
     assert "P95 CPU: n/a" in stage_log
+
+
+@pytest.mark.parametrize("peak", [0, 321, None])
+def test_run_pipeline_stage_preserves_gpu_metric_and_diagnostics(tmp_path, mocker, peak):
+    from dataclasses import asdict
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input")
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
+    class GPUExecutor(RecordingExecutor):
+        def execute(self, req, on_metrics=None):
+            result = super().execute(req, on_metrics)
+            result.metrics = DockerResourceMetrics(
+                peak_ram_bytes=1024**2, peak_gpu_memory_mib=peak,
+                gpu_telemetry={"gpu_uuid": "GPU-one", "valid_samples": 1 if peak is not None else 0,
+                               "reason": "" if peak is not None else "unsupported"})
+            return result
+    config = PipelineConfig(
+        str(input_file), str(tmp_path / "out"), "sub-01", device="gpu", gpu_device_id="1",
+        selected_tools={"reorientation": "mri_convert_fs7"})
+    step, output = run_pipeline_stage(config, "reorientation", executor=GPUExecutor())
+    assert step.success and Path(output).is_file()
+    assert step.peak_gpu_memory_mib == peak
+    # The remote result serializer uses dataclass fields.
+    assert asdict(step)["peak_gpu_memory_mib"] == peak
+    assert step.gpu_telemetry["gpu_uuid"] == "GPU-one"
+    stage_log = (tmp_path / "out/sub-01/logs/mri_convert_fs7.log").read_text()
+    assert f"Peak GPU memory (sampled MiB): {peak}" in stage_log

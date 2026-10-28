@@ -420,6 +420,9 @@ def run_pipeline_stage(
         f"P95 CPU: {metrics.p95_cpu_pct:.1f}%" if metrics and metrics.p95_cpu_pct is not None else "P95 CPU: n/a",
         f"Exit code: {exec_result.return_code}",
     ]
+    if req.gpus:
+        metric_lines.append(f"Peak GPU memory (sampled MiB): {metrics.peak_gpu_memory_mib if metrics else 'n/a'}")
+        metric_lines.append(f"GPU telemetry: {metrics.gpu_telemetry if metrics else 'unavailable'}")
     if exported_outputs:
         metric_lines.append("Exported outputs: " + "; ".join(exported_outputs))
     if export_error:
@@ -447,6 +450,8 @@ def run_pipeline_stage(
         output_files=tool["output_files"],
         error=error,
         return_code=exec_result.return_code,
+        peak_gpu_memory_mib=metrics.peak_gpu_memory_mib if metrics else None,
+        gpu_telemetry=metrics.gpu_telemetry if metrics else None,
     )
     if success:
         msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"

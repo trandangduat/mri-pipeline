@@ -154,7 +154,8 @@ def test_worker_publishes_process_identity_only_for_local_jobs(mocker, tmp_path,
     assert read_json(tmp_path / "job_status.json")["state"] == "completed"
 
 
-def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path) -> None:
+@pytest.mark.parametrize("gpu_peak", [None, 0, 321])
+def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path, gpu_peak) -> None:
     import json
     job_worker = importlib.import_module("pipeline.job_worker")
 
@@ -180,6 +181,7 @@ def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path)
                 "",
                 peak_cpu_pct=100.5,
                 peak_ram_bytes=52428800,
+                peak_gpu_memory_mib=gpu_peak,
             )
         ]
 
@@ -223,6 +225,7 @@ def test_job_worker_metrics_cb_emits_subject_id_and_input_file(mocker, tmp_path)
             "duration_sec": 2.5,
             "peak_cpu_pct": 100.5,
             "peak_ram_bytes": 52428800,
+            **({"peak_gpu_memory_mib": gpu_peak} if gpu_peak is not None else {}),
         }
     ]
 

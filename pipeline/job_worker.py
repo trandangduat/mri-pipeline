@@ -223,6 +223,7 @@ def _run_job(job_dir: Path, req: dict, is_lazy_watch: bool = False) -> int:
                 "duration_sec": round(float(step.duration_sec or 0.0), 2),
                 **({"peak_cpu_pct": round(float(step.peak_cpu_pct), 2)} if step.peak_cpu_pct is not None else {}),
                 **({"peak_ram_bytes": int(step.peak_ram_bytes)} if step.peak_ram_bytes is not None else {}),
+                **({"peak_gpu_memory_mib": step.peak_gpu_memory_mib} if step.peak_gpu_memory_mib is not None else {}),
             }
             for step in result.steps
         ]

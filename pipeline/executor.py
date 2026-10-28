@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Callable
 from abc import ABC, abstractmethod
 
+from .gpu_resource_metrics import ContainerGPUMemoryCollector
 from .utils import _parse_docker_stats_line
 from pipeline.win_process import no_window_kwargs
 
@@ -22,6 +23,8 @@ class DockerResourceMetrics:
     peak_cpu_pct: float | None = None
     avg_cpu_pct: float | None = None
     p95_cpu_pct: float | None = None
+    peak_gpu_memory_mib: int | None = None
+    gpu_telemetry: dict | None = None
 
 @dataclass
 class ExecutionRequest:
@@ -118,21 +121,47 @@ class LocalDockerExecutor(BaseExecutor):
 
         ram_samples: list[int] = []
         cpu_samples: list[float] = []
+        gpu_collector = ContainerGPUMemoryCollector(req.container_name, req.gpu_device_id) if req.gpus else None
+        gpu_peak = None
+        gpu_diagnostics = {"reason": "No completed GPU sample", "valid_samples": 0} if req.gpus else None
+        metrics_lock = threading.Lock()
         stop_monitor = threading.Event()
         t0 = time.time()
 
+        def current_metrics() -> DockerResourceMetrics:
+            # A timed-out monitor cannot mutate a result after it has been returned.
+            with metrics_lock:
+                metrics = _resource_metrics(list(ram_samples), list(cpu_samples))
+                metrics.peak_gpu_memory_mib = gpu_peak
+                metrics.gpu_telemetry = dict(gpu_diagnostics) if gpu_diagnostics is not None else None
+                return metrics
+
         def monitor_resources() -> None:
+            nonlocal gpu_peak, gpu_diagnostics
             if not req.container_name:
                 return
             while not stop_monitor.is_set():
+                if gpu_collector is not None:
+                    sample, diagnostics = gpu_collector.sample()
+                    with metrics_lock:
+                        if stop_monitor.is_set():
+                            return  # Explicitly discard an in-flight GPU read.
+                        if sample is not None:
+                            gpu_peak = sample if gpu_peak is None else max(gpu_peak, sample)
+                        gpu_diagnostics = diagnostics
+                if stop_monitor.is_set():
+                    return
                 try:
                     stats = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", req.container_name], capture_output=True, text=True, timeout=5, **no_window_kwargs())
                     if stats.returncode == 0 and stats.stdout.strip():
                         cpu, current = _parse_docker_stats_line(stats.stdout.strip().splitlines()[0])
-                        if current is not None:
-                            ram_samples.append(current)
-                        if cpu is not None:
-                            cpu_samples.append(cpu)
+                        with metrics_lock:
+                            if stop_monitor.is_set():
+                                return
+                            if current is not None:
+                                ram_samples.append(current)
+                            if cpu is not None:
+                                cpu_samples.append(cpu)
                         if on_metrics:
                             on_metrics(cpu, current, time.time() - t0, req.container_name or "")
                 except Exception:
@@ -216,7 +245,9 @@ class LocalDockerExecutor(BaseExecutor):
                     if timed_out:
                         output += f"\nDocker timed out after {req.timeout}s"
                 
-            metrics = _resource_metrics(ram_samples, cpu_samples)
+            metrics = current_metrics()
+            if req.gpus:
+                log.info("Container GPU telemetry: peak_mib=%s details=%s", metrics.peak_gpu_memory_mib, metrics.gpu_telemetry)
             return ExecutionResult(
                 success=(return_code == 0),
                 error="stopped by request" if stopped else ("" if return_code == 0 else f"exit code {return_code}"),
@@ -229,11 +260,11 @@ class LocalDockerExecutor(BaseExecutor):
         except subprocess.TimeoutExpired:
             if req.output_capture:
                 req.output_capture.finish(False, 'Docker timeout', -1)
-            return ExecutionResult(False, f"Docker timed out after {req.timeout}s", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)
+            return ExecutionResult(False, f"Docker timed out after {req.timeout}s", "", time.time() - t0, current_metrics(), req.container_name, -1)
         except FileNotFoundError:
             if req.output_capture:
                 req.output_capture.finish(False, 'docker not found', None)
-            return ExecutionResult(False, "docker not found - is Docker installed and in PATH?", "", time.time() - t0, _resource_metrics(ram_samples, cpu_samples), req.container_name, -1)
+            return ExecutionResult(False, "docker not found - is Docker installed and in PATH?", "", time.time() - t0, current_metrics(), req.container_name, -1)
         except Exception as exc:
             if req.output_capture:
                 req.output_capture.finish(False, str(exc), None)

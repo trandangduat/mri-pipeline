@@ -15,9 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig
+from .config import PROJECT_ROOT, BatchImageResult, ExportConfig, PipelineConfig, StatsVectorConfig, StepResult
 from .discovery import _derive_subject_id
 from .hardware import _total_ram_bytes
+from .gpu_execution_receipt import receipt_path
 from .presets import normalize_stats_vector_config_for_pipeline_mode
 from .registry import STAGE_ORDER, STAGE_LABELS, TOOL_DEFS
 from .reports import BatchReportContext, write_batch_reports
@@ -231,8 +232,9 @@ def _gpu_resources(device: str) -> tuple[object, ...]:
                 available=free_mib > 0,
                 free_memory_mib=free_mib,
                 total_memory_mib=total_mib,
-                device_class=",".join(row[4:]).strip() or "generic_cuda",
-                metadata=(("host_index", str(index)), ("uuid", uuid)),
+                device_class="generic_cuda",
+                metadata=(("host_index", str(index)), ("uuid", uuid),
+                          ("name", ",".join(row[4:]).strip())),
             )
         )
     return tuple(gpus)
@@ -452,6 +454,11 @@ def _memory_mib(bytes_value: int | None) -> int:
 def _write_observation(job_dir: Path, observation: dict[str, object]) -> None:
     job_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = job_dir / "neuroflow_observations.jsonl"
+    result_id = observation.get("result_id")
+    if result_id and jsonl_path.exists():
+        with jsonl_path.open(encoding="utf-8") as stream:
+            if any(json.loads(line).get("result_id") == result_id for line in stream if line.strip()):
+                return
     with open(jsonl_path, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(observation, ensure_ascii=False) + "\n")
 
@@ -675,6 +682,10 @@ def run_neuroflow_batch(
     lazy_upload = bool(req.get("lazy_upload"))
     awaiting_emitted: set[str] = set()
     started_subjects: set[str] = set()
+    # Also guard this running job if the disk cannot accept a receipt.
+    unpersisted_gpu_executions: dict[str, tuple[object, object, str | None]] = {}
+    gpu_execution_keys = {path.stem for path in (job_dir / "gpu_execution_receipts").glob("*.json")
+                          if not path.name.startswith("report-")}
 
     def _run_launch_stage(
         launch: object,
@@ -691,67 +702,177 @@ def run_neuroflow_batch(
                 )
             if on_progress:
                 on_progress("upload", "success", 100.0, f"Input upload complete: {context.subject_id}")
-        stage_config = PipelineConfig(
-            input_file=context.config.input_file,
-            output_dir=context.config.output_dir,
-            subject_id=context.config.subject_id,
-            license_dir=context.config.license_dir,
-            device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
-            threads=int(launch.cpu_threads),
-            ram_percent=context.config.ram_percent,
-            runtime_ram_bytes=context.config.runtime_ram_bytes,
-            # Only committed scheduler completions are reused for baselines.
-            # An uncommitted task must run and produce real measurements.
-            resume=context.config.resume if policy_choice == "B6" else False,
-            selected_tools=context.config.selected_tools,
-            export_config=context.config.export_config,
-            stats_vector_config=context.config.stats_vector_config,
-            container_name_suffix=f"{local_stage}_{launch.attempt_id}",
-            gpu_device_id=_resolve_gpu_device_id(launch, scheduled_gpus),
-            cpu_thread_limit=int(launch.cpu_threads),
-            console_job_dir=str(job_dir),
-            console_attempt_id=str(launch.attempt_id),
-        )
-        def _stage_progress(stg: str, status: str, pct: float, msg: str) -> None:
-            if on_progress:
-                on_progress(stg, status, pct, f"[{context.subject_id}] {msg}")
+        is_gpu = str(launch.execution_mode.value) == "gpu"
+        evidence = None
+        telemetry_error = ""
+        reused_execution = False
+        evidence_path = receipt_path(job_dir, str(launch.task_id))
+        guard_gpu_execution = (is_gpu or evidence_path.stem in gpu_execution_keys
+                               or str(launch.task_id) in unpersisted_gpu_executions)
+        if guard_gpu_execution:
+            from .gpu_execution_receipt import (
+                execution_provenance, load_execution, save_execution,
+            )
+            source_hashes = (hashlib.sha256(preset_source.read_bytes()).hexdigest(),
+                             hashlib.sha256(profile_source.read_bytes()).hexdigest())
+            cached = unpersisted_gpu_executions.get(str(launch.task_id))
+            if cached is not None:
+                step, source_attempt, output_for_next = cached
+                evidence = {"attempt_id": source_attempt, "execution_id": source_attempt}
+                reused_execution = True
+                telemetry_error = ("GPU outputs preserved from attempt "
+                                   f"{source_attempt}; execution receipt could not be saved")
+            elif evidence_path.exists():
+                try:
+                    provenance = execution_provenance(
+                        context, launch, local_stage,
+                        source_hashes,
+                    )
+                    evidence = load_execution(evidence_path, provenance)
+                    step = StepResult(**evidence["step"])
+                    output_for_next = evidence["output"]["path"]
+                    reused_execution = (evidence["attempt_id"] != str(launch.attempt_id)
+                                        or evidence["execution_id"] != execution_id)
+                    if reused_execution:
+                        telemetry_error = ("GPU processing outputs preserved from attempt "
+                                           f"{evidence['attempt_id']}; telemetry cannot be "
+                                           "remeasured without rerunning MRI")
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    # A mismatched receipt cannot authorize reuse or an automatic rerun.
+                    telemetry_error = f"GPU execution evidence cannot be reconciled: {exc}"
+                    reused_execution = True
+                    step = StepResult(stage=local_stage,
+                                      tool=context.config.selected_tools.get(local_stage, ""),
+                                      success=False, duration_sec=0, error=telemetry_error)
+                    output_for_next = None
+        if evidence is None and not telemetry_error:
+            stage_config = PipelineConfig(
+                input_file=context.config.input_file,
+                output_dir=context.config.output_dir,
+                subject_id=context.config.subject_id,
+                license_dir=context.config.license_dir,
+                device="gpu" if str(launch.execution_mode.value) == "gpu" else "cpu",
+                threads=int(launch.cpu_threads),
+                ram_percent=context.config.ram_percent,
+                runtime_ram_bytes=context.config.runtime_ram_bytes,
+                # Only committed scheduler completions are reused for baselines.
+                # An uncommitted task must run and produce real measurements.
+                resume=context.config.resume if policy_choice == "B6" else False,
+                selected_tools=context.config.selected_tools,
+                export_config=context.config.export_config,
+                stats_vector_config=context.config.stats_vector_config,
+                container_name_suffix=f"{local_stage}_{launch.attempt_id}",
+                gpu_device_id=_resolve_gpu_device_id(launch, scheduled_gpus),
+                cpu_thread_limit=int(launch.cpu_threads),
+                console_job_dir=str(job_dir),
+                console_attempt_id=str(launch.attempt_id),
+            )
+            def _stage_progress(stg: str, status: str, pct: float, msg: str) -> None:
+                if on_progress:
+                    on_progress(stg, status, pct, f"[{context.subject_id}] {msg}")
 
-        step, output_for_next = run_pipeline_stage(
-            stage_config,
-            local_stage,
-            input_for_stage=context.input_for_stage(local_stage),
-            on_progress=_stage_progress,
-            on_build_log=on_build_log,
-            on_metrics=on_metrics,
-            tracker=context.tracker,
-            stage_idx=STAGE_ORDER.index(local_stage) if local_stage in STAGE_ORDER else None,
-            total_stages=len(STAGE_ORDER),
-            should_stop=should_stop,
-        )
-        missing_ram_measurement = policy_choice != "B6" and step.success and not step.peak_ram_bytes
+            step, output_for_next = run_pipeline_stage(
+                stage_config,
+                local_stage,
+                input_for_stage=context.input_for_stage(local_stage),
+                on_progress=_stage_progress,
+                on_build_log=on_build_log,
+                on_metrics=on_metrics,
+                tracker=context.tracker,
+                stage_idx=STAGE_ORDER.index(local_stage) if local_stage in STAGE_ORDER else None,
+                total_stages=len(STAGE_ORDER),
+                should_stop=should_stop,
+            )
+        processing_success = bool(step.success)
+        if is_gpu and processing_success and evidence is None and not reused_execution:
+            gpu_execution_keys.add(evidence_path.stem)
+            try:
+                provenance = execution_provenance(
+                    context, launch, local_stage,
+                    source_hashes,
+                )
+                tool = TOOL_DEFS.get(provenance["tool"], {})
+                outputs = context.tracker.find_existing_outputs(
+                    context.subject_dir, tool.get("output_files", []), tool.get("output_globs", []))
+                evidence = save_execution(evidence_path, provenance, launch, execution_id,
+                                          step, output_for_next, outputs)
+            except (OSError, ValueError, TypeError) as exc:
+                telemetry_error = f"Cannot preserve GPU execution evidence: {exc}"
+                unpersisted_gpu_executions[str(launch.task_id)] = (
+                    step, str(launch.attempt_id), output_for_next)
+        if is_gpu and processing_success and evidence is not None and not reused_execution:
+            # Restore only evidence for this exact attempt and execution.
+            try:
+                recovered = load_execution(evidence_path, provenance)
+                if (recovered["attempt_id"] == str(launch.attempt_id)
+                        and recovered["execution_id"] == execution_id):
+                    step = StepResult(**recovered["step"])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                telemetry_error = f"GPU execution evidence cannot be verified: {exc}"
+        peak_gpu_memory_mib = getattr(step, "peak_gpu_memory_mib", None) if is_gpu else None
+        if is_gpu and processing_success and peak_gpu_memory_mib is None:
+            diagnostics = getattr(step, "gpu_telemetry", None) or {}
+            telemetry_error = telemetry_error or (
+                "Missing measured container GPU memory: "
+                + str(diagnostics.get("reason") or "no valid GPU sample"))
+        if (is_gpu and processing_success and not reused_execution
+                and policy_choice in {"B5", "B6"}):
+            if peak_gpu_memory_mib == 0:
+                telemetry_error = telemetry_error or (
+                    "Measured GPU memory is 0 MiB; scheduler profile learning requires a positive sample")
+            if step.peak_ram_bytes == 0:
+                telemetry_error = telemetry_error or (
+                    "Measured RAM is 0 bytes; scheduler profile learning requires a positive sample")
+        if reused_execution:
+            # A retry is not a fresh execution. Never teach profiles with cached metrics.
+            step = replace(step, duration_sec=0, peak_ram_bytes=None, avg_ram_bytes=None,
+                           p95_ram_bytes=None, peak_cpu_pct=None, avg_cpu_pct=None,
+                           p95_cpu_pct=None, peak_gpu_memory_mib=None, gpu_telemetry=None)
+            peak_gpu_memory_mib = None
+        missing_ram_measurement = (not reused_execution and step.success
+                                   and ((is_gpu and step.peak_ram_bytes is None)
+                                        or (policy_choice != "B6" and not step.peak_ram_bytes)))
         if missing_ram_measurement:
-            step = replace(step, success=False, error="Missing measured peak RAM for baseline validation")
+            telemetry_error = telemetry_error or (
+                "Missing measured peak RAM for scheduler validation" if is_gpu
+                else "Missing measured peak RAM for baseline validation")
+        if telemetry_error:
+            step = replace(step, success=False, error=telemetry_error)
         context.record_step(step, output_for_next, local_stage)
-        runtime_ms = max(1, int(step.duration_sec * 1000))
-        peak_ram_mib = (_memory_mib(step.peak_ram_bytes) if step.peak_ram_bytes or policy_choice == "B6" else None)
+        runtime_ms = None if reused_execution else max(1, int(step.duration_sec * 1000))
+        if reused_execution:
+            peak_ram_mib = None
+        elif is_gpu:
+            peak_ram_mib = (math.ceil(step.peak_ram_bytes / (1024 * 1024))
+                            if step.peak_ram_bytes is not None else None)
+        else:
+            peak_ram_mib = (_memory_mib(step.peak_ram_bytes) if step.peak_ram_bytes or policy_choice == "B6" else None)
         success = bool(step.success)
         category = ErrorCategory.PROCESS_CRASH
-        if not success and policy_choice != "B6":
+        if not success and (policy_choice != "B6" or is_gpu):
             from .policy_contract import classify_failure
             category = getattr(ErrorCategory, classify_failure(step))
-        if missing_ram_measurement:
+        if telemetry_error:
             category = ErrorCategory.VALIDATION_FAILURE
         interrupted = policy_choice != "B6" and not success and should_stop and should_stop()
         if interrupted:
             category = ErrorCategory.INTERRUPTED
         error = None if success else TaskError(category=category, message=step.error or "Pipeline stage failed")
+        exit_code = step.return_code if is_gpu and processing_success else (0 if success else (step.return_code or 1))
+        metadata = ()
+        if policy_choice != "B6" or guard_gpu_execution:
+            metadata = (("application_step", asdict(step)), ("output_for_next", output_for_next))
+        if guard_gpu_execution:
+            metadata += (("processing_success", processing_success),
+                         ("source_attempt_id", evidence["attempt_id"] if evidence else None),
+                         ("preserved_output", output_for_next if processing_success else None))
         result = TaskResult(
             result_id=f"result-{launch.attempt_id}",
             task_id=str(launch.task_id),
             attempt_id=str(launch.attempt_id),
             execution_id=execution_id,
             status=ResultStatus.SUCCEEDED if success else (ResultStatus.INTERRUPTED if interrupted else ResultStatus.FAILED),
-            exit_code=0 if success else (step.return_code or 1),
+            exit_code=exit_code,
             validation_passed=True if success else False,
             error=error,
             metrics=TaskMetrics(
@@ -761,10 +882,10 @@ def run_neuroflow_batch(
                 execution_mode=launch.execution_mode,
                 gpu_id=launch.gpu_id,
                 peak_cpu_utilization=step.peak_cpu_pct,
+                peak_gpu_memory_mib=peak_gpu_memory_mib,
             ),
             finished_at=datetime.now(timezone.utc),
-            metadata=(("application_step", asdict(step)), ("output_for_next", output_for_next))
-                     if policy_choice != "B6" else (),
+            metadata=metadata,
         )
         observation = {
             "preset_id": preset_id,
@@ -780,11 +901,16 @@ def run_neuroflow_batch(
             "gpu_id": launch.gpu_id or "",
             "runtime_ms": runtime_ms,
             "peak_ram_mib": peak_ram_mib,
-            "peak_gpu_memory_mib": "",
-            "exit_code": 0 if success else (step.return_code or 1),
+            "peak_gpu_memory_mib": peak_gpu_memory_mib,
+            "exit_code": exit_code,
             "success": success,
             "error": step.error,
         }
+        if guard_gpu_execution:
+            observation.update(gpu_evidence_guard=True, result_id=str(result.result_id),
+                               processing_success=processing_success,
+                               source_attempt_id=evidence["attempt_id"] if evidence else None,
+                               preserved_output=output_for_next if processing_success else None)
         return result, observation
 
     running_futures: dict[concurrent.futures.Future, tuple[object, _ImageRunContext, str, str]] = {}
@@ -934,12 +1060,28 @@ def run_neuroflow_batch(
                         "gpu_id": launch.gpu_id or "",
                         "runtime_ms": unknown_runtime,
                         "peak_ram_mib": unknown_ram,
-                        "peak_gpu_memory_mib": "",
+                        "peak_gpu_memory_mib": None,
                         "exit_code": 1,
                         "success": False,
                         "error": str(exc),
                     }
+                gpu_report_path = None
+                if str(launch.execution_mode.value) == "gpu" or observation.get("gpu_evidence_guard"):
+                    from .gpu_execution_receipt import mark_reported, write_report
+                    observation["result_id"] = str(result.result_id)
+                    gpu_report_path = write_report(job_dir, result, observation)
                 receipt = scheduler.report_result(result=result)
+                if gpu_report_path is not None:
+                    try:
+                        mark_reported(gpu_report_path)
+                        evidence_path = receipt_path(job_dir, str(launch.task_id))
+                        if evidence_path.exists():
+                            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+                            if isinstance(evidence, dict) and evidence.get("attempt_id") == str(launch.attempt_id):
+                                mark_reported(evidence_path)
+                    except (OSError, ValueError, TypeError) as exc:
+                        if on_build_log:
+                            on_build_log(f"GPU result committed; receipt marker could not be saved: {exc}")
                 completed_contexts[context.subject_id] = context
                 if result.status == ResultStatus.SUCCEEDED and result.validation_passed:
                     context.committed_stages.add(local_stage)
