@@ -500,6 +500,7 @@ def test_neuroflow_continuous_replenishment(
                 return SimpleNamespace(terminal=False, launches=launches, reason="initial_ready")
             elif self.step == 2:
                 assert getattr(request, "maximum_number", 0) == 1
+                assert request.resource_snapshot.available_concurrency_slots == 2
                 launches = (
                     _Record(
                         image_id="subject-c",

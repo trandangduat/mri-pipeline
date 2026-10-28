@@ -895,10 +895,9 @@ def run_neuroflow_batch(
                 continue
             available_slots = max_concurrent - len(running_futures)
             if available_slots > 0:
-                # Baseline snapshots contain the full budget. Its coordinator
-                # subtracts active reservations once, including concurrency.
-                snapshot = _resource_snapshot(req, available_slots=(
-                    available_slots if policy_choice == "B6" else max_concurrent))
+                # The coordinator subtracts active reservations from the full budget.
+                # maximum_number separately limits submissions to free executor slots.
+                snapshot = _resource_snapshot(req, available_slots=max_concurrent)
                 response = scheduler.request_launches(
                     request=LaunchRequest(resource_snapshot=snapshot, maximum_number=available_slots)
                 )
