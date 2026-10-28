@@ -1989,7 +1989,7 @@ export function JobsPage() {
             />
           )}
 
-          {/* Perfectly Aligned Unified Metadata Table */}
+          {/* Metadata column widths scale with the text; narrow cards can scroll. */}
           {(() => {
             const isCustomMode = String(reqSummary.pipeline_mode || job?.pipeline_mode || '') === 'Custom';
             const neuroflowEnabled =
@@ -2020,18 +2020,18 @@ export function JobsPage() {
                 : 'Sequential';
 
             return (
-              <div className="mt-2.5 flex flex-1 flex-col overflow-hidden rounded-md border border-cursor-hairline bg-cursor-surface-card">
-                <table className="w-full flex-1 h-full text-xs divide-y divide-cursor-hairline-soft table-fixed border-collapse">
+              <div className="mt-2.5 flex min-w-0 flex-1 flex-col overflow-x-auto rounded-md border border-cursor-hairline bg-cursor-surface-card">
+                <table className="w-full min-w-[40em] flex-1 h-full text-xs divide-y divide-cursor-hairline-soft table-fixed border-collapse">
                   <tbody className="divide-y divide-cursor-hairline-soft">
                     {/* Row 1: Started & Preset */}
                     <tr className="divide-x divide-cursor-hairline-soft">
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Started
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body truncate" title={displayMeta.started_at_str}>
                         {displayMeta.started_at_str}
                       </td>
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Preset
                       </td>
                       <td
@@ -2044,11 +2044,11 @@ export function JobsPage() {
 
                     {/* Row 2: Process PID & Scheduler */}
                     <tr className="divide-x divide-cursor-hairline-soft">
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Process PID
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body">{String(job?.pid || 'None')}</td>
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Scheduler
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
@@ -2070,13 +2070,13 @@ export function JobsPage() {
 
                     {/* Row 3: Mode / Device & Threads */}
                     <tr className="divide-x divide-cursor-hairline-soft">
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Mode / Device
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
                         {String(reqSummary.mode || 'N/A')} / {String(reqSummary.device || 'cpu')}
                       </td>
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Threads
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
@@ -2086,7 +2086,7 @@ export function JobsPage() {
 
                     {/* Row 4: Container & RAM */}
                     <tr className="divide-x divide-cursor-hairline-soft">
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Container
                       </td>
                       <td
@@ -2099,7 +2099,7 @@ export function JobsPage() {
                       >
                         {jobContainer}
                       </td>
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         RAM
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body whitespace-nowrap">
@@ -2109,7 +2109,7 @@ export function JobsPage() {
 
                     {/* Row 5: Input Path & Output Path */}
                     <tr className="divide-x divide-cursor-hairline-soft">
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Input Path
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
@@ -2140,7 +2140,7 @@ export function JobsPage() {
                           </button>
                         </div>
                       </td>
-                      <td className="w-24 md:w-28 py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
+                      <td className="w-[9em] py-1.5 px-2.5 font-medium text-cursor-ink bg-cursor-canvas-soft whitespace-nowrap">
                         Output Path
                       </td>
                       <td className="py-1.5 px-2.5 text-cursor-body min-w-0">
