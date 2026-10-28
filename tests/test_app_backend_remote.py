@@ -1123,3 +1123,31 @@ def test_stream_start_job_preserves_batch_recursion_for_path_check() -> None:
         },
     }))
     assert configs[-1].recursive is False
+
+
+
+def test_gpu_preflight_runs_on_server_after_sync_before_job_upload(tmp_path, monkeypatch):
+    from app_backend import gpu_setup
+    from tests.test_gpu_setup import DIAGNOSTIC
+    monkeypatch.setattr(gpu_setup, "SERVICE", gpu_setup.GPUSetupService())
+    class GPURunner(FakeRunner):
+        def check_gpu(self, request, cancel):
+            self.calls.append("gpu_check")
+            assert request["device"] == "cuda"
+            return DIAGNOSTIC
+    fake = GPURunner([])
+    license_file = tmp_path / "license.txt"
+    license_file.write_text("license")
+    events = list(RemoteJobService(runner_factory=lambda _: fake).stream_start_job({
+        "host": "server", "username": "alice", "password": "secret",
+        "run_request": {
+            "input_source": "Server", "run_target": "Server", "input_mode": "file",
+            "input_path": "/data/image.nii.gz", "output_dir": "/out",
+            "pipeline_mode": "Custom", "device": "cuda", "license_dir": str(license_file),
+            "selected_tools": {"reorientation": "fastsurfer_reorientation", "segmentation": "fastsurfer_segmentation"},
+        }}))
+    assert fake.calls == ["sync_code", "sync_venv", "gpu_check"]
+    assert events[-2]["data"]["step"] == "gpu"
+    assert events[-2]["data"]["gpu_solutions"]["ticket"]
+    assert events[-1]["data"]["ok"] is False
+    assert all("secret" not in str(event) for event in events)

@@ -641,6 +641,87 @@ class RemoteRunner:
                 self.on_log(("Deleted: " if ok else "Failed: ") + image)
         return results
 
+    def _gpu_payload(self, request: dict) -> dict:
+        # Carry configuration contents, never client filesystem paths, to the server.
+        keys = ("device", "threads", "ram_percent", "selected_tools", "pipeline_mode",
+                "neuroflow_enabled", "neuroflow_preset", "neuroflow_profile",
+                "neuroflow_policy", "neuroflow_default_configurations",
+                "neuroflow_max_concurrent_tasks", "neuroflow_warmup_enabled")
+        payload = {key: request[key] for key in keys if key in request}
+        payload["_gpu_remote"] = True
+        for field, content_key in (("neuroflow_preset_file", "_gpu_preset_content"),
+                                   ("neuroflow_profile_file", "_gpu_profile_content")):
+            if request.get(field):
+                payload[content_key] = Path(str(request[field])).expanduser().read_text(encoding="utf-8")
+        return payload
+
+    def _gpu_helper(self, module: str, payload: dict, cancel=None, on_progress=None) -> dict:
+        import base64
+        import threading
+        import queue
+        encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+        marker = "GPU_CHECK:" if module == "pipeline.gpu_readiness" else "GPU_SETUP_RESULT:"
+        with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
+            remote_code = self._remote_code_dir(ssh)
+            executable = parse_remote_python_command(self._remote_venv_python(ssh))
+            # A PTY provides SIGHUP on cancellation. The readiness CLI handles it
+            # and removes its own probe container before exiting.
+            args = [executable, "-u", "-m", module, "--payload", encoded]
+            command = "cd " + shlex.quote(remote_code) + " && exec " + " ".join(shlex.quote(arg) for arg in args)
+            ssh._acquire_channel_slot()
+            try:
+                stdin, stdout, stderr = ssh.client.exec_command(command, get_pty=True)
+            except Exception:
+                ssh._release_channel_slot()
+                raise
+            stdin.close()
+            lines = queue.Queue()
+            def read():
+                try:
+                    for line in iter(stdout.readline, ""):
+                        lines.put(line.strip())
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    lines.put(None)
+            threading.Thread(target=read, daemon=True).start()
+            started = time.monotonic()
+            result = None
+            try:
+                while True:
+                    if cancel is not None and cancel.is_set():
+                        raise RuntimeError("GPU check cancelled.")
+                    if module == "pipeline.gpu_readiness" and time.monotonic() - started > 75:
+                        raise RuntimeError("Server GPU check timed out.")
+                    try:
+                        line = lines.get(timeout=0.2)
+                    except queue.Empty:
+                        continue
+                    if line is None:
+                        break
+                    if line.startswith(marker):
+                        result = json.loads(line[len(marker):])
+                    elif line.startswith("GPU_SETUP:") and on_progress:
+                        on_progress(json.loads(line[len("GPU_SETUP:"):]))
+                if not isinstance(result, dict):
+                    raise RuntimeError("The server GPU helper did not return a valid result.")
+                return result
+            finally:
+                try:
+                    stdout.channel.close()
+                    stdout.close()
+                    stderr.close()
+                finally:
+                    ssh._release_channel_slot()
+
+    def check_gpu(self, request: dict, cancel=None) -> dict:
+        return self._gpu_helper("pipeline.gpu_readiness", self._gpu_payload(request), cancel=cancel)
+
+    def repair_gpu(self, request: dict, expected_target: str, action: str, on_progress) -> dict:
+        return self._gpu_helper("pipeline.gpu_setup", {
+            "request": self._gpu_payload(request), "expected_target": expected_target, "action": action,
+        }, on_progress=on_progress)
+
     def validate_paths(self) -> None:
         with RemoteSSHClient(self.config.ssh, self.on_log) as ssh:
             remote_code = self._remote_code_dir(ssh)

@@ -1053,3 +1053,44 @@ def test_ssh_client_keeps_pool_on_transient_channel_error(mocker) -> None:
         assert PoolKey(config.host, config.port, config.username) in _GLOBAL_SSH_POOL._pool
     finally:
         _GLOBAL_SSH_POOL.remove(config)
+
+
+
+def test_gpu_helper_sends_probe_to_server_with_typed_payload(mocker):
+    import base64
+    import io
+    from types import SimpleNamespace
+    result = {"ready": True, "code": "GPU_READY", "target": {"label": "server"}}
+    output = io.StringIO("GPU_CHECK:" + json.dumps(result) + "\n")
+    output.channel = mocker.Mock()
+    exec_command = mocker.Mock(return_value=(mocker.Mock(), output, mocker.Mock()))
+    ssh = mocker.Mock()
+    ssh.client = SimpleNamespace(exec_command=exec_command)
+    context = mocker.patch("remote.remote_runner.RemoteSSHClient")
+    context.return_value.__enter__.return_value = ssh
+    runner = RemoteRunner(RemoteRunConfig(ssh=SSHConfig(host="server", username="alice")))
+    mocker.patch.object(runner, "_remote_code_dir", return_value="/srv/neuroflow/code")
+    mocker.patch.object(runner, "_remote_venv_python", return_value="/srv/neuroflow/.venv/bin/python")
+    request = {"device": "cuda", "selected_tools": {"segmentation": "fastsurfer_segmentation"}}
+    assert runner.check_gpu(request) == result
+    command = exec_command.call_args.args[0]
+    assert command.startswith("cd /srv/neuroflow/code && exec /srv/neuroflow/.venv/bin/python")
+    assert "-m pipeline.gpu_readiness" in command
+    payload = json.loads(base64.b64decode(shlex.split(command)[-1]))
+    assert payload["_gpu_remote"] is True and payload["device"] == "cuda"
+    assert exec_command.call_args.kwargs["get_pty"] is True
+
+
+def test_gpu_payload_carries_custom_documents_without_client_paths(tmp_path):
+    preset = tmp_path / "preset.yaml"
+    profile = tmp_path / "profile.yaml"
+    preset.write_text("pipeline_id: custom")
+    profile.write_text("profile_set_id: custom_default")
+    runner = RemoteRunner(RemoteRunConfig(ssh=SSHConfig(host="server", username="alice")))
+    request = {"device": "cuda", "neuroflow_preset_file": str(preset),
+               "neuroflow_profile_file": str(profile), "password": "must-not-be-sent"}
+    payload = runner._gpu_payload(request)
+    assert payload["_gpu_preset_content"] == "pipeline_id: custom"
+    assert payload["_gpu_profile_content"] == "profile_set_id: custom_default"
+    assert "neuroflow_preset_file" not in payload
+    assert "password" not in payload

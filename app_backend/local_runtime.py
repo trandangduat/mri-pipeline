@@ -89,3 +89,6 @@ def local_runtime_checks(request: dict) -> Iterator[SSEEvent]:
         yield complete_event(False, error=error)
         return
     yield step_event("images", "done", "All Docker images are ready")
+
+    from app_backend.gpu_setup import SERVICE
+    yield from SERVICE.check_events(request)

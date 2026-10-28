@@ -287,6 +287,20 @@ export class BackendClient {
     return neuroflowValidationResponseSchema.parse(await this.post('/config/neuroflow/validate', {...payload}));
   }
 
+  async gpuRepairStatus(ticket: string): Promise<Record<string, unknown>> {
+    return this.post('/runtime/gpu/repair/status', {ticket}) as Promise<Record<string, unknown>>;
+  }
+
+  async gpuRepairStream(
+    ticket: string,
+    actionId: string,
+    onEvent: (event: string, data: Record<string, unknown>) => void,
+    onError: (error: string) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.startPipelineStream('/runtime/gpu/repair/stream', {ticket, action_id: actionId}, onEvent, onError, signal);
+  }
+
   async startPipelineStream(
     path: string,
     payload: Record<string, unknown>,

@@ -77,6 +77,8 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
     cancel: cancelStream,
     close: closeDialog,
     runId: preflightRunId,
+    gpuRepair,
+    repairGpu,
   } = useStartPipelineStream();
 
   const print = (label: string, payload: unknown) => {
@@ -437,6 +439,8 @@ export function AppHeader({activeTab, onSelectTab}: AppHeaderProps) {
         complete={dialogComplete}
         success={dialogSuccess}
         errorMessage={dialogError}
+        gpuRepair={gpuRepair}
+        onGpuRepair={repairGpu}
         onApplyRamPercent={(percent) => {
           setFormField('ramPercent', clampBoundedIntValue(percent, RAM_PERCENT_MIN, RAM_PERCENT_MAX));
           onSelectTab('pipeline');

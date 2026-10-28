@@ -247,3 +247,40 @@ def test_unready_worker_is_terminated_by_its_original_handle(tmp_path, mocker):
         time.sleep(0.01)
     assert not jobs._worker_is_alive(launcher["pid"], launcher["create_time"])
     assert service.list_local_jobs()["jobs"][0]["state"] == "failed"
+
+
+
+def test_gpu_failure_stops_local_start_before_license_or_worker(ready_runtime, mocker, tmp_path):
+    from app_backend import gpu_setup
+    from tests.test_gpu_setup import DIAGNOSTIC
+    request = {**ready_runtime, "device": "cuda"}
+    mocker.patch("app_backend.run_request.prepare_run_request", return_value={"ok": True, "request": request})
+    mocker.patch.object(gpu_setup, "SERVICE", gpu_setup.GPUSetupService())
+    mocker.patch.object(gpu_setup, "check_gpu", return_value=DIAGNOSTIC)
+    license_check = mocker.patch.object(jobs, "check_freesurfer_license")
+    service = jobs.LocalJobService(jobs_root=tmp_path / "jobs")
+    start = mocker.patch.object(service, "start_local_job")
+    events = list(service.stream_start_job(request))
+    assert events[-1]["data"]["ok"] is False
+    assert events[-2]["data"]["step"] == "gpu"
+    assert events[-2]["data"]["gpu_solutions"]["ticket"]
+    license_check.assert_not_called()
+    start.assert_not_called()
+    assert not list((tmp_path / "jobs").glob("job_*/"))
+
+
+def test_missing_image_stops_before_gpu_check(ready_runtime, mocker):
+    from app_backend import gpu_setup
+    request = {**ready_runtime, "device": "cuda"}
+    mocker.patch.object(local_runtime, "image_exists", return_value=False)
+    probe = mocker.patch.object(gpu_setup, "check_gpu")
+    events = list(local_runtime.local_runtime_checks(request))
+    assert events[-2]["data"]["step"] == "images"
+    probe.assert_not_called()
+
+
+def test_gpu_ready_continues_existing_local_preflight(ready_runtime, mocker):
+    from app_backend import gpu_setup
+    mocker.patch.object(gpu_setup, "check_gpu", return_value={"ready": True, "summary": "GPU ready"})
+    events = list(local_runtime.local_runtime_checks({**ready_runtime, "device": "gpu"}))
+    assert events[-1]["data"] == {"step": "gpu", "status": "done", "detail": "GPU ready"}
