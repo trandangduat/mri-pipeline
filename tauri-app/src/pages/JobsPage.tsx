@@ -2994,12 +2994,12 @@ function StageMetric({
   isLoading?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-cursor-muted font-normal">{label}:</span>
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
+      <span className="whitespace-nowrap text-cursor-muted font-normal">{label}:</span>
       {isLoading ? (
         <Loader2 className="h-3 w-3 animate-spin text-cursor-primary" />
       ) : (
-        <span className="font-semibold text-cursor-ink">{value}</span>
+        <span className="min-w-0 truncate font-semibold tabular-nums text-cursor-ink" title={value}>{value}</span>
       )}
     </div>
   );
@@ -3092,37 +3092,35 @@ function VerticalTimelineStepRow({
         {!isLast && <span className="absolute top-6 bottom-[-0.75rem] w-px bg-cursor-hairline" />}
         <span className={`h-2.5 w-2.5 rounded-full flex-none transition-all ${dotClass}`} />
       </div>
-      <div className={`rounded-md border p-2.5 transition-colors ${rowClass}`}>
-        <div className="flex min-w-0 items-start justify-between gap-3">
+      <div className={`min-w-0 rounded-md border p-2.5 transition-colors ${rowClass}`}>
+        <div className="flex min-w-0 flex-col gap-2">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex min-w-0 items-start justify-between gap-2">
               <h4
-                className={`m-0 text-sm font-semibold leading-[1.3] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}
+                className={`m-0 min-w-0 break-words text-sm font-semibold leading-[1.3] ${isSkipped ? 'text-cursor-muted' : 'text-cursor-ink'}`}
               >
                 {step?.label || step?.stage}
               </h4>
               <StageStatusPill status={step?.status || 'pending'} />
             </div>
             <p
-              className={`m-0 mt-0.5 text-xs leading-[1.3] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}
+              className={`m-0 mt-0.5 break-words text-xs leading-[1.3] ${isSkipped ? 'text-cursor-muted-soft' : 'text-cursor-body'}`}
             >
               {toolLabel}
             </p>
           </div>
           {!isSkipped && step?.status !== 'not_scheduled' && (
-            <div className="flex flex-wrap items-center justify-end overflow-hidden rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1 text-xs gap-1.5 shadow-2xs">
+            <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,20em),1fr))] items-center gap-1.5 rounded-md border border-cursor-hairline bg-cursor-canvas-soft px-2.5 py-1 text-xs shadow-2xs">
               <LiveStepElapsed
                 elapsed_sec={step?.elapsed_sec}
                 isRunning={step?.status === 'running'}
                 lastSyncedAt={lastSyncedAt}
               />
-              <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric
                 label="CPU"
                 value={formatStepCpu(step, 1)}
                 isLoading={isCpuLoading}
               />
-              <span className="h-3.5 w-px bg-cursor-hairline mx-0.5" />
               <StageMetric
                 label="RAM"
                 value={formatStepRam(step)}
@@ -3163,9 +3161,9 @@ function MetricSparkline({
   if (safePoints.length === 0) {
     return (
       <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
-        <div className="flex items-center justify-between text-xs">
-          <span className="font-medium text-cursor-ink">{label}</span>
-          <span className="text-xs text-cursor-muted">{isLoading ? 'Connecting...' : 'Not reported'}</span>
+        <div className="grid min-h-[3em] min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 text-xs">
+          <span className="whitespace-nowrap font-medium text-cursor-ink">{label}</span>
+          <span className="min-w-0 truncate text-right text-xs text-cursor-muted">{isLoading ? 'Connecting...' : 'Not reported'}</span>
         </div>
         <div className="flex items-center justify-center h-28 text-xs text-cursor-muted gap-2">
           {isLoading ? (
@@ -3214,11 +3212,13 @@ function MetricSparkline({
 
   return (
     <div className="flex flex-col justify-between gap-1 rounded-lg border border-cursor-hairline-soft bg-cursor-canvas-soft p-3">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-medium text-cursor-ink">{label}</span>
-        <span className="text-cursor-primary font-semibold text-xs">
-          {formatValue(currentVal)}{' '}
-          <span className="text-2xs text-cursor-muted font-normal">(peak: {formatValue(peakVal)})</span>
+      <div className="grid min-h-[3em] min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 text-xs">
+        <span className="whitespace-nowrap font-medium text-cursor-ink">{label}</span>
+        <span className="min-w-0 text-right text-cursor-primary font-semibold text-xs tabular-nums">
+          <span className="block truncate" title={formatValue(currentVal)}>{formatValue(currentVal)}</span>
+          <span className="block truncate text-2xs text-cursor-muted font-normal" title={`Peak: ${formatValue(peakVal)}`}>
+            (peak: {formatValue(peakVal)})
+          </span>
         </span>
       </div>
       <div className="relative">
