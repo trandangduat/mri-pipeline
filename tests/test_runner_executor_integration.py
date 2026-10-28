@@ -298,13 +298,19 @@ def test_run_pipeline_fails_without_pull_when_image_missing(tmp_path, mocker) ->
 
 
 @pytest.mark.parametrize("threads", [1, 2, 4, 8])
-@pytest.mark.parametrize("tool_key", ["ordinary_args", "fs8_reduced54_segmentation", "fastsurfer_segmentation"])
-def test_selected_cpu_threads_reach_tool_and_docker(tmp_path, mocker, threads, tool_key):
+@pytest.mark.parametrize("tool_key,gpu_device_id", [
+    ("ordinary_args", None), ("fs8_reduced54_segmentation", None),
+    ("fastsurfer_segmentation", None), ("fastsurfer_segmentation", "0"),
+    ("fastsurfer_segmentation", "1"), ("fastsurfer_segmentation", "GPU-one"),
+])
+def test_selected_cpu_threads_reach_tool_and_docker(tmp_path, mocker, threads, tool_key, gpu_device_id):
     tool = {"image": "mock/tool"} if tool_key == "ordinary_args" else TOOL_DEFS[tool_key]
     config = PipelineConfig(
         input_file=str(tmp_path / "input.nii.gz"),
         output_dir=str(tmp_path / "out"),
         subject_id="sub-01",
+        device="gpu" if gpu_device_id is not None else "cpu",
+        gpu_device_id=gpu_device_id,
         threads=threads,
         cpu_thread_limit=threads,
     )
@@ -331,6 +337,10 @@ def test_selected_cpu_threads_reach_tool_and_docker(tmp_path, mocker, threads, t
     command = popen.call_args.args[0]
     assert command.count("--cpus") == 1
     assert command[command.index("--cpus") + 1] == str(threads)
+    if gpu_device_id is None:
+        assert "--gpus" not in command
+    else:
+        assert command[command.index("--gpus") + 1] == f"device={gpu_device_id}"
     if tool_key == "ordinary_args":
         assert command[command.index("--threads") + 1] == str(threads)
     else:

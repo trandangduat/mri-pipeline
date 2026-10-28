@@ -79,7 +79,8 @@ def test_executor_command_generation(mocker):
     assert cmd_called[image_index + 2:] == ["-sd", "/out", "-s", "sub-01", "-all"]
 
 
-def test_executor_limits_baseline_cpu_and_gpu_allocation(mocker):
+@pytest.mark.parametrize("device_id", [None, "0", "1", "GPU-one"])
+def test_executor_limits_baseline_cpu_and_gpu_allocation(mocker, device_id):
     process = MagicMock()
     process.communicate.return_value = ("", "")
     process.returncode = 0
@@ -87,9 +88,12 @@ def test_executor_limits_baseline_cpu_and_gpu_allocation(mocker):
     mocker.patch("pipeline.executor.threading.Thread.start")
     mocker.patch("pipeline.executor.threading.Thread.join")
     LocalDockerExecutor().execute(ExecutionRequest(
-        image="test", args=[], mounts=[], gpus=True, gpu_device_id="1", cpu_thread_limit=2))
+        image="test", args=[], mounts=[], gpus=device_id is not None, gpu_device_id=device_id, cpu_thread_limit=2))
     command = popen.call_args[0][0]
-    assert command[command.index("--gpus") + 1] == "device=1"
+    if device_id is None:
+        assert "--gpus" not in command
+    else:
+        assert command[command.index("--gpus") + 1] == f"device={device_id}"
     assert command[command.index("--cpus") + 1] == "2"
 
 

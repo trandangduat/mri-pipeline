@@ -187,6 +187,10 @@ def _request_ram_limit_mib(req: dict) -> int:
     return _ram_limit_mib(percent)
 
 
+class _GPUPlacementError(RuntimeError):
+    """The selected GPU cannot be bound to a verified execution-host device."""
+
+
 def _gpu_resources(device: str) -> tuple[object, ...]:
     from neuroflow import GPUResource
 
@@ -194,36 +198,94 @@ def _gpu_resources(device: str) -> tuple[object, ...]:
         return ()
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.free,memory.total,name", "--format=csv,noheader,nounits"],
+            ["nvidia-smi", "--query-gpu=index,uuid,memory.free,memory.total,name", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
             timeout=5,
             **no_window_kwargs(),
         )
-    except (FileNotFoundError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError):
         return ()
     if result.returncode != 0:
         return ()
     gpus = []
-    for index, line in enumerate(result.stdout.splitlines()):
-        parts = [part.strip() for part in line.split(",")]
-        if len(parts) < 2:
+    indexes: set[int] = set()
+    uuids: set[str] = set()
+    for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
+        if len(row) < 5:
             continue
         try:
-            free_mib = int(parts[0])
-            total_mib = int(parts[1])
+            index, uuid = int(row[0]), row[1].strip()
+            free_mib, total_mib = int(row[2]), int(row[3])
         except ValueError:
             continue
+        if index < 0 or not uuid.startswith("GPU-") or not 0 <= free_mib <= total_mib or total_mib == 0:
+            continue
+        if index in indexes or uuid in uuids:
+            return ()  # No trusted mapping exists for an ambiguous inventory.
+        indexes.add(index)
+        uuids.add(uuid)
         gpus.append(
             GPUResource(
                 gpu_id=f"gpu_{index}",
                 available=free_mib > 0,
                 free_memory_mib=free_mib,
                 total_memory_mib=total_mib,
-                device_class=parts[2] if len(parts) > 2 else "generic_cuda",
+                device_class=",".join(row[4:]).strip() or "generic_cuda",
+                metadata=(("host_index", str(index)), ("uuid", uuid)),
             )
         )
     return tuple(gpus)
+
+
+def _require_local_gpu_docker_host() -> None:
+    context = os.environ.get("DOCKER_CONTEXT", "").strip()
+    endpoint = "" if context else os.environ.get("DOCKER_HOST", "").strip()
+    if not endpoint:
+        try:
+            result = subprocess.run(
+                ["docker", "context", "inspect", *([context] if context else []),
+                 "--format", "{{.Endpoints.docker.Host}}"],
+                capture_output=True, text=True, timeout=5, **no_window_kwargs(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise _GPUPlacementError("Cannot verify the Docker host for GPU placement") from exc
+        if result.returncode != 0:
+            raise _GPUPlacementError("Cannot verify the Docker host for GPU placement")
+        endpoint = result.stdout.strip()
+    endpoint = endpoint.replace("\\", "/")
+    if not endpoint.startswith(("unix://", "npipe:////./pipe/", "npipe://./pipe/")):
+        raise _GPUPlacementError("GPU placement requires a verified local Docker endpoint")
+
+
+def _resolve_gpu_device_id(launch: object, scheduled_gpus: tuple[object, ...]) -> str | None:
+    if str(launch.execution_mode.value) != "gpu":
+        return None
+    selected = str(launch.gpu_id or "")
+    if selected.startswith("GPU-"):
+        field, device_id = "uuid", selected
+    else:
+        index = selected.removeprefix("gpu_")
+        if not index.isascii() or not index.isdecimal():
+            raise _GPUPlacementError(f"Invalid selected GPU ID: {selected!r}")
+        field, device_id = "host_index", str(int(index))
+
+    expected = [gpu for gpu in scheduled_gpus
+                if dict(gpu.metadata).get(field) == device_id]
+    if len(expected) != 1:
+        raise _GPUPlacementError(f"Selected GPU {selected!r} is missing or ambiguous in the launch snapshot")
+    uuid = str(dict(expected[0].metadata).get("uuid", ""))
+    if not expected[0].available or not uuid.startswith("GPU-"):
+        raise _GPUPlacementError(f"Selected GPU {selected!r} is unavailable or has no verified UUID")
+
+    _require_local_gpu_docker_host()
+    current = [gpu for gpu in _gpu_resources("gpu")
+               if dict(gpu.metadata).get(field) == device_id]
+    required_memory = int(getattr(launch, "reserved_gpu_memory_mib", 0) or 0)
+    if (len(current) != 1 or dict(current[0].metadata).get("uuid") != uuid
+            or not current[0].available or current[0].free_memory_mib < required_memory):
+        raise _GPUPlacementError(f"Selected GPU {selected!r} disappeared, changed identity, or is unavailable")
+    return device_id
 
 
 def _scheduler_config(req: dict) -> object:
@@ -619,6 +681,7 @@ def run_neuroflow_batch(
         context: _ImageRunContext,
         local_stage: str,
         execution_id: str,
+        scheduled_gpus: tuple[object, ...],
     ) -> tuple[object, dict[str, object]]:
         if lazy_upload and context.input_for_stage(local_stage) is None:
             ok, message = _wait_for_input_marker(context.input_file, should_stop)
@@ -644,8 +707,7 @@ def run_neuroflow_batch(
             export_config=context.config.export_config,
             stats_vector_config=context.config.stats_vector_config,
             container_name_suffix=f"{local_stage}_{launch.attempt_id}",
-            gpu_device_id=(str(launch.gpu_id).removeprefix("gpu_")
-                           if policy_choice != "B6" and launch.gpu_id is not None else None),
+            gpu_device_id=_resolve_gpu_device_id(launch, scheduled_gpus),
             cpu_thread_limit=int(launch.cpu_threads),
             console_job_dir=str(job_dir),
             console_attempt_id=str(launch.attempt_id),
@@ -834,8 +896,9 @@ def run_neuroflow_batch(
                 try:
                     result, observation = future.result()
                 except Exception as exc:
-                    unknown_runtime = None if policy_choice != "B6" else 1000
-                    unknown_ram = None if policy_choice != "B6" else 512
+                    placement_failure = isinstance(exc, _GPUPlacementError)
+                    unknown_runtime = None if placement_failure or policy_choice != "B6" else 1000
+                    unknown_ram = None if placement_failure or policy_choice != "B6" else 512
                     result = TaskResult(
                         result_id=f"result-{launch.attempt_id}",
                         task_id=str(launch.task_id),
@@ -844,7 +907,10 @@ def run_neuroflow_batch(
                         status=ResultStatus.FAILED,
                         exit_code=1,
                         validation_passed=False,
-                        error=TaskError(category=ErrorCategory.PROCESS_CRASH, message=str(exc)),
+                        error=TaskError(
+                            category=ErrorCategory.CONTAINER_START_FAILURE if placement_failure else ErrorCategory.PROCESS_CRASH,
+                            message=str(exc),
+                        ),
                         metrics=TaskMetrics(
                             runtime_ms=unknown_runtime,
                             peak_ram_mib=unknown_ram,
@@ -925,7 +991,9 @@ def run_neuroflow_batch(
                                 started_at=datetime.now(timezone.utc),
                             )
                         )
-                        future = executor.submit(_run_launch_stage, launch, context, local_stage, execution_id)
+                        future = executor.submit(
+                            _run_launch_stage, launch, context, local_stage, execution_id, snapshot.gpus,
+                        )
                         running_futures[future] = (launch, context, local_stage, execution_id)
                 elif _scheduler_is_terminal() and not running_futures:
                     break

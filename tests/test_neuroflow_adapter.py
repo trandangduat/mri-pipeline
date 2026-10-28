@@ -1120,3 +1120,153 @@ def test_scheduler_resume_repairs_exports_before_loading_tasks(tmp_path, monkeyp
             subject_id_map={str(tmp_path / "a.nii.gz"): "subject-a"},
         )
     assert (output / "subject-a/exports/restored.v2.nii.gz").read_bytes() == intermediate.read_bytes()
+
+
+def _placement_gpu(index=1, uuid="GPU-one", available=True):
+    return SimpleNamespace(
+        gpu_id=f"gpu_{index}", available=available, free_memory_mib=8192,
+        metadata=(("host_index", str(index)), ("uuid", uuid)),
+    )
+
+
+def test_gpu_discovery_uses_host_indexes_and_uuids(monkeypatch):
+    neuroflow_adapter._ensure_neuroflow_import_path()
+    calls = []
+
+    def query(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout=(
+            '1, GPU-one, 8192, 16384, "GPU, one"\n'
+            '0, GPU-zero, 4096, 8192, GPU zero\n'
+        ))
+
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", query)
+    gpus = neuroflow_adapter._gpu_resources("gpu")
+
+    assert [g.gpu_id for g in gpus] == ["gpu_1", "gpu_0"]
+    assert dict(gpus[0].metadata) == {"host_index": "1", "uuid": "GPU-one"}
+    assert gpus[0].device_class == "GPU, one"
+    assert "--query-gpu=index,uuid,memory.free,memory.total,name" in calls[0]
+
+
+@pytest.mark.parametrize("rows", [
+    "0, GPU-zero, 100, 200, test\n0, GPU-one, 100, 200, test",
+    "0, GPU-zero, 100, 200, test\n1, GPU-zero, 100, 200, test",
+])
+def test_gpu_discovery_rejects_ambiguous_inventory(monkeypatch, rows):
+    neuroflow_adapter._ensure_neuroflow_import_path()
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=rows))
+    assert neuroflow_adapter._gpu_resources("gpu") == ()
+
+
+@pytest.mark.parametrize("gpu_id,index,uuid,expected", [
+    ("gpu_0", 0, "GPU-zero", "0"),
+    ("gpu_1", 1, "GPU-one", "1"),
+    ("1", 1, "GPU-one", "1"),
+    ("GPU-one", 1, "GPU-one", "GPU-one"),
+])
+def test_gpu_placement_resolves_selected_device(monkeypatch, gpu_id, index, uuid, expected):
+    gpu = _placement_gpu(index, uuid)
+    monkeypatch.setattr(neuroflow_adapter, "_require_local_gpu_docker_host", lambda: None)
+    monkeypatch.setattr(neuroflow_adapter, "_gpu_resources", lambda device: (gpu,))
+    launch = SimpleNamespace(execution_mode=SimpleNamespace(value="gpu"), gpu_id=gpu_id)
+    assert neuroflow_adapter._resolve_gpu_device_id(launch, (gpu,)) == expected
+
+
+@pytest.mark.parametrize("gpu_id,snapshot,current", [
+    (None, (_placement_gpu(),), (_placement_gpu(),)),
+    ("gpu_bad", (_placement_gpu(),), (_placement_gpu(),)),
+    ("gpu_-1", (_placement_gpu(),), (_placement_gpu(),)),
+    ("gpu_2", (_placement_gpu(),), (_placement_gpu(),)),
+    ("gpu_1", (_placement_gpu(), _placement_gpu()), (_placement_gpu(),)),
+    ("GPU-one", (_placement_gpu(), _placement_gpu(0)), (_placement_gpu(),)),
+    ("gpu_1", (_placement_gpu(),), ()),
+    ("gpu_1", (_placement_gpu(),), (_placement_gpu(uuid="GPU-replaced"),)),
+    ("gpu_1", (_placement_gpu(),), (_placement_gpu(available=False),)),
+])
+def test_gpu_placement_rejects_missing_or_changed_device(monkeypatch, gpu_id, snapshot, current):
+    monkeypatch.setattr(neuroflow_adapter, "_require_local_gpu_docker_host", lambda: None)
+    monkeypatch.setattr(neuroflow_adapter, "_gpu_resources", lambda device: current)
+    launch = SimpleNamespace(execution_mode=SimpleNamespace(value="gpu"), gpu_id=gpu_id)
+    with pytest.raises(neuroflow_adapter._GPUPlacementError, match="GPU"):
+        neuroflow_adapter._resolve_gpu_device_id(launch, snapshot)
+
+
+def test_cpu_placement_does_not_probe_devices(monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail("CPU placement must not probe GPU inventory or Docker context")
+    monkeypatch.setattr(neuroflow_adapter, "_gpu_resources", unexpected)
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", unexpected)
+    launch = SimpleNamespace(execution_mode=SimpleNamespace(value="cpu"), gpu_id=None)
+    assert neuroflow_adapter._resolve_gpu_device_id(launch, ()) is None
+
+
+@pytest.mark.parametrize("endpoint,valid", [
+    ("unix:///var/run/docker.sock", True),
+    ("npipe:////./pipe/dockerDesktopLinuxEngine", True),
+    ("ssh://other-host", False),
+    ("tcp://127.0.0.1:2375", False),
+])
+def test_gpu_placement_requires_local_docker_endpoint(monkeypatch, endpoint, valid):
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.setenv("DOCKER_HOST", endpoint)
+    if valid:
+        neuroflow_adapter._require_local_gpu_docker_host()
+    else:
+        with pytest.raises(neuroflow_adapter._GPUPlacementError):
+            neuroflow_adapter._require_local_gpu_docker_host()
+
+
+def test_gpu_docker_context_overrides_host_environment(monkeypatch):
+    monkeypatch.setenv("DOCKER_CONTEXT", "local-context")
+    monkeypatch.setenv("DOCKER_HOST", "ssh://unused-host")
+    commands = []
+    def query(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="unix:///var/run/docker.sock")
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", query)
+    neuroflow_adapter._require_local_gpu_docker_host()
+    assert "local-context" in commands[0]
+
+
+@pytest.mark.parametrize("probe", ["missing", "failed", "timeout"])
+def test_gpu_docker_endpoint_probe_failure_is_explicit(monkeypatch, probe):
+    monkeypatch.delenv("DOCKER_CONTEXT", raising=False)
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
+    def query(*args, **kwargs):
+        if probe == "missing":
+            raise FileNotFoundError("docker")
+        if probe == "timeout":
+            raise neuroflow_adapter.subprocess.TimeoutExpired("docker", 5)
+        return SimpleNamespace(returncode=1, stdout="")
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", query)
+    with pytest.raises(neuroflow_adapter._GPUPlacementError):
+        neuroflow_adapter._require_local_gpu_docker_host()
+
+
+@pytest.mark.parametrize("failure", ["missing", "timeout", "failed"])
+def test_gpu_inventory_probe_failure_rejects_placement(monkeypatch, failure):
+    neuroflow_adapter._ensure_neuroflow_import_path()
+    monkeypatch.setattr(neuroflow_adapter, "_require_local_gpu_docker_host", lambda: None)
+    def query(*args, **kwargs):
+        if failure == "missing":
+            raise FileNotFoundError("nvidia-smi")
+        if failure == "timeout":
+            raise neuroflow_adapter.subprocess.TimeoutExpired("nvidia-smi", 5)
+        return SimpleNamespace(returncode=1, stdout="")
+    monkeypatch.setattr(neuroflow_adapter.subprocess, "run", query)
+    assert neuroflow_adapter._gpu_resources("cpu") == ()
+    launch = SimpleNamespace(execution_mode=SimpleNamespace(value="gpu"), gpu_id="gpu_1")
+    with pytest.raises(neuroflow_adapter._GPUPlacementError):
+        neuroflow_adapter._resolve_gpu_device_id(launch, (_placement_gpu(),))
+
+
+def test_gpu_placement_rechecks_reserved_memory(monkeypatch):
+    gpu = _placement_gpu()
+    monkeypatch.setattr(neuroflow_adapter, "_require_local_gpu_docker_host", lambda: None)
+    monkeypatch.setattr(neuroflow_adapter, "_gpu_resources", lambda device: (gpu,))
+    launch = SimpleNamespace(execution_mode=SimpleNamespace(value="gpu"), gpu_id="gpu_1",
+                             reserved_gpu_memory_mib=gpu.free_memory_mib + 1)
+    with pytest.raises(neuroflow_adapter._GPUPlacementError):
+        neuroflow_adapter._resolve_gpu_device_id(launch, (gpu,))
