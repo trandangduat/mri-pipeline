@@ -445,9 +445,11 @@ def _resource_snapshot(
     )
 
 
-def _memory_mib(bytes_value: int | None) -> int:
-    if not bytes_value:
-        return 1
+def _memory_mib(bytes_value: int | None) -> int | None:
+    if bytes_value is None:
+        return None
+    if bytes_value <= 0:
+        return 0
     return max(1, math.ceil(bytes_value / (1024 * 1024)))
 
 
@@ -815,9 +817,9 @@ def run_neuroflow_batch(
             telemetry_error = telemetry_error or (
                 "Missing measured container GPU memory: "
                 + str(diagnostics.get("reason") or "no valid GPU sample"))
-        if (is_gpu and processing_success and not reused_execution
+        if (processing_success and not reused_execution
                 and policy_choice in {"B5", "B6"}):
-            if peak_gpu_memory_mib == 0:
+            if is_gpu and peak_gpu_memory_mib == 0:
                 telemetry_error = telemetry_error or (
                     "Measured GPU memory is 0 MiB; scheduler profile learning requires a positive sample")
             if step.peak_ram_bytes == 0:
@@ -830,11 +832,11 @@ def run_neuroflow_batch(
                            p95_cpu_pct=None, peak_gpu_memory_mib=None, gpu_telemetry=None)
             peak_gpu_memory_mib = None
         missing_ram_measurement = (not reused_execution and step.success
-                                   and ((is_gpu and step.peak_ram_bytes is None)
-                                        or (policy_choice != "B6" and not step.peak_ram_bytes)))
+                                   and step.peak_ram_bytes is None)
         if missing_ram_measurement:
             telemetry_error = telemetry_error or (
-                "Missing measured peak RAM for scheduler validation" if is_gpu
+                "Missing measured peak RAM for scheduler validation"
+                if (is_gpu or policy_choice == "B6")
                 else "Missing measured peak RAM for baseline validation")
         if telemetry_error:
             step = replace(step, success=False, error=telemetry_error)
@@ -842,11 +844,8 @@ def run_neuroflow_batch(
         runtime_ms = None if reused_execution else max(1, int(step.duration_sec * 1000))
         if reused_execution:
             peak_ram_mib = None
-        elif is_gpu:
-            peak_ram_mib = (math.ceil(step.peak_ram_bytes / (1024 * 1024))
-                            if step.peak_ram_bytes is not None else None)
         else:
-            peak_ram_mib = (_memory_mib(step.peak_ram_bytes) if step.peak_ram_bytes or policy_choice == "B6" else None)
+            peak_ram_mib = _memory_mib(step.peak_ram_bytes)
         success = bool(step.success)
         category = ErrorCategory.PROCESS_CRASH
         if not success and (policy_choice != "B6" or is_gpu):
@@ -1023,8 +1022,8 @@ def run_neuroflow_batch(
                     result, observation = future.result()
                 except Exception as exc:
                     placement_failure = isinstance(exc, _GPUPlacementError)
-                    unknown_runtime = None if placement_failure or policy_choice != "B6" else 1000
-                    unknown_ram = None if placement_failure or policy_choice != "B6" else 512
+                    unknown_runtime = None
+                    unknown_ram = None
                     result = TaskResult(
                         result_id=f"result-{launch.attempt_id}",
                         task_id=str(launch.task_id),

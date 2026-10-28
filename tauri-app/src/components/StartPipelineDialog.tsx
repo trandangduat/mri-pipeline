@@ -125,8 +125,8 @@ function ResourceSolutionsList({
 
 function GpuSolutionsList({solutions, repair, onRepair}: {
   solutions: GpuSolutions;
-  repair?: GpuRepairState | null;
-  onRepair?: (ticket: string, actionId: string) => void;
+  repair?: GpuRepairState | null | undefined;
+  onRepair?: ((ticket: string, actionId: string) => void) | undefined;
 }) {
   const current = repair?.ticket === solutions.ticket ? repair : null;
   return (

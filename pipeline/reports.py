@@ -31,23 +31,38 @@ class BatchReportContext:
     stats_vector_config: StatsVectorConfig
     running_input_file: str = ""
 
-def result_run_status(result: BatchImageResult | None) -> str:
-    if result is None:
-        return "not_started"
-    path = Path(result.subject_dir) / "logs" / "pipeline_state.json"
-    status = ""
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                status = str(data.get("status", "")).lower()
-        except Exception:
-            pass
-    if status == "success":
-        return "completed"
-    if status in {"failed", "paused", "running"}:
-        return status
-    return "completed" if result.success else "failed"
+def result_run_status(result: BatchImageResult | None, subject_dir: str | Path | None = None) -> str:
+    if result is not None:
+        if result.success:
+            return "completed"
+        target_path = Path(result.subject_dir) if result.subject_dir else (Path(subject_dir) if subject_dir else None)
+        if target_path:
+            path = target_path / "logs" / "pipeline_state.json"
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        st = str(data.get("status", "")).lower()
+                        if st in {"paused", "stopped", "interrupted"}:
+                            return st
+                except Exception:
+                    pass
+        return "failed"
+
+    if subject_dir:
+        path = Path(subject_dir) / "logs" / "pipeline_state.json"
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    st = str(data.get("status", "")).lower()
+                    if st == "success":
+                        return "completed"
+                    if st in {"failed", "paused", "running", "stopped", "interrupted"}:
+                        return st
+            except Exception:
+                pass
+    return "not_started"
 
 def _read_subject_vector_cells(subject_dir: str | Path) -> dict[str, str]:
     path = Path(subject_dir) / "stats" / "vectors" / "stats_vectors.csv"
@@ -106,7 +121,7 @@ def write_batch_reports(ctx: BatchReportContext) -> None:
             or _derive_subject_id(input_file, ctx.dataset_root)
         )
         subject_dir = result.subject_dir if result else str(output_path / subject_id)
-        status = "running" if input_file == ctx.running_input_file else result_run_status(result)
+        status = "running" if input_file == ctx.running_input_file else result_run_status(result, subject_dir)
         base = {
             "mri_name": Path(input_file).name,
             "file_path": input_file,

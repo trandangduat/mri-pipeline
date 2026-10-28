@@ -1296,3 +1296,75 @@ def test_discovered_gpu_passes_stock_fastsurfer_profile_validation(monkeypatch, 
         pipeline, profiles, 4, available_gpus=len(scheduler.limits.gpus))
     validate_cross_documents(pipeline, profiles, scheduler)
     assert scheduler.limits.gpus[0].device_class == "generic_cuda"
+
+
+def test_missing_ram_telemetry_does_not_fabricate_one_mib():
+    assert neuroflow_adapter._memory_mib(None) is None
+    assert neuroflow_adapter._memory_mib(0) == 0
+    assert neuroflow_adapter._memory_mib(1024 * 1024) == 1
+    assert neuroflow_adapter._memory_mib(2 * 1024 * 1024) == 2
+    assert neuroflow_adapter._memory_mib(1) == 1
+
+
+def test_result_run_status_prioritizes_final_result_over_stale_disk_state(tmp_path: Path):
+    from pipeline.reports import result_run_status, write_batch_reports, BatchReportContext
+    from pipeline.config import BatchImageResult, StatsVectorConfig
+    import json
+    import csv
+
+    subject_dir = tmp_path / "subject-01"
+    logs_dir = subject_dir / "logs"
+    logs_dir.mkdir(parents=True)
+    state_file = logs_dir / "pipeline_state.json"
+
+    # 1. Stale failed state on disk, but final result succeeded (retry success)
+    state_file.write_text(json.dumps({"status": "FAILED"}), encoding="utf-8")
+    retry_success_result = BatchImageResult(
+        input_file=str(tmp_path / "img1.nii.gz"),
+        subject_id="subject-01",
+        subject_dir=str(subject_dir),
+        success=True,
+        duration_sec=10.0,
+    )
+    assert result_run_status(retry_success_result) == "completed"
+
+    # 2. Stale running state on disk, but final result succeeded
+    state_file.write_text(json.dumps({"status": "RUNNING"}), encoding="utf-8")
+    assert result_run_status(retry_success_result) == "completed"
+
+    # 3. Final result failed
+    failed_result = BatchImageResult(
+        input_file=str(tmp_path / "img1.nii.gz"),
+        subject_id="subject-01",
+        subject_dir=str(subject_dir),
+        success=False,
+        duration_sec=5.0,
+    )
+    assert result_run_status(failed_result) == "failed"
+
+    # 4. Fallback when result is None (unfinished image)
+    state_file.write_text(json.dumps({"status": "RUNNING"}), encoding="utf-8")
+    assert result_run_status(None, subject_dir) == "running"
+
+    # 5. write_batch_reports exports consistent final status to both summary and wide CSV
+    stats_dir = subject_dir / "stats" / "vectors"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "stats_vectors.csv").write_text("subject,feat\nsubject-01,1.0\n", encoding="utf-8")
+    out_dir = tmp_path / "batch_out"
+    ctx = BatchReportContext(
+        output_dir=str(out_dir),
+        input_files=[str(tmp_path / "img1.nii.gz")],
+        batch_results=[retry_success_result],
+        subject_id_map={str(tmp_path / "img1.nii.gz"): "subject-01"},
+        dataset_root=str(tmp_path),
+        stats_vector_config=StatsVectorConfig(),
+    )
+    write_batch_reports(ctx)
+
+    with open(out_dir / "stats_vectors_summary.csv", encoding="utf-8") as f:
+        summary_rows = list(csv.DictReader(f))
+    with open(out_dir / "stats_vectors_wide.csv", encoding="utf-8") as f:
+        wide_rows = list(csv.DictReader(f))
+
+    assert summary_rows[0]["run_status"] == "completed"
+    assert wide_rows[0]["run_status"] == "completed"
