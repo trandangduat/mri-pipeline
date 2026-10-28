@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
+
+import pytest
 
 from pipeline.config import PipelineConfig
-from pipeline.executor import DockerResourceMetrics, ExecutionRequest, ExecutionResult
-from pipeline.registry import FREESURFER_RECON_STYLE_TIMEOUT
-from pipeline.runner import run_pipeline
+from pipeline.executor import DockerResourceMetrics, ExecutionRequest, ExecutionResult, LocalDockerExecutor
+from pipeline.registry import FREESURFER_RECON_STYLE_TIMEOUT, TOOL_DEFS
+from pipeline.runner import _build_execution_request, run_pipeline, run_pipeline_stage
 
 
 class RecordingExecutor:
@@ -292,3 +295,75 @@ def test_run_pipeline_fails_without_pull_when_image_missing(tmp_path, mocker) ->
     assert len(results) == 1
     assert results[0].success is False
     assert "Tools Configuration" in results[0].error
+
+
+@pytest.mark.parametrize("threads", [1, 2, 4, 8])
+@pytest.mark.parametrize("tool_key", ["ordinary_args", "fs8_reduced54_segmentation", "fastsurfer_segmentation"])
+def test_selected_cpu_threads_reach_tool_and_docker(tmp_path, mocker, threads, tool_key):
+    tool = {"image": "mock/tool"} if tool_key == "ordinary_args" else TOOL_DEFS[tool_key]
+    config = PipelineConfig(
+        input_file=str(tmp_path / "input.nii.gz"),
+        output_dir=str(tmp_path / "out"),
+        subject_id="sub-01",
+        threads=threads,
+        cpu_thread_limit=threads,
+    )
+    req = _build_execution_request(
+        tool_key=tool_key,
+        tool=tool,
+        config=config,
+        subject_dir=str(tmp_path / "out/sub-01"),
+        logs_dir=str(tmp_path / "logs"),
+        input_for_next_step=None,
+        license_mount=[],
+        memory_limit_bytes=None,
+    )
+    process = mocker.Mock()
+    process.communicate.return_value = ("completed", None)
+    process.returncode = 0
+    popen = mocker.patch("pipeline.executor.subprocess.Popen", return_value=process)
+    mocker.patch("pipeline.executor.threading.Thread.start")
+    mocker.patch("pipeline.executor.threading.Thread.join")
+
+    result = LocalDockerExecutor().execute(req)
+
+    assert result.success
+    command = popen.call_args.args[0]
+    assert command.count("--cpus") == 1
+    assert command[command.index("--cpus") + 1] == str(threads)
+    if tool_key == "ordinary_args":
+        assert command[command.index("--threads") + 1] == str(threads)
+    else:
+        assert req.args == []
+        script = command[-1]
+        if tool_key == "fastsurfer_segmentation":
+            script = script.split("run_prediction.py", 1)[1].split(";", 1)[0]
+        assert re.search(rf"--threads\s+{threads}(?=\s|;|$)", script)
+
+
+@pytest.mark.parametrize("cpu_thread_limit", [None, 2])
+def test_run_pipeline_stage_logs_selected_cpu_and_quota(tmp_path, mocker, cpu_thread_limit):
+    input_file = tmp_path / "input.nii.gz"
+    input_file.write_text("input")
+    mocker.patch("pipeline.runner.require_image", return_value=(True, ""))
+    executor = RecordingExecutor()
+    config = PipelineConfig(
+        input_file=str(input_file),
+        output_dir=str(tmp_path / "out"),
+        subject_id="sub-01",
+        threads=4,
+        cpu_thread_limit=cpu_thread_limit,
+        selected_tools={"reorientation": "mri_convert_fs7"},
+    )
+
+    result, _ = run_pipeline_stage(config, "reorientation", executor=executor)
+
+    assert result.success
+    assert executor.requests[0].cpu_thread_limit == cpu_thread_limit
+    stage_log = (tmp_path / "out/sub-01/logs/mri_convert_fs7.log").read_text()
+    assert "Selected CPU threads: 4" in stage_log
+    quota = cpu_thread_limit if cpu_thread_limit is not None else "unlimited"
+    assert f"Docker CPU quota: {quota}" in stage_log
+    assert "Peak CPU: n/a" in stage_log
+    assert "Mean CPU: n/a" in stage_log
+    assert "P95 CPU: n/a" in stage_log

@@ -714,16 +714,26 @@ def test_neuroflow_survives_long_empty_poll_spell_before_ready(
     assert results[0].success is True
 
 
-def test_neuroflow_stage_config_container_name_suffix_is_attempt_unique(
+@pytest.mark.parametrize("cpu_threads", [1, 2, 4, 8])
+def test_neuroflow_stage_config_preserves_launch_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    cpu_threads: int,
 ) -> None:
     _FakeAdaptiveScheduler.instances = []
     _install_fake_neuroflow(monkeypatch)
-    stage_suffixes: list[str] = []
+    class SelectedCPUScheduler(_FakeAdaptiveScheduler):
+        def request_launches(self, *, request: object) -> SimpleNamespace:
+            response = super().request_launches(request=request)
+            for launch in response.launches:
+                launch.cpu_threads = cpu_threads
+            return response
+
+    monkeypatch.setattr(sys.modules["neuroflow"], "AdaptiveScheduler", SelectedCPUScheduler)
+    stage_configs = []
 
     def fake_run_pipeline_stage(config: object, _stage: str, **_kwargs: object) -> tuple[_FakeStep, str]:
-        stage_suffixes.append(config.container_name_suffix)
+        stage_configs.append(config)
         return _FakeStep(), str(tmp_path / config.subject_id / "out.mgz")
 
     class FakeStatsGenerator:
@@ -743,7 +753,7 @@ def test_neuroflow_stage_config_container_name_suffix_is_attempt_unique(
             "pipeline_mode": "FreeSurfer 8 + Volume",
             "effective_output_dir": str(tmp_path / "out"),
             "selected_tools": {"reorientation": "fake_tool"},
-            "threads": 2,
+            "threads": 16,
             "neuroflow_max_concurrent_tasks": 2,
         },
         input_files=[str(tmp_path / "a.nii.gz"), str(tmp_path / "b.nii.gz")],
@@ -753,7 +763,15 @@ def test_neuroflow_stage_config_container_name_suffix_is_attempt_unique(
         },
     )
 
-    assert sorted(stage_suffixes) == ["reorientation_attempt-a", "reorientation_attempt-b"]
+    assert sorted(config.container_name_suffix for config in stage_configs) == [
+        "reorientation_attempt-a", "reorientation_attempt-b",
+    ]
+    assert all(config.threads == cpu_threads for config in stage_configs)
+    assert all(config.cpu_thread_limit == cpu_threads for config in stage_configs)
+    assert all(
+        result.metrics.allocated_cpu_threads == cpu_threads
+        for result in SelectedCPUScheduler.instances[0].results
+    )
 
 
 def test_neuroflow_batch_with_concurrency_4(

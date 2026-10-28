@@ -646,7 +646,7 @@ def run_neuroflow_batch(
             container_name_suffix=f"{local_stage}_{launch.attempt_id}",
             gpu_device_id=(str(launch.gpu_id).removeprefix("gpu_")
                            if policy_choice != "B6" and launch.gpu_id is not None else None),
-            cpu_thread_limit=int(launch.cpu_threads) if policy_choice != "B6" else None,
+            cpu_thread_limit=int(launch.cpu_threads),
             console_job_dir=str(job_dir),
             console_attempt_id=str(launch.attempt_id),
         )

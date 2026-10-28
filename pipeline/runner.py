@@ -409,6 +409,8 @@ def run_pipeline_stage(
         f"Tool: {tool_display_name(tool_key)}",
         f"Duration: {duration:.1f}s",
         f"Build: 0.0s",
+        f"Selected CPU threads: {config.threads}",
+        f"Docker CPU quota: {req.cpu_thread_limit if req.cpu_thread_limit is not None else 'unlimited'}",
         f"RAM limit: {_format_bytes(memory_limit_bytes)} ({config.ram_percent}%)" if memory_limit_bytes else f"RAM limit: unlimited ({config.ram_percent}%)",
         f"Peak RAM: {_format_bytes(peak_ram)}",
         f"Mean RAM: {_format_bytes(metrics.avg_ram_bytes) if metrics else 'n/a'}",

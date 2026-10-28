@@ -70,7 +70,7 @@ def test_real_adapter_routes_policies_to_the_shared_executor(
     assert len(calls) == len(defaults) * 2
     assert all(result.success for result in results)
     assert all(
-        limit == (None if policy_id == "B6" else threads)
+        limit == threads
         for _, _, threads, limit in calls
     )
     if policy_id != "B6":
