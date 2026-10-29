@@ -893,39 +893,3 @@ def test_local_http_start_cannot_bypass_docker_preflight(tmp_path: Path, mocker)
     finally:
         server.shutdown()
         thread.join(timeout=5)
-
-
-
-def test_gpu_repair_routes_use_existing_auth_and_narrow_service(monkeypatch):
-    import pytest
-    from types import SimpleNamespace
-    from app_backend import gpu_setup
-    calls = []
-    def status(ticket):
-        calls.append(("status", ticket))
-        return {"ok": True, "state": "available"}
-    def stream(ticket, action):
-        calls.append(("repair", ticket, action))
-        yield {"event": "step", "data": {"state": "running", "detail": "Checking"}}
-        yield {"event": "complete", "data": {"ok": True, "state": "repaired"}}
-    monkeypatch.setattr(gpu_setup, "SERVICE", SimpleNamespace(status=status, stream=stream))
-    server, thread, base = _serve_in_thread()
-    try:
-        assert _post_json(base + "/runtime/gpu/repair/status", {"ticket": "opaque"})["state"] == "available"
-        request = Request(base + "/runtime/gpu/repair/stream",
-            data=json.dumps({"ticket": "opaque", "action_id": "install_toolkit"}).encode(),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {TEST_API_TOKEN}"}, method="POST")
-        with urlopen(request, timeout=5) as response:
-            events = response.read().decode()
-        assert "event: complete" in events and '"state": "repaired"' in events
-        assert calls == [("status", "opaque"), ("repair", "opaque", "install_toolkit")]
-        unauthenticated = Request(base + "/runtime/gpu/repair/status", data=b'{"ticket":"opaque"}',
-                                  headers={"Content-Type": "application/json"}, method="POST")
-        with pytest.raises(HTTPError) as error:
-            urlopen(unauthenticated, timeout=5)
-        assert error.value.code == 401
-        assert len(calls) == 2
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=3)

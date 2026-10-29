@@ -4,7 +4,6 @@ import {cn} from '@/lib/utils';
 import {ModalPortal} from './ModalPortal';
 import {resolveSurfaceAtlasPackId} from '../lib/atlasPacks';
 import {useDownloadAtlasStream} from '../query/useAtlases';
-import type {GpuSolutions, GpuRepairState} from '../lib/gpuReadiness';
 
 export interface ResourceSolutions {
   summary: string;
@@ -18,7 +17,6 @@ export interface PipelineStep {
   status: 'pending' | 'running' | 'done' | 'failed';
   detail?: string;
   solutions?: ResourceSolutions;
-  gpuSolutions?: GpuSolutions;
 }
 
 interface Props {
@@ -31,8 +29,6 @@ interface Props {
   errorMessage?: string;
   onApplyRamPercent?: (percent: number) => void;
   onApplyPreset?: (mode: string) => void;
-  onGpuRepair?: (ticket: string, actionId: string) => void;
-  gpuRepair?: GpuRepairState | null;
 }
 
 function StepIcon({status}: {status: PipelineStep['status']}) {
@@ -123,72 +119,6 @@ function ResourceSolutionsList({
   );
 }
 
-function GpuSolutionsList({solutions, repair, onRepair}: {
-  solutions: GpuSolutions;
-  repair?: GpuRepairState | null | undefined;
-  onRepair?: ((ticket: string, actionId: string) => void) | undefined;
-}) {
-  const current = repair?.ticket === solutions.ticket ? repair : null;
-  return (
-    <div className="mt-0.5">
-      <p className={cn('m-0 text-xs leading-[1.35]', current?.state === 'repaired'
-        ? 'text-cursor-semantic-success' : 'text-cursor-semantic-error')}>
-        {current?.state === 'repaired' ? 'GPU support is ready. Close this dialog and start the pipeline again.' : solutions.summary}
-      </p>
-      <p className="mb-0 mt-1.5 text-xs font-medium text-cursor-ink">Solutions:</p>
-      <div className="mt-1 overflow-hidden rounded-lg border border-cursor-hairline">
-        <table className="w-full border-separate border-spacing-0 text-xs [&>tbody>tr:not(:last-child)>td]:border-b [&_td]:border-cursor-hairline">
-          <tbody>
-            {solutions.solutions.map((solution, index) => (
-              <tr key={index}>
-                <td className="border-r border-cursor-hairline px-2 py-1 align-middle text-cursor-ink">
-                  <p className="m-0 font-medium">{solution.title}</p>
-                  <p className="m-0 mt-0.5 text-cursor-muted">Target: {solution.targetLabel}</p>
-                  {solution.canExecute ? (
-                    <p className="m-0 mt-0.5 text-cursor-muted">
-                      {solution.requiresAdmin ? 'Requires administrative access. ' : ''}
-                      {solution.requiresDockerRestart ? 'Restarts Docker; running containers must finish first.' : ''}
-                    </p>
-                  ) : (
-                    <div className="mt-1 whitespace-pre-line break-words text-cursor-muted">
-                      {solution.unavailableReason && <p className="m-0 mb-1">{solution.unavailableReason}</p>}
-                      {solution.instructions.map((instruction, item) => <p key={item} className="m-0 mt-0.5">{instruction}</p>)}
-                    </div>
-                  )}
-                </td>
-                <td className="w-[1%] p-0 text-center align-middle whitespace-nowrap">
-                  {solution.canExecute && solution.actionId && onRepair ? (
-                    current?.state === 'repaired' ? (
-                      <span className="flex items-center gap-1 px-3 py-1.5 text-cursor-semantic-success"><Check className="h-3 w-3" />Ready</span>
-                    ) : current?.state === 'failed' ? (
-                      <span className="block px-3 py-1.5 text-cursor-semantic-error">Check instructions</span>
-                    ) : (
-                      <button type="button" disabled={repair?.busy}
-                        onClick={() => onRepair(solutions.ticket, solution.actionId as string)}
-                        className="flex h-full w-full cursor-pointer items-center justify-center gap-1 border-0 bg-cursor-primary/10 px-3 py-1.5 font-medium text-cursor-primary hover:bg-cursor-primary/20 disabled:cursor-wait disabled:opacity-60">
-                        {current?.busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                        {current?.busy ? 'Working...' : solution.actionId === 'configure_runtime' ? 'Configure' : 'Install'}
-                      </button>
-                    )
-                  ) : <span className="block px-3 py-1.5 text-cursor-muted">Manual setup</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {current && <p className={cn('m-0 mt-1.5 whitespace-pre-line text-xs',
-        current.state === 'failed' ? 'text-cursor-semantic-error' : 'text-cursor-muted')}>{current.detail}</p>}
-      {current?.state === 'failed' && (
-        <div className="mt-1 whitespace-pre-line break-words text-xs text-cursor-muted">
-          {solutions.solutions.flatMap((solution) => solution.instructions).map((text, index) => <p key={index} className="m-0 mt-0.5">{text}</p>)}
-          <p className="m-0 mt-1">Close this dialog and run preflight again after setup.</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function StartPipelineDialog({
   open,
   onClose,
@@ -199,8 +129,6 @@ export function StartPipelineDialog({
   errorMessage,
   onApplyRamPercent,
   onApplyPreset,
-  onGpuRepair,
-  gpuRepair,
 }: Props) {
   const atlasStream = useDownloadAtlasStream();
   const [donePacks, setDonePacks] = useState<Set<string>>(new Set());
@@ -232,8 +160,6 @@ export function StartPipelineDialog({
   const missingPackIds = new Set(missingAtlasKeys.map((key) => resolveAtlasPackId(key)));
   const allInstalled = missingPackIds.size > 0 && Array.from(missingPackIds).every((id) => donePacks.has(id));
 
-  const gpuFixed = gpuRepair?.state === 'repaired'
-    && steps.some((step) => step.gpuSolutions?.ticket === gpuRepair.ticket);
   const isDuplicateError =
     Boolean(errorMessage) &&
     steps.some(
@@ -254,7 +180,7 @@ export function StartPipelineDialog({
       <div className="relative w-full max-w-[36rem] rounded-lg border border-cursor-hairline bg-cursor-surface-card p-4 shadow-none">
         <div className="mb-3 flex items-start justify-between gap-2">
           <h3 className="m-0 text-base font-semibold leading-[1.3] text-cursor-ink">
-            {complete ? (success ? 'Pipeline Started' : gpuFixed ? 'GPU Setup Ready' : 'Start Failed') : 'Starting Pipeline...'}
+            {complete ? (success ? 'Pipeline Started' : 'Start Failed') : 'Starting Pipeline...'}
           </h3>
           {onCancel && !complete && (
             <button
@@ -283,9 +209,7 @@ export function StartPipelineDialog({
                 >
                   {step.label}
                 </p>
-                {step.gpuSolutions ? (
-                  <GpuSolutionsList solutions={step.gpuSolutions} repair={gpuRepair} onRepair={onGpuRepair} />
-                ) : step.solutions ? (
+                {step.solutions ? (
                   <ResourceSolutionsList
                     solutions={step.solutions}
                     onApplyRamPercent={onApplyRamPercent}
@@ -369,9 +293,6 @@ export function StartPipelineDialog({
             </div>
           ))}
         </div>
-        {gpuRepair?.busy && !steps.some((step) => step.gpuSolutions?.ticket === gpuRepair.ticket) && (
-          <p className="m-0 mt-2 text-xs text-cursor-muted">{gpuRepair.detail}</p>
-        )}
         {errorMessage && !isDuplicateError && (
           <p className="mt-2.5 text-xs text-cursor-semantic-error whitespace-pre-line">{errorMessage}</p>
         )}

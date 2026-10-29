@@ -760,12 +760,6 @@ class RemoteJobService:
             yield complete_event(False, error=detail)
             return
 
-        from app_backend.gpu_setup import SERVICE as gpu_setup_service
-        for event in gpu_setup_service.check_events(run_request, runner):
-            yield event
-            if event["event"] == "complete":
-                return
-
         yield step_event("paths", "running", "Validating input/output paths...")
         try:
             runner.validate_paths()

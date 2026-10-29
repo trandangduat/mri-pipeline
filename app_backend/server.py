@@ -172,31 +172,6 @@ class AppBackendRequestHandler(BaseHTTPRequestHandler):
         payload = self._read_json_body()
         if payload is None:
             return
-        if self.path == "/runtime/gpu/repair/status":
-            from app_backend.gpu_setup import SERVICE
-            try:
-                result = SERVICE.status(str(payload.get("ticket", "")))
-                self._write_json(HTTPStatus.OK, result)
-            except ValueError as exc:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
-            return
-        if self.path == "/runtime/gpu/repair/stream":
-            from app_backend.gpu_setup import SERVICE
-            self._write_sse_headers()
-            try:
-                for event in SERVICE.stream(str(payload.get("ticket", "")), str(payload.get("action_id", ""))):
-                    self._send_sse_event(event["event"], event["data"])
-            except (ClientDisconnectedError, BrokenPipeError, ConnectionResetError):
-                pass
-            except Exception:
-                try:
-                    self._send_sse_event("complete", {"ok": False, "state": "failed",
-                        "error": "GPU repair is unavailable. Run preflight again and follow its instructions."})
-                except (ClientDisconnectedError, OSError):
-                    pass
-            finally:
-                self.close_connection = True
-            return
         if self.path == "/run-request/prepare":
             self._write_json(HTTPStatus.OK, prepare_run_request(payload))
             return
