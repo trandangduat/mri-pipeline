@@ -857,13 +857,13 @@ def run_neuroflow_batch(
         if interrupted:
             category = ErrorCategory.INTERRUPTED
         error = None if success else TaskError(category=category, message=step.error or "Pipeline stage failed")
-        exit_code = step.return_code if is_gpu and processing_success else (0 if success else (step.return_code or 1))
+        exit_code = step.return_code if step.return_code is not None else (0 if success else 1)
         metadata = ()
         if policy_choice != "B6" or guard_gpu_execution:
             metadata = (("application_step", asdict(step)), ("output_for_next", output_for_next))
+        metadata += (("processing_success", processing_success),)
         if guard_gpu_execution:
-            metadata += (("processing_success", processing_success),
-                         ("source_attempt_id", evidence["attempt_id"] if evidence else None),
+            metadata += (("source_attempt_id", evidence["attempt_id"] if evidence else None),
                          ("preserved_output", output_for_next if processing_success else None))
         result = TaskResult(
             result_id=f"result-{launch.attempt_id}",

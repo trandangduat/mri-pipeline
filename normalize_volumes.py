@@ -41,11 +41,51 @@ CAT12_TISSUE_NAMES = {
 # Native CAT12 ROI tables store tissue arrays under these element names.
 CAT12_TISSUE_TAGS = {"vgm": "gm", "vwm": "wm", "vcsf": "csf"}
 
+# Name heuristics are a fallback for atlases whose native dictionary is unknown.
 CAT12_CSF_REGION_MARKERS = ("ventricle", "csf", "cerebrospinal")
 CAT12_WM_REGION_MARKERS = (
     "white_matter", "corpus_callosum", "capsule", "fasciculus", "tract",
     "peduncle", "radiation", "cingulum", "fornix",
 )
+
+# Native CAT12 ROI tissue flags, generated from the atlas dictionaries that
+# ship with CAT12 (templates_MNI152NLin2009cAsym/*.csv).
+CAT12_TISSUE_FLAG_FILES = ("info/cat12_tissue_flags.txt", "cat12_tissue_flags.txt")
+
+
+def _load_cat12_tissue_flags() -> Dict[str, Dict[str, Tuple[int, int, int]]]:
+    """Load the native CAT12 tissue flags as atlas -> region -> (Vgm, Vwm, Vcsf)."""
+    roots: List[Path] = []
+    resource_root = os.environ.get("NEUROFLOW_RESOURCE_ROOT")
+    if resource_root:
+        roots.append(Path(resource_root))
+    roots.append(Path(__file__).resolve().parent)
+    for root in roots:
+        for rel in CAT12_TISSUE_FLAG_FILES:
+            path = root / rel
+            if not path.is_file():
+                continue
+            table: Dict[str, Dict[str, Tuple[int, int, int]]] = {}
+            with open(path, "r", encoding="utf-8") as handle:
+                for raw in handle:
+                    parts = raw.rstrip("\n").split("\t")
+                    if len(parts) != 5 or parts[0].startswith("#") or parts[0] in {"", "atlas"}:
+                        continue
+                    try:
+                        flags = (int(parts[2]), int(parts[3]), int(parts[4]))
+                    except ValueError:
+                        continue
+                    table.setdefault(parts[0].strip(), {})[_norm_name(parts[1])] = flags
+            return table
+    print(
+        "normalize_volumes: native CAT12 tissue flags are missing; "
+        "falling back to region-name heuristics.",
+        file=sys.stderr,
+    )
+    return {}
+
+
+CAT12_TISSUE_FLAGS = _load_cat12_tissue_flags()
 
 
 def _xml_tag(element: ET.Element) -> str:
@@ -96,8 +136,18 @@ def _sum_ml(values: List[str]) -> str:
     return format(total, "f")
 
 
-def _cat12_region_tissues(region: str) -> Tuple[str, ...]:
-    """Return the native tissue fields that make up a CAT12 region."""
+def _cat12_region_tissues(region: str, atlas: str = "") -> Tuple[str, ...]:
+    """Return the native tissue fields that make up a CAT12 region.
+
+    The native atlas dictionary decides the fields. An empty result means the
+    dictionary defines no contributing tissue for that region.
+    """
+    flags = CAT12_TISSUE_FLAGS.get(atlas) or CAT12_TISSUE_FLAGS.get(atlas.lower())
+    if flags is not None:
+        entry = flags.get(_norm_name(region))
+        if not entry:
+            return ()
+        return tuple(kind for kind, flag in zip(("gm", "wm", "csf"), entry) if flag)
     norm = _norm_name(region)
     if "intracranial" in norm:
         return ("gm", "wm", "csf")
@@ -232,30 +282,37 @@ def _match_cat12_array_length(
 
 def _cat12_pick_volume_mm3(
     region: str,
+    atlas: str,
     arrays: Dict[str, List[str]],
     generic: Optional[List[str]],
     index: int,
-) -> Optional[str]:
-    """Pick the native tissue volume for a region and convert it to mm3."""
-    wanted = _cat12_region_tissues(region)
-    values = [
-        arrays[kind][index]
-        for kind in wanted
-        if kind in arrays and index < len(arrays[kind])
-    ]
-    if values:
-        return _ml_to_mm3(_sum_ml(values) if len(values) > 1 else values[0])
-    if generic is not None and index < len(generic):
+) -> str:
+    """Pick the native tissue volume for a region and convert it to mm3.
+
+    The native tissue flags decide the fields. A region without its designated
+    fields stays unavailable instead of borrowing another tissue.
+    """
+    wanted = _cat12_region_tissues(region, atlas)
+    has_flags = atlas in CAT12_TISSUE_FLAGS or atlas.lower() in CAT12_TISSUE_FLAGS
+    if wanted:
+        values = [
+            arrays[kind][index]
+            for kind in wanted
+            if kind in arrays and index < len(arrays[kind])
+        ]
+        if len(values) == len(wanted):
+            return _ml_to_mm3(_sum_ml(values) if len(values) > 1 else values[0])
+        if not has_flags and generic is not None and index < len(generic):
+            return _ml_to_mm3(generic[index])
+        print(
+            f"normalize_volumes: no {'+'.join(wanted)} volume for region {region!r} "
+            f"in atlas {atlas!r}; value stays unavailable.",
+            file=sys.stderr,
+        )
+        return "NA"
+    if not has_flags and generic is not None and index < len(generic):
         return _ml_to_mm3(generic[index])
-    for kind in ("gm", "wm", "csf"):
-        if kind in arrays and index < len(arrays[kind]):
-            print(
-                f"normalize_volumes: no {'/'.join(wanted)} volume for region "
-                f"{region!r}; using {kind}.",
-                file=sys.stderr,
-            )
-            return _ml_to_mm3(arrays[kind][index])
-    return None
+    return "NA"
 
 
 def _append_cat12_roi_thickness(
@@ -320,22 +377,18 @@ def _cat12_roi_rows(roi_xml: Path, subject_id: str, tool: str) -> Tuple[List[Lis
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
         arrays, generic = _cat12_volume_arrays(parent)
+        atlas = _xml_tag(parent)
         if region_names:
-            atlas = _xml_tag(parent)
             arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
             for index, region in enumerate(region_names):
-                value = _cat12_pick_volume_mm3(region, arrays, generic, index)
-                if value is None:
-                    continue
+                value = _cat12_pick_volume_mm3(region, atlas, arrays, generic, index)
                 _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas)
 
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
             continue
         arrays, generic = _match_cat12_array_length(arrays, generic, 1)
-        value = _cat12_pick_volume_mm3(region, arrays, generic, 0)
-        if value is None:
-            continue
+        value = _cat12_pick_volume_mm3(region, atlas, arrays, generic, 0)
         _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort)
     return sub_rows, cort_rows
 
@@ -374,8 +427,8 @@ def _cat12_atlas_roi_rows(
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
         arrays, generic = _cat12_volume_arrays(parent)
+        atlas_tag = _xml_tag(parent)
         if region_names:
-            atlas_tag = _xml_tag(parent)
             atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag, "")
             if not atlas_key:
                 atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag.lower(), "")
@@ -383,9 +436,7 @@ def _cat12_atlas_roi_rows(
                 atlas_key = f"cat12_{_norm_name(atlas_tag)}"
             arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
             for index, region in enumerate(region_names):
-                value = _cat12_pick_volume_mm3(region, arrays, generic, index)
-                if value is None:
-                    continue
+                value = _cat12_pick_volume_mm3(region, atlas_tag, arrays, generic, index)
                 _append_cat12_atlas_row(
                     subject_id, atlas_key, atlas_tag, region, value, tool, sub_rows, cort_rows
                 )
@@ -393,16 +444,14 @@ def _cat12_atlas_roi_rows(
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
             continue
-        parent_tag = _xml_tag(parent)
+        parent_tag = atlas_tag
         parent_key = CAT12_ATLAS_NODE_TO_KEY.get(parent_tag, "")
         if not parent_key:
             parent_key = CAT12_ATLAS_NODE_TO_KEY.get(parent_tag.lower(), "")
         if not parent_key:
             parent_key = f"cat12_{_norm_name(parent_tag)}"
         arrays, generic = _match_cat12_array_length(arrays, generic, 1)
-        value = _cat12_pick_volume_mm3(region, arrays, generic, 0)
-        if value is None:
-            continue
+        value = _cat12_pick_volume_mm3(region, parent_tag, arrays, generic, 0)
         _append_cat12_atlas_row(
             subject_id, parent_key, parent_tag, region, value, tool, sub_rows, cort_rows
         )

@@ -35,18 +35,8 @@ def result_run_status(result: BatchImageResult | None, subject_dir: str | Path |
     if result is not None:
         if result.success:
             return "completed"
-        target_path = Path(result.subject_dir) if result.subject_dir else (Path(subject_dir) if subject_dir else None)
-        if target_path:
-            path = target_path / "logs" / "pipeline_state.json"
-            if path.exists():
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        st = str(data.get("status", "")).lower()
-                        if st in {"paused", "stopped", "interrupted"}:
-                            return st
-                except Exception:
-                    pass
+        if (result.error or "").strip().lower() == "stopped by request":
+            return "interrupted"
         return "failed"
 
     if subject_dir:

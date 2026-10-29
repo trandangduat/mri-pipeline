@@ -35,6 +35,7 @@ def collect_core_info_datas(project_root: Path) -> list[tuple[str, str]]:
         (str(info_root / feature_name), "info")
         for feature_name in feature_names
     ]
+    datas.append((str(info_root / "cat12_tissue_flags.txt"), "info"))
     missing = [source for source, _destination in datas if not Path(source).is_file()]
     if missing:
         names = ", ".join(Path(path).name for path in missing)

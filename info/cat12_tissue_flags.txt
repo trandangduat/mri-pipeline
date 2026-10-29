@@ -1,0 +1,845 @@
+# CAT12 native ROI tissue flags (Vgm/Vwm/Vcsf).
+# Generated from CAT12 templates_MNI152NLin2009cAsym/*.csv.
+atlas	roi_name	vgm	vwm	vcsf
+cobra	lStriatum	1	0	0
+cobra	Left Striatum	1	0	0
+cobra	Left Globus Pallidus	1	0	0
+cobra	lGloPal	1	0	0
+cobra	lTha	1	0	0
+cobra	Left Thalamus	1	0	0
+cobra	lAntCerebLI_II	1	1	0
+cobra	Left Anterior Cerebellar Lobule I-II	1	1	0
+cobra	lAntCerebLIII	1	1	0
+cobra	Left Anterior Cerebellar Lobule III	1	1	0
+cobra	Left Anterior Cerebellar Lobule IV	1	1	0
+cobra	lAntCerebLIV	1	1	0
+cobra	Left Anterior Cerebellar Lobule V	1	1	0
+cobra	lAntCerebLV	1	1	0
+cobra	Left Superior Posterior Cerebellar Lobule VI	1	1	0
+cobra	lSupPostCerebLVI	1	1	0
+cobra	lSupPostCerebCI	1	1	0
+cobra	Left Superior Posterior Cerebellar Lobule Crus I	1	1	0
+cobra	Left Superior Posterior Cerebellar Lobule Crus II	1	1	0
+cobra	lSupPostCerebCII	1	1	0
+cobra	Left Superior Posterior Cerebellar Lobule VIIB	1	1	0
+cobra	lSupPostCerebLVIIB	1	1	0
+cobra	lInfPostCerebLVIIIA	1	1	0
+cobra	Left Inferior Posterior Cerebellar Lobule VIIIA	1	1	0
+cobra	lInfPostCerebLVIIIB	1	1	0
+cobra	Left Inferior Posterior Cerebellar Lobule VIIIB	1	1	0
+cobra	Left Inferior Posterior Cerebellar Lobule IX	1	1	0
+cobra	lInfPostCerebLIX	1	1	0
+cobra	lInfPostCerebLX	1	1	0
+cobra	Left Inferior Posterior Cerebellar Lobule X	1	1	0
+cobra	lAntCerebWM	0	1	0
+cobra	Left Cerebellar White Matter	0	1	0
+cobra	Left Amygdala	1	0	0
+cobra	lAmy	1	0	0
+cobra	lHCA1	1	1	0
+cobra	Left Hippocampus CA1	1	1	0
+cobra	lSub	1	1	0
+cobra	Left Subiculum	1	1	0
+cobra	lFor	0	1	0
+cobra	Left Fornix	0	1	0
+cobra	lCA4	1	1	0
+cobra	Left CA4/Dentate Gyrus	1	1	0
+cobra	lCA2_3	1	1	0
+cobra	Left CA2/CA3	1	1	0
+cobra	lStratum	1	1	0
+cobra	Left Stratum Radiatum/Lacunosum/Moleculare	1	1	0
+cobra	lFimbra	0	1	0
+cobra	Left Fimbria	0	1	0
+cobra	Left Mammillary body	0	1	0
+cobra	lMamBody	0	1	0
+cobra	lAlveus	0	1	0
+cobra	Left Alveus	0	1	0
+cobra	rStriatum	1	0	0
+cobra	Right Striatum	1	0	0
+cobra	Right Globus Pallidus	1	0	0
+cobra	rGloPal	1	0	0
+cobra	Right Thalamus	1	0	0
+cobra	rTha	1	0	0
+cobra	rAntCerebLI_II	1	1	0
+cobra	Right Anterior Cerebellar Lobule I-II	1	1	0
+cobra	Right Anterior Cerebellar Lobule III	1	1	0
+cobra	rAntCerebLIII	1	1	0
+cobra	rAntCerebLIV	1	1	0
+cobra	Right Anterior Cerebellar Lobule IV	1	1	0
+cobra	rAntCerebLV	1	1	0
+cobra	Right Anterior Cerebellar Lobule V	1	1	0
+cobra	Right Superior Posterior Cerebellar Lobule VI	1	1	0
+cobra	rSupPostCerebLVI	1	1	0
+cobra	rSupPostCerebCI	1	1	0
+cobra	Right Superior Posterior Cerebellar Lobule Crus I	1	1	0
+cobra	Right Superior Posterior Cerebellar Lobule Crus II	1	1	0
+cobra	rSupPostCerebCII	1	1	0
+cobra	rSupPostCerebLVIIB	1	1	0
+cobra	Right Superior Posterior Cerebellar Lobule VIIB	1	1	0
+cobra	rInfPostCerebLVIIIA	1	1	0
+cobra	Right Inferior Posterior Cerebellar Lobule VIIIA	1	1	0
+cobra	Right Inferior Posterior Cerebellar Lobule VIIIB	1	1	0
+cobra	rInfPostCerebLVIIIB	1	1	0
+cobra	Right Inferior Posterior Cerebellar Lobule IX	1	1	0
+cobra	rInfPostCerebLIX	1	1	0
+cobra	Right Inferior Posterior Cerebellar Lobule X	1	1	0
+cobra	rInfPostCerebLX	1	1	0
+cobra	rAntCerebWM	0	1	0
+cobra	Right Cerebellar White Matter	0	1	0
+cobra	Right Amygdala	1	0	0
+cobra	rAmy	1	0	0
+cobra	rHCA1	1	1	0
+cobra	Right Hippocampus CA1	1	1	0
+cobra	Right Subiculum	1	1	0
+cobra	rSub	1	1	0
+cobra	rFor	0	1	0
+cobra	Right Fornix	0	1	0
+cobra	rCA4	1	1	0
+cobra	Right CA4/Dentate Gyrus	1	1	0
+cobra	Right CA2/CA3	1	1	0
+cobra	rCA2_3	1	1	0
+cobra	rStratum	1	1	0
+cobra	Right Stratum Radiatum/Lacunosum/Moleculare	1	1	0
+cobra	Right Fimbria	0	1	0
+cobra	rFimbra	0	1	0
+cobra	Right Mammillary body	0	1	0
+cobra	rMamBody	0	1	0
+cobra	Right Alveus	0	1	0
+cobra	rAlveus	0	1	0
+hammers	TL hippocampus R	1	0	0
+hammers	TL hippocampus L	1	0	0
+hammers	TL amygdala R	1	0	0
+hammers	TL amygdala L	1	0	0
+hammers	TL anterior temporal lobe medial part R	1	1	0
+hammers	TL anterior temporal lobe medial part L	1	1	0
+hammers	TL anterior temporal lobe lateral part R	1	1	0
+hammers	TL anterior temporal lobe lateral part L	1	1	0
+hammers	TL parahippocampal and ambient gyrus R	1	1	0
+hammers	TL parahippocampal and ambient gyrus L	1	1	0
+hammers	TL superior temporal gyrus middle part R	1	1	0
+hammers	TL superior temporal gyrus middle part L	1	1	0
+hammers	TL middle and inferior temporal gyrus R	1	1	0
+hammers	TL middle and inferior temporal gyrus L	1	1	0
+hammers	TL fusiform gyrus R	1	1	0
+hammers	TL fusiform gyrus L	1	1	0
+hammers	cerebellum R	1	1	0
+hammers	cerebellum L	1	1	0
+hammers	brainstem excluding substantia nigra	0	1	0
+hammers	insula posterior long gyrus L	1	1	0
+hammers	insula posterior long gyrus R	1	1	0
+hammers	OL lateral remainder occipital lobe L	1	1	0
+hammers	OL lateral remainder occipital lobe R	1	1	0
+hammers	CG anterior cingulate gyrus L	1	1	0
+hammers	CG anterior cingulate gyrus R	1	1	0
+hammers	CG posterior cingulate gyrus L	1	1	0
+hammers	CG posterior cingulate gyrus R	1	1	0
+hammers	FL middle frontal gyrus L	1	1	0
+hammers	FL middle frontal gyrus R	1	1	0
+hammers	TL posterior temporal lobe L	1	1	0
+hammers	TL posterior temporal lobe R	1	1	0
+hammers	PL angular gyrus L	1	1	0
+hammers	PL angular gyrus R	1	1	0
+hammers	caudate nucleus L	1	0	0
+hammers	caudate nucleus R	1	0	0
+hammers	nucleus accumbens L	1	0	0
+hammers	nucleus accumbens R	1	0	0
+hammers	putamen L	1	0	0
+hammers	putamen R	1	0	0
+hammers	thalamus L	1	0	0
+hammers	thalamus R	1	0	0
+hammers	pallidum L	1	0	0
+hammers	pallidum R	1	0	0
+hammers	corpus callosum	0	1	0
+hammers	Lateral ventricle excluding temporal horn R	0	0	1
+hammers	Lateral ventricle excluding temporal horn L	0	0	1
+hammers	Lateral ventricle temporal horn R	0	0	1
+hammers	Lateral ventricle temporal horn L	0	0	1
+hammers	Third ventricle	0	0	1
+hammers	FL precentral gyrus L	1	1	0
+hammers	FL precentral gyrus R	1	1	0
+hammers	FL straight gyrus L	1	1	0
+hammers	FL straight gyrus R	1	1	0
+hammers	FL anterior orbital gyrus L	1	1	0
+hammers	FL anterior orbital gyrus R	1	1	0
+hammers	FL inferior frontal gyrus L	1	1	0
+hammers	FL inferior frontal gyrus R	1	1	0
+hammers	FL superior frontal gyrus L	1	1	0
+hammers	FL superior frontal gyrus R	1	1	0
+hammers	PL postcentral gyrus L	1	1	0
+hammers	PL postcentral gyrus R	1	1	0
+hammers	PL superior parietal gyrus L	1	1	0
+hammers	PL superior parietal gyrus R	1	1	0
+hammers	OL lingual gyrus L	1	1	0
+hammers	OL lingual gyrus R	1	1	0
+hammers	OL cuneus L	1	1	0
+hammers	OL cuneus R	1	1	0
+hammers	FL medial orbital gyrus L	1	1	0
+hammers	FL medial orbital gyrus R	1	1	0
+hammers	FL lateral orbital gyrus L	1	1	0
+hammers	FL lateral orbital gyrus R	1	1	0
+hammers	FL posterior orbital gyrus L	1	1	0
+hammers	FL posterior orbital gyrus R	1	1	0
+hammers	substantia nigra L	0	1	0
+hammers	substantia nigra R	0	1	0
+hammers	FL subgenual frontal cortex L	1	1	0
+hammers	FL subgenual frontal cortex R	1	1	0
+hammers	FL subcallosal area L	1	1	0
+hammers	FL subcallosal area R	1	1	0
+hammers	FL pre-subgenual frontal cortex L	1	1	0
+hammers	FL pre-subgenual frontal cortex R	1	1	0
+hammers	TL superior temporal gyrus anterior part L	1	1	0
+hammers	TL superior temporal gyrus anterior part R	1	1	0
+hammers	PL supramarginal gyrus L	1	1	0
+hammers	PL supramarginal gyrus R	1	1	0
+hammers	insula anterior short gyrus L	1	1	0
+hammers	insula anterior short gyrus R	1	1	0
+hammers	insula middle short gyrus L	1	1	0
+hammers	insula middle short gyrus R	1	1	0
+hammers	insula posterior short gyrus L	1	1	0
+hammers	insula posterior short gyrus R	1	1	0
+hammers	insula anterior inferior cortex L	1	1	0
+hammers	insula anterior inferior cortex R	1	1	0
+hammers	insula anterior long gyrus L	1	1	0
+hammers	insula anterior long gyrus R	1	1	0
+hypothalamus	anterior commissure	0	1	0
+hypothalamus	lAC	0	1	0
+hypothalamus	rAC	0	1	0
+hypothalamus	diagonal band of Broca	1	0	0
+hypothalamus	ldB	1	0	0
+hypothalamus	rdB	1	0	0
+hypothalamus	lFX	0	1	0
+hypothalamus	fornix	0	1	0
+hypothalamus	rFX	0	1	0
+hypothalamus	lMT	0	1	0
+hypothalamus	mammillothalamic tract	0	1	0
+hypothalamus	rMT	0	1	0
+hypothalamus	lMM	1	0	0
+hypothalamus	mammillary bodies	1	0	0
+hypothalamus	rMM	1	0	0
+hypothalamus	lSTN	1	0	0
+hypothalamus	subthalamic nucleus	1	0	0
+hypothalamus	rSTN	1	0	0
+hypothalamus	substantia nigra	1	0	0
+hypothalamus	lSN	1	0	0
+hypothalamus	rSN	1	0	0
+hypothalamus	lRN	1	0	0
+hypothalamus	red nucleus	1	0	0
+hypothalamus	rRN	1	0	0
+hypothalamus	medial preoptic nucleus	1	0	0
+hypothalamus	lMPO	1	0	0
+hypothalamus	rMPO	1	0	0
+hypothalamus	paraventricular nucleus	1	0	0
+hypothalamus	lPa	1	0	0
+hypothalamus	rPa	1	0	0
+hypothalamus	dorsal periventricular hypothalamic nucleus	1	0	0
+hypothalamus	lDPEH	1	0	0
+hypothalamus	rDPEH	1	0	0
+hypothalamus	lLH	1	0	0
+hypothalamus	lateral hypothalamus	1	0	0
+hypothalamus	rLH	1	0	0
+hypothalamus	lVM	1	0	0
+hypothalamus	ventromedial hypothalamus	1	0	0
+hypothalamus	rVM	1	0	0
+hypothalamus	arcuate hypothalamic nucleus	1	0	0
+hypothalamus	lAN	1	0	0
+hypothalamus	rAN	1	0	0
+hypothalamus	lPe	1	0	0
+hypothalamus	periventricular hypothalamic nucleus	1	0	0
+hypothalamus	rPe	1	0	0
+hypothalamus	bed nucleus of the stria terminalis	1	0	0
+hypothalamus	lBNST	1	0	0
+hypothalamus	rBNST	1	0	0
+hypothalamus	nucleus basalis of Meynert	1	0	0
+hypothalamus	lNBM	1	0	0
+hypothalamus	rNBM	1	0	0
+hypothalamus	lDM	1	0	0
+hypothalamus	dorsomedial hypothalamic nucleus	1	0	0
+hypothalamus	rDM	1	0	0
+hypothalamus	lZI	1	0	0
+hypothalamus	zona incerta	1	0	0
+hypothalamus	rZI	1	0	0
+hypothalamus	inferior thalamic peduncle	0	1	0
+hypothalamus	lITP	0	1	0
+hypothalamus	rITP	0	1	0
+hypothalamus	lSO	1	0	0
+hypothalamus	supraoptic hypothalamic nucleus	1	0	0
+hypothalamus	rSO	1	0	0
+hypothalamus	lSC	1	0	0
+hypothalamus	suprachiasmatic hypothalamic nucleus	1	0	0
+hypothalamus	rSC	1	0	0
+hypothalamus	tuberomammillary hypothalamic nucleus	1	0	0
+hypothalamus	lTM	1	0	0
+hypothalamus	rTM	1	0	0
+hypothalamus	lPH	1	0	0
+hypothalamus	posterior hypotahalamic nucleus	1	0	0
+hypothalamus	rPH	1	0	0
+hypothalamus	lAHA	1	0	0
+hypothalamus	anterior hypothalamic area	1	0	0
+hypothalamus	rAHA	1	0	0
+ibsr	lCbrWM	0	1	0
+ibsr	Left Cerebral White Matter	0	1	0
+ibsr	Left Cerebral Cortex	1	0	0
+ibsr	lCbrGM	1	0	0
+ibsr	Left Lateral Ventricle	0	0	1
+ibsr	lLatVen	0	0	1
+ibsr	Left Inf Lat Vent	0	0	1
+ibsr	lInfLatVen	0	0	1
+ibsr	Left Cerebellum White Matter	0	1	0
+ibsr	lCbeWM	0	1	0
+ibsr	lCbeGM	1	0	0
+ibsr	Left Cerebellum Cortex	1	0	0
+ibsr	Left Thalamus Proper	1	0	0
+ibsr	lThaPro	1	0	0
+ibsr	lCau	1	0	0
+ibsr	Left Caudate	1	0	0
+ibsr	lPut	1	0	0
+ibsr	Left Putamen	1	0	0
+ibsr	lPal	1	0	0
+ibsr	Left Pallidum	1	0	0
+ibsr	b3thVen	0	0	1
+ibsr	Bothside 3rd Ventricle	0	0	1
+ibsr	b4thVen	0	0	1
+ibsr	Bothside 4th Ventricle	0	0	1
+ibsr	Bothside Brain Stem	0	1	0
+ibsr	bBst	0	1	0
+ibsr	Left Hippocampus	1	0	0
+ibsr	lHip	1	0	0
+ibsr	Left Amygdala	1	0	0
+ibsr	lAmy	1	0	0
+ibsr	Bothside CSF	0	0	1
+ibsr	bCSF	0	0	1
+ibsr	lAcc	1	0	0
+ibsr	Left Accumbens area	1	0	0
+ibsr	lVenDC	1	1	0
+ibsr	Left Ventral Diencephalon	1	1	0
+ibsr	rCbrWM	0	1	0
+ibsr	Right Cerebral White Matter	0	1	0
+ibsr	Right Cerebral Cortex	1	0	0
+ibsr	rCbrGM	1	0	0
+ibsr	Right Lateral Ventricle	0	0	1
+ibsr	rLatVen	0	0	1
+ibsr	Right Inf Lat Vent	0	0	1
+ibsr	rInfLatVen	0	0	1
+ibsr	Right Cerebellum White Matter	0	1	0
+ibsr	rCbeWM	0	1	0
+ibsr	Right Cerebellum Cortex	1	0	0
+ibsr	rCbeGM	1	0	0
+ibsr	Right Thalamus Proper	1	0	0
+ibsr	rThaPro	1	0	0
+ibsr	rCau	1	0	0
+ibsr	Right Caudate	1	0	0
+ibsr	rPut	1	0	0
+ibsr	Right Putamen	1	0	0
+ibsr	Right Pallidum	1	0	0
+ibsr	rPal	1	0	0
+ibsr	rHip	1	0	0
+ibsr	Right Hippocampus	1	0	0
+ibsr	Right Amygdala	1	0	0
+ibsr	rAmy	1	0	0
+ibsr	rAcc	1	0	0
+ibsr	Right Accumbens area	1	0	0
+ibsr	Right Ventral Diencephalon	1	1	0
+ibsr	rVenDC	1	1	0
+lpba40	lSupFroG	1	1	0
+lpba40	Left Superior Frontal Gyrus	1	1	0
+lpba40	rSupFroG	1	1	0
+lpba40	Right Superior Frontal Gyrus	1	1	0
+lpba40	lMidFroG	1	1	0
+lpba40	Left Middle Frontal Gyrus	1	1	0
+lpba40	rMidFroG	1	1	0
+lpba40	Right Middle Frontal Gyrus	1	1	0
+lpba40	lInfFroG	1	1	0
+lpba40	Left Inferior Frontal Gyrus	1	1	0
+lpba40	rInfFroG	1	1	0
+lpba40	Right Inferior Frontal Gyrus	1	1	0
+lpba40	lPrcG	1	1	0
+lpba40	Left Precentral Gyrus	1	1	0
+lpba40	rPrcG	1	1	0
+lpba40	Right Precentral Gyrus	1	1	0
+lpba40	Left Middle Orbitofrontal Gyrus	1	1	0
+lpba40	lMidOrbG	1	1	0
+lpba40	Right Middle Orbitofrontal Gyrus	1	1	0
+lpba40	rMidOrbG	1	1	0
+lpba40	Left Lateral Orbitofrontal Gyrus	1	1	0
+lpba40	lLatOrbG	1	1	0
+lpba40	Right Lateral Orbitofrontal Gyrus	1	1	0
+lpba40	rLatOrbG	1	1	0
+lpba40	lRecG	1	1	0
+lpba40	Left Gyrus Rectus	1	1	0
+lpba40	Right Gyrus Rectus	1	1	0
+lpba40	rRecG	1	1	0
+lpba40	lPoCG	1	1	0
+lpba40	Left Postcentral Gyrus	1	1	0
+lpba40	rPoCG	1	1	0
+lpba40	Right Postcentral Gyrus	1	1	0
+lpba40	Left Superior Parietal Gyrus	1	1	0
+lpba40	lSupParG	1	1	0
+lpba40	rSupParG	1	1	0
+lpba40	Right Superior Parietal Gyrus	1	1	0
+lpba40	Left Supramarginal Gyrus	1	1	0
+lpba40	lSupMarG	1	1	0
+lpba40	rSupMarG	1	1	0
+lpba40	Right Supramarginal Gyrus	1	1	0
+lpba40	Left Angular Gyrus	1	1	0
+lpba40	lAngG	1	1	0
+lpba40	rAngG	1	1	0
+lpba40	Right Angular Gyrus	1	1	0
+lpba40	Left Precuneus	1	1	0
+lpba40	lPCu	1	1	0
+lpba40	Right Precuneus	1	1	0
+lpba40	rPCu	1	1	0
+lpba40	lSupOccG	1	1	0
+lpba40	Left Superior Occipital Gyrus	1	1	0
+lpba40	rSupOccG	1	1	0
+lpba40	Right Superior Occipital Gyrus	1	1	0
+lpba40	lMidOccG	1	1	0
+lpba40	Left Middle Occipital Gyrus	1	1	0
+lpba40	rMidOccG	1	1	0
+lpba40	Right Middle Occipital Gyrus	1	1	0
+lpba40	lInfOccG	1	1	0
+lpba40	Left Inferior Occipital Gyrus	1	1	0
+lpba40	Right Inferior Occipital Gyrus	1	1	0
+lpba40	rInfOccG	1	1	0
+lpba40	Left Cuneus	1	1	0
+lpba40	lCun	1	1	0
+lpba40	rCun	1	1	0
+lpba40	Right Cuneus	1	1	0
+lpba40	lSupTemG	1	1	0
+lpba40	Left Superior Temporal Gyrus	1	1	0
+lpba40	Right Superior Temporal Gyrus	1	1	0
+lpba40	rSupTemG	1	1	0
+lpba40	Left Middle Temporal Gyrus	1	1	0
+lpba40	lMidTemG	1	1	0
+lpba40	Right Middle Temporal Gyrus	1	1	0
+lpba40	rMidTemG	1	1	0
+lpba40	lInfTemG	1	1	0
+lpba40	Left Inferior Temporal Gyrus	1	1	0
+lpba40	Right Inferior Temporal Gyrus	1	1	0
+lpba40	rInfTemG	1	1	0
+lpba40	lParHipG	1	1	0
+lpba40	Left Parahippocampal Gyrus	1	1	0
+lpba40	rParHipG	1	1	0
+lpba40	Right Parahippocampal Gyrus	1	1	0
+lpba40	Left Lingual Gyrus	1	1	0
+lpba40	lLinG	1	1	0
+lpba40	rLinG	1	1	0
+lpba40	Right Lingual Gyrus	1	1	0
+lpba40	Left Fusiform Gyrus	1	1	0
+lpba40	lFusG	1	1	0
+lpba40	Right Fusiform Gyrus	1	1	0
+lpba40	rFusG	1	1	0
+lpba40	lIns	1	1	0
+lpba40	Left Insula	1	1	0
+lpba40	rIns	1	1	0
+lpba40	Right Insula	1	1	0
+lpba40	lCinG	1	1	0
+lpba40	Left Cingulate Gyrus	1	1	0
+lpba40	Right Cingulate Gyrus	1	1	0
+lpba40	rCinG	1	1	0
+lpba40	lCau	1	0	0
+lpba40	Left Caudate	1	0	0
+lpba40	rCau	1	0	0
+lpba40	Right Caudate	1	0	0
+lpba40	lPut	1	0	0
+lpba40	Left Putamen	1	0	0
+lpba40	rPut	1	0	0
+lpba40	Right Putamen	1	0	0
+lpba40	Left Hippocampus	1	0	0
+lpba40	lHip	1	0	0
+lpba40	rHip	1	0	0
+lpba40	Right Hippocampus	1	0	0
+lpba40	bCBeL	1	1	0
+lpba40	Bothside Cerebellar Lobe	1	1	0
+lpba40	bBst	0	1	0
+lpba40	Bothside Brainstem	0	1	0
+mori	lSupParLo	1	0	0
+mori	Left Superior Parietal Lobule	1	0	0
+mori	Right Superior Parietal Lobule	1	0	0
+mori	rSupParLo	1	0	0
+mori	lCinGy	1	0	0
+mori	Left Cingulate Gyrus	1	0	0
+mori	Right Cingulate Gyrus	1	0	0
+mori	rCinGy	1	0	0
+mori	lSupFroGy	1	0	0
+mori	Left Superior Frontal Gyrus	1	0	0
+mori	rSupFroGy	1	0	0
+mori	Right Superior Frontal Gyrus	1	0	0
+mori	lMidFroGy	1	0	0
+mori	Left Middle Frontal Gyrus	1	0	0
+mori	rMidFroGy	1	0	0
+mori	Right Middle Frontal Gyrus	1	0	0
+mori	lFroGy	1	0	0
+mori	Left Frontal Gyrus	1	0	0
+mori	rFroGy	1	0	0
+mori	Right Frontal Gyrus	1	0	0
+mori	lPrcGy	1	0	0
+mori	Left Precentral Gyrus	1	0	0
+mori	rPrcGy	1	0	0
+mori	Right Precentral Gyrus	1	0	0
+mori	Left Postcentral Gyrus	1	0	0
+mori	lPoCGy	1	0	0
+mori	rPoCGy	1	0	0
+mori	Right Postcentral Gyrus	1	0	0
+mori	Left Angular Gyrus	1	0	0
+mori	lAngGy	1	0	0
+mori	rAngGy	1	0	0
+mori	Right Angular Gyrus	1	0	0
+mori	Left Cuneus	1	0	0
+mori	lCun	1	0	0
+mori	rCun	1	0	0
+mori	Right Cuneus	1	0	0
+mori	lLinGy	1	0	0
+mori	Left Lingual Gyrus	1	0	0
+mori	rLinGy	1	0	0
+mori	Right Lingual Gyrus	1	0	0
+mori	Left Fusiform Gyrus	1	0	0
+mori	lFusGy	1	0	0
+mori	Right Fusiform Gyrus	1	0	0
+mori	rFusGy	1	0	0
+mori	lParHipGy	1	0	0
+mori	Left Parahippocampus Gyrus	1	0	0
+mori	rParHipGy	1	0	0
+mori	Right Parahippocampus Gyrus	1	0	0
+mori	lSupOccGy	1	0	0
+mori	Left Superior Occipital Gyrus	1	0	0
+mori	rSupOccGy	1	0	0
+mori	Right Superior Occipital Gyrus	1	0	0
+mori	Left Occipital Gyrus	1	0	0
+mori	lOccGy	1	0	0
+mori	rOccGy	1	0	0
+mori	Right Occipital Gyrus	1	0	0
+mori	lMidOccGy	1	0	0
+mori	Left Middle Occipital Gyrus	1	0	0
+mori	rMidOccGy	1	0	0
+mori	Right Middle Occipital Gyrus	1	0	0
+mori	Left Entorhinal Area	1	0	0
+mori	lEnt	1	0	0
+mori	rEnt	1	0	0
+mori	Right Entorhinal Area	1	0	0
+mori	lSupTemGy	1	0	0
+mori	Left Superior Temporal Gyrus	1	0	0
+mori	Right Superior Temporal Gyrus	1	0	0
+mori	rSupTemGy	1	0	0
+mori	Left Temporal Gyrus	1	0	0
+mori	lTemGy	1	0	0
+mori	rTemGy	1	0	0
+mori	Right Temporal Gyrus	1	0	0
+mori	Left Middle Temporal Gyrus	1	0	0
+mori	lMidTemGy	1	0	0
+mori	Right Middle Temporal Gyrus	1	0	0
+mori	rMidTemGy	1	0	0
+mori	Left Lateral Orbital Gyrus	1	0	0
+mori	lLatOrbGy	1	0	0
+mori	rLatOrbGy	1	0	0
+mori	Right Lateral Orbital Gyrus	1	0	0
+mori	lMidOrbGy	1	0	0
+mori	Left Middle Orbital Gyrus	1	0	0
+mori	Right Middle Orbital Gyrus	1	0	0
+mori	rMidOrbGy	1	0	0
+mori	Left Supramarginal Gyrus	1	0	0
+mori	lSupMarGy	1	0	0
+mori	rSupMarGy	1	0	0
+mori	Right Supramarginal Gyrus	1	0	0
+mori	lRecGy	1	0	0
+mori	Left Gyrus Rectus	1	0	0
+mori	Right Gyrus Rectus	1	0	0
+mori	rRecGy	1	0	0
+mori	lIns	1	0	0
+mori	Left Insula	1	0	0
+mori	rIns	1	0	0
+mori	Right Insula	1	0	0
+mori	Left Amygdala	1	0	0
+mori	lAmy	1	0	0
+mori	Right Amygdala	1	0	0
+mori	rAmy	1	0	0
+mori	Left Hippocampus	1	0	0
+mori	lHip	1	0	0
+mori	rHip	1	0	0
+mori	Right Hippocampus	1	0	0
+mori	Left Cerebellum	1	1	0
+mori	lCbe	1	1	0
+mori	rCbe	1	1	0
+mori	Right Cerebellum	1	1	0
+mori	Left corticospinal_tract	0	1	0
+mori	lCST	0	1	0
+mori	Right corticospinal_tract	0	1	0
+mori	rCST	0	1	0
+mori	lCbePed	0	1	0
+mori	Left Cerebellar Peduncle	0	1	0
+mori	rCbePed	0	1	0
+mori	Right Cerebellar Peduncle	0	1	0
+mori	Left Medial Lemniscus	0	1	0
+mori	lMedLem	0	1	0
+mori	Right Medial Lemniscus	0	1	0
+mori	rMedLem	0	1	0
+mori	Left Superior Cerebellar Peduncle	0	1	0
+mori	lSupCbePed	0	1	0
+mori	Right Superior Cerebellar Peduncle	0	1	0
+mori	rSupCbePed	0	1	0
+mori	Left Cerebral Peduncle	0	1	0
+mori	lCbrPed	0	1	0
+mori	Right Cerebral Peduncle	0	1	0
+mori	rCbrPed	0	1	0
+mori	Left Anterior Capsule Limb of Internal	0	1	0
+mori	lAntCapLIC	0	1	0
+mori	rAntCapLIC	0	1	0
+mori	Right Anterior Capsule Limb of Internal	0	1	0
+mori	lPosCapLIC	0	1	0
+mori	Left Posterior Capsule Limb of Internal	0	1	0
+mori	Right Posterior Capsule Limb of Internal	0	1	0
+mori	rPosCapLIC	0	1	0
+mori	lPosThR	0	1	0
+mori	Left Posterior Thalamic Radiation	0	1	0
+mori	Right Posterior Thalamic Radiation	0	1	0
+mori	rPosThR	0	1	0
+mori	lAntCR	0	1	0
+mori	Left Anterior Corona Radiata	0	1	0
+mori	Right Anterior Corona Radiata	0	1	0
+mori	rAntCR	0	1	0
+mori	Left Superior Corona Radiata	0	1	0
+mori	lSupCR	0	1	0
+mori	rSupCR	0	1	0
+mori	Right Superior Corona Radiata	0	1	0
+mori	lPosCR	0	1	0
+mori	Left Posterior Corona Radiata	0	1	0
+mori	rPosCR	0	1	0
+mori	Right Posterior Corona Radiata	0	1	0
+mori	lCin+CinGy	0	1	0
+mori	Left Cingulate and Cingulum Gyrus	0	1	0
+mori	Right Cingulate and Cingulum Gyrus	0	1	0
+mori	rCin+CinGy	0	1	0
+mori	Left Cingulum and Hippocampus	1	1	0
+mori	lCin+Hip	1	1	0
+mori	rCin+Hip	1	1	0
+mori	Right Cingulum and Hippocampus	1	1	0
+mori	Left Fornix Stria Terminalis	0	1	0
+mori	lForStrTer	0	1	0
+mori	rForStrTer	0	1	0
+mori	Right Fornix Stria Terminalis	0	1	0
+mori	lSupLonLon	0	1	0
+mori	Left Superior Longitudinal Longitudinal	0	1	0
+mori	rSupLonLon	0	1	0
+mori	Right Superior Longitudinal Longitudinal	0	1	0
+mori	lSupOcc	0	1	0
+mori	Left Superior Occipital	0	1	0
+mori	Right Superior Occipital	0	1	0
+mori	rSupOcc	0	1	0
+mori	lOcc	0	1	0
+mori	Left Occipital	0	1	0
+mori	Right Occipital	0	1	0
+mori	rOcc	0	1	0
+mori	Left Sagital Stratum	0	1	0
+mori	lSagStr	0	1	0
+mori	rSagStr	0	1	0
+mori	Right Sagital Stratum	0	1	0
+mori	Left Capsule External	0	1	0
+mori	lCapExt	0	1	0
+mori	rCapExt	0	1	0
+mori	Right Capsule External	0	1	0
+mori	lUNC	0	1	0
+mori	Left Uncinate	0	1	0
+mori	rUNC	0	1	0
+mori	Right Uncinate	0	1	0
+mori	Left Pontine Crossing Tract	0	1	0
+mori	lPCT	0	1	0
+mori	rPCT	0	1	0
+mori	Right Pontine Crossing Tract	0	1	0
+mori	lMidCbePed	0	1	0
+mori	Left Middle Cerebellar Peduncle	0	1	0
+mori	rMidCbePed	0	1	0
+mori	Right Middle Cerebellar Peduncle	0	1	0
+mori	lBodForCol	0	1	0
+mori	Left (Body) Fornix Column	0	1	0
+mori	rBodForCol	0	1	0
+mori	Right (Body) Fornix Column	0	1	0
+mori	lCCGen	0	1	0
+mori	Left Corpus Callosum (Genu)	0	1	0
+mori	Right Corpus Callosum (Genu)	0	1	0
+mori	rCCGen	0	1	0
+mori	Left Corpus Callosum (Body)	0	1	0
+mori	lCCBod	0	1	0
+mori	Right Corpus Callosum (Body)	0	1	0
+mori	rCCBod	0	1	0
+mori	lCC	0	1	0
+mori	Left Corpus Callosum	0	1	0
+mori	Right Corpus Callosum	0	1	0
+mori	rCC	0	1	0
+mori	Left Capsule Retrolenticular_part_of_internal_capsule	0	1	0
+mori	lCapRetLenINC	0	1	0
+mori	Right Capsule Retrolenticular_part_of_internal_capsule	0	1	0
+mori	rCapRetLenINC	0	1	0
+mori	lRedNuc	0	1	0
+mori	Left Red-Nucleus	0	1	0
+mori	Right Red-Nucleus	0	1	0
+mori	rRedNuc	0	1	0
+mori	Left Substancia-Nigra	0	1	0
+mori	lSubNig	0	1	0
+mori	Right Substancia-Nigra	0	1	0
+mori	rSubNig	0	1	0
+mori	Left Tapatum	0	1	0
+mori	lTap	0	1	0
+mori	Right Tapatum	0	1	0
+mori	rTap	0	1	0
+mori	Left Caudate Nucleus	1	0	0
+mori	lCauNuc	1	0	0
+mori	rCauNuc	1	0	0
+mori	Right Caudate Nucleus	1	0	0
+mori	lPut	1	0	0
+mori	Left Putamen	1	0	0
+mori	rPut	1	0	0
+mori	Right Putamen	1	0	0
+mori	lTha	1	0	0
+mori	Left Thalamus	1	0	0
+mori	Right Thalamus	1	0	0
+mori	rTha	1	0	0
+mori	Left Globus Pallidus	1	0	0
+mori	lGloPal	1	0	0
+mori	Right Globus Pallidus	1	0	0
+mori	rGloPal	1	0	0
+mori	Left Midbrain	0	1	0
+mori	lMBR	0	1	0
+mori	Right Midbrain	0	1	0
+mori	rMBR	0	1	0
+mori	lPNS	0	1	0
+mori	Left Pons	0	1	0
+mori	rPNS	0	1	0
+mori	Right Pons	0	1	0
+mori	Left Medulla	0	1	0
+mori	lMDA	0	1	0
+mori	rMDA	0	1	0
+mori	Right Medulla	0	1	0
+neuromorphometrics	3rd Ventricle	0	0	1
+neuromorphometrics	4th Ventricle	0	0	1
+neuromorphometrics	Right Accumbens Area	1	0	0
+neuromorphometrics	Left Accumbens Area	1	0	0
+neuromorphometrics	Right Amygdala	1	0	0
+neuromorphometrics	Left Amygdala	1	0	0
+neuromorphometrics	Brain Stem	0	1	0
+neuromorphometrics	Right Caudate	1	0	0
+neuromorphometrics	Left Caudate	1	0	0
+neuromorphometrics	Right Cerebellum Exterior	1	0	0
+neuromorphometrics	Left Cerebellum Exterior	1	0	0
+neuromorphometrics	Right Cerebellum White Matter	0	1	0
+neuromorphometrics	Left Cerebellum White Matter	0	1	0
+neuromorphometrics	Right Cerebral White Matter	0	1	0
+neuromorphometrics	Left Cerebral White Matter	0	1	0
+neuromorphometrics	CSF	0	0	1
+neuromorphometrics	Right Hippocampus	1	0	0
+neuromorphometrics	Left Hippocampus	1	0	0
+neuromorphometrics	Right Inf Lat Vent	0	0	1
+neuromorphometrics	Left Inf Lat Vent	0	0	1
+neuromorphometrics	Right Lateral Ventricle	0	0	1
+neuromorphometrics	Left Lateral Ventricle	0	0	1
+neuromorphometrics	Right Pallidum	1	0	0
+neuromorphometrics	Left Pallidum	1	0	0
+neuromorphometrics	Right Putamen	1	0	0
+neuromorphometrics	Left Putamen	1	0	0
+neuromorphometrics	Right Thalamus Proper	1	0	0
+neuromorphometrics	Left Thalamus Proper	1	0	0
+neuromorphometrics	Right Ventral DC	1	1	0
+neuromorphometrics	Left Ventral DC	1	1	0
+neuromorphometrics	Right vessel	0	0	0
+neuromorphometrics	Left vessel	0	0	0
+neuromorphometrics	Optic Chiasm	1	0	0
+neuromorphometrics	Cerebellar Vermal Lobules I-V	1	1	0
+neuromorphometrics	Cerebellar Vermal Lobules VI-VII	1	1	0
+neuromorphometrics	Cerebellar Vermal Lobules VIII-X	1	1	0
+neuromorphometrics	Left Basal Forebrain	1	0	0
+neuromorphometrics	Right Basal Forebrain	1	0	0
+neuromorphometrics	Right ACgG anterior cingulate gyrus	1	0	0
+neuromorphometrics	Left ACgG anterior cingulate gyrus	1	0	0
+neuromorphometrics	Right AIns anterior insula	1	0	0
+neuromorphometrics	Left AIns anterior insula	1	0	0
+neuromorphometrics	Right AOrG anterior orbital gyrus	1	0	0
+neuromorphometrics	Left AOrG anterior orbital gyrus	1	0	0
+neuromorphometrics	Right AnG angular gyrus	1	0	0
+neuromorphometrics	Left AnG angular gyrus	1	0	0
+neuromorphometrics	Right Calc calcarine cortex	1	0	0
+neuromorphometrics	Left Calc calcarine cortex	1	0	0
+neuromorphometrics	Right CO central operculum	1	0	0
+neuromorphometrics	Left CO central operculum	1	0	0
+neuromorphometrics	Right Cun cuneus	1	0	0
+neuromorphometrics	Left Cun cuneus	1	0	0
+neuromorphometrics	Right Ent entorhinal area	1	0	0
+neuromorphometrics	Left Ent entorhinal area	1	0	0
+neuromorphometrics	Right FO frontal operculum	1	0	0
+neuromorphometrics	Left FO frontal operculum	1	0	0
+neuromorphometrics	Right FRP frontal pole	1	0	0
+neuromorphometrics	Left FRP frontal pole	1	0	0
+neuromorphometrics	Right FuG fusiform gyrus	1	0	0
+neuromorphometrics	Left FuG fusiform gyrus	1	0	0
+neuromorphometrics	Right GRe gyrus rectus	1	0	0
+neuromorphometrics	Left GRe gyrus rectus	1	0	0
+neuromorphometrics	Right IOG inferior occipital gyrus	1	0	0
+neuromorphometrics	Left IOG inferior occipital gyrus	1	0	0
+neuromorphometrics	Right ITG inferior temporal gyrus	1	0	0
+neuromorphometrics	Left ITG inferior temporal gyrus	1	0	0
+neuromorphometrics	Right LiG lingual gyrus	1	0	0
+neuromorphometrics	Left LiG lingual gyrus	1	0	0
+neuromorphometrics	Right LOrG lateral orbital gyrus	1	0	0
+neuromorphometrics	Left LOrG lateral orbital gyrus	1	0	0
+neuromorphometrics	Right MCgG middle cingulate gyrus	1	0	0
+neuromorphometrics	Left MCgG middle cingulate gyrus	1	0	0
+neuromorphometrics	Right MFC medial frontal cortex	1	0	0
+neuromorphometrics	Left MFC medial frontal cortex	1	0	0
+neuromorphometrics	Right MFG middle frontal gyrus	1	0	0
+neuromorphometrics	Left MFG middle frontal gyrus	1	0	0
+neuromorphometrics	Right MOG middle occipital gyrus	1	0	0
+neuromorphometrics	Left MOG middle occipital gyrus	1	0	0
+neuromorphometrics	Right MOrG medial orbital gyrus	1	0	0
+neuromorphometrics	Left MOrG medial orbital gyrus	1	0	0
+neuromorphometrics	Right MPoG postcentral gyrus medial segment	1	0	0
+neuromorphometrics	Left MPoG postcentral gyrus medial segment	1	0	0
+neuromorphometrics	Right MPrG precentral gyrus medial segment	1	0	0
+neuromorphometrics	Left MPrG precentral gyrus medial segment	1	0	0
+neuromorphometrics	Right MSFG superior frontal gyrus medial segment	1	0	0
+neuromorphometrics	Left MSFG superior frontal gyrus medial segment	1	0	0
+neuromorphometrics	Right MTG middle temporal gyrus	1	0	0
+neuromorphometrics	Left MTG middle temporal gyrus	1	0	0
+neuromorphometrics	Right OCP occipital pole	1	0	0
+neuromorphometrics	Left OCP occipital pole	1	0	0
+neuromorphometrics	Right OFuG occipital fusiform gyrus	1	0	0
+neuromorphometrics	Left OFuG occipital fusiform gyrus	1	0	0
+neuromorphometrics	Right OpIFG opercular part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Left OpIFG opercular part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Right OrIFG orbital part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Left OrIFG orbital part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Right PCgG posterior cingulate gyrus	1	0	0
+neuromorphometrics	Left PCgG posterior cingulate gyrus	1	0	0
+neuromorphometrics	Right PCu precuneus	1	0	0
+neuromorphometrics	Left PCu precuneus	1	0	0
+neuromorphometrics	Right PHG parahippocampal gyrus	1	0	0
+neuromorphometrics	Left PHG parahippocampal gyrus	1	0	0
+neuromorphometrics	Right PIns posterior insula	1	0	0
+neuromorphometrics	Left PIns posterior insula	1	0	0
+neuromorphometrics	Right PO parietal operculum	1	0	0
+neuromorphometrics	Left PO parietal operculum	1	0	0
+neuromorphometrics	Right PoG postcentral gyrus	1	0	0
+neuromorphometrics	Left PoG postcentral gyrus	1	0	0
+neuromorphometrics	Right POrG posterior orbital gyrus	1	0	0
+neuromorphometrics	Left POrG posterior orbital gyrus	1	0	0
+neuromorphometrics	Right PP planum polare	1	0	0
+neuromorphometrics	Left PP planum polare	1	0	0
+neuromorphometrics	Right PrG precentral gyrus	1	0	0
+neuromorphometrics	Left PrG precentral gyrus	1	0	0
+neuromorphometrics	Right PT planum temporale	1	0	0
+neuromorphometrics	Left PT planum temporale	1	0	0
+neuromorphometrics	Right SCA subcallosal area	1	0	0
+neuromorphometrics	Left SCA subcallosal area	1	0	0
+neuromorphometrics	Right SFG superior frontal gyrus	1	0	0
+neuromorphometrics	Left SFG superior frontal gyrus	1	0	0
+neuromorphometrics	Right SMC supplementary motor cortex	1	0	0
+neuromorphometrics	Left SMC supplementary motor cortex	1	0	0
+neuromorphometrics	Right SMG supramarginal gyrus	1	0	0
+neuromorphometrics	Left SMG supramarginal gyrus	1	0	0
+neuromorphometrics	Right SOG superior occipital gyrus	1	0	0
+neuromorphometrics	Left SOG superior occipital gyrus	1	0	0
+neuromorphometrics	Right SPL superior parietal lobule	1	0	0
+neuromorphometrics	Left SPL superior parietal lobule	1	0	0
+neuromorphometrics	Right STG superior temporal gyrus	1	0	0
+neuromorphometrics	Left STG superior temporal gyrus	1	0	0
+neuromorphometrics	Right TMP temporal pole	1	0	0
+neuromorphometrics	Left TMP temporal pole	1	0	0
+neuromorphometrics	Right TrIFG triangular part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Left TrIFG triangular part of the inferior frontal gyrus	1	0	0
+neuromorphometrics	Right TTG transverse temporal gyrus	1	0	0
+neuromorphometrics	Left TTG transverse temporal gyrus	1	0	0

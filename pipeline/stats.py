@@ -634,7 +634,16 @@ def _read_cat12_atlas_values(stats_dir: Path, atlas: str, stat: str) -> dict[str
             key = _cortical_feature_key(region, hemi)
             if key and volume:
                 _put_value(values, key, volume)
+    _apply_cat12_native_aliases(values)
     return values
+
+
+def _apply_cat12_native_aliases(values: dict[str, str]) -> None:
+    """Map native CAT12 labels to the configured feature names."""
+    for side in ("Left", "Right"):
+        _copy_value_alias(values, f"{side} Cerebellum Cortex", f"{side} Cerebellum Exterior")
+        _copy_value_alias(values, f"{side} Thalamus", f"{side} Thalamus Proper")
+        _copy_value_alias(values, f"{side} VentralDC", f"{side} Ventral DC")
 
 
 def _read_projected_atlas_values(stats_dir: Path, atlas: str) -> dict[str, str]:
