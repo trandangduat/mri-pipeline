@@ -7,6 +7,7 @@ import os
 import re
 import struct
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import xml.etree.ElementTree as ET
@@ -37,6 +38,15 @@ CAT12_TISSUE_NAMES = {
     "vol_rel_cgw": ["relative cerebrospinal fluid", "relative gray matter", "relative white matter"],
 }
 
+# Native CAT12 ROI tables store tissue arrays under these element names.
+CAT12_TISSUE_TAGS = {"vgm": "gm", "vwm": "wm", "vcsf": "csf"}
+
+CAT12_CSF_REGION_MARKERS = ("ventricle", "csf", "cerebrospinal")
+CAT12_WM_REGION_MARKERS = (
+    "white_matter", "corpus_callosum", "capsule", "fasciculus", "tract",
+    "peduncle", "radiation", "cingulum", "fornix",
+)
+
 
 def _xml_tag(element: ET.Element) -> str:
     return element.tag.rsplit("}", 1)[-1]
@@ -48,7 +58,54 @@ def _numeric_tokens(value: Optional[str]) -> List[str]:
 
 def _is_volume_tag(tag: str) -> bool:
     norm = _norm_name(tag)
-    return norm in {"volume", "vol", "vgm", "vwm", "vcsf"} or norm.startswith("vol_")
+    return norm in {"volume", "vol"} or norm.startswith("vol_")
+
+
+def _tissue_of_tag(tag: str) -> Optional[str]:
+    return CAT12_TISSUE_TAGS.get(_norm_name(tag))
+
+
+def _is_cat12_volume_value_tag(tag: str) -> bool:
+    return _is_volume_tag(tag) or _tissue_of_tag(tag) is not None
+
+
+def _ml_to_mm3(value: Optional[str]) -> str:
+    """Convert a native CAT12 volume in mL to mm3. Non-numeric input is kept as-is."""
+    text = (value or "").strip()
+    if not text:
+        return value or ""
+    try:
+        scaled = Decimal(text) * 1000
+    except (InvalidOperation, ValueError):
+        return text
+    if not scaled.is_finite():
+        return text
+    out = format(scaled, "f")
+    if "." in out:
+        out = out.rstrip("0").rstrip(".")
+    return out or "0"
+
+
+def _sum_ml(values: List[str]) -> str:
+    total = Decimal(0)
+    for value in values:
+        try:
+            total += Decimal(value)
+        except (InvalidOperation, ValueError):
+            return values[0]
+    return format(total, "f")
+
+
+def _cat12_region_tissues(region: str) -> Tuple[str, ...]:
+    """Return the native tissue fields that make up a CAT12 region."""
+    norm = _norm_name(region)
+    if "intracranial" in norm:
+        return ("gm", "wm", "csf")
+    if any(marker in norm for marker in CAT12_CSF_REGION_MARKERS):
+        return ("csf",)
+    if any(marker in norm for marker in CAT12_WM_REGION_MARKERS):
+        return ("wm",)
+    return ("gm",)
 
 
 def _is_thickness_tag(tag: str) -> bool:
@@ -107,8 +164,13 @@ def _classify_cat12_region(name: str, atlas: str = "") -> str:
     return "cortical" if any(marker in norm for marker in cortical_markers) else "subcortical"
 
 
-def _append_unique(row: List[str], rows: List[List[str]], seen: Set[Tuple[str, str]]) -> None:
-    key = (row[1], row[2])
+def _append_unique(
+    row: List[str],
+    rows: List[List[str]],
+    seen: Set[Tuple[str, ...]],
+    key_indexes: Tuple[int, ...] = (1, 2),
+) -> None:
+    key = tuple(row[index] for index in key_indexes)
     if key in seen:
         return
     seen.add(key)
@@ -122,8 +184,8 @@ def _append_cat12_roi_volume(
     tool: str,
     sub_rows: List[List[str]],
     cort_rows: List[List[str]],
-    seen_sub: Set[Tuple[str, str]],
-    seen_cort: Set[Tuple[str, str]],
+    seen_sub: Set[Tuple[str, ...]],
+    seen_cort: Set[Tuple[str, ...]],
     atlas: str = "",
 ) -> None:
     if _classify_cat12_region(region, atlas) == "cortical":
@@ -140,13 +202,69 @@ def _cat12_vector_value_elements(parent: ET.Element, predicate) -> List[ET.Eleme
     return elements
 
 
+def _cat12_volume_arrays(parent: ET.Element) -> Tuple[Dict[str, List[str]], Optional[List[str]]]:
+    """Collect native tissue arrays (Vgm/Vwm/Vcsf) and a generic volume array."""
+    arrays: Dict[str, List[str]] = {}
+    generic: Optional[List[str]] = None
+    for child in _cat12_vector_value_elements(parent, _is_cat12_volume_value_tag):
+        numbers = _numeric_tokens(child.text)
+        if not numbers:
+            continue
+        kind = _tissue_of_tag(_xml_tag(child))
+        if kind is None:
+            if generic is None:
+                generic = numbers
+        else:
+            arrays.setdefault(kind, numbers)
+    return arrays, generic
+
+
+def _match_cat12_array_length(
+    arrays: Dict[str, List[str]],
+    generic: Optional[List[str]],
+    count: int,
+) -> Tuple[Dict[str, List[str]], Optional[List[str]]]:
+    matched = {kind: values for kind, values in arrays.items() if len(values) == count}
+    if generic is not None and len(generic) != count:
+        generic = None
+    return matched, generic
+
+
+def _cat12_pick_volume_mm3(
+    region: str,
+    arrays: Dict[str, List[str]],
+    generic: Optional[List[str]],
+    index: int,
+) -> Optional[str]:
+    """Pick the native tissue volume for a region and convert it to mm3."""
+    wanted = _cat12_region_tissues(region)
+    values = [
+        arrays[kind][index]
+        for kind in wanted
+        if kind in arrays and index < len(arrays[kind])
+    ]
+    if values:
+        return _ml_to_mm3(_sum_ml(values) if len(values) > 1 else values[0])
+    if generic is not None and index < len(generic):
+        return _ml_to_mm3(generic[index])
+    for kind in ("gm", "wm", "csf"):
+        if kind in arrays and index < len(arrays[kind]):
+            print(
+                f"normalize_volumes: no {'/'.join(wanted)} volume for region "
+                f"{region!r}; using {kind}.",
+                file=sys.stderr,
+            )
+            return _ml_to_mm3(arrays[kind][index])
+    return None
+
+
 def _append_cat12_roi_thickness(
     subject_id: str,
     region: str,
     value: str,
     tool: str,
     rows: List[List[str]],
-    seen: Set[Tuple[str, str]],
+    seen: Set[Tuple[str, ...]],
 ) -> None:
     cortical = _split_cortical_name(region)
     if cortical:
@@ -161,22 +279,30 @@ def _cat12_report_rows(report_xml: Path, subject_id: str, tool: str) -> List[Lis
         return []
     root = ET.parse(report_xml).getroot()
     rows: List[List[str]] = []
-    seen: Set[Tuple[str, str]] = set()
+    seen: Set[Tuple[str, ...]] = set()
     for element in root.iter():
         tag = _norm_name(_xml_tag(element))
         numbers = _numeric_tokens(element.text)
         if not numbers:
             continue
         if tag == "vol_tiv":
-            _append_unique([subject_id, "total intracranial", numbers[0], tool], rows, seen)
+            _append_unique(
+                [subject_id, "total intracranial", _ml_to_mm3(numbers[0]), tool], rows, seen, (1,)
+            )
             continue
+        relative = tag.startswith("vol_rel_")
         tissue_names = CAT12_TISSUE_NAMES.get(tag)
         if tissue_names:
             for name, value in zip(tissue_names, numbers):
-                _append_unique([subject_id, name, value, tool], rows, seen)
+                _append_unique(
+                    [subject_id, name, value if relative else _ml_to_mm3(value), tool],
+                    rows, seen, (1,),
+                )
             continue
         if tag.startswith("vol_") and len(numbers) == 1:
-            _append_unique([subject_id, tag.removeprefix("vol_").replace("_", " "), numbers[0], tool], rows, seen)
+            name = tag.removeprefix("vol_").replace("_", " ")
+            value = numbers[0] if relative else _ml_to_mm3(numbers[0])
+            _append_unique([subject_id, name, value, tool], rows, seen, (1,))
     return rows
 
 
@@ -186,35 +312,52 @@ def _cat12_roi_rows(roi_xml: Path, subject_id: str, tool: str) -> Tuple[List[Lis
     root = ET.parse(roi_xml).getroot()
     sub_rows: List[List[str]] = []
     cort_rows: List[List[str]] = []
-    seen_sub: Set[Tuple[str, str]] = set()
-    seen_cort: Set[Tuple[str, str]] = set()
+    seen_sub: Set[Tuple[str, ...]] = set()
+    seen_cort: Set[Tuple[str, ...]] = set()
     for parent in root.iter():
         region_names: List[str] = []
         for child in list(parent):
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
+        arrays, generic = _cat12_volume_arrays(parent)
         if region_names:
             atlas = _xml_tag(parent)
-            for child in _cat12_vector_value_elements(parent, _is_volume_tag):
-                numbers = _numeric_tokens(child.text)
-                if len(numbers) != len(region_names):
+            arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
+            for index, region in enumerate(region_names):
+                value = _cat12_pick_volume_mm3(region, arrays, generic, index)
+                if value is None:
                     continue
-                for region, value in zip(region_names, numbers):
-                    _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas)
+                _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas)
 
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
             continue
-        for child in list(parent):
-            tag = _xml_tag(child)
-            if not _is_volume_tag(tag):
-                continue
-            numbers = _numeric_tokens(child.text)
-            if not numbers:
-                continue
-            value = numbers[0]
-            _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort)
+        arrays, generic = _match_cat12_array_length(arrays, generic, 1)
+        value = _cat12_pick_volume_mm3(region, arrays, generic, 0)
+        if value is None:
+            continue
+        _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort)
     return sub_rows, cort_rows
+
+
+def _append_cat12_atlas_row(
+    subject_id: str,
+    atlas_key: str,
+    atlas_tag: str,
+    region: str,
+    value: str,
+    tool: str,
+    sub_rows: List[List[str]],
+    cort_rows: List[List[str]],
+) -> None:
+    if _classify_cat12_region(region, atlas_tag) == "cortical":
+        cortical = _split_cortical_name(region)
+        if cortical:
+            cort_rows.append([subject_id, atlas_key, cortical[0], cortical[1], value, tool])
+        else:
+            cort_rows.append([subject_id, atlas_key, region, "both", value, tool])
+    else:
+        sub_rows.append([subject_id, atlas_key, region, value, tool])
 
 
 def _cat12_atlas_roi_rows(
@@ -230,6 +373,7 @@ def _cat12_atlas_roi_rows(
         for child in list(parent):
             if _norm_name(_xml_tag(child)) in {"names", "labels", "roi_names", "roinames", "regions"}:
                 region_names.extend(_text_items(child))
+        arrays, generic = _cat12_volume_arrays(parent)
         if region_names:
             atlas_tag = _xml_tag(parent)
             atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag, "")
@@ -237,19 +381,14 @@ def _cat12_atlas_roi_rows(
                 atlas_key = CAT12_ATLAS_NODE_TO_KEY.get(atlas_tag.lower(), "")
             if not atlas_key:
                 atlas_key = f"cat12_{_norm_name(atlas_tag)}"
-            for child in _cat12_vector_value_elements(parent, _is_volume_tag):
-                numbers = _numeric_tokens(child.text)
-                if len(numbers) != len(region_names):
+            arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
+            for index, region in enumerate(region_names):
+                value = _cat12_pick_volume_mm3(region, arrays, generic, index)
+                if value is None:
                     continue
-                for region, value in zip(region_names, numbers):
-                    if _classify_cat12_region(region, atlas_tag) == "cortical":
-                        cortical = _split_cortical_name(region)
-                        if cortical:
-                            cort_rows.append([subject_id, atlas_key, cortical[0], cortical[1], value, tool])
-                        else:
-                            cort_rows.append([subject_id, atlas_key, region, "both", value, tool])
-                    else:
-                        sub_rows.append([subject_id, atlas_key, region, value, tool])
+                _append_cat12_atlas_row(
+                    subject_id, atlas_key, atlas_tag, region, value, tool, sub_rows, cort_rows
+                )
 
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
@@ -260,22 +399,13 @@ def _cat12_atlas_roi_rows(
             parent_key = CAT12_ATLAS_NODE_TO_KEY.get(parent_tag.lower(), "")
         if not parent_key:
             parent_key = f"cat12_{_norm_name(parent_tag)}"
-        for child in list(parent):
-            tag = _xml_tag(child)
-            if not _is_volume_tag(tag):
-                continue
-            numbers = _numeric_tokens(child.text)
-            if not numbers:
-                continue
-            value = numbers[0]
-            if _classify_cat12_region(region, parent_tag) == "cortical":
-                cortical = _split_cortical_name(region)
-                if cortical:
-                    cort_rows.append([subject_id, parent_key, cortical[0], cortical[1], value, tool])
-                else:
-                    cort_rows.append([subject_id, parent_key, region, "both", value, tool])
-            else:
-                sub_rows.append([subject_id, parent_key, region, value, tool])
+        arrays, generic = _match_cat12_array_length(arrays, generic, 1)
+        value = _cat12_pick_volume_mm3(region, arrays, generic, 0)
+        if value is None:
+            continue
+        _append_cat12_atlas_row(
+            subject_id, parent_key, parent_tag, region, value, tool, sub_rows, cort_rows
+        )
     return sub_rows, cort_rows
 
 
@@ -284,7 +414,7 @@ def _cat12_roi_thickness_rows(roi_xml: Path, subject_id: str, tool: str) -> List
         return []
     root = ET.parse(roi_xml).getroot()
     rows: List[List[str]] = []
-    seen: Set[Tuple[str, str]] = set()
+    seen: Set[Tuple[str, ...]] = set()
     for parent in root.iter():
         region_names: List[str] = []
         for child in list(parent):
@@ -371,13 +501,13 @@ def _write_cat12_xml(
             Path(out_sub_by_atlas).parent.mkdir(parents=True, exist_ok=True)
             with open(out_sub_by_atlas, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f, delimiter="\t")
-                writer.writerow(["subject", "atlas", "structure", "volume", "tool"])
+                writer.writerow(["subject", "atlas", "structure", "volume_mm3", "tool"])
                 writer.writerows(atlas_sub_rows)
         if out_cort_by_atlas:
             Path(out_cort_by_atlas).parent.mkdir(parents=True, exist_ok=True)
             with open(out_cort_by_atlas, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f, delimiter="\t")
-                writer.writerow(["subject", "atlas", "region", "hemisphere", "volume", "tool"])
+                writer.writerow(["subject", "atlas", "region", "hemisphere", "volume_mm3", "tool"])
                 writer.writerows(atlas_cort_rows)
 
     if out_thickness:
@@ -507,7 +637,7 @@ def _write_from_stats_dir(stats_dir: str, out_sub: str, out_cort: str, subject_i
     sub_rows: List[List[str]] = []
     cort_rows: List[List[str]] = []
     seen_sub: Set[str] = set()
-    seen_cort: Set[Tuple[str, str]] = set()
+    seen_cort: Set[Tuple[str, ...]] = set()
 
     for path in table_candidates:
         for row in _parse_stats_table(path):

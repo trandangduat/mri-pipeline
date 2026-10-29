@@ -52,10 +52,10 @@ def test_write_cat12_xml_exports_report_and_roi_volumes(tmp_path) -> None:
     sub_values = {row["structure"]: row["volume_mm3"] for row in sub_rows}
     cort_values = {row["region"]: row["volume_mm3"] for row in cort_rows}
 
-    assert sub_values["total intracranial"] == "1512.5"
-    assert sub_values["gray matter"] == "612.2"
-    assert sub_values["Left Hippocampus"] == "3.4"
-    assert cort_values["Right Cortex"] == "42.0"
+    assert sub_values["total intracranial"] == "1512500"
+    assert sub_values["gray matter"] == "612200"
+    assert sub_values["Left Hippocampus"] == "3400"
+    assert cort_values["Right Cortex"] == "42000"
 
 
 def test_write_cat12_xml_exports_vector_style_roi_volumes(tmp_path) -> None:
@@ -87,8 +87,8 @@ def test_write_cat12_xml_exports_vector_style_roi_volumes(tmp_path) -> None:
     with open(cortical, encoding="utf-8", newline="") as f:
         cort_rows = list(csv.DictReader(f, delimiter="\t"))
 
-    assert {row["structure"]: row["volume_mm3"] for row in sub_rows}["Left Amygdala"] == "1.2"
-    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["Right Frontal Cortex"] == "9.8"
+    assert {row["structure"]: row["volume_mm3"] for row in sub_rows}["Left Amygdala"] == "1200"
+    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["Right Frontal Cortex"] == "9800"
 
 
 def test_write_cat12_xml_exports_nested_data_roi_volumes(tmp_path) -> None:
@@ -130,9 +130,9 @@ def test_write_cat12_xml_exports_nested_data_roi_volumes(tmp_path) -> None:
     with open(cortical, encoding="utf-8", newline="") as f:
         cort_rows = list(csv.DictReader(f, delimiter="\t"))
 
-    assert {row["structure"]: row["volume_mm3"] for row in sub_rows}["Left Amygdala"] == "1.4"
-    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["lPreCG"] == "8.1"
-    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["rPreCG"] == "7.2"
+    assert {row["structure"]: row["volume_mm3"] for row in sub_rows}["Left Amygdala"] == "1400"
+    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["lPreCG"] == "8100"
+    assert {row["region"]: row["volume_mm3"] for row in cort_rows}["rPreCG"] == "7200"
 
 
 def test_write_cat12_xml_exports_roi_thickness_values(tmp_path) -> None:

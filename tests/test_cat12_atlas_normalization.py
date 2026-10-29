@@ -42,10 +42,10 @@ def test_write_cat12_xml_exports_atlas_aware_subcortical_tsv(tmp_path):
     assert len(rows) == 2
     assert rows[0]["atlas"] == "cat12_neuromorphometrics"
     assert rows[0]["structure"] == "Left Hippocampus"
-    assert rows[0]["volume"] == "3.4"
+    assert rows[0]["volume_mm3"] == "3400"
     assert rows[1]["atlas"] == "cat12_neuromorphometrics"
     assert rows[1]["structure"] == "Right Amygdala"
-    assert rows[1]["volume"] == "2.1"
+    assert rows[1]["volume_mm3"] == "2100"
 
 
 def test_write_cat12_xml_exports_atlas_aware_cortical_tsv(tmp_path):
@@ -85,11 +85,11 @@ def test_write_cat12_xml_exports_atlas_aware_cortical_tsv(tmp_path):
     assert rows[0]["atlas"] == "cat12_schaefer2018_200parcels_17networks"
     assert rows[0]["region"] == "7Networks_LH_Vis_1"
     assert rows[0]["hemisphere"] == "lh"
-    assert rows[0]["volume"] == "1.5"
+    assert rows[0]["volume_mm3"] == "1500"
     assert rows[1]["atlas"] == "cat12_schaefer2018_200parcels_17networks"
     assert rows[1]["region"] == "7Networks_RH_Vis_1"
     assert rows[1]["hemisphere"] == "rh"
-    assert rows[1]["volume"] == "1.6"
+    assert rows[1]["volume_mm3"] == "1600"
 
 
 def test_write_cat12_xml_atlas_aware_preserves_multiple_atlases(tmp_path):

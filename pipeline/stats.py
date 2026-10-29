@@ -607,13 +607,13 @@ def _read_cat12_atlas_values(stats_dir: Path, atlas: str, stat: str) -> dict[str
                 continue
             if stat == "subcortical_volume":
                 structure = row.get("structure", "")
-                volume = row.get("volume", "")
+                volume = row.get("volume_mm3") or row.get("volume") or ""
                 if structure and volume:
                     _put_value(values, structure, volume)
             else:
                 region = row.get("region", "")
                 hemi = row.get("hemisphere", "both")
-                volume = row.get("volume", "")
+                volume = row.get("volume_mm3") or row.get("volume") or ""
                 if region and volume:
                     key = _cortical_feature_key(region, hemi)
                     if key:
