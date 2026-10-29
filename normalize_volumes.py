@@ -53,36 +53,43 @@ CAT12_WM_REGION_MARKERS = (
 CAT12_TISSUE_FLAG_FILES = ("info/cat12_tissue_flags.txt", "cat12_tissue_flags.txt")
 
 
-def _load_cat12_tissue_flags() -> Dict[str, Dict[str, Tuple[int, int, int]]]:
-    """Load the native CAT12 tissue flags as atlas -> region -> (Vgm, Vwm, Vcsf)."""
+def _load_cat12_tissue_flags(*, required: bool = False) -> Dict[str, Dict[str, Tuple[int, int, int]]]:
+    """Load native flags. CAT12 execution requires a valid resource."""
     roots: List[Path] = []
     resource_root = os.environ.get("NEUROFLOW_RESOURCE_ROOT")
     if resource_root:
         roots.append(Path(resource_root))
     roots.append(Path(__file__).resolve().parent)
-    for root in roots:
-        for rel in CAT12_TISSUE_FLAG_FILES:
-            path = root / rel
-            if not path.is_file():
-                continue
-            table: Dict[str, Dict[str, Tuple[int, int, int]]] = {}
-            with open(path, "r", encoding="utf-8") as handle:
-                for raw in handle:
-                    parts = raw.rstrip("\n").split("\t")
-                    if len(parts) != 5 or parts[0].startswith("#") or parts[0] in {"", "atlas"}:
-                        continue
-                    try:
-                        flags = (int(parts[2]), int(parts[3]), int(parts[4]))
-                    except ValueError:
-                        continue
-                    table.setdefault(parts[0].strip(), {})[_norm_name(parts[1])] = flags
-            return table
-    print(
-        "normalize_volumes: native CAT12 tissue flags are missing; "
-        "falling back to region-name heuristics.",
-        file=sys.stderr,
-    )
-    return {}
+    try:
+        for root in roots:
+            for rel in CAT12_TISSUE_FLAG_FILES:
+                path = root / rel
+                if not path.is_file():
+                    continue
+                table: Dict[str, Dict[str, Tuple[int, int, int]]] = {}
+                with open(path, "r", encoding="utf-8") as handle:
+                    for raw in handle:
+                        if not raw.strip() or raw.startswith("#") or raw.startswith("atlas\t"):
+                            continue
+                        parts = raw.rstrip("\r\n").split("\t")
+                        if len(parts) != 5 or not parts[0].strip() or not _norm_name(parts[1]):
+                            raise ValueError(f"Invalid tissue row in {path}")
+                        flags = tuple(int(value) for value in parts[2:])
+                        if any(flag not in (0, 1) for flag in flags):
+                            raise ValueError(f"Invalid tissue flags in {path}")
+                        entries = table.setdefault(parts[0].strip().lower(), {})
+                        name = _norm_name(parts[1])
+                        if name in entries and entries[name] != flags:
+                            raise ValueError(f"Conflicting tissue flags in {path}: {parts[1]}")
+                        entries[name] = flags
+                if not table:
+                    raise ValueError(f"Empty tissue dictionary: {path}")
+                return table
+        raise FileNotFoundError("cat12_tissue_flags.txt is missing")
+    except (OSError, UnicodeError, ValueError) as exc:
+        if required:
+            raise RuntimeError(f"Required CAT12 tissue dictionary is unavailable: {exc}") from exc
+        return {}
 
 
 CAT12_TISSUE_FLAGS = _load_cat12_tissue_flags()
@@ -529,6 +536,8 @@ def _write_cat12_xml(
     out_sub_by_atlas: str = "",
     out_cort_by_atlas: str = "",
 ) -> None:
+    global CAT12_TISSUE_FLAGS
+    CAT12_TISSUE_FLAGS = _load_cat12_tissue_flags(required=True)
     sub_rows = _cat12_report_rows(Path(report_xml), subject_id, tool)
     roi_sub_rows, cort_rows = _cat12_roi_rows(Path(roi_xml), subject_id, tool)
     sub_rows.extend(roi_sub_rows)

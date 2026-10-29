@@ -1720,6 +1720,16 @@ class RemoteRunner:
         if norm_vol.exists():
             ssh.upload_file(norm_vol, posixpath.join(remote_code, "normalize_volumes.py"))
         info_dir = PROJECT_ROOT / "info"
+        tissue_flags = info_dir / "cat12_tissue_flags.txt"
+        if tissue_flags.is_file():
+            ssh.mkdir_p(posixpath.join(remote_code, "info"))
+            ssh.upload_file(tissue_flags, posixpath.join(remote_code, "info", tissue_flags.name))
+        elif (self.config.pipeline_mode.startswith("CAT12")
+              or any(str(tool).startswith("cat12_") for tool in self.config.selected_tools.values())
+              or any(str(key).startswith("cat12_")
+                     for keys in (self.config.stats_vector_config or {}).get("atlases", {}).values()
+                     for key in keys)):
+            raise RuntimeError("Required CAT12 resource cat12_tissue_flags.txt is missing.")
         mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
         surface_base_dirs: list[Path] = []
         try:

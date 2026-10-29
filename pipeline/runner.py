@@ -165,6 +165,8 @@ def _build_execution_request(
         )
     mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
     tissue_flags = PROJECT_ROOT / "info" / "cat12_tissue_flags.txt"
+    if tool_key in {"cat12_volume_stats_extraction", "cat12_full_stats_extraction"} and not tissue_flags.is_file():
+        raise RuntimeError("Required CAT12 resource cat12_tissue_flags.txt is missing.")
     if tissue_flags.is_file():
         mounts.append((str(tissue_flags), "/app/info/cat12_tissue_flags.txt"))
     selected_atlases = _selected_stats_atlases(config)
