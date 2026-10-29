@@ -1,28 +1,24 @@
-Left Anterior
-Right Anterior
-Left Central
-Right Central
-Left Lateral Geniculate Body
-Right Lateral Geniculate Body
-Left Lateral Posterior
-Right Lateral Posterior
-Left Medial Geniculate Body
-Right Medial Geniculate Body
-Left Mediodorsal
-Right Mediodorsal
-Left Pulvinar Anterior
-Right Pulvinar Anterior
-Left Pulvinar Lateral
-Right Pulvinar Lateral
-Left Pulvinar Medial
-Right Pulvinar Medial
-Left Pulvinar Posterior
-Right Pulvinar Posterior
-Left Ventral Anterior
-Right Ventral Anterior
-Left Ventral Lateral
-Right Ventral Lateral
-Left Ventral Posterior Lateral
-Right Ventral Posterior Lateral
-Left Ventral Posterior Medial
-Right Ventral Posterior Medial
+left anteroventral
+left ventral anterior
+left ventral lateral anterior
+left ventral lateral posterior
+left ventral posterolateral
+left pulvinar
+left lateral geniculate
+left medial geniculate
+left centromedian
+left mediodorsal
+left habenula
+left mammillothalamic tract
+right anteroventral
+right ventral anterior
+right ventral lateral anterior
+right ventral lateral posterior
+right ventral posterolateral
+right pulvinar
+right lateral geniculate
+right medial geniculate
+right centromedian
+right mediodorsal
+right habenula
+right mammillothalamic tract

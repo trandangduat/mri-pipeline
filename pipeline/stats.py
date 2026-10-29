@@ -87,6 +87,7 @@ VECTOR_SPECS = {
     "cat12_hammers": {
         "column": "cat12_hammers_volume",
         "features": "cat12_hammers_volume_feats.txt",
+        "cortical_volume_features": "cat12_hammers_cortical_volume_feats.txt",
         "value": "volume",
     },
     "cat12_ibsr": {
@@ -348,6 +349,10 @@ def _stats_source_candidates(stats_dir: Path, stat: str, atlas: str = "") -> lis
 def _norm_feature(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
+def _vector_feature_file(spec: dict, stat: str) -> str:
+    return str(spec.get(f"{stat}_features") or spec["features"])
+
+
 def _load_vector_features(filename: str) -> list[str]:
     path = PROJECT_ROOT / "info" / filename
     if not path.exists():
@@ -596,45 +601,34 @@ def _read_fastsurfer_dkt_values(stats_dir: Path, stat: str) -> dict[str, str]:
 
 
 def _read_cat12_atlas_values(stats_dir: Path, atlas: str, stat: str) -> dict[str, str]:
+    from normalize_volumes import CAT12_ATLAS_NODE_TO_KEY, _cat12_roi_metadata
     values: dict[str, str] = {}
     atlas_tsv = stats_dir / f"cat12_{stat}_by_atlas.tsv"
-    if not atlas_tsv.exists():
-        atlas_tsv = stats_dir / "cat12_subcortical_volume_by_atlas.tsv" if stat == "subcortical_volume" else stats_dir / "cat12_cortical_volume_by_atlas.tsv"
-    if atlas_tsv.exists():
-        for row in _read_tsv_dict_rows(atlas_tsv):
-            row_atlas = row.get("atlas", "")
-            if row_atlas != atlas:
-                continue
-            if stat == "subcortical_volume":
-                structure = row.get("structure", "")
-                volume = row.get("volume_mm3") or row.get("volume") or ""
-                if structure and volume:
-                    _put_value(values, structure, volume)
-            else:
-                region = row.get("region", "")
-                hemi = row.get("hemisphere", "both")
-                volume = row.get("volume_mm3") or row.get("volume") or ""
-                if region and volume:
-                    key = _cortical_feature_key(region, hemi)
-                    if key:
-                        _put_value(values, key, volume)
-                    else:
-                        _put_value(values, region, volume)
-
-    if not values:
-        for row in _read_tsv_dict_rows(stats_dir / "subcortical_volume.tsv"):
-            structure = row.get("structure", "")
-            volume = row.get("volume_mm3", "")
-            if structure and volume:
-                _put_value(values, structure, volume)
-        for row in _read_tsv_dict_rows(stats_dir / "cortical_volume.tsv"):
-            hemi = row.get("hemisphere", "")
-            region = row.get("region", "")
-            volume = row.get("volume_mm3", "")
-            key = _cortical_feature_key(region, hemi)
-            if key and volume:
-                _put_value(values, key, volume)
-    _apply_cat12_native_aliases(values)
+    native_atlas = next((key for key, value in CAT12_ATLAS_NODE_TO_KEY.items() if value == atlas),
+                        atlas.removeprefix("cat12_"))
+    for row in _read_tsv_dict_rows(atlas_tsv):
+        if row.get("atlas") != atlas:
+            continue
+        region = row.get("structure") if stat == "subcortical_volume" else row.get("region")
+        volume = row.get("volume_mm3") or row.get("volume") or ""
+        if not region or not volume:
+            continue
+        roi_id = row.get("roi_id", "")
+        entry = _cat12_roi_metadata(native_atlas, region, roi_id)
+        if entry is None and not roi_id and row.get("hemisphere") in {"lh", "rh"}:
+            side = "Left" if row["hemisphere"] == "lh" else "Right"
+            entry = _cat12_roi_metadata(native_atlas, f"{side} {region}")
+        if entry is None:
+            log.warning("Unresolved CAT12 ROI: atlas=%s id=%s region=%s", atlas, roi_id, region)
+            continue
+        if entry["category"] + "_volume" != stat:
+            log.warning("CAT12 ROI category mismatch: %s/%s", atlas, entry["roi_id"])
+            continue
+        _put_value(values, entry["feature"], volume)
+        if stat == "subcortical_volume":
+            _put_value(values, entry["native_name"], volume)
+    if atlas == "cat12_neuromorphometrics":
+        _apply_cat12_native_aliases(values)
     return values
 
 
@@ -806,6 +800,7 @@ class StatsGenerator:
         stats_dir = Path(subject_dir) / "stats"
         vectors_dir = stats_dir / "vectors"
         vector_columns: dict[str, str] = {}
+        column_feature_files: dict[str, str] = {}
 
         requested: list[tuple[str, str, str, bool]] = []
         if config.enabled_stats.get("subcortical_volume"):
@@ -833,7 +828,7 @@ class StatsGenerator:
                 warnings.append(f"{stat}:{atlas or 'default'}: no vector spec")
                 continue
             column = _atlas_column_name(stat, atlas, is_default)
-            features = _load_vector_features(str(spec["features"]))
+            features = _load_vector_features(_vector_feature_file(spec, stat))
             if not features:
                 warnings.append(f"{column}: missing feature list info/{spec['features']}")
                 continue
@@ -841,6 +836,7 @@ class StatsGenerator:
             paths, list_text, missing = _write_standard_vector(vectors_dir, subject_id, column, features, values)
             generated.extend(paths)
             vector_columns[column] = list_text
+            column_feature_files[column] = _vector_feature_file(spec, stat)
             if missing:
                 warnings.append(f"{column}: {missing}/{len(features)} features missing; filled with NA")
 
@@ -859,6 +855,7 @@ class StatsGenerator:
                     {
                         "subject": subject_id,
                         "columns": list(vector_columns.keys()),
+                        "column_feature_files": column_feature_files,
                         "feature_files": {key: str(value["features"]) for key, value in VECTOR_SPECS.items()},
                         "format": "CSV cells contain Python-list-style vectors aligned 1:1 with the corresponding *_feats.txt file.",
                     },
@@ -878,19 +875,19 @@ def _requested_vector_feature_map(config: StatsVectorConfig) -> dict[str, list[s
         if stat in defaults:
             spec = VECTOR_SPECS.get(defaults[stat])
             if spec:
-                out[stat] = _load_vector_features(str(spec["features"]))
+                out[stat] = _load_vector_features(_vector_feature_file(spec, stat))
             for atlas in config.atlases.get(stat, []):
                 if atlas == defaults[stat]:
                     continue
                 spec = VECTOR_SPECS.get(atlas)
                 if not spec:
                     continue
-                out[_atlas_column_name(stat, atlas, False)] = _load_vector_features(str(spec["features"]))
+                out[_atlas_column_name(stat, atlas, False)] = _load_vector_features(_vector_feature_file(spec, stat))
             continue
         for index, atlas in enumerate(config.atlases.get(stat, [])):
             spec = VECTOR_SPECS.get(atlas)
             if not spec:
                 continue
-            out[_atlas_column_name(stat, atlas, index == 0)] = _load_vector_features(str(spec["features"]))
+            out[_atlas_column_name(stat, atlas, index == 0)] = _load_vector_features(_vector_feature_file(spec, stat))
     return out
 

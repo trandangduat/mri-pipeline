@@ -23,13 +23,15 @@ def test_cat12_dictionary_is_uploaded_without_size_shortcuts(atlases):
         ssh=SSHConfig(host="mock"), remote_workspace="/home/tester/work",
         stats_vector_config={"atlases": atlases}))
     runner._upload_code(ssh, "/home/tester/work/code")
-    assert any(Path(call.args[0]).name == "cat12_tissue_flags.txt"
-               and call.args[1] == "/home/tester/work/code/info/cat12_tissue_flags.txt"
-               for call in ssh.upload_file.call_args_list)
+    for resource in ("cat12_tissue_flags.txt", "cat12_roi_mapping.txt"):
+        assert any(Path(call.args[0]).name == resource
+                   and call.args[1] == "/home/tester/work/code/info/" + resource
+                   for call in ssh.upload_file.call_args_list)
 
 
 def test_cat12_dictionary_is_packaged():
-    assert (str(ROOT / "info/cat12_tissue_flags.txt"), "info") in collect_core_info_datas(ROOT)
+    for resource in ("cat12_tissue_flags.txt", "cat12_roi_mapping.txt", "cat12_hammers_cortical_volume_feats.txt"):
+        assert (str(ROOT / "info" / resource), "info") in collect_core_info_datas(ROOT)
 
 
 @pytest.mark.parametrize("tool_key", ["cat12_volume_stats_extraction", "cat12_full_stats_extraction", "mri_convert_fs7"])
@@ -48,7 +50,7 @@ def test_only_cat12_execution_requires_tissue_dictionary(tmp_path, monkeypatch, 
         _build_execution_request(**kwargs)
 
 
-@pytest.mark.parametrize("content", [None, b"", b"atlas\\troi_name\\tvgm\\tvwm\\tvcsf\n",
+@pytest.mark.parametrize("content", [None, b"", b"atlas\troi_name\tvgm\tvwm\tvcsf\n",
                                      b"atlas broken\n", b"a\tr\t2\t0\t0\n", b"\xff"])
 def test_cat12_volume_rejects_missing_or_invalid_dictionary(tmp_path, monkeypatch, content):
     monkeypatch.setenv("NEUROFLOW_RESOURCE_ROOT", str(tmp_path))
@@ -63,3 +65,28 @@ def test_cat12_volume_rejects_missing_or_invalid_dictionary(tmp_path, monkeypatc
         normalize._write_cat12_xml(str(report), str(roi), str(tmp_path / "sub.tsv"),
                                   str(tmp_path / "cort.tsv"), "s")
     assert not (tmp_path / "sub.tsv").exists()
+
+
+@pytest.mark.parametrize("content", [None, b"", b"atlas\troi_id\nwrong\t1\n",
+                                     b"atlas\troi_id\tnative_name\tnative_abbr\themisphere\tcategory\tfields\tfeature\na\t1\tr\tr\tbad\tcortical\tVgm\tf\n"])
+def test_missing_or_invalid_roi_mapping_is_explicit(tmp_path, monkeypatch, content):
+    monkeypatch.setenv("NEUROFLOW_RESOURCE_ROOT", str(tmp_path))
+    monkeypatch.setattr(normalize, "__file__", str(tmp_path / "normalize_volumes.py"))
+    if content is not None:
+        (tmp_path / "info").mkdir()
+        (tmp_path / "info/cat12_roi_mapping.txt").write_bytes(content)
+    with pytest.raises(RuntimeError, match="CAT12 ROI mapping"):
+        normalize._load_cat12_roi_mapping(required=True)
+
+
+def test_cat12_mapping_change_invalidates_ssh_code_signature(tmp_path, monkeypatch):
+    import remote.remote_runner as remote
+    monkeypatch.setattr(remote, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(remote, "_neuroflow_source_dir", lambda: tmp_path / "absent_scheduler")
+    (tmp_path / "info").mkdir()
+    mapping = tmp_path / "info/cat12_roi_mapping.txt"
+    mapping.write_text("first")
+    runner = RemoteRunner(RemoteRunConfig(ssh=SSHConfig(host="mock")))
+    old = runner._local_code_signature()
+    mapping.write_text("other")
+    assert old != runner._local_code_signature()

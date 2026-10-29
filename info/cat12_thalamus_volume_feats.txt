@@ -1,2 +1,14 @@
-Left Thalamus
-Right Thalamus
+left pulvinar
+left anterior
+left medio-dorsal
+left ventral latero-dorsal
+left central lateral, lateral posteror, medial pulvinar
+left ventral anterior
+left ventral latero-ventral
+right pulvinar
+right anterior
+right medio-dorsal
+right ventral latero-dorsal
+right central lateral, lateral posteror, medial pulvinar
+right ventral anterior
+right ventral latero-ventral

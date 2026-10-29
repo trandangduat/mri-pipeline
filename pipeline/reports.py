@@ -67,7 +67,7 @@ def _read_subject_vector_cells(subject_dir: str | Path) -> dict[str, str]:
         return {}
     return {key: (value if value not in (None, "") else "NA") for key, value in row.items() if key != "subject"}
 
-def _read_subject_feature_values(subject_dir: str | Path, vector_column: str, expected_count: int) -> list[str | float]:
+def _read_subject_feature_values(subject_dir: str | Path, vector_column: str, expected_count: int, expected_features: list[str] | None = None) -> list[str | float]:
     values: list[str | float] = ["NA"] * expected_count
     path = Path(subject_dir) / "stats" / "vectors" / f"{vector_column}_features.tsv"
     if not path.exists():
@@ -79,6 +79,11 @@ def _read_subject_feature_values(subject_dir: str | Path, vector_column: str, ex
                     idx = int(row.get("index", "0")) - 1
                 except ValueError:
                     continue
+                if expected_features is not None:
+                    try:
+                        idx = expected_features.index(row.get("feature", ""))
+                    except ValueError:
+                        continue
                 if 0 <= idx < expected_count:
                     values[idx] = _as_number(row.get("value"))
     except OSError:
@@ -124,7 +129,9 @@ def write_batch_reports(ctx: BatchReportContext) -> None:
         for column in vector_columns:
             features = vector_features.get(column, [])
             vector_row[column] = vector_cells.get(column) or "NA"
-            feature_values = _read_subject_feature_values(subject_dir, column, len(features)) if features else []
+            feature_values = _read_subject_feature_values(subject_dir, column, len(features), features if "_cat12_" in column else None) if features else []
+            if "_cat12_" in column and features:
+                vector_row[column] = str(feature_values)
             for feature, value in zip(features, feature_values):
                 wide_row[f"{column}_{feature}"] = value
         for column in wide_columns:

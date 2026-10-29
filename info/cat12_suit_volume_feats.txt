@@ -1,34 +1,28 @@
-Lobule I-V
-Lobule VI
-Lobule VII
-Lobule VIII
-Lobule IX
-Lobule X
-Left I-V
-Right I-V
-Left VI
-Right VI
-Left Crus I
-Right Crus I
-Left Crus II
-Right Crus II
-Left VIIb
-Right VIIb
-Left VIIIa
-Right VIIIa
-Left VIIIb
-Right VIIIb
-Left IX
-Right IX
-Left X
-Right X
-Left IV
-Right IV
+Left I IV
+Right I IV
 Left V
 Right V
-Left Dentate
-Right Dentate
-Left Interposed
-Right Interposed
-Left Fastigial
-Right Fastigial
+Left VI
+Vermis VI
+Right VI
+Left CrusI
+Vermis CrusI
+Right CrusI
+Left CrusII
+Vermis CrusII
+Right CrusII
+Left VIIb
+Vermis VIIb
+Right VIIb
+Left VIIIa
+Vermis VIIIa
+Right VIIIa
+Left VIIIb
+Vermis VIIIb
+Right VIIIb
+Left IX
+Vermis IX
+Right IX
+Left X
+Vermis X
+Right X

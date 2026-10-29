@@ -26,16 +26,18 @@ def collect_core_info_datas(project_root: Path) -> list[tuple[str, str]]:
     info_root = project_root / "info"
     feature_names = sorted(
         {
-            str(spec["features"])
+            str(value)
             for spec in VECTOR_SPECS.values()
-            if isinstance(spec.get("features"), str)
+            for key, value in spec.items()
+            if (key == "features" or key.endswith("_features")) and isinstance(value, str)
         }
     )
     datas = [
         (str(info_root / feature_name), "info")
         for feature_name in feature_names
     ]
-    datas.append((str(info_root / "cat12_tissue_flags.txt"), "info"))
+    datas.extend((str(info_root / name), "info")
+                 for name in ("cat12_tissue_flags.txt", "cat12_roi_mapping.txt"))
     missing = [source for source, _destination in datas if not Path(source).is_file()]
     if missing:
         names = ", ".join(Path(path).name for path in missing)

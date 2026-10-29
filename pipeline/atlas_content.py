@@ -156,6 +156,12 @@ def missing_atlas_content_paths(atlas_key: str, *, resource_root: Path | None = 
     feature_path = feature_list_path(atlas_key, resource_root=resource_root)
     if feature_path is not None and not feature_path.is_file():
         missing.append(feature_path)
+    from pipeline.stats import VECTOR_SPECS
+    extra = VECTOR_SPECS.get(atlas_key, {}).get("cortical_volume_features")
+    if extra:
+        extra_path = _project_info_root(resource_root) / str(extra)
+        if not extra_path.is_file():
+            missing.append(extra_path)
     for path in surface_atlas_asset_paths(atlas_key, resource_root=resource_root):
         if not path.is_file():
             missing.append(path)

@@ -61,8 +61,8 @@ def test_write_cat12_xml_exports_atlas_aware_cortical_tsv(tmp_path):
         <catROI>
           <Schaefer2018_200Parcels_17Networks_order>
             <names>
-              <item>ctx-lh-7Networks_LH_Vis_1</item>
-              <item>ctx-rh-7Networks_RH_Vis_1</item>
+              <item>lVisCent_ExStr_1</item>
+              <item>rVisCent_ExStr_1</item>
             </names>
             <data>
               <Vgm>[1.5;1.6]</Vgm>
@@ -83,11 +83,11 @@ def test_write_cat12_xml_exports_atlas_aware_cortical_tsv(tmp_path):
 
     assert len(rows) == 2
     assert rows[0]["atlas"] == "cat12_schaefer2018_200parcels_17networks"
-    assert rows[0]["region"] == "7Networks_LH_Vis_1"
+    assert rows[0]["region"] == "lVisCent_ExStr_1"
     assert rows[0]["hemisphere"] == "lh"
     assert rows[0]["volume_mm3"] == "1500"
     assert rows[1]["atlas"] == "cat12_schaefer2018_200parcels_17networks"
-    assert rows[1]["region"] == "7Networks_RH_Vis_1"
+    assert rows[1]["region"] == "rVisCent_ExStr_1"
     assert rows[1]["hemisphere"] == "rh"
     assert rows[1]["volume_mm3"] == "1600"
 

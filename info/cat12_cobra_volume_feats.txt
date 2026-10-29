@@ -1,14 +1,52 @@
-Brain Stem
-CSF
-Gray Matter
-White Matter
-Left Cerebellum
-Right Cerebellum
-Left Cerebral Cortex
-Right Cerebral Cortex
-Left Cerebral White Matter
-Right Cerebral White Matter
-Left Hippocampus
-Right Hippocampus
-Left Lateral Ventricle
-Right Lateral Ventricle
+Left Striatum
+Left Globus Pallidus
+Left Thalamus
+Left Anterior Cerebellar Lobule I-II
+Left Anterior Cerebellar Lobule III
+Left Anterior Cerebellar Lobule IV
+Left Anterior Cerebellar Lobule V
+Left Superior Posterior Cerebellar Lobule VI
+Left Superior Posterior Cerebellar Lobule Crus I
+Left Superior Posterior Cerebellar Lobule Crus II
+Left Superior Posterior Cerebellar Lobule VIIB
+Left Inferior Posterior Cerebellar Lobule VIIIA
+Left Inferior Posterior Cerebellar Lobule VIIIB
+Left Inferior Posterior Cerebellar Lobule IX
+Left Inferior Posterior Cerebellar Lobule X
+Left Cerebellar White Matter
+Left Amygdala
+Left Hippocampus CA1
+Left Subiculum
+Left Fornix
+Left CA4/Dentate Gyrus
+Left CA2/CA3
+Left Stratum Radiatum/Lacunosum/Moleculare
+Left Fimbria
+Left Mammillary body
+Left Alveus
+Right Striatum
+Right Globus Pallidus
+Right Thalamus
+Right Anterior Cerebellar Lobule I-II
+Right Anterior Cerebellar Lobule III
+Right Anterior Cerebellar Lobule IV
+Right Anterior Cerebellar Lobule V
+Right Superior Posterior Cerebellar Lobule VI
+Right Superior Posterior Cerebellar Lobule Crus I
+Right Superior Posterior Cerebellar Lobule Crus II
+Right Superior Posterior Cerebellar Lobule VIIB
+Right Inferior Posterior Cerebellar Lobule VIIIA
+Right Inferior Posterior Cerebellar Lobule VIIIB
+Right Inferior Posterior Cerebellar Lobule IX
+Right Inferior Posterior Cerebellar Lobule X
+Right Cerebellar White Matter
+Right Amygdala
+Right Hippocampus CA1
+Right Subiculum
+Right Fornix
+Right CA4/Dentate Gyrus
+Right CA2/CA3
+Right Stratum Radiatum/Lacunosum/Moleculare
+Right Fimbria
+Right Mammillary body
+Right Alveus

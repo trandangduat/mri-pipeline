@@ -164,11 +164,12 @@ def _build_execution_request(
             "Required application resource normalize_volumes.py is missing. Repair the NeuroFlow installation."
         )
     mounts.append((str(norm_vol), "/app/normalize_volumes.py"))
-    tissue_flags = PROJECT_ROOT / "info" / "cat12_tissue_flags.txt"
-    if tool_key in {"cat12_volume_stats_extraction", "cat12_full_stats_extraction"} and not tissue_flags.is_file():
-        raise RuntimeError("Required CAT12 resource cat12_tissue_flags.txt is missing.")
-    if tissue_flags.is_file():
-        mounts.append((str(tissue_flags), "/app/info/cat12_tissue_flags.txt"))
+    for resource_name in ("cat12_tissue_flags.txt", "cat12_roi_mapping.txt"):
+        resource = PROJECT_ROOT / "info" / resource_name
+        if tool_key in {"cat12_volume_stats_extraction", "cat12_full_stats_extraction"} and not resource.is_file():
+            raise RuntimeError(f"Required CAT12 resource {resource_name} is missing.")
+        if resource.is_file():
+            mounts.append((str(resource), f"/app/info/{resource_name}"))
     selected_atlases = _selected_stats_atlases(config)
     needs_mni_atlas_assets = any(
         atlas in EXTERNAL_MNI_VOLUME_ATLASES and VECTOR_SPECS.get(atlas, {}).get("atlas_nifti")

@@ -41,13 +41,6 @@ CAT12_TISSUE_NAMES = {
 # Native CAT12 ROI tables store tissue arrays under these element names.
 CAT12_TISSUE_TAGS = {"vgm": "gm", "vwm": "wm", "vcsf": "csf"}
 
-# Name heuristics are a fallback for atlases whose native dictionary is unknown.
-CAT12_CSF_REGION_MARKERS = ("ventricle", "csf", "cerebrospinal")
-CAT12_WM_REGION_MARKERS = (
-    "white_matter", "corpus_callosum", "capsule", "fasciculus", "tract",
-    "peduncle", "radiation", "cingulum", "fornix",
-)
-
 # Native CAT12 ROI tissue flags, generated from the atlas dictionaries that
 # ship with CAT12 (templates_MNI152NLin2009cAsym/*.csv).
 CAT12_TISSUE_FLAG_FILES = ("info/cat12_tissue_flags.txt", "cat12_tissue_flags.txt")
@@ -93,6 +86,63 @@ def _load_cat12_tissue_flags(*, required: bool = False) -> Dict[str, Dict[str, T
 
 
 CAT12_TISSUE_FLAGS = _load_cat12_tissue_flags()
+
+
+def _load_cat12_roi_mapping(*, required: bool = False) -> Dict[str, Dict[str, dict]]:
+    roots = [Path(__file__).resolve().parent]
+    if os.environ.get("NEUROFLOW_RESOURCE_ROOT"):
+        roots.insert(0, Path(os.environ["NEUROFLOW_RESOURCE_ROOT"]))
+    try:
+        for root in roots:
+            path = root / "info" / "cat12_roi_mapping.txt"
+            if not path.is_file():
+                continue
+            table: Dict[str, Dict[str, dict]] = {}
+            with path.open(encoding="utf-8") as stream:
+                for row in csv.DictReader((line for line in stream if not line.startswith("#")), delimiter="\t"):
+                    atlas, roi_id = row["atlas"], row["roi_id"]
+                    if (not roi_id.isdigit() or row["hemisphere"] not in {"lh", "rh", "both"}
+                            or row["category"] not in {"cortical", "subcortical", "unavailable"}
+                            or any(field not in {"Vgm", "Vwm", "Vcsf"} for field in row["fields"].split("+") if field)):
+                        raise ValueError(f"Invalid CAT12 mapping row: {atlas}/{roi_id}")
+                    entries = table.setdefault(atlas, {})
+                    if roi_id in entries:
+                        raise ValueError(f"Duplicate CAT12 ROI ID: {atlas}/{roi_id}")
+                    entries[roi_id] = row
+            if not table:
+                raise ValueError("Empty CAT12 ROI mapping")
+            return table
+        raise FileNotFoundError("cat12_roi_mapping.txt is missing")
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+        if required:
+            raise RuntimeError(f"Required CAT12 ROI mapping is unavailable: {exc}") from exc
+        return {}
+
+
+CAT12_ROI_MAPPING = _load_cat12_roi_mapping()
+
+
+def _cat12_roi_metadata(atlas: str, region: str, roi_id: str = "") -> Optional[dict]:
+    entries = CAT12_ROI_MAPPING.get(atlas.lower(), {})
+    name = _norm_name(region)
+    if roi_id:
+        entry = entries.get(str(roi_id))
+        if entry and name in {_norm_name(entry["native_name"]), _norm_name(entry["native_abbr"])}:
+            return entry
+        if entries:
+            raise ValueError(f"CAT12 ROI ID/name mismatch: {atlas}/{roi_id}/{region}")
+        return None
+    matches = [entry for entry in entries.values()
+               if name in {_norm_name(entry["native_name"]), _norm_name(entry["native_abbr"])}]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _cat12_roi_ids(parent: ET.Element, count: int) -> List[str]:
+    text = _child_text(parent, "ids")
+    ids = _numeric_tokens(text)
+    if ids and (len(ids) != count or len(set(ids)) != len(ids)):
+        raise ValueError(f"CAT12 ROI IDs do not match names in {_xml_tag(parent)}")
+    return ids or [""] * count
 
 
 def _xml_tag(element: ET.Element) -> str:
@@ -143,26 +193,24 @@ def _sum_ml(values: List[str]) -> str:
     return format(total, "f")
 
 
-def _cat12_region_tissues(region: str, atlas: str = "") -> Tuple[str, ...]:
-    """Return the native tissue fields that make up a CAT12 region.
-
-    The native atlas dictionary decides the fields. An empty result means the
-    dictionary defines no contributing tissue for that region.
-    """
-    flags = CAT12_TISSUE_FLAGS.get(atlas) or CAT12_TISSUE_FLAGS.get(atlas.lower())
+def _cat12_region_tissues(region: str, atlas: str = "", roi_id: str = "") -> Tuple[str, ...]:
+    """Use native flags or the explicit atlas measurement contract."""
+    entry = _cat12_roi_metadata(atlas, region, roi_id)
+    if entry is not None:
+        fields = tuple(field[1:] for field in entry["fields"].split("+") if field)
+        if atlas.lower() in {"cobra", "hammers", "ibsr", "lpba40", "mori", "neuromorphometrics"}:
+            flags = CAT12_TISSUE_FLAGS.get(atlas.lower(), {}).get(_norm_name(entry["native_name"]))
+            selected = tuple(kind for kind, flag in zip(("gm", "wm", "csf"), flags or ()) if flag)
+            if flags is None or selected != fields:
+                raise RuntimeError(f"CAT12 tissue dictionary disagrees with native ROI: {atlas}/{entry['roi_id']}")
+            return selected
+        return fields
+    flags = CAT12_TISSUE_FLAGS.get(atlas.lower())
     if flags is not None:
-        entry = flags.get(_norm_name(region))
-        if not entry:
-            return ()
-        return tuple(kind for kind, flag in zip(("gm", "wm", "csf"), entry) if flag)
-    norm = _norm_name(region)
-    if "intracranial" in norm:
-        return ("gm", "wm", "csf")
-    if any(marker in norm for marker in CAT12_CSF_REGION_MARKERS):
-        return ("csf",)
-    if any(marker in norm for marker in CAT12_WM_REGION_MARKERS):
-        return ("wm",)
-    return ("gm",)
+        entry_flags = flags.get(_norm_name(region), ())
+        return tuple(kind for kind, flag in zip(("gm", "wm", "csf"), entry_flags) if flag)
+    # Legacy generic XML has no atlas dictionary. Only an explicit GM/volume field is usable.
+    return ("gm",) if atlas.lower() in {"", "atlas", "roi"} else ()
 
 
 def _is_thickness_tag(tag: str) -> bool:
@@ -213,7 +261,10 @@ CAT12_ATLAS_NODE_TO_KEY: Dict[str, str] = {
 }
 
 
-def _classify_cat12_region(name: str, atlas: str = "") -> str:
+def _classify_cat12_region(name: str, atlas: str = "", roi_id: str = "") -> str:
+    entry = _cat12_roi_metadata(atlas, name, roi_id)
+    if entry is not None:
+        return entry["category"]
     if any(marker in _norm_name(atlas) for marker in CAT12_CORTICAL_ATLAS_MARKERS):
         return "cortical"
     norm = _norm_name(name)
@@ -244,10 +295,14 @@ def _append_cat12_roi_volume(
     seen_sub: Set[Tuple[str, ...]],
     seen_cort: Set[Tuple[str, ...]],
     atlas: str = "",
+    roi_id: str = "",
 ) -> None:
-    if _classify_cat12_region(region, atlas) == "cortical":
-        _append_unique([subject_id, region, "both", value, tool], cort_rows, seen_cort)
-    else:
+    entry = _cat12_roi_metadata(atlas, region, roi_id)
+    kind = _classify_cat12_region(region, atlas, roi_id)
+    if kind == "cortical":
+        hemi = entry["hemisphere"] if entry else "both"
+        _append_unique([subject_id, region, hemi, value, tool], cort_rows, seen_cort)
+    elif kind == "subcortical":
         _append_unique([subject_id, region, value, tool], sub_rows, seen_sub)
 
 
@@ -293,14 +348,15 @@ def _cat12_pick_volume_mm3(
     arrays: Dict[str, List[str]],
     generic: Optional[List[str]],
     index: int,
+    roi_id: str = "",
 ) -> str:
     """Pick the native tissue volume for a region and convert it to mm3.
 
     The native tissue flags decide the fields. A region without its designated
     fields stays unavailable instead of borrowing another tissue.
     """
-    wanted = _cat12_region_tissues(region, atlas)
-    has_flags = atlas in CAT12_TISSUE_FLAGS or atlas.lower() in CAT12_TISSUE_FLAGS
+    wanted = _cat12_region_tissues(region, atlas, roi_id)
+    has_flags = atlas.lower() in CAT12_TISSUE_FLAGS or atlas.lower() in CAT12_ROI_MAPPING
     if wanted:
         values = [
             arrays[kind][index]
@@ -387,9 +443,10 @@ def _cat12_roi_rows(roi_xml: Path, subject_id: str, tool: str) -> Tuple[List[Lis
         atlas = _xml_tag(parent)
         if region_names:
             arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
+            roi_ids = _cat12_roi_ids(parent, len(region_names))
             for index, region in enumerate(region_names):
-                value = _cat12_pick_volume_mm3(region, atlas, arrays, generic, index)
-                _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas)
+                value = _cat12_pick_volume_mm3(region, atlas, arrays, generic, index, roi_ids[index])
+                _append_cat12_roi_volume(subject_id, region, value, tool, sub_rows, cort_rows, seen_sub, seen_cort, atlas, roi_ids[index])
 
         region = _child_text(parent, "name", "label", "roi", "region")
         if not region:
@@ -409,15 +466,19 @@ def _append_cat12_atlas_row(
     tool: str,
     sub_rows: List[List[str]],
     cort_rows: List[List[str]],
+    roi_id: str = "",
 ) -> None:
-    if _classify_cat12_region(region, atlas_tag) == "cortical":
-        cortical = _split_cortical_name(region)
-        if cortical:
-            cort_rows.append([subject_id, atlas_key, cortical[0], cortical[1], value, tool])
-        else:
-            cort_rows.append([subject_id, atlas_key, region, "both", value, tool])
+    entry = _cat12_roi_metadata(atlas_tag, region, roi_id)
+    kind = _classify_cat12_region(region, atlas_tag, roi_id)
+    identity = entry["roi_id"] if entry else roi_id
+    if kind == "cortical":
+        cortical = _split_cortical_name(region) if not entry else None
+        label, hemi = cortical if cortical else (region, entry["hemisphere"] if entry else "both")
+        cort_rows.append([subject_id, atlas_key, label, hemi, value, tool, identity])
+    elif kind == "subcortical":
+        sub_rows.append([subject_id, atlas_key, region, value, tool, identity])
     else:
-        sub_rows.append([subject_id, atlas_key, region, value, tool])
+        print(f"normalize_volumes: unclassified native ROI {atlas_tag}/{identity}/{region}; no cortical feature.", file=sys.stderr)
 
 
 def _cat12_atlas_roi_rows(
@@ -442,10 +503,11 @@ def _cat12_atlas_roi_rows(
             if not atlas_key:
                 atlas_key = f"cat12_{_norm_name(atlas_tag)}"
             arrays, generic = _match_cat12_array_length(arrays, generic, len(region_names))
+            roi_ids = _cat12_roi_ids(parent, len(region_names))
             for index, region in enumerate(region_names):
-                value = _cat12_pick_volume_mm3(region, atlas_tag, arrays, generic, index)
+                value = _cat12_pick_volume_mm3(region, atlas_tag, arrays, generic, index, roi_ids[index])
                 _append_cat12_atlas_row(
-                    subject_id, atlas_key, atlas_tag, region, value, tool, sub_rows, cort_rows
+                    subject_id, atlas_key, atlas_tag, region, value, tool, sub_rows, cort_rows, roi_ids[index]
                 )
 
         region = _child_text(parent, "name", "label", "roi", "region")
@@ -536,8 +598,9 @@ def _write_cat12_xml(
     out_sub_by_atlas: str = "",
     out_cort_by_atlas: str = "",
 ) -> None:
-    global CAT12_TISSUE_FLAGS
+    global CAT12_TISSUE_FLAGS, CAT12_ROI_MAPPING
     CAT12_TISSUE_FLAGS = _load_cat12_tissue_flags(required=True)
+    CAT12_ROI_MAPPING = _load_cat12_roi_mapping(required=True)
     sub_rows = _cat12_report_rows(Path(report_xml), subject_id, tool)
     roi_sub_rows, cort_rows = _cat12_roi_rows(Path(roi_xml), subject_id, tool)
     sub_rows.extend(roi_sub_rows)
@@ -559,13 +622,13 @@ def _write_cat12_xml(
             Path(out_sub_by_atlas).parent.mkdir(parents=True, exist_ok=True)
             with open(out_sub_by_atlas, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f, delimiter="\t")
-                writer.writerow(["subject", "atlas", "structure", "volume_mm3", "tool"])
+                writer.writerow(["subject", "atlas", "structure", "volume_mm3", "tool", "roi_id"])
                 writer.writerows(atlas_sub_rows)
         if out_cort_by_atlas:
             Path(out_cort_by_atlas).parent.mkdir(parents=True, exist_ok=True)
             with open(out_cort_by_atlas, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f, delimiter="\t")
-                writer.writerow(["subject", "atlas", "region", "hemisphere", "volume_mm3", "tool"])
+                writer.writerow(["subject", "atlas", "region", "hemisphere", "volume_mm3", "tool", "roi_id"])
                 writer.writerows(atlas_cort_rows)
 
     if out_thickness:

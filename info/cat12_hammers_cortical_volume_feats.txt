@@ -1,0 +1,70 @@
+rh_TL anterior temporal lobe medial part
+lh_TL anterior temporal lobe medial part
+rh_TL anterior temporal lobe lateral part
+lh_TL anterior temporal lobe lateral part
+rh_TL parahippocampal and ambient gyrus
+lh_TL parahippocampal and ambient gyrus
+rh_TL superior temporal gyrus middle part
+lh_TL superior temporal gyrus middle part
+rh_TL middle and inferior temporal gyrus
+lh_TL middle and inferior temporal gyrus
+rh_TL fusiform gyrus
+lh_TL fusiform gyrus
+lh_insula posterior long gyrus
+rh_insula posterior long gyrus
+lh_OL lateral remainder occipital lobe
+rh_OL lateral remainder occipital lobe
+lh_CG anterior cingulate gyrus
+rh_CG anterior cingulate gyrus
+lh_CG posterior cingulate gyrus
+rh_CG posterior cingulate gyrus
+lh_FL middle frontal gyrus
+rh_FL middle frontal gyrus
+lh_TL posterior temporal lobe
+rh_TL posterior temporal lobe
+lh_PL angular gyrus
+rh_PL angular gyrus
+lh_FL precentral gyrus
+rh_FL precentral gyrus
+lh_FL straight gyrus
+rh_FL straight gyrus
+lh_FL anterior orbital gyrus
+rh_FL anterior orbital gyrus
+lh_FL inferior frontal gyrus
+rh_FL inferior frontal gyrus
+lh_FL superior frontal gyrus
+rh_FL superior frontal gyrus
+lh_PL postcentral gyrus
+rh_PL postcentral gyrus
+lh_PL superior parietal gyrus
+rh_PL superior parietal gyrus
+lh_OL lingual gyrus
+rh_OL lingual gyrus
+lh_OL cuneus
+rh_OL cuneus
+lh_FL medial orbital gyrus
+rh_FL medial orbital gyrus
+lh_FL lateral orbital gyrus
+rh_FL lateral orbital gyrus
+lh_FL posterior orbital gyrus
+rh_FL posterior orbital gyrus
+lh_FL subgenual frontal cortex
+rh_FL subgenual frontal cortex
+lh_FL subcallosal area
+rh_FL subcallosal area
+lh_FL pre-subgenual frontal cortex
+rh_FL pre-subgenual frontal cortex
+lh_TL superior temporal gyrus anterior part
+rh_TL superior temporal gyrus anterior part
+lh_PL supramarginal gyrus
+rh_PL supramarginal gyrus
+lh_insula anterior short gyrus
+rh_insula anterior short gyrus
+lh_insula middle short gyrus
+rh_insula middle short gyrus
+lh_insula posterior short gyrus
+rh_insula posterior short gyrus
+lh_insula anterior inferior cortex
+rh_insula anterior inferior cortex
+lh_insula anterior long gyrus
+rh_insula anterior long gyrus

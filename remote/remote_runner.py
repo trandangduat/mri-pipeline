@@ -1720,16 +1720,17 @@ class RemoteRunner:
         if norm_vol.exists():
             ssh.upload_file(norm_vol, posixpath.join(remote_code, "normalize_volumes.py"))
         info_dir = PROJECT_ROOT / "info"
-        tissue_flags = info_dir / "cat12_tissue_flags.txt"
-        if tissue_flags.is_file():
-            ssh.mkdir_p(posixpath.join(remote_code, "info"))
-            ssh.upload_file(tissue_flags, posixpath.join(remote_code, "info", tissue_flags.name))
-        elif (self.config.pipeline_mode.startswith("CAT12")
-              or any(str(tool).startswith("cat12_") for tool in self.config.selected_tools.values())
-              or any(str(key).startswith("cat12_")
-                     for keys in (self.config.stats_vector_config or {}).get("atlases", {}).values()
-                     for key in keys)):
-            raise RuntimeError("Required CAT12 resource cat12_tissue_flags.txt is missing.")
+        for resource_name in ("cat12_tissue_flags.txt", "cat12_roi_mapping.txt"):
+            resource = info_dir / resource_name
+            if resource.is_file():
+                ssh.mkdir_p(posixpath.join(remote_code, "info"))
+                ssh.upload_file(resource, posixpath.join(remote_code, "info", resource.name))
+            elif (self.config.pipeline_mode.startswith("CAT12")
+                  or any(str(tool).startswith("cat12_") for tool in self.config.selected_tools.values())
+                  or any(str(key).startswith("cat12_")
+                         for keys in (self.config.stats_vector_config or {}).get("atlases", {}).values()
+                         for key in keys)):
+                raise RuntimeError(f"Required CAT12 resource {resource_name} is missing.")
         mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
         surface_base_dirs: list[Path] = []
         try:
@@ -1771,9 +1772,15 @@ class RemoteRunner:
 
         if required_atlas_keys and feature_list_path is not None:
             for key in required_atlas_keys:
-                feature_path = feature_list_path(key)
-                if feature_path is not None:
-                    _upload_atlas(Path(feature_path), posixpath.join("info", Path(feature_path).name))
+                from pipeline.stats import VECTOR_SPECS
+                feature_paths = [feature_list_path(key)]
+                extra = VECTOR_SPECS.get(key, {}).get("cortical_volume_features")
+                if extra:
+                    feature_paths.append(info_dir / str(extra))
+                for feature_path in feature_paths:
+                    if feature_path is not None and Path(feature_path).is_file():
+                        ssh.mkdir_p(posixpath.join(remote_code, "info"))
+                        ssh.upload_file(feature_path, posixpath.join(remote_code, "info", Path(feature_path).name))
                 for asset_path in surface_atlas_asset_paths(key):
                     rel = None
                     for base in surface_base_dirs:
