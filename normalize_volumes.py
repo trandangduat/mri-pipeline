@@ -394,7 +394,9 @@ def _append_cat12_roi_thickness(
     _append_unique([subject_id, region_name, hemi, value, tool], rows, seen)
 
 
-def _cat12_report_rows(report_xml: Path, subject_id: str, tool: str) -> List[List[str]]:
+def _cat12_report_rows(
+    report_xml: Path, subject_id: str, tool: str, *, fractions: bool = False,
+) -> List[List[str]]:
     if not report_xml.exists():
         return []
     root = ET.parse(report_xml).getroot()
@@ -405,12 +407,14 @@ def _cat12_report_rows(report_xml: Path, subject_id: str, tool: str) -> List[Lis
         numbers = _numeric_tokens(element.text)
         if not numbers:
             continue
+        relative = tag.startswith("vol_rel_")
+        if relative != fractions:
+            continue
         if tag == "vol_tiv":
             _append_unique(
                 [subject_id, "total intracranial", _ml_to_mm3(numbers[0]), tool], rows, seen, (1,)
             )
             continue
-        relative = tag.startswith("vol_rel_")
         tissue_names = CAT12_TISSUE_NAMES.get(tag)
         if tissue_names:
             for name, value in zip(tissue_names, numbers):
@@ -611,6 +615,12 @@ def _write_cat12_xml(
         writer = csv.writer(f, delimiter="\t")
         writer.writerow(["subject", "structure", "volume_mm3", "tool"])
         writer.writerows(sub_rows)
+    # Relative tissue measurements are dimensionless, not standardized volumes.
+    fractions_path = Path(out_sub).with_name("cat12_tissue_fractions.tsv")
+    with fractions_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
+        writer.writerow(["subject", "structure", "fraction", "tool"])
+        writer.writerows(_cat12_report_rows(Path(report_xml), subject_id, tool, fractions=True))
     with open(out_cort, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f, delimiter="\t")
         writer.writerow(["subject", "region", "hemisphere", "volume_mm3", "tool"])

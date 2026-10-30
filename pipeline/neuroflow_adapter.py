@@ -435,12 +435,15 @@ def _resource_snapshot(
     slots = max_concurrent if available_slots is None else max(0, available_slots)
     threads = max(1, int(req.get("threads", 1) or 1)) if available_threads is None else max(0, available_threads)
     ram = _request_ram_limit_mib(req) if available_ram_mib is None else max(0, available_ram_mib)
+    io_heavy = req.get("neuroflow_max_io_heavy_tasks", 2)
+    io_heavy_slots = max(0, int(io_heavy)) if io_heavy is not None else None
     return ResourceSnapshot(
         snapshot_id=f"mri-pipeline-{int(now.timestamp() * 1000)}",
         captured_at=now,
         available_cpu_threads=threads,
         available_ram_mib=ram,
         available_concurrency_slots=slots,
+        available_io_heavy_slots=io_heavy_slots,
         gpus=_gpu_resources(str(req.get("device", "cpu"))),
     )
 
@@ -853,7 +856,7 @@ def run_neuroflow_batch(
             category = getattr(ErrorCategory, classify_failure(step))
         if telemetry_error:
             category = ErrorCategory.VALIDATION_FAILURE
-        interrupted = policy_choice != "B6" and not success and should_stop and should_stop()
+        interrupted = bool(not success and should_stop and should_stop())
         if interrupted:
             category = ErrorCategory.INTERRUPTED
         error = None if success else TaskError(category=category, message=step.error or "Pipeline stage failed")
@@ -1006,8 +1009,6 @@ def run_neuroflow_batch(
     with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
         while True:
             if should_stop and should_stop():
-                if policy_choice == "B6":
-                    break
                 if not stopping:
                     from neuroflow import ShutdownMode, ShutdownRequest
                     scheduler.begin_shutdown(request=ShutdownRequest("adapter-stop", ShutdownMode.WAIT))
