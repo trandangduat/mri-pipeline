@@ -469,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
     _write_status(job_dir, state="running", pid=os.getpid(), started_at=start, job_dir=str(job_dir), output_dir=req.get("output_dir", ""))
     _log(job_dir, f"Background job started: {job_dir}")
     try:
+        from .source_revision import record_job_source
+        record_job_source(job_dir)
         code = _run_job(job_dir, req, args.lazy_watch)
         stop_file = job_dir / "stop_requested"
         if stop_file.exists():
@@ -477,6 +479,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             state = "completed" if code == 0 else "failed"
         _write_status(job_dir, state=state, exit_code=code, finished_at=time.time(), duration_sec=time.time() - start)
+        if (job_dir / 'neuroflow_workspace.sqlite').exists():
+            from .benchmark_reports import write_scheduler_benchmarks
+            write_scheduler_benchmarks(job_dir, req)
         _finalize_job_summary(job_dir, state)
     except Exception as exc:
         stop_file = job_dir / "stop_requested"

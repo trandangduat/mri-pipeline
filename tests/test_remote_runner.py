@@ -530,6 +530,7 @@ def test_remote_runner_uploads_tracked_neuroflow_configs(mocker: object) -> None
     FakeRemoteSSHClient.uploaded_dirs = []
     FakeRemoteSSHClient.uploaded_files = []
     mocker.patch("remote.remote_runner.RemoteSSHClient", FakeRemoteSSHClient)
+    write_metadata = mocker.patch.object(FakeRemoteSSHClient, 'write_text_file', create=True)
     run_config = RemoteRunConfig(
         ssh=SSHConfig(host="example", username="tester"),
         remote_workspace="~/mri-remote-jobs",
@@ -550,6 +551,10 @@ def test_remote_runner_uploads_tracked_neuroflow_configs(mocker: object) -> None
         for _local, remote in FakeRemoteSSHClient.uploaded_dirs
     )
     assert any(remote.endswith("/configs/baselines") for _, remote in FakeRemoteSSHClient.uploaded_dirs)
+    metadata_call = next(call for call in write_metadata.call_args_list if call.args[0].endswith('/source_revision.json'))
+    metadata = json.loads(metadata_call.args[1])
+    assert 'pipeline/benchmark_reports.py' in metadata['source_file_sha256']
+    assert metadata['source_file_sha256'] and metadata['source_digest']
 
 
 def test_remote_job_config_preserves_baseline_defaults():

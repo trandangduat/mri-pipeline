@@ -861,9 +861,7 @@ def run_neuroflow_batch(
             category = ErrorCategory.INTERRUPTED
         error = None if success else TaskError(category=category, message=step.error or "Pipeline stage failed")
         exit_code = step.return_code if step.return_code is not None else (0 if success else 1)
-        metadata = ()
-        if policy_choice != "B6" or guard_gpu_execution:
-            metadata = (("application_step", asdict(step)), ("output_for_next", output_for_next))
+        metadata = (("application_step", asdict(step)), ("output_for_next", output_for_next))
         metadata += (("processing_success", processing_success),)
         if guard_gpu_execution:
             metadata += (("source_attempt_id", evidence["attempt_id"] if evidence else None),
@@ -1091,6 +1089,8 @@ def run_neuroflow_batch(
                 output_observation_dir = Path(output_dir)
                 if output_observation_dir.resolve() != job_dir.resolve():
                     _write_observation(output_observation_dir, observation)
+                from .benchmark_reports import write_scheduler_benchmarks
+                write_scheduler_benchmarks(job_dir, req)
 
             for context in completed_contexts.values():
                 _finalize_subject(context)

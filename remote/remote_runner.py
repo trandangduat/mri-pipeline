@@ -1650,6 +1650,9 @@ class RemoteRunner:
                          for keys in (self.config.stats_vector_config or {}).get("atlases", {}).values()
                          for key in keys)):
                 raise RuntimeError(f"Required CAT12 resource {resource_name} is missing.")
+        from pipeline.source_revision import source_manifest
+        ssh.write_text_file(posixpath.join(remote_code, 'source_revision.json'),
+                            json.dumps(source_manifest(PROJECT_ROOT), indent=2))
         mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
         surface_base_dirs: list[Path] = []
         try:

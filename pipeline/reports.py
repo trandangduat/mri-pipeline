@@ -18,8 +18,8 @@ from .discovery import build_subject_id_map, _derive_subject_id
 from .stats import _requested_vector_feature_map
 
 
-BENCHMARK_STEP_FIELDS = ["subject_id", "mri_name", "dataset_root", "stage", "tool", "success", "duration_sec", "build_duration_sec", "peak_ram_bytes", "avg_ram_bytes", "p95_ram_bytes", "peak_cpu_pct", "avg_cpu_pct", "p95_cpu_pct", "error"]
-BENCHMARK_SUMMARY_FIELDS = ["subject_id", "mri_name", "dataset_root", "success", "total_duration_sec", "total_build_duration_sec", "peak_ram_bytes", "peak_cpu_pct", "error"]
+BENCHMARK_STEP_FIELDS = 'subject_id,input_file,subject_dir,stage,stage_label,tool,tool_label,threads,ram_percent,device,status,success,run_sec,build_pull_sec,peak_ram_bytes,peak_ram_mb,avg_ram_bytes,avg_ram_mb,p95_ram_bytes,p95_ram_mb,peak_cpu_pct,avg_cpu_pct,p95_cpu_pct,error,hostname,cpu_vendor,cpu_model,logical_cores,physical_cores,total_ram_bytes'.split(',')
+BENCHMARK_SUMMARY_FIELDS = 'stage,stage_label,tool,tool_label,threads,ram_percent,device,hostname,cpu_vendor,cpu_model,logical_cores,physical_cores,total_ram_bytes,images,success,failed,success_rate_pct,avg_run_sec,median_run_sec,min_run_sec,max_run_sec,avg_build_pull_sec,avg_peak_ram_mb,max_peak_ram_mb,avg_mean_ram_mb,avg_p95_ram_mb,max_p95_ram_mb,avg_peak_cpu_pct,max_peak_cpu_pct,avg_mean_cpu_pct,avg_p95_cpu_pct,max_p95_cpu_pct,errors'.split(',')
 
 @dataclass
 class BatchReportContext:

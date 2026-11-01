@@ -25,6 +25,8 @@ class DockerResourceMetrics:
     p95_cpu_pct: float | None = None
     peak_gpu_memory_mib: int | None = None
     gpu_telemetry: dict | None = None
+    cpu_sample_count: int = 0
+    ram_sample_count: int = 0
 
 @dataclass
 class ExecutionRequest:
@@ -42,6 +44,7 @@ class ExecutionRequest:
     gpu_device_id: str | None = None
     cpu_thread_limit: int | None = None
     output_capture: object | None = None
+    image_receipt_path: str = ""
 
 @dataclass
 class ExecutionResult:
@@ -52,6 +55,7 @@ class ExecutionResult:
     metrics: DockerResourceMetrics | None
     container_name: str | None = None
     return_code: int = 0
+    image_identity: dict | None = None
 
 
 class BaseExecutor(ABC):
@@ -86,6 +90,8 @@ def _resource_metrics(ram_samples: list[int], cpu_samples: list[float]) -> Docke
         peak_cpu_pct=max(cpu_samples) if cpu_samples else None,
         avg_cpu_pct=avg_cpu,
         p95_cpu_pct=p95_cpu,
+        cpu_sample_count=len(cpu_samples),
+        ram_sample_count=len(ram_samples),
     )
 
 
@@ -113,7 +119,11 @@ class LocalDockerExecutor(BaseExecutor):
                 cmd += ["-e", f"{k}={v}"]
         if req.entrypoint is not None:
             cmd += ["--entrypoint", req.entrypoint]
-        cmd.append(req.image)
+        image_identity = None
+        if req.image_receipt_path:
+            from .image_identity import prepare_image_receipt
+            image_identity = prepare_image_receipt(req.image, req.container_name or "", req.image_receipt_path)
+        cmd.append(image_identity['image_id'] if image_identity else req.image)
         if req.command:
             cmd.extend(req.command)
         cmd += req.args
@@ -171,6 +181,14 @@ class LocalDockerExecutor(BaseExecutor):
         try:
             streaming = req.output_capture is not None
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=not streaming, **no_window_kwargs())
+            if image_identity is not None:
+                from .image_identity import save_image_receipt
+                image_identity['status'] = 'LAUNCHED'
+                try:
+                    save_image_receipt(req.image_receipt_path, image_identity)
+                except OSError as exc:
+                    image_identity['receipt_error'] = str(exc)
+                    log.warning('Cannot update image receipt after launch: %s', exc)
             tail = bytearray()
             reader = None
             if streaming:
@@ -246,6 +264,14 @@ class LocalDockerExecutor(BaseExecutor):
                         output += f"\nDocker timed out after {req.timeout}s"
                 
             metrics = current_metrics()
+            if image_identity is not None:
+                image_identity['status'] = 'SUCCEEDED' if return_code == 0 else 'FAILED'
+                image_identity['exit_code'] = return_code
+                try:
+                    save_image_receipt(req.image_receipt_path, image_identity)
+                except OSError as exc:
+                    image_identity['receipt_error'] = str(exc)
+                    log.warning('Cannot update final image receipt: %s', exc)
             if req.gpus:
                 log.info("Container GPU telemetry: peak_mib=%s details=%s", metrics.peak_gpu_memory_mib, metrics.gpu_telemetry)
             return ExecutionResult(
@@ -255,7 +281,8 @@ class LocalDockerExecutor(BaseExecutor):
                 duration_sec=time.time() - t0,
                 metrics=metrics,
                 container_name=req.container_name,
-                return_code=return_code
+                return_code=return_code,
+                image_identity=image_identity,
             )
         except subprocess.TimeoutExpired:
             if req.output_capture:

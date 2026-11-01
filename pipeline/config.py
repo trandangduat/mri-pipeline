@@ -387,6 +387,10 @@ class StepResult:
     return_code: int = 0
     peak_gpu_memory_mib: int | None = None
     gpu_telemetry: dict | None = None
+    container_name: str | None = None
+    image_identity: dict | None = None
+    cpu_sample_count: int | None = None
+    ram_sample_count: int | None = None
 
 @dataclass
 class BatchImageResult:

@@ -237,6 +237,9 @@ def _build_execution_request(
         gpu_device_id=config.gpu_device_id,
         cpu_thread_limit=config.cpu_thread_limit,
         output_capture=create_capture(config, next((s for s, t in config.selected_tools.items() if t == tool_key), tool_key), tool_key),
+        image_receipt_path=(str(Path(config.console_job_dir) / 'container_images' /
+                                (_safe_container_name(*container_parts) + '.json'))
+                            if config.console_job_dir else ''),
     )
 
 
@@ -458,6 +461,10 @@ def run_pipeline_stage(
         return_code=exec_result.return_code,
         peak_gpu_memory_mib=metrics.peak_gpu_memory_mib if metrics else None,
         gpu_telemetry=metrics.gpu_telemetry if metrics else None,
+        container_name=getattr(exec_result, 'container_name', req.container_name),
+        image_identity=getattr(exec_result, 'image_identity', None),
+        cpu_sample_count=getattr(metrics, 'cpu_sample_count', None),
+        ram_sample_count=getattr(metrics, 'ram_sample_count', None),
     )
     if success:
         msg = f"{STAGE_LABELS[stage]} done in {duration:.0f}s"
