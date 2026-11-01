@@ -87,8 +87,8 @@ def test_unknown_image_identity_does_not_launch_container(tmp_path, mocker):
     popen.assert_not_called()
 
 
-@pytest.mark.parametrize('changed', [False, True])
-def test_job_records_deployed_source_and_rejects_mismatch(tmp_path, monkeypatch, changed):
+@pytest.mark.parametrize('change', ['none', 'changed', 'missing', 'legacy', 'unexpected'])
+def test_job_records_deployed_source_and_rejects_mismatch(tmp_path, monkeypatch, change):
     from pipeline import source_revision
     runtime = tmp_path / 'runtime'
     package = runtime / 'pipeline'
@@ -100,11 +100,23 @@ def test_job_records_deployed_source_and_rejects_mismatch(tmp_path, monkeypatch,
     (runtime / 'source_revision.json').write_text(json.dumps(manifest))
     job = tmp_path / 'job'
     job.mkdir()
-    if changed:
+    if change == 'changed':
         source.write_text('changed source')
+    elif change == 'missing':
+        source.unlink()
+    elif change == 'legacy':
+        (package / 'gpu_setup.py').write_text('removed helper retained on server')
+        (package / 'gpu_readiness.py').write_text('removed helper retained on server')
+    elif change == 'unexpected':
+        (package / 'unknown_helper.py').write_text('unlisted source')
+    if change in {'changed', 'missing', 'unexpected'}:
         with pytest.raises(RuntimeError, match='differs'):
             source_revision.record_job_source(job)
+        record = json.loads((job / 'source_revision.json').read_text())
+        assert record['deployed_source_matches_manifest'] is False
     else:
         source_revision.record_job_source(job)
         record = json.loads((job / 'source_revision.json').read_text())
         assert record['deployed_source_matches_manifest'] is True
+        assert record['declared_source_files_match'] is True
+        assert len(record['legacy_unlisted_source_files']) == (2 if change == 'legacy' else 0)
