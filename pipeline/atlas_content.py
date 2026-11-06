@@ -140,14 +140,14 @@ def mni_atlas_asset_paths(atlas_key: str, *, resource_root: Path | None = None) 
     if atlas_key not in EXTERNAL_MNI_VOLUME_ATLASES:
         return []
     spec = VECTOR_SPECS.get(atlas_key, {})
-    mni_root = _mni_atlas_dir(resource_root)
+    from app_backend.atlases import find_mni_atlas_file
     paths: list[Path] = []
     nifti = spec.get("atlas_nifti")
     if isinstance(nifti, str) and nifti.strip():
-        paths.append(mni_root / nifti)
+        paths.append(find_mni_atlas_file(nifti, resource_root))
     lut = spec.get("atlas_lut")
     if isinstance(lut, str) and lut.strip():
-        paths.append(mni_root / lut)
+        paths.append(find_mni_atlas_file(lut, resource_root))
     return paths
 
 

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server, Layers, FolderInput} from 'lucide-react';
+import {Container, Loader2, RefreshCw, CheckCircle2, Cpu, AlertCircle, Server, Layers, Box, FolderInput} from 'lucide-react';
 import {Button, StatusPill} from '../components/ui';
 import {InstalledImageCard, MissingImageCard} from '../components/ImageCard';
 import {AtlasCard} from '../components/AtlasCard';
@@ -48,6 +48,14 @@ export function ToolsPage() {
   const localImageStatusMutation = useLocalImageStatusMutation();
 
   const {packs: atlasPacks, isPending: isAtlasesPending, refetch: refetchAtlases} = useAtlasStatus();
+  const volumePacks = useMemo(
+    () => atlasPacks.filter((p) => p.pack_type === 'volume' || p.category === 'mni'),
+    [atlasPacks],
+  );
+  const surfacePacks = useMemo(
+    () => atlasPacks.filter((p) => p.pack_type !== 'volume' && p.category !== 'mni'),
+    [atlasPacks],
+  );
   const importAtlasMutation = useImportAtlas();
   const removeAtlasMutation = useRemoveAtlas();
   const atlasDownloadStream = useDownloadAtlasStream();
@@ -377,13 +385,18 @@ export function ToolsPage() {
           )}
         </section>
 
-        {/* Section 4: Surface Atlases */}
+        {/* Section 4: Volume Atlases */}
         <section>
           <div className="mb-2.5 flex items-center justify-between">
-            <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
-              <Layers className="h-4 w-4 text-cursor-primary" />
-              Surface Atlases ({atlasPacks.filter((p) => p.installed).length}/{atlasPacks.length})
-            </h2>
+            <div>
+              <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+                <Box className="h-4 w-4 text-cursor-primary" />
+                Volume Atlases (MNI) ({volumePacks.filter((p) => p.installed).length}/{volumePacks.length})
+              </h2>
+              <p className="mt-0.5 text-xs text-cursor-muted">
+                Standard MNI152 volume atlases (NIfTI) for FreeSurfer affine projection and subcortical/cortical volume stats.
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="base"
@@ -432,9 +445,9 @@ export function ToolsPage() {
             </div>
           )}
 
-          {atlasPacks.length > 0 ? (
+          {volumePacks.length > 0 ? (
             <div className={GRID_CLASSES}>
-              {atlasPacks.map((pack) => (
+              {volumePacks.map((pack) => (
                 <AtlasCard
                   key={pack.id}
                   pack={pack}
@@ -461,7 +474,55 @@ export function ToolsPage() {
           ) : isAtlasesPending ? (
             <div className="flex items-center gap-2 py-3 text-sm text-cursor-muted">
               <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
-              <span>Loading atlases...</span>
+              <span>Loading volume atlases...</span>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Section 5: Surface Atlases */}
+        <section>
+          <div className="mb-2.5 flex items-center justify-between">
+            <div>
+              <h2 className="flex items-center gap-1.5 text-base font-semibold text-cursor-ink">
+                <Layers className="h-4 w-4 text-cursor-primary" />
+                Surface Atlases ({surfacePacks.filter((p) => p.installed).length}/{surfacePacks.length})
+              </h2>
+              <p className="mt-0.5 text-xs text-cursor-muted">
+                Cortical surface parcellation packs (.gcs and .annot) for cortical thickness and surface parcellation.
+              </p>
+            </div>
+          </div>
+
+          {surfacePacks.length > 0 ? (
+            <div className={GRID_CLASSES}>
+              {surfacePacks.map((pack) => (
+                <AtlasCard
+                  key={pack.id}
+                  pack={pack}
+                  onDownload={(id) => atlasDownloadStream.download(id)}
+                  onRemove={(p) => setPackToRemove(p)}
+                  isRemoving={removeAtlasMutation.isPending && packToRemove?.id === pack.id}
+                  isDownloading={
+                    atlasDownloadStream.packId === pack.id &&
+                    ['connecting', 'downloading', 'extracting'].includes(atlasDownloadStream.status)
+                  }
+                  downloadState={
+                    atlasDownloadStream.packId === pack.id
+                      ? {
+                          status: atlasDownloadStream.status,
+                          percent: atlasDownloadStream.percent,
+                          message: atlasDownloadStream.message,
+                          error: atlasDownloadStream.error,
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          ) : isAtlasesPending ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-cursor-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-cursor-muted" />
+              <span>Loading surface atlases...</span>
             </div>
           ) : null}
         </section>
@@ -485,9 +546,13 @@ export function ToolsPage() {
       {/* Remove Atlas Confirm Dialog */}
       <ConfirmDialog
         open={packToRemove !== null}
-        title="Remove Surface Atlas"
+        title={packToRemove?.pack_type === 'volume' ? 'Remove Volume Atlas Pack' : 'Remove Surface Atlas'}
         entityName={packToRemove ? `${packToRemove.label} (${packToRemove.id})` : undefined}
-        description="Are you sure you want to remove this surface atlas pack? The atlas files (.gcs / .annot) will be deleted from disk and will need to be downloaded again before running pipelines that use this parcellation."
+        description={
+          packToRemove?.pack_type === 'volume'
+            ? 'Are you sure you want to remove the MNI volume atlas files? The .nii.gz atlas files will be deleted from disk and will need to be downloaded again before running pipelines that use external MNI projections.'
+            : 'Are you sure you want to remove this surface atlas pack? The atlas files (.gcs / .annot) will be deleted from disk and will need to be downloaded again before running pipelines that use this parcellation.'
+        }
         confirmLabel="Remove Atlas"
         confirmLoadingLabel="Removing..."
         isLoading={removeAtlasMutation.isPending}

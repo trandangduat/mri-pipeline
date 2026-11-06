@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Generator
 
 from app_backend.paths import data_root, resource_root
-from pipeline.config import PROJECT_ROOT, SCHAEFER2018_ATLAS_VARIANTS, SURFACE_ATLAS_DIR
+from pipeline.config import MNI_ATLAS_DIR, PROJECT_ROOT, SCHAEFER2018_ATLAS_VARIANTS, SURFACE_ATLAS_DIR
 
 DEFAULT_RELEASE_BASE_URL = os.environ.get(
     "NEUROFLOW_ATLAS_RELEASE_URL",
@@ -59,6 +59,58 @@ def find_surface_atlas_file(rel_path: str, res_root: Path | None = None) -> Path
     return surface_atlases_data_dir() / rel_path
 
 
+def mni_atlases_data_dir() -> Path:
+    """Writable location for downloaded/imported MNI volume atlases."""
+    raw = os.environ.get("NEUROFLOW_MNI_ATLAS_DIR") or os.environ.get("MRI_PIPELINE_MNI_ATLAS_DIR")
+    if raw:
+        return Path(raw).expanduser()
+    return data_root() / "atlases" / "mni"
+
+
+def candidate_mni_atlas_dirs(res_root: Path | None = None) -> list[Path]:
+    """Candidate directories to search for MNI volume atlas assets in order."""
+    dirs: list[Path] = [mni_atlases_data_dir()]
+    dirs.append(data_root() / "assets" / "atlases" / "mni")
+    if res_root is not None:
+        dirs.append(Path(res_root) / "assets" / "atlases" / "mni")
+    from app_backend.paths import is_frozen
+    if not is_frozen() and res_root is None:
+        dirs.append(MNI_ATLAS_DIR)
+    seen = set()
+    result = []
+    for d in dirs:
+        rp = str(d.resolve()) if d.exists() else str(d)
+        if rp not in seen:
+            seen.add(rp)
+            result.append(d)
+    return result
+
+
+def find_mni_atlas_file(filename: str, res_root: Path | None = None) -> Path:
+    """Resolve an MNI volume atlas file path against candidate search paths."""
+    clean_name = Path(filename).name
+    for base in candidate_mni_atlas_dirs(res_root):
+        candidate = base / clean_name
+        if candidate.is_file():
+            return candidate
+    return mni_atlases_data_dir() / clean_name
+
+
+def sync_mni_atlas_luts_to_data_dir(target_dir: Path | None = None) -> None:
+    """Ensure LUT and label text files from source are mirrored into the MNI atlas directory."""
+    dest = target_dir or mni_atlases_data_dir()
+    dest.mkdir(parents=True, exist_ok=True)
+    src_dir = MNI_ATLAS_DIR
+    if src_dir.is_dir():
+        for txt_file in src_dir.glob("*.txt"):
+            target_file = dest / txt_file.name
+            if not target_file.exists():
+                try:
+                    shutil.copy2(txt_file, target_file)
+                except OSError:
+                    pass
+
+
 @dataclass
 class AtlasPackDef:
     id: str
@@ -70,6 +122,7 @@ class AtlasPackDef:
     compressed_size_bytes: int
     uncompressed_size_bytes: int
     files: list[str]
+    pack_type: str = "surface"
 
 
 def _schaefer_pack_files(parcels: int, networks: int) -> list[str]:
@@ -122,7 +175,33 @@ def _build_schaefer_packs() -> list[AtlasPackDef]:
     return packs
 
 
+MNI_VOLUME_PACK = AtlasPackDef(
+    id="mni_volume_pack",
+    label="MNI Volume Atlases (Standard Bundle)",
+    description=(
+        "Standard MNI152 volume atlases for subcortical and cortical volume projection: "
+        "Harvard-Oxford (Subcortical & Cortical), Brainnetome 246, AAL3, Juelich, Pauli 2017, Schaefer 2018."
+    ),
+    category="mni",
+    is_default=False,
+    asset_filename="atlas-mni-volume-pack.zip",
+    compressed_size_bytes=12500000,
+    uncompressed_size_bytes=18500000,
+    files=[
+        "HarvardOxford-subl-maxprob-thr0-1mm.nii.gz",
+        "HarvardOxford-cortl-maxprob-thr0-1mm.nii.gz",
+        "BN_Atlas_246_1mm.nii.gz",
+        "pauli_2017_labels.nii.gz",
+        "juelich_maxprob-thr0-1mm.nii.gz",
+        "aal.nii.gz",
+        "schaefer2018_100_7.nii.gz",
+    ],
+    pack_type="volume",
+)
+
+
 ATLAS_PACKS: list[AtlasPackDef] = [
+    MNI_VOLUME_PACK,
     *_build_schaefer_packs(),
     AtlasPackDef(
         id="destrieux",
@@ -181,7 +260,10 @@ class AtlasService:
         for pack in ATLAS_PACKS:
             missing_files: list[str] = []
             for rel in pack.files:
-                resolved = find_surface_atlas_file(rel, res_root)
+                if pack.pack_type == "volume":
+                    resolved = find_mni_atlas_file(rel, res_root)
+                else:
+                    resolved = find_surface_atlas_file(rel, res_root)
                 if not resolved.is_file():
                     missing_files.append(rel)
             installed = len(missing_files) == 0
@@ -201,6 +283,19 @@ class AtlasService:
         for pack in ATLAS_PACKS:
             if pack.id == norm:
                 return pack
+        from pipeline.config import EXTERNAL_MNI_VOLUME_ATLASES
+        if norm in EXTERNAL_MNI_VOLUME_ATLASES or any(
+            k in norm
+            for k in (
+                "harvard_oxford",
+                "brainnetome",
+                "pauli",
+                "juelich",
+                "aal",
+                "schaefer2018_100_7",
+            )
+        ):
+            return next((p for p in ATLAS_PACKS if p.id == "mni_volume_pack"), None)
         if "destrieux" in norm:
             return next((p for p in ATLAS_PACKS if p.id == "destrieux"), None)
         if "kong" in norm:
@@ -218,7 +313,7 @@ class AtlasService:
             yield {"step": "error", "error": f"Unknown atlas pack ID: {pack_id}"}
             return
 
-        target_dir = surface_atlases_data_dir()
+        target_dir = mni_atlases_data_dir() if pack.pack_type == "volume" else surface_atlases_data_dir()
         target_dir.mkdir(parents=True, exist_ok=True)
 
         download_url = f"{self.base_download_url.rstrip('/')}/{pack.asset_filename}"
@@ -241,7 +336,23 @@ class AtlasService:
 
             yield {"step": "connecting", "message": f"Connecting to {download_url}..."}
 
-            with urllib.request.urlopen(req, timeout=30) as response, open(temp_file, "wb") as out_f:
+            import ssl
+            ssl_ctx = None
+            try:
+                ssl_ctx = ssl.create_default_context()
+            except Exception:
+                ssl_ctx = ssl._create_unverified_context()
+
+            def _open_req(request: urllib.request.Request):
+                try:
+                    return urllib.request.urlopen(request, timeout=30, context=ssl_ctx)
+                except urllib.error.URLError as u_err:
+                    if "CERTIFICATE_VERIFY_FAILED" in str(u_err):
+                        unverified = ssl._create_unverified_context()
+                        return urllib.request.urlopen(request, timeout=30, context=unverified)
+                    raise
+
+            with _open_req(req) as response, open(temp_file, "wb") as out_f:
                 content_length = response.headers.get("Content-Length")
                 total = int(content_length) if content_length else pack.compressed_size_bytes
                 downloaded = 0
@@ -274,11 +385,18 @@ class AtlasService:
                     normalized_member = member.replace("\\", "/").strip("/")
                     if ".." in normalized_member or normalized_member.startswith("/"):
                         continue
-                    # Extract only intended atlas files
-                    dest = target_dir / normalized_member
+                    if pack.pack_type == "volume":
+                        # Volume files (.nii.gz, .txt) belong directly in target_dir
+                        dest = target_dir / Path(normalized_member).name
+                    else:
+                        # Extract only intended atlas files
+                        dest = target_dir / normalized_member
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, open(dest, "wb") as dst:
                         shutil.copyfileobj(src, dst)
+
+            if pack.pack_type == "volume":
+                sync_mni_atlas_luts_to_data_dir(target_dir)
 
             yield {
                 "step": "complete",
@@ -305,9 +423,12 @@ class AtlasService:
         if not src.exists():
             return {"ok": False, "error": f"Path does not exist: {source_path}"}
 
-        target_dir = surface_atlases_data_dir()
-        target_dir.mkdir(parents=True, exist_ok=True)
+        surface_dir = surface_atlases_data_dir()
+        surface_dir.mkdir(parents=True, exist_ok=True)
+        mni_dir = mni_atlases_data_dir()
+        mni_dir.mkdir(parents=True, exist_ok=True)
         imported_count = 0
+        volume_imported = False
 
         try:
             if src.is_file() and src.suffix.lower() == ".zip":
@@ -316,44 +437,58 @@ class AtlasService:
                         normalized = member.replace("\\", "/").strip("/")
                         if ".." in normalized or normalized.startswith("/"):
                             continue
-                        if normalized.endswith((".gcs", ".annot", ".nii.gz", ".txt")):
-                            dest = target_dir / normalized
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            with zf.open(member) as s, open(dest, "wb") as d:
-                                shutil.copyfileobj(s, d)
-                            imported_count += 1
+                        name_lower = Path(normalized).name.lower()
+                        if normalized.endswith((".gcs", ".annot")):
+                            dest = surface_dir / normalized
+                        elif normalized.endswith((".nii.gz", ".nii")) or "lut" in name_lower or "mni" in normalized.lower():
+                            dest = mni_dir / Path(normalized).name
+                            volume_imported = True
+                        elif normalized.endswith(".txt"):
+                            dest = mni_dir / Path(normalized).name
+                            volume_imported = True
+                        else:
+                            continue
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as s, open(dest, "wb") as d:
+                            shutil.copyfileobj(s, d)
+                        imported_count += 1
             elif src.is_dir():
                 for root, _, files in os.walk(src):
                     for file in files:
-                        if file.endswith((".gcs", ".annot", ".nii.gz", ".txt")):
+                        name_lower = file.lower()
+                        if file.endswith((".nii.gz", ".nii")) or "lut" in name_lower or Path(root).name.lower() == "mni":
+                            dest = mni_dir / file
+                            volume_imported = True
+                        elif file.endswith((".gcs", ".annot", ".txt")):
                             file_p = Path(root) / file
-                            # Determine subfolder if known (e.g. schaefer, destrieux, kong, yale)
                             rel_parent = file_p.parent.name.lower()
-                            if rel_parent in ("schaefer", "destrieux", "kong", "yale", "mni"):
-                                dest = target_dir / rel_parent / file
+                            if rel_parent in ("schaefer", "destrieux", "kong", "yale"):
+                                dest = surface_dir / rel_parent / file
+                            elif "schaefer" in name_lower:
+                                dest = surface_dir / "schaefer" / file
+                            elif "destrieux" in name_lower:
+                                dest = surface_dir / "destrieux" / file
+                            elif "kong" in name_lower:
+                                dest = surface_dir / "kong" / file
+                            elif "yale" in name_lower or "yba" in name_lower:
+                                dest = surface_dir / "yale" / file
                             else:
-                                # Infer from filename
-                                name_lower = file.lower()
-                                if "schaefer" in name_lower:
-                                    dest = target_dir / "schaefer" / file
-                                elif "destrieux" in name_lower:
-                                    dest = target_dir / "destrieux" / file
-                                elif "kong" in name_lower:
-                                    dest = target_dir / "kong" / file
-                                elif "yale" in name_lower or "yba" in name_lower:
-                                    dest = target_dir / "yale" / file
-                                else:
-                                    dest = target_dir / file
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(file_p, dest)
-                            imported_count += 1
+                                dest = surface_dir / file
+                        else:
+                            continue
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(Path(root) / file, dest)
+                        imported_count += 1
             else:
                 return {"ok": False, "error": f"Unsupported source format: {source_path}"}
+
+            if volume_imported:
+                sync_mni_atlas_luts_to_data_dir(mni_dir)
 
             return {
                 "ok": True,
                 "imported_count": imported_count,
-                "target_dir": str(target_dir),
+                "target_dir": str(surface_dir),
                 "packs": self.list_packs(),
             }
         except Exception as exc:
@@ -368,14 +503,20 @@ class AtlasService:
         deleted_files: list[str] = []
         errors: list[str] = []
 
-        candidate_dirs = candidate_surface_atlas_dirs(res_root)
-        primary_dir = surface_atlases_data_dir()
+        if pack.pack_type == "volume":
+            candidate_dirs = candidate_mni_atlas_dirs(res_root)
+            primary_dir = mni_atlases_data_dir()
+        else:
+            candidate_dirs = candidate_surface_atlas_dirs(res_root)
+            primary_dir = surface_atlases_data_dir()
+
         if primary_dir not in candidate_dirs:
             candidate_dirs.insert(0, primary_dir)
 
         for rel in pack.files:
+            file_name = Path(rel).name if pack.pack_type == "volume" else rel
             for base_dir in candidate_dirs:
-                target_file = base_dir / rel
+                target_file = base_dir / file_name
                 if target_file.is_file():
                     try:
                         target_file.unlink()

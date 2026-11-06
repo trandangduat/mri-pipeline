@@ -1654,12 +1654,15 @@ class RemoteRunner:
         ssh.write_text_file(posixpath.join(remote_code, 'source_revision.json'),
                             json.dumps(source_manifest(PROJECT_ROOT), indent=2))
         mni_atlas_dir = PROJECT_ROOT / "assets" / "atlases" / "mni"
+        mni_base_dirs: list[Path] = []
         surface_base_dirs: list[Path] = []
         try:
-            from app_backend.atlases import candidate_surface_atlas_dirs
+            from app_backend.atlases import candidate_mni_atlas_dirs, candidate_surface_atlas_dirs
 
+            mni_base_dirs = candidate_mni_atlas_dirs()
             surface_base_dirs = candidate_surface_atlas_dirs()
         except Exception:
+            mni_base_dirs = [mni_atlas_dir]
             surface_base_dirs = []
 
         def _upload_atlas(local_path: Path, remote_rel: str) -> None:
@@ -1717,14 +1720,15 @@ class RemoteRunner:
                     _upload_atlas(Path(mni_path), posixpath.join("assets", "atlases", "mni", Path(mni_path).name))
         elif info_dir.exists():
             ssh.upload_dir(info_dir, posixpath.join(remote_code, "info"), allowed_extensions={".txt"})
-            if mni_atlas_dir.exists():
-                ssh.upload_dir(
-                    mni_atlas_dir,
-                    posixpath.join(remote_code, "assets", "atlases", "mni"),
-                    skip_dirs={"__pycache__"},
-                    allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
-                    skip_existing_matching_size=True,
-                )
+            for mni_dir in mni_base_dirs:
+                if mni_dir.exists() and mni_dir.is_dir():
+                    ssh.upload_dir(
+                        mni_dir,
+                        posixpath.join(remote_code, "assets", "atlases", "mni"),
+                        skip_dirs={"__pycache__"},
+                        allowed_extensions={".nii.gz", ".txt", ".csv", ".md"},
+                        skip_existing_matching_size=True,
+                    )
             for surface_atlas_dir in surface_base_dirs:
                 if surface_atlas_dir.exists() and surface_atlas_dir.is_dir():
                     ssh.upload_dir(

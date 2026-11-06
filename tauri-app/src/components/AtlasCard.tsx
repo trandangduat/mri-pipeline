@@ -1,5 +1,5 @@
 import React from 'react';
-import {Layers, Download, CheckCircle2, AlertCircle, Loader2, RotateCw, Trash2} from 'lucide-react';
+import {Layers, Box, Download, CheckCircle2, AlertCircle, Loader2, RotateCw, Trash2} from 'lucide-react';
 import {Button} from './ui';
 import type {AtlasPack} from '../types/backend';
 import {cn} from '@/lib/utils';
@@ -56,7 +56,11 @@ export function AtlasCard({
                   : 'bg-cursor-canvas-soft text-cursor-muted',
               )}
             >
-              <Layers className="h-4 w-4" />
+              {pack.pack_type === 'volume' || pack.category === 'mni' ? (
+                <Box className="h-4 w-4" />
+              ) : (
+                <Layers className="h-4 w-4" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-cursor-ink" title={pack.label}>
@@ -67,11 +71,18 @@ export function AtlasCard({
               </span>
             </div>
           </div>
-          {pack.is_default && (
-            <span className="flex-none rounded bg-cursor-primary/10 px-1.5 py-0.5 text-2xs font-semibold text-cursor-primary">
-              Default
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {pack.is_default && (
+              <span className="flex-none rounded bg-cursor-primary/10 px-1.5 py-0.5 text-2xs font-semibold text-cursor-primary">
+                Default
+              </span>
+            )}
+            {(pack.pack_type === 'volume' || pack.category === 'mni') && (
+              <span className="flex-none rounded bg-blue-500/10 px-1.5 py-0.5 text-2xs font-semibold text-blue-500 dark:text-blue-400">
+                Volume
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Description */}

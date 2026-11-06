@@ -403,6 +403,7 @@ export const atlasPackSchema = z.object({
   installed_files_count: z.number(),
   total_files_count: z.number(),
   download_url: z.string(),
+  pack_type: z.string().optional(),
 });
 
 export const atlasStatusResponseSchema = z.object({

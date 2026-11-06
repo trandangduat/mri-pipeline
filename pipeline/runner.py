@@ -75,6 +75,15 @@ log = logging.getLogger(__name__)
 
 
 def _resolve_mni_atlas_dir() -> Path:
+    from app_backend.atlases import candidate_mni_atlas_dirs, sync_mni_atlas_luts_to_data_dir
+    for cand in candidate_mni_atlas_dirs():
+        if cand.is_dir() and any(cand.glob("*.nii*")):
+            sync_mni_atlas_luts_to_data_dir(cand)
+            return cand
+    for cand in candidate_mni_atlas_dirs():
+        if cand.is_dir() and any(cand.iterdir()):
+            sync_mni_atlas_luts_to_data_dir(cand)
+            return cand
     return Path(os.environ.get("MRI_PIPELINE_MNI_ATLAS_DIR", str(MNI_ATLAS_DIR))).expanduser()
 
 
