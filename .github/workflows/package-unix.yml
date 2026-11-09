@@ -32,7 +32,7 @@ jobs:
             bundle: dmg
             artifact: NeuroFlow-macOS-x64
           - label: macOS Apple Silicon
-            os: macos-14
+            os: macos-15
             platform: macos
             architecture: arm64
             bundle: dmg
